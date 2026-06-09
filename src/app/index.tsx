@@ -1,13 +1,13 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-
 import { AnimatedIcon } from '@/components/animated-icon';
 import { HintRow } from '@/components/hint-row';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WebBadge } from '@/components/web-badge';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import * as Device from 'expo-device';
+import { useRouter } from 'expo-router';
+import { Button, Platform, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 function getDevMenuHint() {
   if (Platform.OS === 'web') {
@@ -29,6 +29,8 @@ function getDevMenuHint() {
 }
 
 export default function HomeScreen() {
+  const router = useRouter();
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
@@ -45,14 +47,35 @@ export default function HomeScreen() {
 
         <ThemedView type="backgroundElement" style={styles.stepContainer}>
           <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
+            title="Native AI"
+            hint={
+              <Button
+                title="Take me to AI"
+                onPress={() => router.push('/ai')}
+              />
+            }
+          />
+          <HintRow
+            title="Dashboard"
+            hint={
+              <Button
+                title="Take me to dashboard"
+                onPress={() => router.push('/dashboard')}
+              />
+            }
+          />
+          <HintRow
+            title="Profile View"
+            hint={
+              <Button
+                title="Take me to profile"
+                onPress={() =>
+                  router.push({ pathname: '/profile', params: { name: 'Jane' } })
+                }
+              />
+            }
           />
           <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
         </ThemedView>
 
         {Platform.OS === 'web' && <WebBadge />}
