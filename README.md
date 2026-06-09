@@ -48,9 +48,22 @@ To learn more about developing your project with Expo, look at the following res
 - [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
 - [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
 
-## Join the community
 
-Join our community of developers creating universal apps.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Commands I have found Useful
+
+```
+npm install -g eas-cli
+eas login
+eas init
+npx expo install expo-dev-client --legacy-peer-deps
+npx expo install expo-dev-client -- --legacy-peer-deps
+eas build:configure
+eas build --profile development --platform ios
+```
+first I had to open the Simulator and then executed the expo command (press i for iOS simulator)
+
+```
+open -a Simulator
+npx expo start
+```
