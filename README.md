@@ -67,3 +67,13 @@ first I had to open the Simulator and then executed the expo command (press i fo
 open -a Simulator
 npx expo start
 ```
+
+## Building the project
+
+```
+brew install cocoapods
+sudo xcodebuild -license accept
+npx expo prebuild
+```
+
+This will create folders for both Android and iOS

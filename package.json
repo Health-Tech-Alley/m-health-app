@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "dependencies": {
     "@expo/ui": "~56.0.15",
+    "@react-navigation/elements": "^3.0.0-alpha.32",
+    "@react-navigation/native": "^8.0.0-alpha.29",
+    "@react-navigation/native-stack": "^8.0.0-alpha.35",
     "expo": "^56.0.8",
     "expo-constants": "~56.0.16",
     "expo-dev-client": "~56.0.18",
@@ -35,8 +38,8 @@
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint"
   },
