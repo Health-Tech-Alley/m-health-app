@@ -2,6 +2,7 @@
   "name": "m-health-app",
   "main": "expo-router/entry",
   "version": "1.0.0",
+  "license": "MIT",
   "dependencies": {
     "@expo/ui": "~56.0.15",
     "expo": "^56.0.8",
