@@ -189,47 +189,6 @@ patient action / change → deterministic rule + threshold engine → Alert ML (
 The acute fast-path (Severity 3 / dashboard takeover) **short-circuits** the SLM step so the urgent
 alert is never delayed; the SLM "Explain" runs on demand after the alert.
 
-## My Role — Ethan Christian (AI Software Engineering Intern)
-
-My workstream lives where the on-device AI meets the rest of the system. I am the **primary owner** of
-the L3 orchestration + L4 inference + L5 knowledge triad, plus the L2 services that gate them.
-
-- **L3 Orchestration (`src/orchestration/`)** — MCP orchestrator, the four named agents
-  (caregiver / patient-state / coordinator / safety-reviewer), fused tool-RAG + knowledge-RAG,
-  event-bus types, re-ranker, and the `InferenceProvider` seam. The orchestrator is the **single
-  chokepoint** for all subagent I/O — every read and every write is attributable to it, which is what
-  makes the system HIPAA-auditable.
-- **L4 Inference (`src/inference/`)** — `InferenceProvider` interface, the `llama.rn` adapter, GGUF
-  model loader, cold-start benchmarks, and the `Mock*` Track A impl. The 8B clinical-decision-support
-  SLM runs behind this seam so the runtime can be swapped (MLC, ExecuTorch) without touching
-  orchestration or UI.
-- **L5 Knowledge (`src/knowledge/`)** — Hybrid RAG (BM25 + dense + RRF), the fused retriever that
-  collapses tool-RAG + knowledge-RAG into a single hop, the re-ranker, and the evaluation surface
-  (notebook 02 + notebook 04).
-- **L2 Consent + audit (`src/services/`)** — Co-primary on the **consent gate** (default-deny egress)
-  and the **tamper-evident audit log** — the HIPAA spine that every other layer writes through.
-- **Clinical evidence clients (`src/clinical-evidence/`)** — OpenEvidence (primary), RxNorm,
-  DailyMed, OpenFDA — all default-deny with audit logging.
-- **Notebooks** — Primary on all four: `01_slm_eval`, `02_hybrid_rag_prototype`,
-  `03_synthetic_personas_and_data`, `04_safety_bias_and_hitl_eval`.
-
-The visual breakdown of my 77-day workstream (tools, dependencies, sequencing) is in
-`planning/09_ethan-workstream.svg`.
-
-## Planning Docs (canonical references)
-
-The authoritative planning package lives in `planning/`. The README is the elevator pitch; the planning
-package is the engineering source of truth.
-
-- `planning/00_README-index.md` — Master index + how to read the planning package
-- `planning/02_steel-thread-methodology.md` — Steel-thread slicing, the three use cases, the canonical event ordering
-- `planning/03_architecture-and-tech-stack.md` — L1–L7 reference architecture, runtime decisions, CEP + fused retrieval
-- `planning/04_team-roles.md` — 3 roleplayers + 1 PM, role↔intern mapping, per-thread demo ceremony
-- `planning/10_repo-organization.md` — Repo layout, per-directory ownership, CODEOWNERS
-- `planning/code-templates/` — Skeleton interfaces (`InferenceProvider`, MCP tool, agent orchestrator, consent gate, FHIR sandbox)
-- `planning/notebooks/` — Python eval harness (4 notebooks that gate every release)
-- `planning/AGENTS.md` — Contributor guide mirrored from this README
-
 ## Project Structure
 
 ```
@@ -240,16 +199,14 @@ m-health-app/
 │   ├── hooks/ constants/   # Shared hooks + theme
 │   ├── ui/                 # L1 — feature screens (Medication, Care Plan, Scheduling, Dashboard, Settings, HITL)
 │   ├── services/           # L2 — controllers, state, notifications, consent gate, audit log
-│   ├── orchestration/      # L3 — MCP, event bus, CEP, context aggregator, agents (Ethan primary)
-│   ├── inference/          # L4 — InferenceProvider, llama.rn adapter, Mock provider (Ethan primary)
-│   ├── knowledge/          # L5 — hybrid RAG, re-ranker, fused retrieval (Ethan primary)
+│   ├── orchestration/      # L3 — MCP, event bus, CEP, context aggregator, agents
+│   ├── inference/          # L4 — InferenceProvider, llama.rn adapter, Mock provider
+│   ├── knowledge/          # L5 — hybrid RAG, re-ranker, fused retrieval
 │   ├── data/               # L6 — SQLite/SQLCipher, vector index, FHIR adapter, sensor bridges
 │   ├── locator/            # L7 — geofence + CBO resource data (pharmacy locator, deferred)
-│   └── clinical-evidence/  # OpenEvidence + NLM/FDA API clients (Ethan primary)
-├── planning/               # Authoritative planning package (see "Planning Docs" above)
+│   └── clinical-evidence/  # OpenEvidence + NLM/FDA API clients
 ├── assets/                 # Images, fonts, splash, icons
 ├── app.json                # Expo config + native permissions
-├── AGENTS.md               # AI-agent contributor guide (mirrors this README + planning)
 └── package.json            # "main": "expo-router/entry"
 ```
 
