@@ -100,6 +100,7 @@ function reducer(state: PlaygroundState, action: PlaygroundAction): PlaygroundSt
           ? {
               ...m,
               status: 'error' as const,
+              finalText: action.payload.error,
               finishedAt: Date.now(),
             }
           : m,

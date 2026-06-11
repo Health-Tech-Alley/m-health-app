@@ -153,7 +153,7 @@ export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           <ThemedText type="subtitle" style={styles.title}>
             Models

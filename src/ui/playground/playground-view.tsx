@@ -1,8 +1,10 @@
-import { Picker } from '@react-native-picker/picker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   TextInput,
   View,
@@ -15,6 +17,7 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { MODEL_CATALOG, resolveModelPath } from '@/inference/model-catalog';
+import { isModelInstalled } from '@/services/model-storage';
 import type { ChatMessage, PlaygroundState } from './types';
 
 type PlaygroundViewProps = {
@@ -98,7 +101,7 @@ export function PlaygroundView({ state, dispatch, controller }: PlaygroundViewPr
         )}
         {item.status === 'error' && (
           <ThemedText type="small" style={{ color: '#d9534f' }}>
-            {'\u00B7 error'}
+            {'\u00B7 error' + (item.finalText ? `: ${item.finalText}` : '')}
           </ThemedText>
         )}
       </View>
@@ -118,85 +121,106 @@ export function PlaygroundView({ state, dispatch, controller }: PlaygroundViewPr
     }
   })();
 
+  const installedModels = MODEL_CATALOG.filter(isModelInstalled);
+
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        <View style={styles.headerRow}>
-          <View style={styles.pickerWrapper}>
-            <Picker
-              selectedValue={state.selectedModelId ?? ''}
-              onValueChange={handleModelChange}
-              enabled={state.loadStatus !== 'loading' && state.runStatus !== 'streaming'}
-              style={[styles.picker, { color: theme.text }]}>
-              <Picker.Item label="Select a model\u2026" value="" enabled={false} />
-              {MODEL_CATALOG.map((entry) => (
-                <Picker.Item
-                  key={entry.id}
-                  label={entry.displayName}
-                  value={entry.id}
-                />
-              ))}
-            </Picker>
-          </View>
-          <Pressable onPress={handleNewConversation} style={styles.newConvButton}>
-            <ThemedText type="small">New conversation</ThemedText>
-          </Pressable>
-        </View>
-
-        <ThemedText
-          type="small"
-          themeColor="textSecondary"
-          style={styles.statusText}>
-          {statusText}
-        </ThemedText>
-
-        <FlatList
-          ref={flatListRef}
-          data={state.messages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          contentContainerStyle={styles.messagesContent}
-          style={styles.messagesList}
-          onScrollBeginDrag={() => setUserScrolledUp(true)}
-          onMomentumScrollEnd={() => setUserScrolledUp(false)}
-        />
-
-        <View style={[styles.inputRow, { borderTopColor: theme.textSecondary + '30' }]}>
-          <TextInput
-            value={inputText}
-            onChangeText={setInputText}
-            placeholder="Type a message\u2026"
-            placeholderTextColor={theme.textSecondary}
-            multiline
-            numberOfLines={1}
-            maxLength={4000}
-            editable={!isInputDisabled}
-            style={[
-              styles.textInput,
-              {
-                color: theme.text,
-                backgroundColor: theme.backgroundElement,
-                borderColor: theme.textSecondary + '30',
-              },
-            ]}
-            onSubmitEditing={handleSend}
-            blurOnSubmit={false}
-          />
-          {state.runStatus === 'streaming' ? (
-            <Pressable onPress={handleStop} style={[styles.sendButton, styles.stopButton]}>
-              <ThemedText style={{ color: '#ffffff', fontWeight: '600' }}>Stop</ThemedText>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
+        <KeyboardAvoidingView
+          style={styles.keyboardView}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 120 : 0}>
+          <View style={styles.headerRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.modelSelector}>
+              {installedModels.length === 0 ? (
+                <ThemedText type="small" themeColor="textSecondary" style={styles.noModelsText}>
+                  No models installed
+                </ThemedText>
+              ) : (
+                installedModels.map((entry) => (
+                  <Pressable
+                    key={entry.id}
+                    onPress={() => handleModelChange(entry.id)}
+                    disabled={state.loadStatus === 'loading' || state.runStatus === 'streaming'}
+                    style={[
+                      styles.modelButton,
+                      state.selectedModelId === entry.id && styles.modelButtonSelected,
+                      {
+                        borderColor: state.selectedModelId === entry.id ? '#3c87f7' : theme.textSecondary + '30',
+                        backgroundColor: state.selectedModelId === entry.id ? '#3c87f7' : theme.backgroundElement,
+                      },
+                    ]}>
+                    <ThemedText
+                      type="small"
+                      style={{
+                        color: state.selectedModelId === entry.id ? '#ffffff' : theme.text,
+                        fontWeight: state.selectedModelId === entry.id ? '600' : '400',
+                      }}>
+                      {entry.displayName}
+                    </ThemedText>
+                  </Pressable>
+                ))
+              )}
+            </ScrollView>
+            <Pressable onPress={handleNewConversation} style={styles.newConvButton}>
+              <ThemedText type="small">New conversation</ThemedText>
             </Pressable>
-          ) : (
-            <Pressable
-              onPress={handleSend}
-              disabled={!inputText.trim() || isInputDisabled}
+          </View>
+
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            style={styles.statusText}>
+            {statusText}
+          </ThemedText>
+
+          <FlatList
+            ref={flatListRef}
+            data={state.messages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessage}
+            contentContainerStyle={styles.messagesContent}
+            style={styles.messagesList}
+            onScrollBeginDrag={() => setUserScrolledUp(true)}
+            onMomentumScrollEnd={() => setUserScrolledUp(false)}
+          />
+
+          <View style={[styles.inputRow, { borderTopColor: theme.textSecondary + '30' }]}>
+            <TextInput
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder="Type a message\u2026"
+              placeholderTextColor={theme.textSecondary}
+              multiline
+              numberOfLines={1}
+              maxLength={4000}
+              editable={!isInputDisabled}
               style={[
-                styles.sendButton,
+                styles.textInput,
                 {
-                  backgroundColor:
-                    inputText.trim() && !isInputDisabled ? '#3c87f7' : theme.backgroundElement,
+                  color: theme.text,
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.textSecondary + '30',
                 },
-              ]}>
+              ]}
+              onSubmitEditing={handleSend}
+              blurOnSubmit={false}
+            />
+            {state.runStatus === 'streaming' ? (
+              <Pressable onPress={handleStop} style={[styles.sendButton, styles.stopButton]}>
+                <ThemedText style={{ color: '#ffffff', fontWeight: '600' }}>Stop</ThemedText>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={handleSend}
+                disabled={!inputText.trim() || isInputDisabled}
+                style={[
+                  styles.sendButton,
+                  {
+                    backgroundColor:
+                      inputText.trim() && !isInputDisabled ? '#3c87f7' : theme.backgroundElement,
+                  },
+                ]}>
               <ThemedText
                 style={{
                   color: inputText.trim() && !isInputDisabled ? '#ffffff' : theme.textSecondary,
@@ -206,7 +230,8 @@ export function PlaygroundView({ state, dispatch, controller }: PlaygroundViewPr
               </ThemedText>
             </Pressable>
           )}
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </ThemedView>
   );
@@ -222,6 +247,9 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: '100%',
   },
+  keyboardView: {
+    flex: 1,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -229,11 +257,22 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.two,
     gap: Spacing.two,
   },
-  pickerWrapper: {
+  modelSelector: {
     flex: 1,
   },
-  picker: {
-    height: 50,
+  modelButton: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: Spacing.two,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginRight: Spacing.two,
+  },
+  modelButtonSelected: {
+    backgroundColor: '#3c87f7',
+    borderColor: '#3c87f7',
+  },
+  noModelsText: {
+    paddingVertical: Spacing.two,
   },
   newConvButton: {
     paddingHorizontal: Spacing.three,

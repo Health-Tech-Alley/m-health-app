@@ -1,6 +1,10 @@
 import type { ChatMessage as ProviderChatMessage, InferenceProvider } from '@/inference/inference-provider';
 import type { ChatMessage, PlaygroundAction, PlaygroundState } from './types';
 
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2);
+}
+
 export function createController(provider: InferenceProvider) {
   let abortController: AbortController | null = null;
 
@@ -37,7 +41,7 @@ export function createController(provider: InferenceProvider) {
       }
 
       const userMessage: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         role: 'user',
         text,
         finalText: null,
@@ -47,7 +51,7 @@ export function createController(provider: InferenceProvider) {
       };
 
       const assistantMessage: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         role: 'assistant',
         text: '',
         finalText: null,
