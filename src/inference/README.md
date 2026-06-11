@@ -1,10 +1,8 @@
 # `src/inference/` — L4 On-Device SLM
 
-> **Status:** scaffold (empty). Interface reference lives in
-> `planning/code-templates/inference_provider.ts`.
+> **Status:** `InferenceProvider` interface + `LlamaRnProvider` (Track B) implemented.
 
-**What lives here:** the `InferenceProvider` interface, the **llama.rn / llama.cpp** adapter, the **GGUF
-model loader** (~8B Q4_K_M), and the cold-start benchmark hooks (notebook 01).
+**What lives here:** the `InferenceProvider` interface, the **llama.rn / llama.cpp** adapter (`llama-rn-provider.ts`), the **GGUF model loader** (~8B Q4_K_M), the model catalog, and the cold-start benchmark hooks (notebook 01).
 
 **Two-track providers (provider-swap rule):**
 - **`MockInferenceProvider`** — Track A (Expo Go). Returns canned/templated responses so the full UI + flow
