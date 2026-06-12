@@ -1,14 +1,54 @@
 import { useCallback, useMemo, useReducer } from 'react';
 
-import { LlamaRnProvider } from '@/inference/llama-rn-provider';
+import { useSLM } from '@/contexts/slm-context';
 import { createController } from './playground-controller';
 import type { PlaygroundAction, PlaygroundState } from './types';
 import { PlaygroundView } from './playground-view';
 
+// Safety net: strip any leftover structured-output control tokens (harmony
+// channels, thinking tags) that may leak into the answer if native parsing
+// didn't fully separate them. llama.rn normally handles this, so this only
+// runs as a fallback.
+function stripControlTokens(text: string): { thinking: string | null; answer: string } {
+  // gpt-oss / Gemma "harmony" channel format:
+  //   <|channel>thought ... <|channel>final ...
+  const channelRegex = /<\|channel\|?>(\w+)\s*([\s\S]*?)(?=<\|channel\|?>|<\|end\|?>|<\|return\|?>|$)/gi;
+  const matches = [...text.matchAll(channelRegex)];
+
+  if (matches.length > 0) {
+    let thinking = '';
+    let answer = '';
+    for (const m of matches) {
+      const channel = m[1].toLowerCase();
+      const body = m[2].replace(/<\|message\|?>/gi, '').trim();
+      if (channel === 'final' || channel === 'answer') {
+        answer += body;
+      } else {
+        thinking += (thinking ? '\n\n' : '') + body;
+      }
+    }
+    // Clean any remaining control tokens.
+    answer = answer.replace(/<\|[^>]*\|?>/g, '').trim();
+    thinking = thinking.replace(/<\|[^>]*\|?>/g, '').trim();
+    if (answer) {
+      return { thinking: thinking || null, answer };
+    }
+  }
+
+  // <thinking>...</thinking> tag format.
+  const thinkingMatch = text.match(/<thinking>([\s\S]*?)<\/thinking>/i);
+  if (thinkingMatch) {
+    const thinking = thinkingMatch[1].trim();
+    const answer = text.replace(/<thinking>[\s\S]*?<\/thinking>/i, '').trim();
+    return { thinking, answer };
+  }
+
+  // No structured markers — return text with any stray control tokens removed.
+  const cleaned = text.replace(/<\|[^>]*\|?>/g, '').trim();
+  return { thinking: null, answer: cleaned };
+}
+
 const initialState: PlaygroundState = {
-  loadStatus: 'idle',
-  loadError: null,
-  selectedModelId: null,
   runStatus: 'idle',
   messages: [],
 };
@@ -17,35 +57,6 @@ function reducer(state: PlaygroundState, action: PlaygroundAction): PlaygroundSt
   switch (action.type) {
     case 'noop':
       return state;
-
-    case 'select-model-start':
-      return {
-        ...state,
-        loadStatus: 'loading',
-        loadError: null,
-        messages: [],
-        runStatus: 'idle',
-      };
-
-    case 'select-model-success':
-      return {
-        ...state,
-        loadStatus: 'ready',
-        loadError: null,
-        selectedModelId: action.payload.modelId,
-        messages: [],
-        runStatus: 'idle',
-      };
-
-    case 'select-model-error':
-      return {
-        ...state,
-        loadStatus: 'error',
-        loadError: action.payload.error,
-        selectedModelId: null,
-        messages: [],
-        runStatus: 'idle',
-      };
 
     case 'send-start':
       return {
@@ -59,12 +70,21 @@ function reducer(state: PlaygroundState, action: PlaygroundAction): PlaygroundSt
       };
 
     case 'send-success': {
+      const { finalText, reasoningContent } = action.payload;
+
+      // Always run the answer through the control-token stripper as a safety
+      // net (handles cases where harmony channels leak past native parsing).
+      const parsed = stripControlTokens(finalText);
+      const thinking = reasoningContent || parsed.thinking;
+      const answer = parsed.answer;
+
       const messages = state.messages.map((m) =>
         m.id === action.payload.assistantId
           ? {
               ...m,
-              text: action.payload.finalText,
-              finalText: action.payload.finalText,
+              text: answer,
+              finalText: answer,
+              thinking,
               status: 'done' as const,
               finishedAt: Date.now(),
             }
@@ -134,9 +154,9 @@ function reducer(state: PlaygroundState, action: PlaygroundAction): PlaygroundSt
 }
 
 export function PlaygroundScreen() {
+  const slm = useSLM();
   const [state, dispatch] = useReducer(reducer, initialState);
-  const provider = useMemo(() => new LlamaRnProvider(), []);
-  const controller = useMemo(() => createController(provider), [provider]);
+  const controller = useMemo(() => createController(slm.provider), [slm.provider]);
 
   const wrappedDispatch = useCallback(
     (action: PlaygroundAction) => {
@@ -156,21 +176,22 @@ export function PlaygroundScreen() {
         return;
       }
 
-      if (action.type === 'select-model-start') {
-        dispatch(action);
-
-        action.payload().then((resultAction) => {
-          dispatch(resultAction);
-        });
-        return;
-      }
-
       dispatch(action);
     },
     [controller, dispatch],
   );
 
   return (
-    <PlaygroundView state={state} dispatch={wrappedDispatch} controller={controller} />
+    <PlaygroundView
+      state={state}
+      dispatch={wrappedDispatch}
+      controller={controller}
+      slmLoadStatus={slm.loadStatus}
+      slmLoadError={slm.loadError}
+      slmCurrentModelId={slm.currentModelId}
+      slmModelSizeGB={slm.modelSizeGB}
+      onLoadModel={slm.loadModel}
+      onUnloadModel={slm.unloadModel}
+    />
   );
 }

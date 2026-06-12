@@ -5,7 +5,7 @@ import {
   setHfToken as persistHfToken,
 } from '@/services/hf-token-store';
 import { downloadModel } from '@/services/model-download';
-import { deleteModel, isModelInstalled } from '@/services/model-storage';
+import { clearAllModels, deleteModel, isModelInstalled } from '@/services/model-storage';
 import type { ModelItem, ModelsAction } from './types';
 
 function buildItems(): ModelItem[] {
@@ -82,6 +82,15 @@ export function createModelsController() {
         deleteModel(entry);
       }
       return { type: 'delete-complete', payload: { modelId } };
+    },
+
+    clearAllModels(): ModelsAction {
+      for (const handle of activeDownloads.values()) {
+        handle.cancel();
+      }
+      activeDownloads.clear();
+      clearAllModels();
+      return { type: 'clear-all-complete' };
     },
 
     async saveHfToken(token: string): Promise<ModelsAction> {

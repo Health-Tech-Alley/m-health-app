@@ -40,6 +40,7 @@ export type ModelsAction =
       type: 'delete-complete';
       payload: { modelId: string };
     }
+  | { type: 'clear-all-complete' }
   | { type: 'set-hf-token'; payload: { token: string } }
   | { type: 'save-hf-token-success' }
   | { type: 'save-hf-token-error'; payload: { error: string } }

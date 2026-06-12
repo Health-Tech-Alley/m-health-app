@@ -220,6 +220,25 @@ export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
               />
             ))}
           </View>
+
+          <Pressable
+            onPress={() => {
+              Alert.alert(
+                'Clear All Models',
+                'Delete all downloaded models and partial downloads? This cannot be undone.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Clear All',
+                    style: 'destructive',
+                    onPress: () => dispatch(controller.clearAllModels()),
+                  },
+                ],
+              );
+            }}
+            style={[styles.actionButton, styles.clearAllButton, { borderColor: '#d9534f' }]}>
+            <ThemedText style={{ color: '#d9534f', fontWeight: '600' }}>Clear All Models</ThemedText>
+          </Pressable>
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -297,6 +316,11 @@ const styles = StyleSheet.create({
     minWidth: 80,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  clearAllButton: {
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: Spacing.two,
+    alignSelf: 'center',
   },
   progressContainer: {
     flex: 1,

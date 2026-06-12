@@ -3,13 +3,16 @@ import { useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
+import { SLMProvider } from '@/contexts/slm-context';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
+      <SLMProvider>
+        <AnimatedSplashOverlay />
+        <AppTabs />
+      </SLMProvider>
     </ThemeProvider>
   );
 }

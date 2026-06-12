@@ -5,36 +5,21 @@ export interface ChatMessage {
   role: Role;
   text: string;
   finalText: string | null;
+  thinking: string | null;
   status: 'streaming' | 'done' | 'stopped' | 'error';
   startedAt: number;
   finishedAt: number | null;
 }
 
-export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type RunStatus = 'idle' | 'streaming' | 'stopped' | 'done' | 'error';
 
 export interface PlaygroundState {
-  loadStatus: LoadStatus;
-  loadError: string | null;
-  selectedModelId: string | null;
   runStatus: RunStatus;
   messages: ChatMessage[];
 }
 
 export type PlaygroundAction =
   | { type: 'noop' }
-  | {
-      type: 'select-model-start';
-      payload: () => Promise<PlaygroundAction>;
-    }
-  | {
-      type: 'select-model-success';
-      payload: { modelId: string };
-    }
-  | {
-      type: 'select-model-error';
-      payload: { error: string };
-    }
   | {
       type: 'send-start';
       payload: {
@@ -45,7 +30,7 @@ export type PlaygroundAction =
     }
   | {
       type: 'send-success';
-      payload: { assistantId: string; finalText: string };
+      payload: { assistantId: string; finalText: string; reasoningContent?: string };
     }
   | {
       type: 'send-stopped';

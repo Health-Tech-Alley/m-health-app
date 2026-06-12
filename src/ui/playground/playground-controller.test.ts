@@ -4,6 +4,7 @@ import type {
   GenerateOptions,
   InferenceProvider,
   LoadOptions,
+  ModelInfo,
 } from '@/inference/inference-provider';
 import { createController } from './playground-controller';
 import type { PlaygroundState } from './types';
@@ -26,6 +27,10 @@ class FakeProvider implements InferenceProvider {
 
   async release(): Promise<void> {
     this.releaseCalls++;
+  }
+
+  getModelInfo(): ModelInfo | null {
+    return { sizeBytes: 2.5 * 1024 * 1024 * 1024, description: 'FakeModel' };
   }
 
   async chat(
@@ -68,24 +73,14 @@ class FakeProvider implements InferenceProvider {
 }
 
 const idleState: PlaygroundState = {
-  loadStatus: 'idle',
-  loadError: null,
-  selectedModelId: null,
   runStatus: 'idle',
   messages: [],
 };
 
 const readyState: PlaygroundState = {
-  loadStatus: 'ready',
-  loadError: null,
-  selectedModelId: 'test-model',
   runStatus: 'idle',
   messages: [],
 };
-
-function resolveModelPath(file: string): string {
-  return `/models/${file}`;
-}
 
 describe('PlaygroundController', () => {
   let provider: FakeProvider;
@@ -95,65 +90,21 @@ describe('PlaygroundController', () => {
   });
 
   describe('initial state', () => {
-    it('starts with idle load status and empty messages', () => {
-      expect(idleState.loadStatus).toBe('idle');
+    it('starts with idle run status and empty messages', () => {
+      expect(idleState.runStatus).toBe('idle');
       expect(idleState.messages).toEqual([]);
     });
   });
 
-  describe('selectModel', () => {
-    it('happy path: transitions to loading then ready', async () => {
-      const controller = createController(provider);
-      const entry = { id: 'qwen2.5-3b', file: 'qwen2.5-3b-instruct-q4_k_m.gguf' };
-
-      const startAction = await controller.selectModel(idleState, entry, resolveModelPath);
-      expect(startAction.type).toBe('select-model-start');
-
-      if (startAction.type !== 'select-model-start') return;
-      const resultAction = await startAction.payload();
-
-      expect(resultAction.type).toBe('select-model-success');
-      if (resultAction.type === 'select-model-success') {
-        expect(resultAction.payload.modelId).toBe('qwen2.5-3b');
-      }
-      expect(provider.loadCalls).toEqual(['/models/qwen2.5-3b-instruct-q4_k_m.gguf']);
-    });
-
-    it('failure: provider rejects, surfaces error', async () => {
-      provider.shouldFailLoad = true;
-      const controller = createController(provider);
-      const entry = { id: 'qwen2.5-3b', file: 'qwen2.5-3b-instruct-q4_k_m.gguf' };
-
-      const startAction = await controller.selectModel(idleState, entry, resolveModelPath);
-      if (startAction.type !== 'select-model-start') return;
-      const resultAction = await startAction.payload();
-
-      expect(resultAction.type).toBe('select-model-error');
-      if (resultAction.type === 'select-model-error') {
-        expect(resultAction.payload.error).toBe('Simulated load failure');
-      }
-    });
-
-    it('no-op while loading', async () => {
-      const controller = createController(provider);
-      const loadingState: PlaygroundState = {
-        ...idleState,
-        loadStatus: 'loading',
-      };
-      const entry = { id: 'qwen2.5-3b', file: 'test.gguf' };
-
-      const action = await controller.selectModel(loadingState, entry, resolveModelPath);
-      expect(action.type).toBe('noop');
-      expect(provider.loadCalls).toEqual([]);
-    });
-  });
-
   describe('send', () => {
-    it('no-op while not ready', async () => {
+    it('no-op while streaming', async () => {
+      const streamingState: PlaygroundState = {
+        ...readyState,
+        runStatus: 'streaming',
+      };
       const controller = createController(provider);
-      const action = await controller.send(idleState, 'hello');
+      const action = await controller.send(streamingState, 'hello');
       expect(action.type).toBe('noop');
-      expect(provider.chatCalls).toBe(0);
     });
 
     it('happy path: user message added, tokens streamed, final text set', async () => {
@@ -180,16 +131,6 @@ describe('PlaygroundController', () => {
         expect(finalAction.payload.finalText).toBe('Hello world');
         expect(finalAction.payload.assistantId).toBe(assistantMessage.id);
       }
-    });
-
-    it('no-op while streaming', async () => {
-      const streamingState: PlaygroundState = {
-        ...readyState,
-        runStatus: 'streaming',
-      };
-      const controller = createController(provider);
-      const action = await controller.send(streamingState, 'hello');
-      expect(action.type).toBe('noop');
     });
 
     it('chat error surfaces send-error', async () => {

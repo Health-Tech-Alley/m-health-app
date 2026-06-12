@@ -76,6 +76,18 @@ function reducer(state: ModelsState, action: ModelsAction): ModelsState {
         ),
       };
 
+    case 'clear-all-complete':
+      return {
+        ...state,
+        items: state.items.map((item) => ({
+          ...item,
+          status: 'not-installed' as const,
+          downloadProgress: 0,
+          downloadTotal: 0,
+          error: null,
+        })),
+      };
+
     case 'set-hf-token':
       return {
         ...state,

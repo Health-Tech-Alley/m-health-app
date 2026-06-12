@@ -9,34 +9,8 @@ export function createController(provider: InferenceProvider) {
   let abortController: AbortController | null = null;
 
   return {
-    async selectModel(
-      state: PlaygroundState,
-      entry: { id: string; file: string },
-      resolveModelPath: (file: string) => string,
-    ): Promise<PlaygroundAction> {
-      if (state.loadStatus === 'loading') {
-        return { type: 'noop' };
-      }
-
-      return {
-        type: 'select-model-start',
-        payload: async () => {
-          try {
-            const path = resolveModelPath(entry.file);
-            await provider.loadModel(path);
-            return { type: 'select-model-success', payload: { modelId: entry.id } };
-          } catch (err: any) {
-            return {
-              type: 'select-model-error',
-              payload: { error: err.message ?? 'Failed to load model' },
-            };
-          }
-        },
-      };
-    },
-
     async send(state: PlaygroundState, text: string): Promise<PlaygroundAction> {
-      if (state.loadStatus !== 'ready' || state.runStatus === 'streaming') {
+      if (state.runStatus === 'streaming') {
         return { type: 'noop' };
       }
 
@@ -45,6 +19,7 @@ export function createController(provider: InferenceProvider) {
         role: 'user',
         text,
         finalText: null,
+        thinking: null,
         status: 'done',
         startedAt: Date.now(),
         finishedAt: Date.now(),
@@ -55,6 +30,7 @@ export function createController(provider: InferenceProvider) {
         role: 'assistant',
         text: '',
         finalText: null,
+        thinking: null,
         status: 'streaming',
         startedAt: Date.now(),
         finishedAt: null,
@@ -84,7 +60,11 @@ export function createController(provider: InferenceProvider) {
               );
               return {
                 type: 'send-success',
-                payload: { assistantId: assistantMessage.id, finalText: result.text },
+                payload: { 
+                  assistantId: assistantMessage.id, 
+                  finalText: result.text,
+                  reasoningContent: result.reasoningContent,
+                },
               };
             } catch (err: any) {
               if (err.name === 'AbortError') {

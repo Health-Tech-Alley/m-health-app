@@ -30,3 +30,13 @@ export function getModelFileSize(entry: ModelEntry): number | null {
   if (!file.exists) return null;
   return file.size;
 }
+
+export function clearAllModels(): number {
+  const dir = getModelsDirectory();
+  let count = 0;
+  for (const item of dir.list()) {
+    item.delete();
+    count++;
+  }
+  return count;
+}
