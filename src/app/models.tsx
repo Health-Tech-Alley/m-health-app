@@ -1,1 +1,1 @@
-export { ModelsScreen as default } from '@/ui/models/models-screen';
+export { ModelsScreen as default } from './models/models-screen';

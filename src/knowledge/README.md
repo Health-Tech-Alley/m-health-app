@@ -1,6 +1,6 @@
 # `src/knowledge/` — L5 Hybrid RAG + Fused Retrieval
 
-> **Status:** scaffold (empty). Prototype reference lives in `planning/notebooks/02_hybrid_rag_prototype.ipynb`.
+> **Status:** scaffold (empty).
 
 **What lives here:** the **BM25** sparse index, the **dense vector index** (sub-1B embedder), **RRF** fusion,
 an optional post-RAG **re-ranker**, and the **fused retriever** that collapses tool-RAG + knowledge-RAG into a

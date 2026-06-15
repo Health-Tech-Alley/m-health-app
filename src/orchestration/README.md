@@ -1,7 +1,6 @@
 # `src/orchestration/` — L3 MCP + Event-Driven CEP
 
-> **Status:** scaffold (empty). No business logic yet. Interface reference lives in
-> `planning/code-templates/agent_orchestrator.ts` and `mcp_tool.ts`.
+> **Status:** scaffold (empty). No business logic yet.
 
 **What lives here:** the MCP server/client, the **event bus**, the **CEP pattern matcher**, the **event
 router**, the **Context Aggregator** (fuses geofence + patient state before any SLM call), and the four named

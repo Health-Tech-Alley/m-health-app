@@ -9,6 +9,6 @@ fast path for ST-03), the **consent gate** (default-deny egress), the **audit lo
 HITL confirm/override controllers.
 
 **Note on the canonical ordering:** the deterministic rule/threshold engine in this layer runs **before** the
-Alert ML model and **before** any SLM call — see `planning/02_steel-thread-methodology.md` §3b.
+Alert ML model and **before** any SLM call.
 
 **Primary owners:** Sebastian + Ethan (consent/audit/HIPAA spine) + Rahal (audit↔appointment integration).
