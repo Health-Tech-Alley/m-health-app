@@ -6,7 +6,8 @@
  */
 
 import { useRouter } from "expo-router";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useSLM } from "@/contexts/slm-context";
 import { MODEL_CATALOG } from "@/inference/model-catalog";
@@ -28,18 +29,23 @@ export function CaregiverDashboardScreen() {
   const { loadStatus: slmStatus } = useSLM();
 
   return (
-    <ScrollView contentContainerStyle={styles.screen}>
-      <View style={styles.header}>
-        <View style={styles.logoCircle}>
-          <Text style={styles.logoText}>CC</Text>
-        </View>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      <ScrollView contentContainerStyle={styles.screen}>
+        <View style={styles.header}>
+          <View style={styles.logoCircle}>
+            <Image
+              source={require("@/assets/images/hta-logo.png")}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+          </View>
 
-        <View style={styles.headerTextContainer}>
-          <Text style={styles.appName}>Caregiver Concierge</Text>
-          <Text style={styles.brandName}>ACCESS-DP</Text>
-          <Text style={styles.subtitle}>Caregiver Home Dashboard</Text>
+          <View style={styles.headerTextContainer}>
+            <Text style={styles.appName}>Caregiver Concierge</Text>
+            <Text style={styles.brandName}>ACCESS-DP</Text>
+            <Text style={styles.subtitle}>Caregiver Home Dashboard</Text>
+          </View>
         </View>
-      </View>
 
       <PatientSummaryCard />
 
@@ -113,10 +119,15 @@ export function CaregiverDashboardScreen() {
 
       <QuickActionsCard />
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: lightBackground,
+  },
   screen: {
     flexGrow: 1,
     padding: 18,
@@ -141,11 +152,11 @@ const styles = StyleSheet.create({
     backgroundColor: teal,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
-  logoText: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#FFFFFF",
+  logoImage: {
+    width: 40,
+    height: 40,
   },
   headerTextContainer: {
     flex: 1,

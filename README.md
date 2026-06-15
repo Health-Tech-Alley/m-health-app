@@ -79,6 +79,15 @@ The caregiver's calendar view of the care plan in motion.
 - **Offline-first** — Core functionality (reminders, rule engine, dashboards) works with zero connectivity
 - **HIPAA-compliant** — Encrypted local storage (SQLCipher + Keychain/Keystore), consent-gated data egress, tamper-evident audit log
 - **Transparency trace** — OpenEvidence citations + orchestration trace on every AI suggestion
+- **Live RAM dashboard** — The Performance screen polls device memory at 1 Hz and shows
+  total / used / free RAM plus a breakdown of how much of the used bucket is owned by
+  the on-device SLM model. Color-coded severity (ok / elevated / critical) flags when
+  the device is approaching OOM. The same data is mirrored on the SLM screen while a
+  model is loaded.
+- **Caregiver Assistant (SLM chat)** — A purpose-built chat screen that streams answers
+  from the on-device SLM with the patient's full care plan baked into the system prompt
+  as ground truth. The chat input is multiline and auto-grows; the screen is safe-area
+  aware so it never collides with the iOS home bar or status bar.
 
 ## Tech Stack
 
@@ -150,6 +159,63 @@ npx expo start --dev-client
 - Use `npx expo start --clear` to clear the Metro bundler cache
 - Run `npm run lint` to check for code style issues
 
+## Caregiver Assistant (SLM Chat)
+
+The **SLM Support** screen (`src/app/slm.tsx`) is a chat playground for the on-device
+language model. It is the primary touch-point for the "ask the assistant anything
+about the patient's care" flow.
+
+- **Multiline, auto-growing input** — The chat box is a `TextInput` with
+  `onContentSizeChange` driving a `height` state. The box grows from ~44 px (single
+  line) up to ~180 px (about six lines) as the caregiver types, and shrinks back when
+  they delete. `scrollEnabled={false}` keeps the input itself from fighting the outer
+  scroll view.
+- **iOS safe-area aware** — Wrapped in `SafeAreaView` with `edges={['top', 'bottom']}`
+  inside a `KeyboardAvoidingView`, so the input row never collides with the iOS home
+  bar at rest or with the on-screen keyboard while typing.
+- **Live device RAM** — While a model is loaded, a small RAM card shows used / free /
+  total MB and the model's footprint on disk. The same data, plus a 1 Hz
+  breakdown between the SLM and the rest of the system, is on the Performance screen.
+- **Detailed Care Context** — A "Care Context" card lists every field from the
+  onboarding profile (patient demographics, conditions, medications, vitals thresholds,
+  baseline routine; caregiver experience, language, comfort level, backup; care team;
+  safety / emergency contact) and the same data is injected into the SLM's system
+  prompt.
+- **System prompt preamble** — The internal prompt begins with a preamble that tells
+  the model *who it is* (an embedded caregiver-support assistant), *who the user is*
+  (a non-clinical family caregiver using the app in real time), what kind of answer is
+  expected (Markdown, ~120–250 words, lead with the bottom line, then numbered steps
+  and red flags), and explicit "never do" rules (no diagnosis, no dosing changes,
+  escalate red flags). This preamble is what makes the same model produce
+  caregiver-appropriate answers instead of generic medical text.
+
+## Performance / RAM Dashboard
+
+The **Performance** screen (`src/app/performance.tsx`) is a live, 1 Hz RAM dashboard
+backed by `src/services/performance/performanceService.ts`.
+
+- **1 Hz polling** — `useRamSnapshot(intervalMs, slmSizeGB)` reads
+  `NativeModules.DeviceMemory.getMemoryInfo()` (with a deterministic mock fallback on
+  Track A / Expo Go) every second.
+- **Breakdown** — Each snapshot splits the device's used RAM into the portion owned
+  by the loaded SLM model (`slmMB = slmSizeGB * 1024`) and the rest of the system
+  (`otherMB = usedMB - slmMB`). The two are shown as a stacked bar with a legend.
+- **Severity pill** — `ramSeverity(usedRatio)` returns `ok` (green), `elevated` (amber),
+  or `critical` (red) based on the used/total ratio, and recolors the progress bar
+  accordingly. Useful when a 4 GB SLM is loaded on a 4 GB device.
+- **SLM status card** — Mirrors the SLM provider's state (load status, current model
+  id, model size on disk, whether the native memory bridge is present) so the screen
+  is self-explanatory in both Track A and Track B.
+
+## Documentation
+
+- [`AGENTS.md`](./AGENTS.md) — Contributor / agent guide: project conventions,
+  architecture summary, and how to run the app.
+- [`docs/APP_GUIDE.md`](./docs/APP_GUIDE.md) — Living doc describing the current
+  state of the running app, screen by screen, plus platform-specific notes.
+- [`docs/MARKDOWN_GUIDE.md`](./docs/MARKDOWN_GUIDE.md) — How the
+  `MarkdownRenderer` works and how the SLM is prompted to return Markdown.
+
 ## Building for Production
 
 ```bash
@@ -194,19 +260,26 @@ alert is never delayed; the SLM "Explain" runs on demand after the alert.
 ```
 m-health-app/
 ├── src/
-│   ├── app/                # Expo Router file-based routes (_layout, index, ...)
-│   ├── components/         # Reusable UI components
+│   ├── app/                # Expo Router file-based routes (dashboard, slm, performance, ...)
+│   ├── components/         # Reusable UI components (dashboard cards, markdown renderer, ...)
+│   ├── contexts/           # React contexts (slm-context, ...)
 │   ├── hooks/ constants/   # Shared hooks + theme
-│   ├── ui/                 # L1 — feature screens (Medication, Care Plan, Scheduling, Dashboard, Settings, HITL)
-│   ├── services/           # L2 — controllers, state, notifications, consent gate, audit log
-│   ├── orchestration/      # L3 — MCP, event bus, CEP, context aggregator, agents
-│   ├── inference/          # L4 — InferenceProvider, llama.rn adapter, Mock provider
-│   ├── knowledge/          # L5 — hybrid RAG, re-ranker, fused retrieval
-│   ├── data/               # L6 — SQLite/SQLCipher, vector index, FHIR adapter, sensor bridges
-│   ├── locator/            # L7 — geofence + CBO resource data (pharmacy locator, deferred)
+│   ├── inference/          # InferenceProvider seam, llama.rn adapter, model catalog
+│   ├── services/           # Service layer
+│   │   ├── device-memory/  # Native device-memory bridge + mock
+│   │   ├── performance/    # 1 Hz RAM snapshot hook + breakdown math
+│   │   ├── slm/            # Caregiver assistant service, model download, system prompt builder
+│   │   ├── onboarding/     # Onboarding profile types + in-memory store
+│   │   └── ...
+│   ├── orchestration/      # MCP, event bus, CEP, context aggregator, agents
+│   ├── knowledge/          # hybrid RAG, re-ranker, fused retrieval
+│   ├── data/               # SQLite/SQLCipher, vector index, FHIR adapter, sensor bridges
+│   ├── locator/            # geofence + CBO resource data (pharmacy locator, deferred)
 │   └── clinical-evidence/  # OpenEvidence + NLM/FDA API clients
 ├── assets/                 # Images, fonts, splash, icons
 ├── app.json                # Expo config + native permissions
+├── docs/                   # APP_GUIDE.md, MARKDOWN_GUIDE.md
+├── AGENTS.md               # Contributor / agent guide
 └── package.json            # "main": "expo-router/entry"
 ```
 

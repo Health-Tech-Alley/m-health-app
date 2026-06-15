@@ -171,11 +171,17 @@ export default function SLMScreen() {
   const theme = useTheme();
   const profile = useMemo(() => getOnboardingProfile(), []);
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
-  const [inputText, setInputText] = useState(
-    `What should I watch for today with ${profile.patient.name}?`,
-  );
+  const [inputText, setInputText] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const [inputHeight, setInputHeight] = useState(40);
+
+  const handleInputChange = useCallback((text: string) => {
+    setInputText(text);
+    if (!text) {
+      setInputHeight(40);
+    }
+  }, []);
   const abortControllerRef = useRef<AbortController | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const memoryInfo = useMemoryInfo(2000);
@@ -183,12 +189,35 @@ export default function SLMScreen() {
 
   const caregiverContext = useMemo(
     () => ({
+      // Patient
       patientName: profile.patient.name,
+      patientAge: profile.patient.age,
+      patientConditions: profile.patient.conditions,
+      patientBaselineDailyRoutine:
+        profile.patient.baselineDailyRoutine ?? 'No routine provided',
+      patientCurrentMedications:
+        profile.patient.currentMedications ?? 'No medications provided',
+      patientSpo2Cutoff: profile.patient.spo2Cutoff,
+      patientBaselineHeartRate: profile.patient.baselineHeartRate,
+      // Caregiver
       caregiverName: profile.caregiver.name,
-      activeConcern: profile.caregiver.mainConcern ?? 'No active concern provided',
-      medicationSummary: profile.patient.currentMedications ?? 'No medications provided',
-      recentVitalsSummary: `SpO2 cutoff: ${profile.patient.spo2Cutoff ?? 'not provided'}, baseline HR: ${profile.patient.baselineHeartRate ?? 'not provided'}`,
-      scheduleSummary: profile.patient.baselineDailyRoutine ?? 'No routine provided',
+      caregiverRelationship: profile.caregiver.relationship,
+      caregiverExperience: profile.caregiver.experience,
+      caregiverAvailability: profile.caregiver.availability,
+      caregiverLanguagePreference: profile.caregiver.languagePreference,
+      caregiverMedicalComfortLevel: profile.caregiver.medicalComfortLevel,
+      caregiverHobbiesOrRoutines: profile.caregiver.hobbiesOrRoutines,
+      caregiverMainConcern:
+        profile.caregiver.mainConcern ?? 'No active concern provided',
+      caregiverStressOrSupportNeeds: profile.caregiver.stressOrSupportNeeds,
+      caregiverBackup: profile.caregiver.backupCaregiver,
+      // Care team
+      primaryCareProviderName: profile.primaryCareProvider.name,
+      primaryCareProviderPhone: profile.primaryCareProvider.phone,
+      primaryCareProviderEmail: profile.primaryCareProvider.email,
+      // Safety
+      emergencyContact: profile.safety?.emergencyContact,
+      safetyNotes: profile.safety?.safetyNotes,
     }),
     [profile],
   );
@@ -381,11 +410,6 @@ export default function SLMScreen() {
 
         {(item.status === 'done' || item.status === 'stopped' || item.status === 'error') && (
           <>
-            {item.thinking ? (
-              <Text style={[styles.thinkingText, { color: theme.textSecondary }]}>
-                {item.thinking}
-              </Text>
-            ) : null}
             {item.finalText ? (
               <View style={styles.answerContainer}>
                 <MarkdownRenderer size="large">{item.finalText}</MarkdownRenderer>
@@ -408,11 +432,11 @@ export default function SLMScreen() {
   const isInputDisabled = slm.loadStatus !== 'ready' && slm.loadStatus !== 'idle';
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: '#EEF7F6' }]} edges={['top']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: '#EEF7F6' }]} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.backButton}>
             <Text style={styles.backText}>← Back</Text>
@@ -529,14 +553,53 @@ export default function SLMScreen() {
 
           <View style={styles.contextCard}>
             <Text style={styles.cardTitle}>Care Context</Text>
-            <Text style={styles.contextText}>Patient: {profile.patient.name}</Text>
-            <Text style={styles.contextText}>Caregiver: {profile.caregiver.name}</Text>
+            <Text style={styles.contextSection}>Patient</Text>
             <Text style={styles.contextText}>
-              Concern: {profile.caregiver.mainConcern ?? 'Not provided'}
+              {profile.patient.name} · age {profile.patient.age}
+            </Text>
+            <Text style={styles.contextText}>
+              Conditions: {profile.patient.conditions}
             </Text>
             <Text style={styles.contextText}>
               Medications: {profile.patient.currentMedications ?? 'Not provided'}
             </Text>
+            <Text style={styles.contextText}>
+              Baseline routine: {profile.patient.baselineDailyRoutine ?? 'Not provided'}
+            </Text>
+            <Text style={styles.contextText}>
+              SpO2 cutoff: {profile.patient.spo2Cutoff ?? '—'} · Baseline HR: {profile.patient.baselineHeartRate ?? '—'}
+            </Text>
+
+            <Text style={styles.contextSection}>Caregiver</Text>
+            <Text style={styles.contextText}>
+              {profile.caregiver.name} ({profile.caregiver.relationship}) · {profile.caregiver.experience ?? '—'} · {profile.caregiver.availability ?? '—'}
+            </Text>
+            <Text style={styles.contextText}>
+              Language: {profile.caregiver.languagePreference ?? '—'} · Comfort: {profile.caregiver.medicalComfortLevel ?? '—'}
+            </Text>
+            <Text style={styles.contextText}>
+              Active concern: {profile.caregiver.mainConcern ?? 'Not provided'}
+            </Text>
+            <Text style={styles.contextText}>
+              Backup: {profile.caregiver.backupCaregiver ?? 'Not provided'}
+            </Text>
+
+            <Text style={styles.contextSection}>Care Team</Text>
+            <Text style={styles.contextText}>
+              {profile.primaryCareProvider.name} · {profile.primaryCareProvider.phone}
+            </Text>
+
+            {profile.safety ? (
+              <>
+                <Text style={styles.contextSection}>Safety</Text>
+                <Text style={styles.contextText}>
+                  Emergency contact: {profile.safety.emergencyContact ?? 'Not provided'}
+                </Text>
+                <Text style={styles.contextText}>
+                  Notes: {profile.safety.safetyNotes ?? 'Not provided'}
+                </Text>
+              </>
+            ) : null}
           </View>
 
           {state.messages.length > 0 ? (
@@ -563,16 +626,32 @@ export default function SLMScreen() {
         <View style={[styles.inputRow, { borderTopColor: theme.textSecondary + '30' }]}>
           <TextInput
             value={inputText}
-            onChangeText={setInputText}
+            onChangeText={handleInputChange}
             placeholder="Ask the caregiver assistant..."
             placeholderTextColor="#8A9A9A"
             multiline
-            numberOfLines={1}
             maxLength={4000}
             editable={!isInputDisabled}
-            style={[styles.textInput, { color: theme.text, backgroundColor: theme.backgroundElement }]}
-            onSubmitEditing={handleAskAssistant}
-            blurOnSubmit={false}
+            style={[
+              styles.textInput,
+              {
+                color: theme.text,
+                backgroundColor: theme.backgroundElement,
+                height: inputHeight,
+              },
+            ]}
+            onContentSizeChange={(e) => {
+              const next = e.nativeEvent.contentSize.height;
+              // Empty / placeholder / single-line content should stay at the
+              // one-line minimum (40). Only grow once the text actually wraps.
+              if (next <= 22) {
+                setInputHeight(40);
+              } else {
+                setInputHeight(Math.min(180, Math.max(40, next + 16)));
+              }
+            }}
+            textAlignVertical="top"
+            scrollEnabled={false}
           />
           {state.runStatus === 'streaming' ? (
             <Pressable onPress={handleStop} style={[styles.sendButton, styles.stopButton]}>
@@ -717,6 +796,15 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     lineHeight: 20,
   },
+  contextSection: {
+    color: '#0E6F68',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginTop: 10,
+    marginBottom: 4,
+  },
   helperText: {
     marginTop: 10,
     color: '#6B7C7B',
@@ -802,12 +890,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  thinkingText: {
-    fontStyle: 'italic',
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 8,
-  },
   answerContainer: {
     marginTop: 4,
   },
@@ -836,12 +918,13 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    minHeight: 44,
-    maxHeight: 120,
+    minHeight: 40,
+    maxHeight: 180,
     borderRadius: 16,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 8,
     fontSize: 15,
+    lineHeight: 20,
     borderWidth: 1,
     borderColor: '#D9E7E5',
   },
