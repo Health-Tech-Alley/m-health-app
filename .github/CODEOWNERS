@@ -1,0 +1,89 @@
+# CODEOWNERS
+#
+# This file defines who is automatically requested for review when a PR touches
+# a given path. Owners are responsible for keeping their area consistent and
+# should be consulted before merging changes that cross their boundaries.
+#
+# If multiple owners are listed, GitHub requests review from all of them.
+# Order matters: the last matching pattern wins.
+
+# -----------------------------------------------------------------------------
+# Default / repo-wide fallback
+# -----------------------------------------------------------------------------
+* @scribewire @syanez5 @rahal-kanishka @jaym567
+
+# -----------------------------------------------------------------------------
+# Build, config, and tooling
+# -----------------------------------------------------------------------------
+*.json @scribewire
+*.config.* @scribewire
+/app.json @scribewire
+/eas.json @scribewire
+/metro.config.js @scribewire
+/eslint.config.js @scribewire
+/tsconfig.json @scribewire
+/package.json @scribewire @syanez5
+/package-lock.json @scribewire
+/scripts/ @scribewire
+
+# -----------------------------------------------------------------------------
+# Native modules and bridges
+# -----------------------------------------------------------------------------
+/modules/ @scribewire
+
+# -----------------------------------------------------------------------------
+# Documentation
+# -----------------------------------------------------------------------------
+/README.md @scribewire
+/docs/ @scribewire
+*.md @scribewire
+
+# -----------------------------------------------------------------------------
+# Core UI kit and shared components (shared, but Ethan seeded most of it)
+# -----------------------------------------------------------------------------
+/src/components/animated-icon* @scribewire
+/src/components/app-tabs* @scribewire
+/src/components/external-link.tsx @scribewire
+/src/components/hint-row.tsx @scribewire
+/src/components/markdown-renderer.tsx @scribewire
+/src/components/themed-*.tsx @scribewire
+/src/components/ui/ @scribewire
+/src/components/web-badge.tsx @scribewire
+/src/hooks/ @scribewire
+/src/constants/ @scribewire
+/src/global.css @scribewire
+/src/types/ @scribewire
+/src/types.d.ts @scribewire
+
+# -----------------------------------------------------------------------------
+# Sebastian's domain: caregiver dashboard, onboarding, and official screens
+# -----------------------------------------------------------------------------
+/src/app/ @syanez5
+/src/components/dashboard/ @syanez5
+/src/services/onboarding/ @syanez5
+/src/services/slm/ @syanez5
+/src/services/care/ @syanez5 @scribewire
+/src/services/medication/ @syanez5 @scribewire
+/src/services/patient/ @syanez5 @scribewire
+/src/services/performance/ @syanez5 @scribewire
+/src/services/scheduling/ @syanez5 @scribewire
+
+# -----------------------------------------------------------------------------
+# Ethan's domain: on-device SLM inference, ML model management, and AI screens
+# -----------------------------------------------------------------------------
+/src/inference/ @scribewire
+/src/contexts/slm-context.tsx @scribewire
+/src/ml-models/ @jaym567 @scribewire
+/src/ui/models/ @scribewire
+/src/ui/care-management/ @scribewire
+/src/services/device-memory.ts @scribewire
+/src/services/hf-token-store.ts @scribewire
+/src/services/model-download.ts @scribewire
+/src/services/model-storage.ts @scribewire
+/src/utils/ @scribewire
+
+# -----------------------------------------------------------------------------
+# Rahal's domain: navigation and routing
+# -----------------------------------------------------------------------------
+/src/app/_layout.tsx @rahal-kanishka @syanez5
+/src/components/app-tabs.tsx @rahal-kanishka @scribewire
