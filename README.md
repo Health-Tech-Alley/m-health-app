@@ -61,19 +61,30 @@ npx expo install expo-dev-client -- --legacy-peer-deps
 eas build:configure
 eas build --profile development --platform ios
 ```
-first I had to open the Simulator and then executed the expo command (press i for iOS simulator)
+
+```
+brew install cocoapods
+sudo xcodebuild -license accept
+```
+
+First build the project and then I had to open the Simulator and then executed the expo command (press i for iOS simulator)
+
+## Building the project
+
+```
+npx expo prebuild
+```
+
+### Then
 
 ```
 open -a Simulator
 npx expo start
 ```
 
-## Building the project
-
-```
-brew install cocoapods
-sudo xcodebuild -license accept
-npx expo prebuild
-```
-
 This will create folders for both Android and iOS
+
+## Notes
+
+- Do not use **NativeTabs** (It's still unstable)
+

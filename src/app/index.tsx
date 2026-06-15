@@ -46,35 +46,20 @@ export default function HomeScreen() {
         </ThemedText>
 
         <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Native AI"
-            hint={
-              <Button
+          <Button
                 title="Take me to AI"
                 onPress={() => router.push('/ai')}
               />
-            }
-          />
-          <HintRow
-            title="Dashboard"
-            hint={
-              <Button
+           <Button
                 title="Take me to dashboard"
                 onPress={() => router.push('/dashboard')}
               />
-            }
-          />
-          <HintRow
-            title="Profile View"
-            hint={
-              <Button
-                title="Take me to profile"
+          <Button
+                title="Find a patient"
                 onPress={() =>
-                  router.push({ pathname: '/profile', params: { name: 'Jane' } })
+                  router.push({ pathname: '/patientListScreen', params: { name: 'Jane' } })
                 }
               />
-            }
-          />
           <HintRow title="Dev tools" hint={getDevMenuHint()} />
         </ThemedView>
 
