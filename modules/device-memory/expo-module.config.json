@@ -1,0 +1,9 @@
+{
+  "platforms": ["ios", "android"],
+  "ios": {
+    "modules": ["DeviceMemoryModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.devicememory.DeviceMemoryModule"]
+  }
+}

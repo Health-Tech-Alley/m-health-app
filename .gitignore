@@ -38,6 +38,43 @@ yarn-error.*
 
 example
 
-# generated native folders
+# generated native folders (Expo prebuild / EAS — never committed in managed workflow)
 /ios
 /android
+
+# EAS / build artifacts
+*.ipa
+*.apk
+*.aab
+/build
+
+# secrets / env (only .env.example is committed; real keys in EAS secrets + on-device Keychain)
+.env
+.env*.local
+
+# on-device AI model weights (multi-GB GGUF — NEVER commit; downloaded/verified at runtime)
+*.gguf
+*.bin
+*.task
+/models
+
+# local databases (SQLite / SQLCipher — may contain synthetic data; keep out of git)
+*.db
+*.sqlite
+*.sqlite3
+
+# Python / Jupyter evaluation harness (planning/notebooks)
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+planning/notebooks/synthetic/
+
+# editors / IDEs
+.idea/
+.zed/
+
+# Ethan branch
+planning/
+AGENTS.md
