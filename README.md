@@ -5,8 +5,6 @@
 # Caregiver Concierge: ACCESS-DP
 
 <p>
-  <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" />
-  &nbsp;
   <img src="https://img.shields.io/badge/Platforms-iOS%20%7C%20Android-lightgrey.svg" alt="Platforms: iOS | Android" />
   &nbsp;
   <img src="https://img.shields.io/badge/Framework-React%20Native-61dafb.svg" alt="Framework: React Native" />
@@ -298,8 +296,8 @@ m-health-app/
 
 ## License
 
-**MIT** — see the [`LICENSE`](./LICENSE) file for the full text. Short version: do what you want, just keep the
-copyright notice and don't blame us.
+License is currently undetermined. A `LICENSE` file will be added once the project
+selects an appropriate open-source or proprietary license.
 
 ## Status
 

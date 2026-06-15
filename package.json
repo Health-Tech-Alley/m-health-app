@@ -2,7 +2,7 @@
   "name": "m-health-app",
   "main": "expo-router/entry",
   "version": "1.0.0",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "dependencies": {
     "@believer/react-native-markdown-display": "^8.4.0",
     "@expo/ui": "~56.0.17",
