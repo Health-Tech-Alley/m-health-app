@@ -1,17 +1,21 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import { useColorScheme } from 'react-native';
+/**
+ * Root layout for the Expo Router app.
+ *
+ * Wraps the mobile app with SLMProvider so official screens can access
+ * Ethan's SLM provider through the service layer.
+ */
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
-import { SLMProvider } from '@/contexts/slm-context';
+import { DefaultTheme, Stack, ThemeProvider } from "expo-router";
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { SLMProvider } from "@/contexts/slm-context";
+
+export default function RootLayout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={DefaultTheme}>
       <SLMProvider>
         <AnimatedSplashOverlay />
-        <AppTabs />
+        <Stack screenOptions={{ headerShown: false }} />
       </SLMProvider>
     </ThemeProvider>
   );
