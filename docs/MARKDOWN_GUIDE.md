@@ -33,9 +33,12 @@ import { MarkdownRenderer } from '@/components/markdown-renderer';
 
 ### Where it's used
 
-- **Playground** (`playground-view.tsx`) — the SLM's final answer (`size="large"`).
-- **Care** (`care-management-view.tsx`) — the SLM explanation (`size="large"`) and
-  the collapsed reasoning (`size="normal"`).
+- **SLM chat** (`slm.tsx`) — the SLM's final answer (`size="large"`) and any
+  streaming / stopped text.
+- **Care Management** (`care-management-view.tsx`) — the SLM explanation
+  (`size="large"`) and the collapsed reasoning (`size="normal"`).
+- **Acute Anomaly** (`acute-anomaly.tsx`) — the SLM alert explanation
+  (`size="large"`).
 
 ---
 
@@ -71,9 +74,11 @@ Format your response in Markdown. Use **bold** for key terms and bullet lists fo
 steps.
 ```
 
-The Care screen's prompt (`care-management-controller.ts`) additionally asks the
-model to wrap its reasoning in `<THINKING>` and its answer in `<EXPLANATION>` so
-the two can be separated and only the explanation is shown prominently.
+The Care Management prompt (`care-management-controller.ts`) asks the model to
+wrap its reasoning in `<THINKING>` and its answer in `<EXPLANATION>` so the two
+can be separated and only the explanation is shown prominently. The SLM chat
+screen relies on native parsing (`reasoning_format: 'auto'`) plus the
+`stripControlTokens()` safety net.
 
 ---
 
@@ -94,9 +99,9 @@ separated before display:
    - `content` → the final answer
    - `reasoning_content` → the thinking
 2. **Safety net (fallback).** `stripControlTokens()` in
-   `playground-screen.tsx` removes any leftover control tokens (`<|channel|>…`,
-   `<|message|>`, `<|end|>`, `<thinking>…`) if a model's output slips past native
-   parsing, splitting `final`/`answer` channels from the rest.
+   `src/utils/stripControlTokens.ts` removes any leftover control tokens
+   (`<|channel|>…`, `<|message|>`, `<|end|>`, `<thinking>…`) if a model's output
+   slips past native parsing, splitting `final`/`answer` channels from the rest.
 
 ### Display rules (consistent across models)
 
