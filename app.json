@@ -2,6 +2,7 @@
   "expo": {
     "name": "m-health-app",
     "slug": "m-health-app",
+    "newArchEnabled": false,
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
