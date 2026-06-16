@@ -70,6 +70,8 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS slm_citations;
     DROP TABLE IF EXISTS trigger_events;
     DROP TABLE IF EXISTS graph_edges;
+    DROP TABLE IF EXISTS audit_log;
+    DROP TABLE IF EXISTS consent_tokens;
     DROP TABLE IF EXISTS patients;
     DROP TABLE IF EXISTS caregivers;
     DROP TABLE IF EXISTS medications;

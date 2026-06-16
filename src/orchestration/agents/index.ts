@@ -22,6 +22,12 @@ import {
 
 import type { RegisteredTool, ToolResult } from '../mcp/tool-registry';
 
+export * from './agent-types';
+export { PatientStateAgent } from './patient-state-agent';
+export { CaregiverAgent } from './caregiver-agent';
+export { CoordinatorAgent } from './coordinator-agent';
+export { SafetyReviewerAgent, type SafetyVerdict } from './safety-reviewer-agent';
+
 function now(): string {
   return new Date().toISOString();
 }

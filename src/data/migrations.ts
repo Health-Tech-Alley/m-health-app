@@ -207,4 +207,37 @@ export const MIGRATIONS: string[] = [
     PRIMARY KEY (from_id, to_id, type)
   );
   `,
+
+  // 5: tamper-evident audit log + consent tokens
+  `
+  CREATE TABLE IF NOT EXISTS audit_log (
+    audit_id TEXT PRIMARY KEY,
+    patient_id TEXT,
+    actor TEXT NOT NULL,              -- 'orchestrator' | 'caregiver' | 'slm' | 'system'
+    action TEXT NOT NULL,             -- human-readable action verb
+    resource_type TEXT NOT NULL,      -- 'alert' | 'sample' | 'consent' | 'slm_turn' | ...
+    resource_id TEXT,
+    payload_json TEXT,                -- structured details
+    hash_chain TEXT NOT NULL,         -- sha256(prev_hash || payload)
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_audit_resource
+    ON audit_log(resource_type, resource_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_audit_patient
+    ON audit_log(patient_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS consent_tokens (
+    token_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    scope TEXT NOT NULL,              -- e.g. 'fhir-share', 'pharmacy-communicator'
+    granted INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT,
+    created_at TEXT NOT NULL,
+    revoked_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_consent_patient_scope
+    ON consent_tokens(patient_id, scope, revoked_at);
+  `,
 ];

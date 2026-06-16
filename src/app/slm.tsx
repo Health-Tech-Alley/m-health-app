@@ -49,6 +49,27 @@ import { stripControlTokens } from '@/utils/stripControlTokens';
 
 type MessageStatus = 'streaming' | 'done' | 'stopped' | 'error';
 
+const PROMPT_INPUT_MIN_HEIGHT = 44;
+const PROMPT_INPUT_MAX_HEIGHT = 180;
+const PROMPT_INPUT_LINE_HEIGHT = 20;
+const PROMPT_INPUT_VERTICAL_PADDING = 20;
+const PROMPT_INPUT_APPROX_CHARS_PER_LINE = 34;
+
+function getPromptInputHeight(text: string): number {
+  if (!text) return PROMPT_INPUT_MIN_HEIGHT;
+
+  const approximateLines = text.split('\n').reduce((lines, segment) => {
+    return lines + Math.max(1, Math.ceil(segment.length / PROMPT_INPUT_APPROX_CHARS_PER_LINE));
+  }, 0);
+
+  const approximateHeight = approximateLines * PROMPT_INPUT_LINE_HEIGHT + PROMPT_INPUT_VERTICAL_PADDING;
+
+  return Math.min(
+    PROMPT_INPUT_MAX_HEIGHT,
+    Math.max(PROMPT_INPUT_MIN_HEIGHT, approximateHeight),
+  );
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -174,13 +195,11 @@ export default function SLMScreen() {
   const [inputText, setInputText] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
-  const [inputHeight, setInputHeight] = useState(40);
+  const [inputHeight, setInputHeight] = useState(PROMPT_INPUT_MIN_HEIGHT);
 
   const handleInputChange = useCallback((text: string) => {
     setInputText(text);
-    if (!text) {
-      setInputHeight(40);
-    }
+    setInputHeight(getPromptInputHeight(text));
   }, []);
   const abortControllerRef = useRef<AbortController | null>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -640,18 +659,8 @@ export default function SLMScreen() {
                 height: inputHeight,
               },
             ]}
-            onContentSizeChange={(e) => {
-              const next = e.nativeEvent.contentSize.height;
-              // Empty / placeholder / single-line content should stay at the
-              // one-line minimum (40). Only grow once the text actually wraps.
-              if (next <= 22) {
-                setInputHeight(40);
-              } else {
-                setInputHeight(Math.min(180, Math.max(40, next + 16)));
-              }
-            }}
             textAlignVertical="top"
-            scrollEnabled={false}
+            scrollEnabled={inputHeight >= PROMPT_INPUT_MAX_HEIGHT - 1}
           />
           {state.runStatus === 'streaming' ? (
             <Pressable onPress={handleStop} style={[styles.sendButton, styles.stopButton]}>
@@ -918,8 +927,8 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    minHeight: 40,
-    maxHeight: 180,
+    minHeight: PROMPT_INPUT_MIN_HEIGHT,
+    maxHeight: PROMPT_INPUT_MAX_HEIGHT,
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 8,

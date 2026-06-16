@@ -6,10 +6,12 @@
  *
  *   1. Receives events from the event bus.
  *   2. Runs the CEP engine.
- *   3. Uses the MCP client to call agents deterministically.
+ *   3. Fans out to L4 agents in parallel and enforces the safety-reviewer verdict.
  *   4. Decides when to invoke the SLM (only after caregiver ground truth, or
  *      on-demand for "Explain").
- *   5. Surfaces a transparency trace and citations for every AI action.
+ *   5. Routes egress-bearing actions through the consent gate.
+ *   6. Writes a tamper-evident audit entry for every clinically significant action.
+ *   7. Surfaces a transparency trace and citations for every AI action.
  */
 
 import {
@@ -25,12 +27,35 @@ import {
 } from '@/data';
 import type { InferenceProvider } from '@/inference/inference-provider';
 import type { FusedRetriever } from '@/knowledge';
+import { audit, auditAlertCreated, auditCaregiverAction, auditSampleRead, auditSlmTurn } from '@/services/audit/auditService';
+import { checkEgressConsent } from '@/services/consent/consentGate';
+import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
+import { AlertMlService } from '@/services/ml/alert-ml-service';
 
-import { createAllAgents } from './agents';
+import {
+  CaregiverAgent,
+  CoordinatorAgent,
+  PatientStateAgent,
+  SafetyReviewerAgent,
+  createAllAgents,
+  type Agent,
+  type AgentContext,
+  type AgentProposalInternal,
+  type ProposedAction,
+} from './agents';
 import { createDefaultCepEngine, type CepEngine } from './cep';
 import { getEventBus, type EventBus } from './event-bus';
 import type { OrchestrationEvent } from './events';
 import { buildAggregatedContext, type AggregatedContext } from './context-aggregator';
+import {
+  GraphProjector,
+  buildContextSubgraph,
+  writeSampleEdges,
+  writeAlertEdges,
+  writeActionEdges,
+  writeSlmTurnEdges,
+  writeTriggerEdges,
+} from '@/knowledge/graph';
 import {
   createInProcessMcp,
   type InProcessMcpClient,
@@ -40,6 +65,7 @@ import { TOOL_SCHEMAS } from './mcp/tool-registry';
 export type OrchestratorConfig = {
   slm: InferenceProvider;
   retriever: FusedRetriever;
+  alertMl?: AlertMlModel;
   bus?: EventBus;
 };
 
@@ -66,13 +92,21 @@ export type TraceStep = {
   result?: unknown;
 };
 
+function formatScore(score: unknown): string {
+  return typeof score === 'number' && Number.isFinite(score) ? score.toFixed(3) : 'n/a';
+}
+
 export class Orchestrator {
   private slm: InferenceProvider;
   private retriever: FusedRetriever;
   private client: InProcessMcpClient;
   private cep: CepEngine;
+  private alertMlService?: AlertMlService;
+  private graphProjector = new GraphProjector();
   private unsubscribe?: () => void;
   private trace: TraceStep[] = [];
+  private agents: Agent[];
+  private safetyReviewer = new SafetyReviewerAgent();
 
   constructor(config: OrchestratorConfig) {
     this.slm = config.slm;
@@ -80,18 +114,43 @@ export class Orchestrator {
     const { client } = createInProcessMcp({ tools: createAllAgents() });
     this.client = client;
     this.cep = createDefaultCepEngine();
-    this.unsubscribe = (config.bus ?? getEventBus()).subscribe(
-      'vitals_sample',
-      (event) => {
-        if (event.type === 'vitals_sample') {
-          void this.handleVitalsSample(event);
-        }
-      },
-    );
+    if (config.alertMl) {
+      this.alertMlService = new AlertMlService(config.alertMl);
+    }
+
+    this.agents = [
+      new PatientStateAgent(),
+      new CaregiverAgent(),
+      new CoordinatorAgent(),
+    ];
+
+    const bus = config.bus ?? getEventBus();
+    const unsubVitals = bus.subscribe('vitals_sample', (event) => {
+      if (event.type === 'vitals_sample') {
+        void this.handleVitalsSample(event);
+      }
+    });
+    const unsubMl = bus.subscribe('ml_alert_created', (event) => {
+      if (event.type === 'ml_alert_created') {
+        void this.handleMlAlert(event);
+      }
+    });
+    const unsubOverride = bus.subscribe('caregiver_override', (event) => {
+      if (event.type === 'caregiver_override') {
+        void this.handleCaregiverOverride(event);
+      }
+    });
+
+    this.unsubscribe = () => {
+      unsubVitals();
+      unsubMl();
+      unsubOverride();
+    };
   }
 
   dispose(): void {
     this.unsubscribe?.();
+    void this.alertMlService?.release();
   }
 
   private addTrace(step: TraceStep): void {
@@ -117,9 +176,14 @@ export class Orchestrator {
       receivedAt: new Date().toISOString(),
     };
     insertHealthSample(sample);
+    writeSampleEdges(event.patientId, event.sampleId, event.sampleType as HealthSample['type']);
+    auditSampleRead(event.patientId, event.sampleId, 'system');
 
     const cepAction = this.cep.ingest(event);
-    if (cepAction?.type === 'drop') return;
+    if (cepAction?.type === 'drop') {
+      audit({ actor: 'orchestrator', action: 'cep_drop', resourceType: 'sample', resourceId: event.sampleId, patientId: event.patientId, payload: { reason: cepAction.reason } });
+      return;
+    }
 
     // Always check thresholds; severity-3 violations short-circuit to the fast path.
     const check = await this.client.callTool('check_threshold_violation', {
@@ -142,6 +206,53 @@ export class Orchestrator {
     if (maxSeverity === 2 || maxSeverity === 1) {
       await this.createAlert(event, maxSeverity as 1 | 2, violations);
     }
+
+    // Run the Alert ML model asynchronously after threshold handling.
+    if (this.alertMlService) {
+      try {
+        await this.alertMlService.evaluate(event.patientId, event);
+      } catch (err) {
+        console.error('[Orchestrator] Alert ML evaluation failed:', err);
+      }
+    }
+  }
+
+  private async handleMlAlert(event: Extract<OrchestrationEvent, { type: 'ml_alert_created' }>): Promise<void> {
+    const alert: Alert = {
+      alertId: event.alertId,
+      patientId: event.patientId,
+      severity: event.severity,
+      status: 'open',
+      title: `ML anomaly detected (score ${formatScore(event.score)})`,
+      body: `Alert ML flagged an anomaly based on recent vitals.`,
+      mlScore: event.score,
+      mlFeaturesJson: JSON.stringify(event.features),
+      createdAt: event.at,
+    };
+    insertAlert(alert);
+    auditAlertCreated(event.patientId, alert.alertId, {
+      mlScore: event.score,
+      severity: event.severity,
+      features: event.features,
+    });
+
+    // Run multi-agent fan-out so the coordinator can propose immediate actions.
+    await this.fanOutAndExecute({
+      patientId: event.patientId,
+      intent: `ML alert ${alert.alertId}`,
+      alertId: alert.alertId,
+    });
+  }
+
+  private async handleCaregiverOverride(event: Extract<OrchestrationEvent, { type: 'caregiver_override' }>): Promise<void> {
+    audit({
+      actor: 'caregiver',
+      action: event.action,
+      resourceType: 'alert',
+      resourceId: event.alertId,
+      patientId: event.patientId,
+      payload: { note: event.note },
+    });
   }
 
   private async emergencyFastPath(
@@ -158,11 +269,21 @@ export class Orchestrator {
       createdAt: new Date().toISOString(),
     };
     insertAlert(alert);
+    writeAlertEdges(event.patientId, alert.alertId);
+    for (const v of violations) {
+      writeTriggerEdges(event.sampleId, v.thresholdId, alert.alertId);
+    }
+    auditAlertCreated(event.patientId, alert.alertId, { source: 'threshold', violations });
 
-    await this.client.callTool('dispatch_alert_notification', {
-      alertId: alert.alertId,
-      bypassDnd: true,
-    });
+    // Egress-bearing notification still goes through consent gate for audit; in
+    // the severity-3 fast path the caregiver must still direct the action.
+    const consent = checkEgressConsent(event.patientId, 'dispatch_alert_notification');
+    if (consent.allowed) {
+      await this.client.callTool('dispatch_alert_notification', {
+        alertId: alert.alertId,
+        bypassDnd: true,
+      });
+    }
 
     console.log('[Orchestrator] Emergency fast path triggered for', alert.alertId);
   }
@@ -182,6 +303,77 @@ export class Orchestrator {
       createdAt: new Date().toISOString(),
     };
     insertAlert(alert);
+    writeAlertEdges(event.patientId, alert.alertId);
+    for (const v of violations) {
+      writeTriggerEdges(event.sampleId, v.thresholdId, alert.alertId);
+    }
+    auditAlertCreated(event.patientId, alert.alertId, { source: 'threshold', violations });
+  }
+
+  /**
+   * Multi-agent fan-out.
+   *
+   * Runs patient-state, caregiver, and coordinator agents in parallel,
+   * collects proposals, enforces the safety-reviewer verdict, applies the
+   * consent gate to egress-bearing actions, and executes allowed actions.
+   */
+  private async fanOutAndExecute(ctx: Omit<AgentContext, 'aggregatedContext'>): Promise<AgentProposalInternal[]> {
+    const aggregatedContext = await buildAggregatedContext(ctx.patientId, ctx.intent, this.retriever);
+    const fullContext: AgentContext = { ...ctx, aggregatedContext };
+
+    const proposals = await Promise.all(
+      this.agents.map((agent) => agent.propose(fullContext).catch((err) => {
+        console.error(`[Orchestrator] Agent ${agent.name} failed:`, err);
+        return {
+          agent: agent.name,
+          message: '',
+          proposedActions: [],
+          citations: [],
+          safetyNotes: [`Agent ${agent.name} failed: ${err instanceof Error ? err.message : String(err)}`],
+        };
+      })),
+    );
+
+    const verdict = this.safetyReviewer.review(proposals, fullContext);
+    if (verdict.status === 'block') {
+      audit({
+        actor: 'orchestrator',
+        action: 'block',
+        resourceType: 'agent_proposals',
+        resourceId: ctx.alertId,
+        patientId: ctx.patientId,
+        payload: { reason: verdict.reason },
+      });
+      return proposals;
+    }
+
+    const allActions = proposals.flatMap((p) => p.proposedActions);
+    for (const action of allActions) {
+      await this.executeProposedAction(action, ctx.patientId, ctx.alertId);
+    }
+
+    return proposals;
+  }
+
+  private async executeProposedAction(action: ProposedAction, patientId: string, alertId?: string): Promise<void> {
+    const consent = checkEgressConsent(patientId, action.tool);
+    if (!consent.allowed) {
+      audit({
+        actor: 'orchestrator',
+        action: 'consent_denied',
+        resourceType: 'tool',
+        resourceId: action.tool,
+        patientId,
+        payload: { reason: consent.reason, alertId },
+      });
+      return;
+    }
+
+    await this.callTool(action.tool, {
+      ...action.args,
+      alertId: alertId ?? action.args.alertId,
+      patientId,
+    });
   }
 
   /**
@@ -199,10 +391,22 @@ export class Orchestrator {
     const patientId = alert.patientId;
     const intent = `Explain alert ${alertId}: ${alert.title}`;
 
+    // Fan out agents first to collect proposed actions and safety notes.
+    const agentProposals = await this.fanOutAndExecute({
+      patientId,
+      intent,
+      alertId,
+      caregiverId,
+    });
+
     this.addTrace({ agent: 'orchestrator', thought: 'Building aggregated context for SLM explain.' });
     const context = await buildAggregatedContext(patientId, intent, this.retriever);
 
-    const prompt = this.buildExplainPrompt(context, alert);
+    this.addTrace({ agent: 'orchestrator', thought: 'Building knowledge-graph context subgraph.' });
+    const graph = this.graphProjector.build(patientId);
+    const subgraph = buildContextSubgraph(graph, patientId, alertId);
+
+    const prompt = this.buildExplainPrompt(context, alert, agentProposals, subgraph);
     const turnId = `turn-${Date.now()}`;
 
     this.addTrace({ agent: 'orchestrator', thought: 'Calling SLM with RAG context and tool schemas.' });
@@ -220,11 +424,15 @@ export class Orchestrator {
       turnId,
       alertId,
       patientId,
+      modelId: 'slm',
+      latencyMs: slmResult.latencyMs,
       createdAt: new Date().toISOString(),
     };
     insertSlmTurn(turn, citations);
+    writeSlmTurnEdges(turnId, alertId, citations);
+    auditSlmTurn(patientId, turnId, { alertId, latencyMs: slmResult.latencyMs });
 
-    insertCaregiverAction({
+    const action: CaregiverAction = {
       actionId: `act-${Date.now()}`,
       alertId,
       patientId,
@@ -232,7 +440,10 @@ export class Orchestrator {
       type: 'ask_slm',
       payloadJson: JSON.stringify({ turnId, prompt }),
       createdAt: new Date().toISOString(),
-    });
+    };
+    insertCaregiverAction(action);
+    writeActionEdges(action.actionId, alertId, caregiverId);
+    auditCaregiverAction(patientId, action.actionId, action.type, alertId);
 
     const proposal = this.parseProposal(slmResult.text, context, alertId);
     proposal.trace = this.trace;
@@ -260,6 +471,8 @@ export class Orchestrator {
       createdAt: new Date().toISOString(),
     };
     insertCaregiverAction(action);
+    writeActionEdges(action.actionId, alertId, caregiverId);
+    auditCaregiverAction(action.patientId, action.actionId, action.type, alertId);
 
     // Log the observation and re-run explain with the new fact.
     await this.client.callTool('log_observation', {
@@ -328,10 +541,46 @@ export class Orchestrator {
     ].join('\n');
   }
 
-  private buildExplainPrompt(context: AggregatedContext, alert: Alert): string {
+  private buildExplainPrompt(
+    context: AggregatedContext,
+    alert: Alert,
+    agentProposals: AgentProposalInternal[],
+    subgraph: import('@/knowledge/graph').ContextSubgraph,
+  ): string {
+    const agentNotes = agentProposals
+      .flatMap((p) => p.safetyNotes)
+      .map((n) => `- ${n}`)
+      .join('\n');
+
+    const graphVitals = subgraph.recentSamples
+      .slice(0, 10)
+      .map((n) => `- ${n.label} at ${String(n.data.recordedAt)}`)
+      .join('\n');
+
+    const graphThresholds = subgraph.activeThresholds
+      .map((n) => `- ${n.label} (severity ${n.data.severity})`)
+      .join('\n');
+
+    const graphMeds = subgraph.relatedMedications
+      .map((n) => `- ${n.label}`)
+      .join('\n');
+
     return [
       `Alert: ${alert.title}`,
       `Severity: ${alert.severity}`,
+      typeof alert.mlScore === 'number' ? `ML anomaly score: ${formatScore(alert.mlScore)}` : '',
+      '',
+      'Agent safety notes:',
+      agentNotes || 'None',
+      '',
+      'Recent graph-derived vitals:',
+      graphVitals || 'No recent samples',
+      '',
+      'Active thresholds from care graph:',
+      graphThresholds || 'None',
+      '',
+      'Active medications from care graph:',
+      graphMeds || 'None documented',
       '',
       'Explain what this alert means for this specific patient, what the caregiver should do now,',
       'and what red flags would require calling emergency services.',

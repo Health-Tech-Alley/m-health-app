@@ -9,3 +9,4 @@ export * from './dense-index';
 export * from './rrf';
 export * from './fused-retriever';
 export * from './corpora/fixtures';
+export * from './graph';

@@ -19,7 +19,11 @@ export {
   updateAlertStatus,
   insertCaregiverAction,
   getActionsForAlert,
+  resolveAllAlerts,
 } from './repositories/alertRepository';
 export * from './repositories/ragRepository';
 export * from './repositories/patientRepository';
+export * from './repositories/auditRepository';
+export * from './repositories/consentRepository';
+export * from './sensors';
 export { seedDatabaseFromProfile } from './seed/seedFromProfile';

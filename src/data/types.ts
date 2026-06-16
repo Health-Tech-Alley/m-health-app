@@ -108,6 +108,28 @@ export interface TriggerEvent {
   createdAt: string;
 }
 
+export interface AuditLogEntry {
+  auditId: string;
+  patientId?: string;
+  actor: 'orchestrator' | 'caregiver' | 'slm' | 'system';
+  action: string;
+  resourceType: string;
+  resourceId?: string;
+  payloadJson?: string;
+  hashChain: string;
+  createdAt: string;
+}
+
+export interface ConsentToken {
+  tokenId: string;
+  patientId: string;
+  scope: string;
+  granted: boolean;
+  expiresAt?: string;
+  createdAt: string;
+  revokedAt?: string;
+}
+
 export interface Patient {
   patientId: string;
   name: string;

@@ -93,3 +93,14 @@ export function getActionsForAlert(alertId: string): CaregiverAction[] {
     alertId,
   );
 }
+
+export function resolveAllAlerts(patientId: string): void {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.runSync(
+    `UPDATE alerts SET status = 'resolved', resolved_at = ?
+     WHERE patient_id = ? AND status != 'resolved';`,
+    now,
+    patientId,
+  );
+}

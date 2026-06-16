@@ -9,8 +9,10 @@
  *   5. Caregiver answers the question; orchestrator re-runs with the new fact.
  */
 
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Animated,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,9 +28,82 @@ import {
   useOrchestratorPatientId,
 } from '@/contexts/orchestrator-context';
 import { useSLM } from '@/contexts/slm-context';
-import { getActiveAlerts } from '@/data';
+import { getActiveAlerts, resolveAllAlerts, updateAlertStatus } from '@/data';
 import type { Alert } from '@/data/types';
 import { getEventBus, type OrchestrationEvent, type AgentProposal } from '@/orchestration';
+
+const SWIPE_THRESHOLD = 80;
+
+function SwipeableAlertRow({
+  alert,
+  onExplain,
+  onDismiss,
+}: {
+  alert: Alert;
+  onExplain: (alertId: string) => void;
+  onDismiss: (alertId: string) => void;
+}) {
+  const [translateX] = useState(() => new Animated.Value(0));
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          return (
+            Math.abs(gestureState.dx) > 10 &&
+            Math.abs(gestureState.dx) > Math.abs(gestureState.dy)
+          );
+        },
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dx < 0) {
+            translateX.setValue(gestureState.dx);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dx < -SWIPE_THRESHOLD) {
+            Animated.timing(translateX, {
+              toValue: -300,
+              duration: 200,
+              useNativeDriver: true,
+            }).start(() => onDismiss(alert.alertId));
+          } else {
+            Animated.spring(translateX, {
+              toValue: 0,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+      }),
+    [translateX, onDismiss, alert.alertId],
+  );
+
+  const severityColor =
+    alert.severity === 3 ? '#B42318' : alert.severity === 2 ? '#B54708' : '#0E6F68';
+
+  return (
+    <View style={styles.swipeableRow}>
+      <View style={styles.swipeBackground}>
+        <Text style={styles.swipeText}>Dismissed</Text>
+      </View>
+      <Animated.View
+        style={[styles.alertRowContainer, { transform: [{ translateX }] }]}
+        {...panResponder.panHandlers}>
+        <View style={[styles.severityDot, { backgroundColor: severityColor }]} />
+        <View style={styles.alertBody}>
+          <Text style={styles.alertTitle}>{alert.title}</Text>
+          <Text style={styles.muted}>{alert.body}</Text>
+          {alert.severity < 3 && (
+            <Pressable
+              style={[styles.button, styles.secondaryButton]}
+              onPress={() => onExplain(alert.alertId)}>
+              <Text style={styles.secondaryButtonText}>Explain with SLM</Text>
+            </Pressable>
+          )}
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
 
 export default function AcuteAnomalyScreen() {
   const orchestrator = useOrchestrator();
@@ -42,19 +117,36 @@ export default function AcuteAnomalyScreen() {
   });
 
   const [spo2, setSpo2] = useState('86');
-  const [heartRate, setHeartRate] = useState('95');
+  const [heartRate, setHeartRate] = useState('110');
   const [proposal, setProposal] = useState<AgentProposal | null>(null);
   const [loading, setLoading] = useState(false);
 
-  function log(message: string): void {
+  useEffect(() => {
+    const bus = getEventBus();
+    const unsub1 = bus.subscribe('vitals_sample', () => {
+      setTimeout(() => setAlerts(getActiveAlerts(patientId)), 200);
+    });
+    const unsub2 = bus.subscribe('ml_alert_created', () => {
+      setTimeout(() => setAlerts(getActiveAlerts(patientId)), 200);
+    });
+    return () => {
+      unsub1();
+      unsub2();
+    };
+  }, [patientId]);
+
+  const log = useCallback((message: string) => {
     setLogs((prev) => [...prev, message]);
-  }
+  }, []);
 
-  function refreshAlerts(pid: string): void {
-    setAlerts(getActiveAlerts(pid));
-  }
+  const refreshAlerts = useCallback(
+    (pid: string) => {
+      setAlerts(getActiveAlerts(pid));
+    },
+    [],
+  );
 
-  function simulateVitals(): void {
+  const simulateVitals = useCallback(() => {
     if (!patientId) {
       log('No patientId. Seed the database from onboarding first.');
       return;
@@ -85,47 +177,68 @@ export default function AcuteAnomalyScreen() {
     getEventBus().publish(hrEvent);
     log(`Published HR ${heartRate} bpm event`);
 
-    // Give the orchestrator a tick to process, then refresh.
     setTimeout(() => refreshAlerts(patientId), 50);
-  }
+  }, [patientId, spo2, heartRate, log, refreshAlerts]);
 
-  async function explainAlert(alertId: string): Promise<void> {
-    setLoading(true);
-    setProposal(null);
-    try {
-      if (slm.loadStatus !== 'ready') {
-        await slm.loadModel(CAREGIVER_SLM_MODEL_ID);
+  const explainAlert = useCallback(
+    async (alertId: string) => {
+      setLoading(true);
+      setProposal(null);
+      try {
+        if (slm.loadStatus !== 'ready') {
+          await slm.loadModel(CAREGIVER_SLM_MODEL_ID);
+        }
+        const result = await orchestrator.explainAlert(alertId, 'caregiver-1');
+        setProposal(result);
+        log(`SLM explanation received. Citations: ${result.citations.length}`);
+      } catch (err) {
+        log(`Explain failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setLoading(false);
       }
-      const result = await orchestrator.explainAlert(alertId, 'caregiver-1');
-      setProposal(result);
-      log(`SLM explanation received. Citations: ${result.citations.length}`);
-    } catch (err) {
-      log(`Explain failed: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setLoading(false);
-    }
-  }
+    },
+    [orchestrator, slm, log],
+  );
 
-  async function answerQuestion(option: string): Promise<void> {
-    if (!proposal?.clarifyingQuestion) return;
-    setLoading(true);
-    try {
-      const alertId = alerts[0]?.alertId;
-      if (!alertId) return;
-      const result = await orchestrator.answerClarifyingQuestion(
-        alertId,
-        'caregiver-1',
-        proposal.clarifyingQuestion.questionId,
-        option,
-      );
-      setProposal(result);
-      log('Clarifying question answered; SLM re-ran.');
-    } catch (err) {
-      log(`Answer failed: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const answerQuestion = useCallback(
+    async (option: string) => {
+      if (!proposal?.clarifyingQuestion) return;
+      setLoading(true);
+      try {
+        const alertId = alerts[0]?.alertId;
+        if (!alertId) return;
+        const result = await orchestrator.answerClarifyingQuestion(
+          alertId,
+          'caregiver-1',
+          proposal.clarifyingQuestion.questionId,
+          option,
+        );
+        setProposal(result);
+        log('Clarifying question answered; SLM re-ran.');
+      } catch (err) {
+        log(`Answer failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [proposal, alerts, orchestrator, log],
+  );
+
+  const dismissAlert = useCallback(
+    (alertId: string) => {
+      updateAlertStatus(alertId, 'resolved');
+      setAlerts((prev) => prev.filter((a) => a.alertId !== alertId));
+      log(`Alert ${alertId} dismissed`);
+    },
+    [log],
+  );
+
+  const clearAllAlerts = useCallback(() => {
+    resolveAllAlerts(patientId);
+    setAlerts([]);
+    setProposal(null);
+    log('All alerts cleared');
+  }, [patientId, log]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -164,33 +277,24 @@ export default function AcuteAnomalyScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Active Alerts</Text>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Active Alerts</Text>
+            {alerts.length > 0 && (
+              <Pressable onPress={clearAllAlerts} style={styles.clearButton}>
+                <Text style={styles.clearButtonText}>Clear All</Text>
+              </Pressable>
+            )}
+          </View>
           {alerts.length === 0 ? (
-            <Text style={styles.muted}>No active alerts.</Text>
+            <Text style={styles.muted}>No active alerts. Swipe left on an alert to dismiss it.</Text>
           ) : (
             alerts.map((alert) => (
-              <View key={alert.alertId} style={styles.alertRow}>
-                <View
-                style={[
-                  styles.severityDot,
-                  {
-                    backgroundColor:
-                      alert.severity === 3 ? '#B42318' : alert.severity === 2 ? '#B54708' : '#0E6F68',
-                  },
-                ]}
+              <SwipeableAlertRow
+                key={alert.alertId}
+                alert={alert}
+                onExplain={explainAlert}
+                onDismiss={dismissAlert}
               />
-                <View style={styles.alertBody}>
-                  <Text style={styles.alertTitle}>{alert.title}</Text>
-                  <Text style={styles.muted}>{alert.body}</Text>
-                  {alert.severity < 3 && (
-                    <Pressable
-                      style={[styles.button, styles.secondaryButton]}
-                      onPress={() => explainAlert(alert.alertId)}>
-                      <Text style={styles.secondaryButtonText}>Explain with SLM</Text>
-                    </Pressable>
-                  )}
-                </View>
-              </View>
             ))
           )}
         </View>
@@ -202,25 +306,29 @@ export default function AcuteAnomalyScreen() {
         )}
 
         {proposal && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>SLM Explanation</Text>
-            <View style={styles.answerBox}>
+          <View style={styles.explanationCard}>
+            <View style={styles.explanationHeader}>
+              <Text style={styles.explanationEyebrow}>SLM Analysis</Text>
+              <Text style={styles.explanationTitle}>Alert Explanation</Text>
+            </View>
+
+            <View style={styles.answerContainer}>
               <MarkdownRenderer size="large">{proposal.message}</MarkdownRenderer>
             </View>
 
             {proposal.citations.length > 0 && (
-              <>
-                <Text style={styles.sectionTitle}>Citations</Text>
+              <View style={styles.citationsSection}>
+                <Text style={styles.sectionTitle}>Clinical Citations</Text>
                 {proposal.citations.map((c) => (
                   <Text key={c} style={styles.citation}>
                     [{c}]
                   </Text>
                 ))}
-              </>
+              </View>
             )}
 
             {proposal.clarifyingQuestion && (
-              <>
+              <View style={styles.questionSection}>
                 <Text style={styles.sectionTitle}>Clarifying Question</Text>
                 <Text style={styles.questionText}>{proposal.clarifyingQuestion.question}</Text>
                 {proposal.clarifyingQuestion.options.map((option) => (
@@ -231,7 +339,7 @@ export default function AcuteAnomalyScreen() {
                     <Text style={styles.optionText}>{option}</Text>
                   </Pressable>
                 ))}
-              </>
+              </View>
             )}
           </View>
         )}
@@ -277,10 +385,26 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 12,
   },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   cardTitle: {
     fontSize: 18,
     fontWeight: '800',
     color: '#123433',
+  },
+  clearButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#FEE4E2',
+  },
+  clearButtonText: {
+    color: '#B42318',
+    fontWeight: '700',
+    fontSize: 13,
   },
   row: {
     flexDirection: 'row',
@@ -328,12 +452,33 @@ const styles = StyleSheet.create({
     color: '#526866',
     fontSize: 14,
   },
-  alertRow: {
+  swipeableRow: {
+    overflow: 'hidden',
+  },
+  swipeBackground: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: 0,
+    left: 0,
+    backgroundColor: '#B42318',
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingRight: 20,
+    borderRadius: 12,
+  },
+  swipeText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  alertRowContainer: {
     flexDirection: 'row',
     gap: 12,
-    paddingVertical: 8,
+    paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#12343315',
+    backgroundColor: '#FFFFFF',
   },
   severityDot: {
     width: 12,
@@ -349,10 +494,40 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#123433',
   },
-  answerBox: {
-    backgroundColor: '#F7FAF9',
-    borderRadius: 16,
+  explanationCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 0,
+    overflow: 'hidden',
+  },
+  explanationHeader: {
+    backgroundColor: '#0E6F68',
+    padding: 20,
+  },
+  explanationEyebrow: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 11,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+    opacity: 0.8,
+  },
+  explanationTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  answerContainer: {
+    padding: 20,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#D9E7E5',
+  },
+  citationsSection: {
     padding: 16,
+    backgroundColor: '#F7FAF9',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#D9E7E5',
   },
   sectionTitle: {
     color: '#0E6F68',
@@ -360,27 +535,34 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-    marginTop: 8,
+    marginBottom: 8,
   },
   citation: {
     color: '#526866',
     fontSize: 13,
+    lineHeight: 20,
+  },
+  questionSection: {
+    padding: 20,
+    gap: 12,
   },
   questionText: {
     color: '#123433',
     fontWeight: '700',
-    fontSize: 15,
+    fontSize: 16,
+    lineHeight: 22,
   },
   optionButton: {
     borderWidth: 1,
     borderColor: '#D9E7E5',
     borderRadius: 12,
-    padding: 12,
+    padding: 14,
     backgroundColor: '#F7FAF9',
   },
   optionText: {
     color: '#123433',
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: '500',
   },
   logLine: {
     color: '#526866',
