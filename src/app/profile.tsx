@@ -1,22 +1,460 @@
-import { StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { useRouter } from "expo-router";
+import type { ReactNode } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { AppIcon, type AppIconName } from "@/components/AppIcon";
+import { AppTheme } from "@/constants/theme";
+import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
+
+type DetailValue = string | number | boolean | null | undefined;
 
 export default function ProfileScreen() {
-  const { name } = useLocalSearchParams<{ name: string }>();
+  const router = useRouter();
+  const profile = getOnboardingProfile();
+
+  const caregiver = profile.caregiver;
+  const patient = profile.patient;
+  const provider = profile.primaryCareProvider;
+  const safety = profile.safety;
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView>
-        <ThemedText type="title">Profile</ThemedText>
-        {name && <ThemedText>{name}</ThemedText>}
-      </SafeAreaView>
-    </ThemedView>
+    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+      <View style={styles.root}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+        >
+          <View style={styles.profileHeader}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{getInitials(caregiver.name)}</Text>
+            </View>
+
+            <View style={styles.headerTextBlock}>
+              <Text style={styles.caregiverName}>
+                {formatDetailValue(caregiver.name)}
+              </Text>
+
+              <Text style={styles.roleText}>
+                Caregiver · {formatDetailValue(caregiver.relationship)}
+              </Text>
+
+              <Text style={styles.patientLink}>
+                Caring for {formatDetailValue(patient.name)},{" "}
+                {formatDetailValue(patient.age)}
+              </Text>
+            </View>
+          </View>
+
+          <ProfileCard title="Caregiver" icon="profile">
+            <DetailRow label="Name" value={caregiver.name} />
+            <DetailRow label="Relationship" value={caregiver.relationship} />
+            <DetailRow label="Phone" value={caregiver.phone} />
+            <DetailRow label="Experience" value={caregiver.experience} />
+            <DetailRow label="Availability" value={caregiver.availability} />
+            <DetailRow label="Main concern" value={caregiver.mainConcern} />
+            <DetailRow label="Language" value={caregiver.languagePreference} />
+          </ProfileCard>
+
+          <ProfileCard title="Patient" icon="care">
+            <DetailRow label="Name" value={patient.name} />
+            <DetailRow label="Age" value={patient.age} />
+            <DetailRow label="Conditions" value={patient.conditions} />
+            <DetailRow label="SpO₂ cutoff" value={patient.spo2Cutoff} />
+            <DetailRow label="Baseline HR" value={patient.baselineHeartRate} />
+            <DetailRow
+              label="Routine"
+              value={patient.baselineDailyRoutine}
+              multiline
+            />
+            <DetailRow
+              label="Medications"
+              value={patient.currentMedications}
+              multiline
+            />
+          </ProfileCard>
+
+          <ProfileCard title="Primary Care Provider" icon="provider">
+            <DetailRow label="Name" value={provider.name} />
+            <DetailRow label="Phone" value={provider.phone} />
+            <DetailRow label="Email" value={provider.email} />
+          </ProfileCard>
+
+          <ProfileCard title="Preferences" icon="bell">
+            <DetailRow label="Notifications" value={caregiver.notificationStyle} />
+            <DetailRow
+              label="Medical comfort"
+              value={formatMedicalComfort(caregiver.medicalComfortLevel)}
+            />
+            <DetailRow
+              label="Emergency comfort"
+              value={formatEmergencyComfort(caregiver.emergencyComfortLevel)}
+            />
+            <DetailRow label="Backup caregiver" value={caregiver.backupCaregiver} />
+            <DetailRow
+              label="Support needs"
+              value={caregiver.stressOrSupportNeeds}
+              multiline
+            />
+          </ProfileCard>
+
+          <ProfileCard title="Safety" icon="alert">
+            <DetailRow label="Emergency contact" value={safety?.emergencyContact} />
+            <DetailRow label="Safety notes" value={safety?.safetyNotes} multiline />
+            <DetailRow
+              label="911 disclaimer"
+              value={
+                safety?.emergencyDisclaimerAccepted
+                  ? "Accepted"
+                  : "Needs review"
+              }
+            />
+          </ProfileCard>
+        </ScrollView>
+
+        <View style={styles.bottomNav}>
+          <BottomNavItem
+            label="Home"
+            icon="home"
+            onPress={() => router.push("/dashboard")}
+          />
+
+          <BottomNavItem
+            label="Care"
+            icon="care"
+            alert
+            onPress={() => router.push("/care")}
+          />
+
+          <BottomNavItem
+            label="Meds"
+            icon="pill"
+            onPress={() => router.push("/medications")}
+          />
+
+          <BottomNavItem
+            label="Schedule"
+            icon="schedule"
+            onPress={() => router.push("/schedule")}
+          />
+
+          <BottomNavItem
+            label="Assistant"
+            icon="assistant"
+            onPress={() => router.push("/slm")}
+          />
+
+          <BottomNavItem
+            label="Profile"
+            icon="profile"
+            active
+            onPress={() => {}}
+          />
+        </View>
+      </View>
+    </SafeAreaView>
   );
 }
 
+function ProfileCard({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon: AppIconName;
+  children: ReactNode;
+}) {
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <View style={styles.cardIconCircle}>
+          <AppIcon name={icon} size={18} color={AppTheme.colors.brand} />
+        </View>
+
+        <Text style={styles.cardTitle}>{title}</Text>
+      </View>
+
+      {children}
+    </View>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  multiline,
+}: {
+  label: string;
+  value: DetailValue;
+  multiline?: boolean;
+}) {
+  return (
+    <View style={[styles.detailRow, multiline && styles.detailRowMultiline]}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text
+        style={[styles.detailValue, multiline && styles.detailValueMultiline]}
+      >
+        {formatDetailValue(value)}
+      </Text>
+    </View>
+  );
+}
+
+function BottomNavItem({
+  label,
+  icon,
+  active,
+  alert,
+  onPress,
+}: {
+  label: string;
+  icon: AppIconName;
+  active?: boolean;
+  alert?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={styles.navItem} onPress={onPress}>
+      <View style={[styles.navIconCircle, active && styles.navIconCircleActive]}>
+        <AppIcon
+          name={icon}
+          size={active ? 26 : 23}
+          color={active ? AppTheme.colors.white : AppTheme.colors.navMuted}
+        />
+
+        {alert ? <View style={styles.navAlertDot} /> : null}
+      </View>
+
+      <Text style={[styles.navLabel, active && styles.navLabelActive]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function getInitials(name: DetailValue): string {
+  const safeName = formatDetailValue(name);
+
+  if (safeName === "Not provided") {
+    return "CG";
+  }
+
+  return safeName
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function formatDetailValue(value: DetailValue): string {
+  if (value === null || value === undefined) {
+    return "Not provided";
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+
+  const text = String(value).trim();
+  return text.length > 0 ? text : "Not provided";
+}
+
+function formatMedicalComfort(value: DetailValue): string {
+  const text = formatDetailValue(value);
+
+  if (text === "Moderate detail") return "Moderate";
+  if (text === "Full clinical detail") return "Clinical detail";
+
+  return text;
+}
+
+function formatEmergencyComfort(value: DetailValue): string {
+  const text = formatDetailValue(value);
+
+  if (text === "Would call 911 if needed") return "Calls 911 if needed";
+  if (text === "Prefer provider first") return "Provider first";
+
+  return text;
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
+  safeArea: {
+    flex: 1,
+    backgroundColor: AppTheme.colors.screen,
+  },
+  root: {
+    flex: 1,
+    backgroundColor: AppTheme.colors.screen,
+  },
+  content: {
+    paddingHorizontal: 24,
+    paddingTop: 22,
+    paddingBottom: 112,
+  },
+
+  profileHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingBottom: 22,
+    marginBottom: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.colors.border,
+  },
+  avatar: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    backgroundColor: AppTheme.colors.brandSoft,
+    borderWidth: 1,
+    borderColor: "#B7FFF1",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 18,
+  },
+  avatarText: {
+    color: AppTheme.colors.brand,
+    fontSize: 21,
+    fontWeight: "900",
+  },
+  headerTextBlock: {
+    flex: 1,
+  },
+  caregiverName: {
+    color: AppTheme.colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+    marginBottom: 5,
+  },
+  roleText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 5,
+  },
+  patientLink: {
+    color: AppTheme.colors.brand,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+
+  card: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    marginBottom: 16,
+    overflow: "hidden",
+    ...AppTheme.shadow,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.colors.border,
+  },
+  cardIconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: AppTheme.colors.brandSoft,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  cardTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+  },
+
+  detailRow: {
+    minHeight: 48,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.colors.border,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  detailRowMultiline: {
+    alignItems: "flex-start",
+  },
+  detailLabel: {
+    flex: 1,
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  detailValue: {
+    flex: 1.25,
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+    textAlign: "right",
+  },
+  detailValueMultiline: {
+    textAlign: "right",
+  },
+
+  bottomNav: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    minHeight: 78,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 10,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.white,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  navItem: {
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 46,
+  },
+  navIconCircle: {
+    width: 44,
+    height: 34,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  navIconCircleActive: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: AppTheme.colors.brand,
+  },
+  navAlertDot: {
+    position: "absolute",
+    right: 4,
+    top: -2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: AppTheme.colors.danger,
+  },
+  navLabel: {
+    color: AppTheme.colors.navMuted,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  navLabelActive: {
+    color: AppTheme.colors.brand,
+  },
 });
