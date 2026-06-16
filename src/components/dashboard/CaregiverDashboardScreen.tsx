@@ -108,6 +108,14 @@ export function CaregiverDashboardScreen() {
       <Text style={styles.sectionTitle}>Prototype Tools</Text>
 
       <MainFeatureCard
+        title="Acute Anomaly Flow"
+        subtitle="End-to-end demo: simulate vitals, trigger alerts, and ask the SLM for an explanation with clarifying questions."
+        status="Uses MCP orchestration + RAG + threshold engine"
+        buttonLabel="Open Acute Anomaly"
+        onPress={() => router.push("/acute-anomaly")}
+      />
+
+      <MainFeatureCard
         title="RAM / Performance Check"
         subtitle="Track mobile resource constraints such as memory, latency, and device limits."
         status="Mock performance screen for simulator testing"

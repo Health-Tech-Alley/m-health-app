@@ -86,6 +86,21 @@ The caregiver's calendar view of the care plan in motion.
   from the on-device SLM with the patient's full care plan baked into the system prompt
   as ground truth. The chat input is multiline and auto-grows; the screen is safe-area
   aware so it never collides with the iOS home bar or status bar.
+- **MCP orchestration layer** — A single in-process orchestrator receives events from
+  the event bus, runs a deterministic CEP engine, calls four agents (caregiver /
+  patient-state / coordinator / safety-reviewer) through an MCP-style tool contract,
+  and decides when to invoke the SLM. The orchestrator is the only code path allowed
+  to touch the SLM, RAG, and data layers.
+- **Hybrid fused RAG** — One retrieval hop returns both MCP tool schemas (tool-RAG) and
+  clinical knowledge chunks (knowledge-RAG) from OpenEvidence, RxNorm, DailyMed, and
+  OpenFDA. Every clinical answer carries citations.
+- **On-device SQLite data layer** — `expo-sqlite` stores health samples, thresholds,
+  alerts, caregiver actions, SLM turns, RAG citations, and trigger events. The schema
+  is designed so SQLCipher can be swapped in later with minimal migration.
+- **Acute anomaly flow** — Simulated vitals feed the orchestrator; threshold violations
+  create alerts; severity-3 emergencies short-circuit to the emergency fast path;
+  lower-severity alerts can be explained by the SLM on demand, including multiple-choice
+  clarifying questions.
 
 ## Tech Stack
 
@@ -258,9 +273,9 @@ alert is never delayed; the SLM "Explain" runs on demand after the alert.
 ```
 m-health-app/
 ├── src/
-│   ├── app/                # Expo Router file-based routes (dashboard, slm, performance, ...)
+│   ├── app/                # Expo Router file-based routes (dashboard, slm, performance, acute-anomaly, ...)
 │   ├── components/         # Reusable UI components (dashboard cards, markdown renderer, ...)
-│   ├── contexts/           # React contexts (slm-context, ...)
+│   ├── contexts/           # React contexts (slm-context, orchestrator-context, ...)
 │   ├── hooks/ constants/   # Shared hooks + theme
 │   ├── inference/          # InferenceProvider seam, llama.rn adapter, model catalog
 │   ├── services/           # Service layer
@@ -271,12 +286,12 @@ m-health-app/
 │   │   └── ...
 │   ├── orchestration/      # MCP, event bus, CEP, context aggregator, agents
 │   ├── knowledge/          # hybrid RAG, re-ranker, fused retrieval
-│   ├── data/               # SQLite/SQLCipher, vector index, FHIR adapter, sensor bridges
+│   ├── data/               # SQLite (expo-sqlite), repositories, seed scripts
 │   ├── locator/            # geofence + CBO resource data (pharmacy locator, deferred)
 │   └── clinical-evidence/  # OpenEvidence + NLM/FDA API clients
 ├── assets/                 # Images, fonts, splash, icons
-├── app.json                # Expo config + native permissions
 ├── docs/                   # APP_GUIDE.md, MARKDOWN_GUIDE.md
+├── planning/               # Architecture, steel-thread, Apple Health, knowledge-graph plans
 ├── AGENTS.md               # Contributor / agent guide
 └── package.json            # "main": "expo-router/entry"
 ```

@@ -107,6 +107,33 @@ Below the header:
 - **Prototype Tools** section — RAM / Performance Check.
 - **RecentActivityCard** + **QuickActionsCard**.
 
+### Acute Anomaly Flow (`acute-anomaly.tsx`)
+
+An end-to-end orchestration demo that exercises the MCP layer, the RAG system,
+the SQLite data layer, and the SLM in one flow.
+
+- **Simulate vitals** — The caregiver enters SpO2 and heart-rate values and taps
+  "Send vitals to orchestrator". The screen publishes `vitals_sample` events on
+  the orchestration event bus rather than writing directly to the database.
+- **Orchestrator processing** — `Orchestrator.handleVitalsSample()` persists the
+  sample, runs the CEP engine, checks active thresholds via the
+  `safety-reviewer-agent`, and creates an alert. Severity-3 violations dispatch
+  the emergency fast path immediately; severity 1–2 alerts wait for caregiver
+  ground truth or an explicit "Explain" tap.
+- **Explain with SLM** — For non-emergency alerts, the caregiver taps
+  "Explain with SLM". The orchestrator builds an aggregated context via
+  `ContextAggregator`, runs the fused retriever (`src/knowledge/fused-retriever.ts`)
+  for tool-RAG + knowledge-RAG, and calls the SLM through the global
+  `InferenceProvider`.
+- **Multiple-choice clarifying questions** — If the SLM needs more information,
+  it can return a `QUESTION:` block with `OPTIONS:`. The UI renders these as
+  buttons. The caregiver's choice is logged as a `answer_clarifying_question`
+  action and the orchestrator re-runs the explanation with the new fact.
+- **Citations** — Every explanation shows the `docId` citations from the
+  retrieved clinical chunks.
+
+The screen is wrapped in `SafeAreaView edges={['top', 'bottom']}`.
+
 ### Performance / RAM Dashboard (`performance.tsx`)
 
 A live, 1 Hz RAM dashboard backed by
@@ -196,9 +223,11 @@ Implements the canonical ST-01-style flow:
 ### Onboarding (`onboarding.tsx`)
 
 First-run intake that populates the `OnboardingProfile` in the
-`onboardingService`. Drives the Care Context card and the SLM system
-prompt. Stores in memory only for now; the in-memory store is
-deliberately the same shape as the eventual SQLCipher-backed store.
+`onboardingService`. On app start, `OrchestratorProvider` seeds the local
+SQLite database from the onboarding profile via
+`src/data/seed/seedFromProfile.ts`. The seeded patient, caregiver,
+conditions, medications, and initial thresholds drive the Care Context
+card, the SLM system prompt, and the orchestrator's threshold engine.
 
 ### Other screens
 
@@ -256,6 +285,35 @@ sees on every turn. It has three blocks:
    backup; care team; safety / emergency contact), used as ground truth.
 3. **Closing reminder** — A short restatement of the personalization,
    Markdown, and escalation rules.
+
+### Data layer (`src/data/`)
+
+Uses `expo-sqlite` with a migration-driven schema. Tables include:
+`patients`, `caregivers`, `medications`, `patient_conditions`,
+`health_samples`, `thresholds`, `alerts`, `caregiver_actions`,
+`rag_citations`, `slm_turns`, `trigger_events`, and `graph_edges`.
+Repositores in `src/data/repositories/` are the only sanctioned
+read/write surface. The schema is designed so SQLCipher can be swapped
+in later with minimal changes.
+
+### RAG (`src/knowledge/`)
+
+`TrackAFusedRetriever` is the public seam. One `retrieve()` call returns
+both MCP tool schemas (tool-RAG) and clinical knowledge chunks
+(knowledge-RAG) in a single hop using BM25 + deterministic hash
+embedder + reciprocal rank fusion. Track A runs over synthetic fixtures
+for OpenEvidence, RxNorm, DailyMed, OpenFDA, and the patient plan.
+Track B will use a real sub-1B embedder via `react-native-fast-tflite`
+and live clinical clients.
+
+### MCP orchestration (`src/orchestration/`)
+
+The `Orchestrator` is the single chokepoint. It subscribes to the event
+bus, runs the CEP engine, calls four agents through an in-process
+MCP-style tool contract (`caregiver`, `patient-state`, `coordinator`,
+`safety-reviewer`), and invokes the SLM only after caregiver ground
+truth or on an explicit "Explain" tap. It builds a transparency trace
+and surfaces citations from the fused retriever.
 
 ### Alert ML (`react-native-fast-tflite`)
 
