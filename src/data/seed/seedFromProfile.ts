@@ -16,6 +16,8 @@ import {
 } from '../repositories/patientRepository';
 import { replaceThresholdsForVital } from '../repositories/thresholdRepository';
 import type { Threshold } from '../types';
+import { upsertMedicationSchedule } from '../repositories/medicationScheduleRepository';
+import { ensureDefaultNotificationPreferences } from '../repositories/notificationRepository';
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
@@ -79,13 +81,29 @@ export function seedDatabaseFromProfile(
     .split(',')
     .map((m) => m.trim())
     .filter(Boolean);
+  const freqLower = (profile.patient.currentMedications ?? '').toLowerCase();
   for (const name of medNames) {
+    const medId = makeId('med');
     upsertMedication({
-      medicationId: makeId('med'),
+      medicationId: medId,
       patientId,
       name,
       active: true,
     });
+    // Seed medication schedules from frequency text (best-effort parse).
+    const times: string[] = freqLower.includes('twice') || freqLower.includes('q12') || freqLower.includes('bid')
+      ? ['08:00', '20:00']
+      : ['08:00'];
+    for (const time of times) {
+      upsertMedicationSchedule({
+        scheduleId: makeId('sched'),
+        medicationId: medId,
+        patientId,
+        timeOfDay: time,
+        active: true,
+        createdAt: now,
+      });
+    }
   }
 
   // Seed initial thresholds from the profile where we can parse numbers.
@@ -141,6 +159,9 @@ export function seedDatabaseFromProfile(
       replaceThresholdsForVital(patientId, vitalType, byVital[vitalType]);
     }
   }
+
+  // Ensure default notification preferences exist.
+  ensureDefaultNotificationPreferences();
 
   return patientId;
 }

@@ -95,6 +95,8 @@ export interface SlmTurn {
   promptHash?: string;
   responseHash?: string;
   latencyMs?: number;
+  tokensGenerated?: number;
+  peakRamBytes?: number;
   createdAt: string;
 }
 
@@ -176,4 +178,100 @@ export interface PatientCondition {
   name: string;
   icd10?: string;
   onsetDate?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Medication schedules (structured reminder times)
+// ---------------------------------------------------------------------------
+
+export interface MedicationSchedule {
+  scheduleId: string;
+  medicationId: string;
+  patientId: string;
+  timeOfDay: string; // 'HH:mm' 24h local
+  daysOfWeek?: string; // CSV '0,1,2,3,4,5,6' (Sun..Sat) or null = daily
+  doseLabel?: string;
+  active: boolean;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+export type NotificationScope = 'anomaly' | 'medication' | 'appointment' | 'care_task';
+
+export interface NotificationRecord {
+  notificationId: string;
+  patientId: string;
+  scope: NotificationScope;
+  triggerRef?: string; // alertId | scheduleId | appointmentId
+  title: string;
+  body: string;
+  severity?: number;
+  bypassDnd: boolean;
+  deliveredAt?: string;
+  dismissedAt?: string;
+  actionTaken?: string; // 'ack' | 'snooze' | 'open' | null
+  createdAt: string;
+}
+
+export interface NotificationPreferences {
+  anomaly: boolean;
+  medication: boolean;
+  appointment: boolean;
+  appointmentLeadTimeMin: number;
+  careTask: boolean;
+  quietHoursStart?: string; // 'HH:mm'
+  quietHoursEnd?: string;
+}
+
+// ---------------------------------------------------------------------------
+// App settings (persisted; consumed by SettingsContext)
+// ---------------------------------------------------------------------------
+
+export type AppMode = 'demo' | 'developer';
+export type ThemePreference = 'light' | 'dark' | 'system';
+
+export interface AppSettings {
+  mode: AppMode;
+  demoDefaultModelId: string;
+  theme: ThemePreference;
+  notifications: NotificationPreferences;
+}
+
+// ---------------------------------------------------------------------------
+// FHIR resource cache + export queue
+// ---------------------------------------------------------------------------
+
+export type FhirResourceKind = 'care_plan' | 'export_queue' | 'consent_snapshot';
+
+export interface FhirResource {
+  resourceType: string; // 'CarePlan' | 'Composition' | 'Consent' | 'Provenance' ...
+  resourceId: string;
+  version: number;
+  kind: FhirResourceKind;
+  payloadJson: string;
+  lastSyncedAt: string;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Next-step actions (anomaly detection flow)
+// ---------------------------------------------------------------------------
+
+export type NextStepActionId =
+  | 'call_911'
+  | 'go_to_er'
+  | 'contact_pcp'
+  | 'geofence_service'
+  | 'schedule_urgent_appt'
+  | 'share_record'
+  | 'monitor_home'
+  | 'log_note';
+
+export interface NextStep {
+  actionId: NextStepActionId;
+  label: string;
+  rationale?: string;
 }

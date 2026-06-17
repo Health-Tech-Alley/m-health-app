@@ -10,3 +10,4 @@ export * from './orchestrator';
 export * from './mcp/tool-registry';
 export * from './mcp/mcp-in-process';
 export * from './agents';
+export * from './next-steps';

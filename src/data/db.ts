@@ -77,6 +77,14 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS medications;
     DROP TABLE IF EXISTS patient_conditions;
     DROP TABLE IF EXISTS care_plans;
+    DROP TABLE IF EXISTS care_plan_goals;
+    DROP TABLE IF EXISTS slm_turns;
+    DROP TABLE IF EXISTS slm_citations;
+    DROP TABLE IF EXISTS fhir_resources;
+    DROP TABLE IF EXISTS medication_schedules;
+    DROP TABLE IF EXISTS notifications;
+    DROP TABLE IF EXISTS notification_preferences;
+    DROP TABLE IF EXISTS app_settings;
     DROP TABLE IF EXISTS __migrations;
   `);
   closeDatabase();

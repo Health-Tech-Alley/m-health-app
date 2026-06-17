@@ -61,6 +61,11 @@ import {
   type InProcessMcpClient,
 } from './mcp/mcp-in-process';
 import { TOOL_SCHEMAS } from './mcp/tool-registry';
+import {
+  NEXT_STEP_TAXONOMY,
+  isValidActionId,
+} from './next-steps';
+import type { NextStep, NextStepActionId } from '@/data/types';
 
 export type OrchestratorConfig = {
   slm: InferenceProvider;
@@ -80,6 +85,7 @@ export type AgentProposal = {
   citations: string[];
   proposedActions: { tool: string; args: Record<string, unknown>; rationale: string }[];
   clarifyingQuestion?: ClarifyingQuestion;
+  nextSteps?: NextStep[];
   safety: { ok: boolean; notes: string[] };
   trace: TraceStep[];
 };
@@ -107,6 +113,8 @@ export class Orchestrator {
   private trace: TraceStep[] = [];
   private agents: Agent[];
   private safetyReviewer = new SafetyReviewerAgent();
+  private vitalsDebounce: Map<string, { timer: ReturnType<typeof setTimeout>; events: OrchestrationEvent[] }> = new Map();
+  private static readonly DEBOUNCE_MS = 3000;
 
   constructor(config: OrchestratorConfig) {
     this.slm = config.slm;
@@ -151,6 +159,10 @@ export class Orchestrator {
   dispose(): void {
     this.unsubscribe?.();
     void this.alertMlService?.release();
+    for (const [, entry] of this.vitalsDebounce) {
+      clearTimeout(entry.timer);
+    }
+    this.vitalsDebounce.clear();
   }
 
   private addTrace(step: TraceStep): void {
@@ -178,6 +190,15 @@ export class Orchestrator {
     insertHealthSample(sample);
     writeSampleEdges(event.patientId, event.sampleId, event.sampleType as HealthSample['type']);
     auditSampleRead(event.patientId, event.sampleId, 'system');
+
+    // Severity-3 events bypass the debounce — they must be handled immediately.
+    const existing = this.vitalsDebounce.get(event.patientId);
+    if (existing) {
+      existing.events.push(event);
+    } else {
+      const entry = { timer: setTimeout(() => {}, 0), events: [event] };
+      this.vitalsDebounce.set(event.patientId, entry);
+    }
 
     const cepAction = this.cep.ingest(event);
     if (cepAction?.type === 'drop') {
@@ -208,11 +229,23 @@ export class Orchestrator {
     }
 
     // Run the Alert ML model asynchronously after threshold handling.
+    // Use debouncing: only run ML once per debounce window per patient.
     if (this.alertMlService) {
-      try {
-        await this.alertMlService.evaluate(event.patientId, event);
-      } catch (err) {
-        console.error('[Orchestrator] Alert ML evaluation failed:', err);
+      const debounceEntry = this.vitalsDebounce.get(event.patientId);
+      if (debounceEntry) {
+        clearTimeout(debounceEntry.timer);
+        debounceEntry.timer = setTimeout(async () => {
+          const batch = debounceEntry.events;
+          this.vitalsDebounce.delete(event.patientId);
+          try {
+            const latest = batch[batch.length - 1];
+            if (latest.type === 'vitals_sample') {
+              await this.alertMlService?.evaluate(latest.patientId, latest as Extract<OrchestrationEvent, { type: 'vitals_sample' }>);
+            }
+          } catch (err) {
+            console.error('[Orchestrator] Alert ML evaluation failed:', err);
+          }
+        }, Orchestrator.DEBOUNCE_MS);
       }
     }
   }
@@ -391,6 +424,18 @@ export class Orchestrator {
     const patientId = alert.patientId;
     const intent = `Explain alert ${alertId}: ${alert.title}`;
 
+    // Confidence router: if the alert is severity-3 with clear threshold
+    // violations and an unambiguous care-plan instruction, return preliminary
+    // guidance without loading the SLM. The caregiver can still tap "Ask
+    // assistant" for a full SLM explanation.
+    if (alert.severity === 3) {
+      const preliminary = this.buildPreliminaryGuidance(alert);
+      if (preliminary) {
+        this.addTrace({ agent: 'orchestrator', thought: 'Confidence router: returning preliminary guidance for severity-3 alert without SLM.' });
+        return preliminary;
+      }
+    }
+
     // Fan out agents first to collect proposed actions and safety notes.
     const agentProposals = await this.fanOutAndExecute({
       patientId,
@@ -406,7 +451,9 @@ export class Orchestrator {
     const graph = this.graphProjector.build(patientId);
     const subgraph = buildContextSubgraph(graph, patientId, alertId);
 
-    const prompt = this.buildExplainPrompt(context, alert, agentProposals, subgraph);
+    let prompt = this.buildExplainPrompt(context, alert, agentProposals, subgraph);
+    prompt = this.truncateToTokenBudget(prompt, 4096);
+
     const turnId = `turn-${Date.now()}`;
 
     this.addTrace({ agent: 'orchestrator', thought: 'Calling SLM with RAG context and tool schemas.' });
@@ -430,7 +477,7 @@ export class Orchestrator {
     };
     insertSlmTurn(turn, citations);
     writeSlmTurnEdges(turnId, alertId, citations);
-    auditSlmTurn(patientId, turnId, { alertId, latencyMs: slmResult.latencyMs });
+    auditSlmTurn(patientId, turnId, { alertId, latencyMs: slmResult.latencyMs, tokensGenerated: slmResult.tokensGenerated });
 
     const action: CaregiverAction = {
       actionId: `act-${Date.now()}`,
@@ -448,6 +495,8 @@ export class Orchestrator {
     const proposal = this.parseProposal(slmResult.text, context, alertId);
     proposal.trace = this.trace;
     proposal.citations = citations;
+    // Severity-gated next-step injection
+    proposal.nextSteps = this.injectSeverityGatedNextSteps(proposal.nextSteps, alert.severity);
     return proposal;
   }
 
@@ -497,6 +546,10 @@ export class Orchestrator {
       .map(([type, info]) => `- ${type}: latest ${info.latest} ${info.unit} (${info.samples} samples in 24h)`)
       .join('\n');
 
+    const goalsBlock = context.carePlanGoals
+      .map((g) => `- ${g.description}${g.targetDate ? ` (target: ${g.targetDate})` : ''}`)
+      .join('\n');
+
     const citationBlock = context.retrieval.chunks
       .map((c) => `[${c.docId}] ${c.text}`)
       .join('\n');
@@ -524,8 +577,11 @@ export class Orchestrator {
       `Medications: ${context.patient.medications ?? 'none documented'}`,
       `SpO2 cutoff: ${context.patient.spo2Cutoff ?? 'not set'}`,
       '',
-      'ACTIVE THRESHOLDS',
+      'ACTIVE THRESHOLDS (from the personalized care plan)',
       thresholdBlock || 'None configured',
+      '',
+      'CARE PLAN GOALS (recovery milestones / target outcomes)',
+      goalsBlock || 'None configured',
       '',
       'RECENT VITALS (24h)',
       vitalsBlock || 'No recent vitals',
@@ -585,13 +641,101 @@ export class Orchestrator {
       'Explain what this alert means for this specific patient, what the caregiver should do now,',
       'and what red flags would require calling emergency services.',
       'If the information is insufficient, ask ONE multiple-choice clarifying question.',
+      '',
+      'Then, recommend 1–4 next steps for the caregiver as multiple-choice options.',
+      'Format exactly:',
+      'NEXT_STEPS:',
+      '- [call_911] Call 911',
+      '- [contact_pcp] Contact Dr. Reynolds',
+      '- [monitor_home] Continue monitoring at home',
+      '',
+      'Only use action ids from: call_911, go_to_er, contact_pcp, geofence_service, schedule_urgent_appt, share_record, monitor_home, log_note.',
+      'Order by urgency. For severity-3 alerts, always include call_911 and/or go_to_er.',
     ].join('\n');
+  }
+
+  /**
+   * Truncate the prompt to fit within a token budget (approx 4 chars/token).
+   * Truncates RAG chunks and conversation history first, never the alert context.
+   */
+  private truncateToTokenBudget(prompt: string, maxTokens: number): string {
+    const approxTokens = Math.ceil(prompt.length / 4);
+    if (approxTokens <= maxTokens) return prompt;
+
+    const maxChars = maxTokens * 4;
+    const truncated = prompt.slice(0, maxChars);
+    const lastNewline = truncated.lastIndexOf('\n');
+    const result = lastNewline > 0 ? truncated.slice(0, lastNewline) : truncated;
+    this.addTrace({
+      agent: 'orchestrator',
+      thought: `Prompt truncated from ~${approxTokens} to ~${Math.ceil(result.length / 4)} tokens.`,
+    });
+    return result + '\n\n[Context truncated to fit model context window.]';
+  }
+
+  /**
+   * Confidence router: for severity-3 alerts, return preliminary guidance
+   * without loading the SLM. The caregiver can still tap "Explain" for a
+   * full SLM response.
+   */
+  private buildPreliminaryGuidance(alert: Alert): AgentProposal | null {
+    if (alert.severity !== 3) return null;
+
+    const message = [
+      `**Emergency alert: ${alert.title}**`,
+      '',
+      alert.body,
+      '',
+      'This is a severity-3 threshold violation. **Call 911 or go to the nearest ER** if the situation is life-threatening.',
+      'You can tap "Ask the assistant" for a detailed explanation.',
+    ].join('\n');
+
+    return {
+      message,
+      citations: [],
+      proposedActions: [],
+      nextSteps: this.injectSeverityGatedNextSteps(undefined, 3),
+      safety: {
+        ok: true,
+        notes: ['Preliminary guidance — SLM not invoked for severity-3 fast path.'],
+      },
+      trace: [],
+    };
+  }
+
+  /**
+   * Severity-gated next-step injection.
+   * For severity-3: always include call_911 and go_to_er, sorted first.
+   */
+  private injectSeverityGatedNextSteps(
+    parsed: NextStep[] | undefined,
+    severity: number,
+  ): NextStep[] {
+    const result: NextStep[] = parsed ? [...parsed] : [];
+
+    if (severity === 3) {
+      const has911 = result.some((s) => s.actionId === 'call_911');
+      const hasER = result.some((s) => s.actionId === 'go_to_er');
+      if (!has911) {
+        result.unshift({ actionId: 'call_911', label: 'Call 911' });
+      }
+      if (!hasER) {
+        const has911Now = result.some((s) => s.actionId === 'call_911');
+        result.splice(has911Now ? 1 : 0, 0, { actionId: 'go_to_er', label: 'Go to nearest ER' });
+      }
+    }
+
+    // Sort by taxonomy order
+    const orderMap = new Map(NEXT_STEP_TAXONOMY.map((t) => [t.actionId, t.order]));
+    result.sort((a, b) => (orderMap.get(a.actionId) ?? 99) - (orderMap.get(b.actionId) ?? 99));
+
+    return result;
   }
 
   private parseProposal(text: string, _context: AggregatedContext, alertId: string): AgentProposal {
     const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
     const actionLines = lines.filter((l) => l.startsWith('ACTION:'));
-    const questionMatch = text.match(/QUESTION:\s*(.+?)\nOPTIONS:\s*([\s\S]+?)(?:\n\n|\nACTION:|$)/i);
+    const questionMatch = text.match(/QUESTION:\s*(.+?)\nOPTIONS:\s*([\s\S]+?)(?:\n\n|\nACTION:|\nNEXT_STEPS:|$)/i);
 
     const proposedActions = actionLines.map((line) => {
       const match = line.match(/ACTION:\s*(\w+)\((.*)\)/);
@@ -620,13 +764,43 @@ export class Orchestrator {
       };
     }
 
+    // Parse NEXT_STEPS: block
+    const nextSteps = this.parseNextSteps(text);
+
+    // Strip ACTION:, QUESTION:/OPTIONS:, and NEXT_STEPS: blocks from the message
+    const message = text
+      .replace(/ACTION:.*\n?/g, '')
+      .replace(/QUESTION:.*OPTIONS:[\s\S]*?(?:\n\n|\nACTION:|\nNEXT_STEPS:|$)/gi, '')
+      .replace(/NEXT_STEPS:[\s\S]*$/i, '')
+      .trim();
+
     return {
-      message: text.replace(/ACTION:.*\n?/g, '').replace(/QUESTION:.*OPTIONS:[\s\S]*?\n\n/g, '').trim(),
+      message,
       citations: [],
       proposedActions,
       clarifyingQuestion,
+      nextSteps: nextSteps.length > 0 ? nextSteps : undefined,
       safety: { ok: true, notes: [] },
       trace: [],
     };
+  }
+
+  private parseNextSteps(text: string): NextStep[] {
+    const match = text.match(/NEXT_STEPS:\s*([\s\S]*?)(?:\n\n|$)/i);
+    if (!match) return [];
+
+    const steps: NextStep[] = [];
+    const lines = match[1].split('\n').map((l) => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      const stepMatch = line.match(/^-\s*\[(\w+)\]\s*(.+)/);
+      if (stepMatch) {
+        const actionId = stepMatch[1];
+        const label = stepMatch[2].trim();
+        if (isValidActionId(actionId)) {
+          steps.push({ actionId: actionId as NextStepActionId, label });
+        }
+      }
+    }
+    return steps;
   }
 }

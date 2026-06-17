@@ -44,8 +44,8 @@ export function insertSlmTurn(turn: SlmTurn, citationIds: string[]): void {
   const db = getDatabase();
   db.runSync(
     `INSERT OR REPLACE INTO slm_turns
-      (turn_id, alert_id, patient_id, model_id, prompt_hash, response_hash, latency_ms, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+      (turn_id, alert_id, patient_id, model_id, prompt_hash, response_hash, latency_ms, tokens_generated, peak_ram_bytes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     turn.turnId,
     turn.alertId ?? null,
     turn.patientId,
@@ -53,6 +53,8 @@ export function insertSlmTurn(turn: SlmTurn, citationIds: string[]): void {
     turn.promptHash ?? null,
     turn.responseHash ?? null,
     turn.latencyMs ?? null,
+    turn.tokensGenerated ?? null,
+    turn.peakRamBytes ?? null,
     turn.createdAt,
   );
   for (const cid of citationIds) {

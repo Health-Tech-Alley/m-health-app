@@ -51,28 +51,33 @@ they must not throw at startup when the bridge is absent.
 
 Routing is file-based under `src/app/`. The root layout
 (`src/app/_layout.tsx`) wraps everything in the Expo theme, the
-`AnimatedSplashOverlay`, the `Stack` router with hidden headers, the
-**global SLMProvider** (`src/contexts/slm-context.tsx`), and the
-**global OrchestratorProvider** (`src/contexts/orchestrator-context.tsx`).
-A separate `app-tabs.tsx` component exists but is **not currently wired into the
-root layout**.
+`AnimatedSplashOverlay`, the **global SettingsProvider**
+(`src/contexts/settings-context.tsx`), the **global SLMProvider**
+(`src/contexts/slm-context.tsx`), the **global OrchestratorProvider**
+(`src/contexts/orchestrator-context.tsx`), the `InAppBanner`, and the
+`Stack` router with hidden headers.
+
+Post-onboarding, the app uses a **tab-based layout** (`src/app/(tabs)/_layout.tsx`)
+with five tabs: Dashboard, Care, Medications, Schedule, Settings. Stack overlay
+screens (`alert-detail`, `slm-explain`, dev screens) are pushed on top of the tabs.
 
 | Route file | Implementation | Purpose |
 |------------|----------------|---------|
-| `index.tsx` | Re-exports `onboarding.tsx` | First-run caregiver + patient intake. |
-| `onboarding.tsx` | Inline | 5-step intake (welcome + 4 data steps). |
-| `dashboard.tsx` | `src/components/dashboard/CaregiverDashboardScreen.tsx` | Main caregiver home dashboard. |
-| `medications.tsx` | Inline | Medication Management placeholder. |
-| `care.tsx` | Inline | Care Management placeholder. |
-| `schedule.tsx` | Inline | Scheduling & Tracking placeholder. |
-| `models.tsx` → `models-screen.tsx` | `src/app/models/` (MVC, themed) | Download / delete on-device SLM models. |
-| `slm.tsx` | Inline | Caregiver Assistant chat (streaming, mock fallback). |
-| `care-management.tsx` → `care-management-screen.tsx` | `src/app/care-management/` (MVC) | Vitals → Alert ML → SLM "Explain" flow. |
-| `acute-anomaly.tsx` | Inline | End-to-end orchestration demo with swipe-to-dismiss alerts. |
-| `performance.tsx` | Inline | 1 Hz RAM dashboard with SLM/other breakdown. |
-| `profile.tsx` | Inline | Lightweight profile view used by some routes. |
-| `explore.tsx` | Inline | Expo starter info + collapsibles. |
-| `ai.tsx` | Inline | Auxiliary mock AI chat surface. |
+| `index.tsx` | Redirect | First route → onboarding or `/(tabs)/dashboard` |
+| `onboarding.tsx` | Inline | 5-step intake (welcome + 4 data steps). Redirects to `/(tabs)/dashboard` on completion. |
+| `(tabs)/_layout.tsx` | expo-router `Tabs` | 5-tab shell (Dashboard, Care, Medications, Schedule, Settings) |
+| `(tabs)/dashboard.tsx` | Inline | Alert cards + patient summary + quick actions |
+| `(tabs)/care.tsx` | Inline | Care management hub (vitals + alerts + care plan) |
+| `(tabs)/medications.tsx` | Inline | Med list + schedules + mark-as-given |
+| `(tabs)/schedule.tsx` | Inline | Alert timeline + notifications + appointments placeholder |
+| `(tabs)/settings.tsx` | `src/components/settings/settings-screen.tsx` | Full settings surface |
+| `alert-detail.tsx` | Inline | Unified alert detail (ST-01/02/03, severity-based) |
+| `slm-explain.tsx` | Inline | SLM explanation + clarifying Q + next-steps flow |
+| `acute-anomaly.tsx` | Inline | End-to-end orchestration demo (dev) |
+| `slm.tsx` | Inline | Caregiver Assistant chat (dev) |
+| `models.tsx` → `models-screen.tsx` | `src/app/models/` (MVC) | Model manager (dev) |
+| `care-management.tsx` → `care-management-screen.tsx` | `src/app/care-management/` (MVC) | Vitals → Alert ML → SLM "Explain" flow |
+| `performance.tsx` | Inline | 1 Hz RAM dashboard (dev) |
 
 ### Service-layer rule
 
@@ -104,24 +109,81 @@ onboarding profile via `src/data/seed/seedFromProfile.ts`. The seeded patient,
 caregiver, conditions, medications, and initial thresholds drive the Care
 Context card, the SLM system prompt, and the orchestrator's threshold engine.
 
-### Dashboard (`dashboard.tsx` → `CaregiverDashboardScreen`)
+### Dashboard (`(tabs)/dashboard.tsx`)
 
-The main caregiver home dashboard. Lives inside a top-safe
-`SafeAreaView` (`edges={['top']}`) so the header card clears the iOS status
-bar / Dynamic Island. The header card shows the **Health Tech Alley logo** on
-the left and "Caregiver Concierge / ACCESS-DP" on the right.
+The main caregiver home dashboard. Shows a patient summary header, then
+**severity-colored alert cards** that subscribe to the event bus for
+`ml_alert_created` and `vitals_sample` events. Each alert card has a severity
+dot (red for 3, orange for 2, teal for 1), title, body, and a "View" button
+that pushes to `alert-detail`. A quick-actions grid links to Care,
+Medications, and Schedule. For severity-3 alerts, a red emergency banner
+appears at the top.
 
-Below the header:
+### Alert Detail (`alert-detail.tsx`)
 
-- **PatientSummaryCard** — one-line summary of the patient in the active
-  onboarding profile.
-- **Main Features** section — `MainFeatureCard`s for Medication Management,
-  Care Management, and Scheduling Management. Each links to the matching
-  placeholder route.
-- **AI & Insights** section — Models, SLM Prompt, Care Management (Alert ML
-  flow).
-- **Prototype Tools** section — Acute Anomaly, RAM / Performance Check.
-- **RecentActivityCard** + **QuickActionsCard**.
+A unified screen pushed on top of the tabs that handles all three steel
+threads, parameterized by alert severity:
+
+- **Severity 3 (ST-03 acute):** Big red emergency banner with options — Call
+  911, Go to ER, Contact Provider, Acknowledge, Explain, Add Note. Each option
+  (except Acknowledge/Explain) is wired to `executeNextStep()` which fires
+  native deep-links (dialer, maps) or in-app flows. The "Explain" button pushes
+  to `slm-explain`.
+- **Severity 1–2 (ST-01 anomaly):** Shows vitals info and an "Ask the
+  assistant" button that pushes to `slm-explain?alertId=...`.
+- Acknowledge and Dismiss buttons update the alert status.
+
+### SLM Explain (`slm-explain.tsx`)
+
+The shared SLM explanation screen for all three steel threads. Takes an
+`alertId` param. The flow:
+
+1. Auto-loads the SLM if not ready (in Demo mode, this is automatic).
+2. Calls `orchestrator.explainAlert(alertId, caregiverId)`.
+3. Renders the explanation via `<MarkdownRenderer size="large">`.
+4. Shows clinical citations (docIds from the fused retriever).
+5. If `proposal.clarifyingQuestion` exists: shows the question + multiple-choice
+   option buttons. On select, calls `orchestrator.answerClarifyingQuestion()`
+   and re-renders.
+6. If `proposal.nextSteps` exists: shows next-step options as buttons. On tap,
+   calls `executeNextStep()` (native deep-link / consent-gated share / in-app
+   scheduling). Shows the result message.
+7. HITL: "Override" button opens a note modal; the override is logged as a
+   `caregiver_action` + trigger event.
+8. In Demo mode, `slm.scheduleAutoUnload()` is called after the flow completes.
+
+### Care (`(tabs)/care.tsx`)
+
+Care management hub. Shows a patient snapshot (name, conditions), latest
+vitals (SpO2, heart rate from `getLatestHealthSample`), active alerts, and
+links to the care plan (placeholder) and the acute-anomaly demo (dev mode).
+
+### Medications (`(tabs)/medications.tsx`)
+
+Lists active medications from `getActiveMedications(patientId)`. For each med:
+name, dosage, frequency, and schedule times from
+`getActiveMedicationSchedules(patientId)`. A "Mark as given" button per med
+logs a `caregiver_action` of type `log_observation`. Links to the acute-anomaly
+demo (dev mode).
+
+### Schedule (`(tabs)/schedule.tsx`)
+
+Shows a timeline of recent alerts (from `getActiveAlerts` + recently resolved)
+and recent notifications (from `getNotificationsForPatient`). Appointments
+section is a placeholder (no appointments table yet).
+
+### Settings (`(tabs)/settings.tsx` → `settings-screen.tsx`)
+
+Full settings surface with sections:
+- **Appearance** — Theme toggle (light/dark/system)
+- **Notifications** — Per-trigger toggles (anomaly, medication, appointment,
+  care-task), appointment lead time, quiet hours
+- **Consent Management** — Grant/revoke scopes (`ccda_export`, `location_access`,
+  `fhir-share`, `pharmacy-communicator`, `provider-message`)
+- **Data** — Export C-CDA record (consent-gated), Reset all data
+- **Developer** — Developer mode toggle, manual SLM load/unload, RAM dashboard
+  link, audit log viewer with hash-chain verification, dev screen links
+- **About** — Version, disclaimer
 
 ### Acute Anomaly Flow (`acute-anomaly.tsx`)
 
@@ -248,9 +310,6 @@ Implements the canonical ST-01-style flow:
 
 ### Other screens
 
-- **Medications / `medications.tsx`**, **Care / `care.tsx`**, **Schedule /
-  `schedule.tsx`** — Pillar entry point placeholders with a title,
-  description, and Back button.
 - **Profile / `profile.tsx`** — Lightweight profile view that accepts an
   optional `name` search param.
 - **Explore / `explore.tsx`** — Expo starter info + collapsibles, using
@@ -310,11 +369,13 @@ sees on every turn. It has three blocks:
 ### Data layer (`src/data/`)
 
 Uses `expo-sqlite` with a migration-driven schema. Tables include:
-`patients`, `caregivers`, `providers`, `medications`,
+`patients`, `caregivers`, `providers`, `medications`, `medication_schedules`,
 `patient_conditions`, `care_plans`, `care_plan_goals`, `health_samples`,
 `thresholds`, `alerts`, `caregiver_actions`, `rag_citations`,
-`slm_turns`, `slm_citations`, `trigger_events`, `graph_edges`,
-`audit_log`, and `consent_tokens`. Repositories in
+`slm_turns` (with `tokens_generated` + `peak_ram_bytes`), `slm_citations`,
+`trigger_events`, `graph_edges`, `audit_log`, `consent_tokens`,
+`fhir_resources` (FHIR cache + export queue), `notifications`,
+`notification_preferences`, and `app_settings`. Repositories in
 `src/data/repositories/` are the only sanctioned read/write surface.
 The schema is designed so SQLCipher can be swapped in later with minimal
 changes. The public API is exported from `src/data/index.ts`.
@@ -333,13 +394,19 @@ subgraph projection and edge writing.
 ### MCP orchestration (`src/orchestration/`)
 
 The `Orchestrator` is the single chokepoint. It subscribes to the event
-bus, runs the CEP engine, calls four agents through an in-process
-MCP-style tool contract (`caregiver`, `patient-state`, `coordinator`,
-`safety-reviewer`), and invokes the SLM only after caregiver ground
-truth or on an explicit "Explain" tap. It builds a transparency trace
-and surfaces citations from the fused retriever. `OrchestratorProvider`
-instantiates one orchestrator at app start and seeds the SQLite
-profile; `useOrchestrator()` is how UI screens access it.
+bus, runs the CEP engine (with 3-second debouncing for vitals bursts),
+calls four agents through an in-process MCP-style tool contract
+(`caregiver`, `patient-state`, `coordinator`, `safety-reviewer`), and
+invokes the SLM only after caregiver ground truth or on an explicit
+"Explain" tap. A **confidence router** returns preliminary guidance for
+severity-3 alerts without loading the SLM. A **prompt-budget guard**
+truncates the explain prompt to fit the model's context window. The SLM
+system prompt now includes **care plan goals** alongside active thresholds.
+After the SLM explains, it formulates **multiple-choice next-step options**
+from a constrained 8-action taxonomy, each wired to native deep-links or
+in-app flows. `OrchestratorProvider` instantiates one orchestrator at app
+start and seeds the SQLite profile; `useOrchestrator()` is how UI screens
+access it.
 
 ### Alert ML (`react-native-fast-tflite`)
 
@@ -354,6 +421,39 @@ profile; `useOrchestrator()` is how UI screens access it.
 - The orchestrator uses `MockAlertAutoencoder` in Track A so the anomaly
   path is demoable without a real TFLite runtime.
 
+### Notifications & reminders (`src/services/notifications/`)
+
+`notificationService.ts` wraps `expo-notifications` via dynamic `require()`
+(degrades to in-app banner on Track A / Expo Go). Fires for three trigger
+classes: anomaly alerts (severity-3 = DND bypass), medication reminders
+(from `medication_schedules` table), and appointment/care-task reminders.
+60-second dedupe per trigger. `reminderEngine.ts` is a deterministic
+scheduler (no SLM) that derives med-reminder schedules with quiet-hours
+support. An in-app banner component (`src/components/notifications/in-app-banner.tsx`)
+subscribes to the fallback emitter and shows slide-in, color-coded banners
+that auto-dismiss after 8 seconds for non-critical alerts.
+
+### C-CDA / FHIR (`src/data/fhir/`, `src/services/export/ccdaExportService.ts`)
+
+Typed SQLite rows → FHIR R4 JSON mappers (Patient, Condition, Observation,
+MedicationStatement, CarePlan per the CDA-ccda profile with problem/goal/
+instruction structure). C-CDA XML is serialized only on consent-gated
+export via `ccdaExportService`, which builds a CCD document with Header
+(recordTarget, author, confidentiality) + Body sections (Vital Signs,
+Problems, Medications, Care Plan) and enqueues to the `fhir_resources` table.
+The `ccda_export` consent scope gates egress.
+
+### Settings & Developer/Demo mode (`src/contexts/settings-context.tsx`)
+
+`SettingsContext` persists the mode (demo/developer, demo default), theme,
+and notification preferences to the `app_settings` SQLite table. In **Demo
+mode**, the SLM auto-loads on "Ask the assistant" and auto-unloads after
+60s idle or on app background; dev routes are hidden. In **Developer mode**,
+full manual SLM load/unload, audit log viewer with hash-chain verification,
+and all diagnostic surfaces are available in Settings → Developer. The
+`SlmPolicySync` component in the root layout syncs the SLM policy with
+the mode.
+
 ---
 
 ## 5. Platform-Specific Notes (iOS / Android)
@@ -364,8 +464,8 @@ profile; `useOrchestrator()` is how UI screens access it.
   card is wrapped in `SafeAreaView` with at least `edges={['top']}`; the
   ones with sticky bottom inputs also include `'bottom'` so the iOS
   home bar never overlaps content.
-- A separate `app-tabs.tsx` component uses `expo-router/unstable-native-tabs`
-  but is **not wired into the root layout**.
+- Tab-based navigation uses `expo-router` `Tabs` (5 tabs: Dashboard, Care,
+  Medications, Schedule, Settings).
 - SLM uses **Metal**; Alert ML uses the **CoreML delegate**.
 - Local dev build requires macOS + Xcode. A physical device gives
   realistic SLM/ML performance; the simulator works for UI but not for

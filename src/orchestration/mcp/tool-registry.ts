@@ -87,6 +87,26 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
       alertId: { type: 'string', description: 'Alert identifier', required: true },
     },
   },
+  {
+    name: 'schedule_appointment',
+    description: 'Schedule an appointment for the patient.',
+    params: {
+      patientId: { type: 'string', description: 'Patient identifier', required: true },
+      providerName: { type: 'string', description: 'Provider name', required: false },
+      reason: { type: 'string', description: 'Reason for visit', required: true },
+      preferredDate: { type: 'string', description: 'ISO date', required: false },
+    },
+  },
+  {
+    name: 'set_follow_up_reminder',
+    description: 'Set a follow-up reminder for the caregiver.',
+    params: {
+      patientId: { type: 'string', description: 'Patient identifier', required: true },
+      alertId: { type: 'string', description: 'Alert identifier', required: false },
+      message: { type: 'string', description: 'Reminder message', required: true },
+      delayMinutes: { type: 'number', description: 'Minutes from now', required: true },
+    },
+  },
 ];
 
 export class ToolRegistry {

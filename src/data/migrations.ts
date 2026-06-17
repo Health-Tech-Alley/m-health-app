@@ -240,4 +240,79 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_consent_patient_scope
     ON consent_tokens(patient_id, scope, revoked_at);
   `,
+
+  // 6: FHIR resource cache + export queue
+  `
+  CREATE TABLE IF NOT EXISTS fhir_resources (
+    resource_type TEXT NOT NULL,
+    resource_id   TEXT NOT NULL,
+    version       INTEGER NOT NULL,
+    kind          TEXT NOT NULL,
+    payload_json  TEXT NOT NULL,
+    last_synced_at TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    PRIMARY KEY (resource_type, resource_id, version)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_fhir_kind
+    ON fhir_resources(kind, created_at DESC);
+  `,
+
+  // 7: medication schedules, notifications, notification preferences
+  `
+  CREATE TABLE IF NOT EXISTS medication_schedules (
+    schedule_id   TEXT PRIMARY KEY,
+    medication_id TEXT NOT NULL,
+    patient_id    TEXT NOT NULL,
+    time_of_day   TEXT NOT NULL,
+    days_of_week  TEXT,
+    dose_label    TEXT,
+    active        INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_med_sched_patient
+    ON medication_schedules(patient_id, active);
+
+  CREATE TABLE IF NOT EXISTS notifications (
+    notification_id TEXT PRIMARY KEY,
+    patient_id      TEXT NOT NULL,
+    scope           TEXT NOT NULL,
+    trigger_ref     TEXT,
+    title           TEXT NOT NULL,
+    body            TEXT NOT NULL,
+    severity        INTEGER,
+    bypass_dnd      INTEGER NOT NULL DEFAULT 0,
+    delivered_at    TEXT,
+    dismissed_at    TEXT,
+    action_taken    TEXT,
+    created_at      TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_notif_patient
+    ON notifications(patient_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS notification_preferences (
+    scope                 TEXT PRIMARY KEY,
+    enabled               INTEGER NOT NULL DEFAULT 1,
+    lead_time_minutes     INTEGER,
+    quiet_hours_start     TEXT,
+    quiet_hours_end       TEXT
+  );
+  `,
+
+  // 8: app settings
+  `
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key        TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  `,
+
+  // 9: add per-turn RAM + token attribution to slm_turns
+  `
+  ALTER TABLE slm_turns ADD COLUMN tokens_generated INTEGER;
+  ALTER TABLE slm_turns ADD COLUMN peak_ram_bytes INTEGER;
+  `,
 ];

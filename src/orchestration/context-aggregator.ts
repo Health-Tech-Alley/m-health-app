@@ -9,11 +9,19 @@ import {
   getActiveThresholds,
   getCaregiverForPatient,
   getConditionsForPatient,
+  getDatabase,
   getPatient,
   getRecentHealthSamples,
   type HealthSample,
 } from '@/data';
 import type { FusedRetriever, RetrievalResult } from '@/knowledge';
+
+export type CarePlanGoalSummary = {
+  goalId: string;
+  description: string;
+  targetDate?: string;
+  status: string;
+};
 
 export type AggregatedContext = {
   patient: {
@@ -38,8 +46,25 @@ export type AggregatedContext = {
     direction: string;
     severity: number;
   }[];
+  carePlanGoals: CarePlanGoalSummary[];
   retrieval: RetrievalResult;
 };
+
+function getCarePlanGoals(patientId: string): CarePlanGoalSummary[] {
+  try {
+    const db = getDatabase();
+    return db.getAllSync<CarePlanGoalSummary>(
+      `SELECT g.goal_id AS goalId, g.description, g.target_date AS targetDate, g.status
+       FROM care_plan_goals g
+       JOIN care_plans p ON g.plan_id = p.plan_id
+       WHERE p.patient_id = ? AND g.status = 'active'
+       ORDER BY g.target_date;`,
+      patientId,
+    );
+  } catch {
+    return [];
+  }
+}
 
 export async function buildAggregatedContext(
   patientId: string,
@@ -96,6 +121,7 @@ export async function buildAggregatedContext(
       : undefined,
     recentVitals,
     activeThresholds: thresholds,
+    carePlanGoals: getCarePlanGoals(patientId),
     retrieval,
   };
 }

@@ -35,6 +35,10 @@ import { MarkdownRenderer } from '@/components/markdown-renderer';
 
 - **SLM chat** (`slm.tsx`) — the SLM's final answer (`size="large"`) and any
   streaming / stopped text.
+- **SLM Explain** (`slm-explain.tsx`) — the SLM alert explanation
+  (`size="large"`), shared by all three steel threads (ST-01/02/03).
+- **Alert Detail** (`alert-detail.tsx`) — preliminary guidance from the
+  confidence router for severity-3 alerts (`size="large"`).
 - **Care Management** (`care-management-view.tsx`) — the SLM explanation
   (`size="large"`) and the collapsed reasoning (`size="normal"`).
 - **Acute Anomaly** (`acute-anomaly.tsx`) — the SLM alert explanation

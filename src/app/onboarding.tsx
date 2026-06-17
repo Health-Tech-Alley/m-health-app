@@ -133,7 +133,7 @@ export default function OnboardingScreen() {
       },
     });
 
-    router.replace("/dashboard");
+    router.replace("/(tabs)/dashboard");
   }
 
   function handleBack() {

@@ -10,6 +10,7 @@ import {
   getActiveAlerts,
   getActiveThresholds,
   getActiveThresholdsForVital,
+  getAlertById,
   getConditionsForPatient,
   getLatestHealthSample,
   getPatient,
@@ -19,6 +20,7 @@ import {
   type CaregiverAction,
   type HealthSample,
 } from '@/data';
+import { dispatchImmediate, scheduleLocalNotification } from '@/services/notifications';
 
 import type { RegisteredTool, ToolResult } from '../mcp/tool-registry';
 
@@ -150,14 +152,76 @@ export function createCoordinatorAgent(): RegisteredTool[] {
         bypassDnd: { type: 'boolean', description: 'Whether to bypass Do Not Disturb', required: true },
       },
       handler: async (args): Promise<ToolResult> => {
-        // In v1 this is a stub. Later it wires to the L2 Notification Manager.
-        console.log(
-          '[CoordinatorAgent] dispatch_alert_notification',
-          args.alertId,
-          'bypassDnd:',
-          args.bypassDnd,
-        );
-        return { ok: true, data: { dispatched: true } };
+        const alertId = String(args.alertId);
+        const bypassDnd = Boolean(args.bypassDnd);
+        const alert = getAlertById(alertId);
+        if (!alert) return { ok: false, error: `Alert not found: ${alertId}` };
+        try {
+          const notifId = await dispatchImmediate({
+            patientId: alert.patientId,
+            scope: 'anomaly',
+            triggerRef: alertId,
+            title: alert.title,
+            body: alert.body,
+            severity: alert.severity,
+            bypassDnd,
+          });
+          if (!notifId) {
+            return { ok: true, data: { dispatched: false, reason: 'deduped' } };
+          }
+          return { ok: true, data: { dispatched: true, notificationId: notifId } };
+        } catch (err: any) {
+          return { ok: false, error: err?.message ?? 'Failed to dispatch notification' };
+        }
+      },
+    },
+    {
+      name: 'schedule_appointment',
+      description: 'Schedule an appointment for the patient.',
+      params: {
+        patientId: { type: 'string', description: 'Patient identifier', required: true },
+        providerName: { type: 'string', description: 'Provider name', required: false },
+        reason: { type: 'string', description: 'Reason for visit', required: true },
+        preferredDate: { type: 'string', description: 'ISO date', required: false },
+      },
+      handler: async (args): Promise<ToolResult> => {
+        return {
+          ok: true,
+          data: {
+            patientId: String(args.patientId),
+            providerName: args.providerName ? String(args.providerName) : undefined,
+            reason: String(args.reason),
+            preferredDate: args.preferredDate ? String(args.preferredDate) : undefined,
+            status: 'draft',
+          },
+        };
+      },
+    },
+    {
+      name: 'set_follow_up_reminder',
+      description: 'Set a follow-up reminder for the caregiver.',
+      params: {
+        patientId: { type: 'string', description: 'Patient identifier', required: true },
+        alertId: { type: 'string', description: 'Alert identifier', required: false },
+        message: { type: 'string', description: 'Reminder message', required: true },
+        delayMinutes: { type: 'number', description: 'Minutes from now', required: true },
+      },
+      handler: async (args): Promise<ToolResult> => {
+        try {
+          const delayMin = Math.max(1, Math.min(1440, Number(args.delayMinutes) || 120));
+          const triggerWhen = new Date(Date.now() + delayMin * 60_000);
+          const id = await scheduleLocalNotification({
+            patientId: String(args.patientId),
+            scope: 'care_task',
+            triggerRef: args.alertId ? String(args.alertId) : undefined,
+            title: 'Follow-up reminder',
+            body: String(args.message),
+            triggerWhen,
+          });
+          return { ok: true, data: { notificationId: id } };
+        } catch (err: any) {
+          return { ok: false, error: err?.message ?? 'Failed to set reminder' };
+        }
       },
     },
   ];

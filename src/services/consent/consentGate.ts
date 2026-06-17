@@ -9,11 +9,12 @@
 import { hasActiveConsent, insertConsentToken, revokeConsent, type ConsentToken } from '@/data';
 import { auditConsentDecision } from '@/services/audit/auditService';
 
-export type EgressScope = 'fhir-share' | 'pharmacy-communicator' | 'provider-message' | 'record-export';
+export type EgressScope = 'fhir-share' | 'pharmacy-communicator' | 'provider-message' | 'record-export' | 'ccda_export';
 
-const EGRESS_SCOPES: EgressScope[] = ['fhir-share', 'pharmacy-communicator', 'provider-message', 'record-export'];
+const EGRESS_SCOPES: EgressScope[] = ['fhir-share', 'pharmacy-communicator', 'provider-message', 'record-export', 'ccda_export'];
 
 export function isEgressScope(toolName: string): EgressScope | null {
+  if (toolName.includes('ccda') || toolName.includes('ccd_export')) return 'ccda_export';
   if (toolName.includes('fhir') || toolName.includes('share_record')) return 'fhir-share';
   if (toolName.includes('pharmacy') || toolName.includes('communicator')) return 'pharmacy-communicator';
   if (toolName.includes('provider') || toolName.includes('message_provider')) return 'provider-message';
