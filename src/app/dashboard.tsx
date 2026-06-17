@@ -11,6 +11,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { ActiveAlertCard } from "@/components/dashboard/ActiveAlertCard";
+import { NonEmergencyInsightCard } from "@/components/dashboard/NonEmergencyInsightCard";
 import { PatientSummaryCard } from "@/components/dashboard/PatientSummaryCard";
 import { RecentActivityCard } from "@/components/dashboard/RecentActivityCard";
 import { TodayPriorityCard } from "@/components/dashboard/TodayPriorityCard";
@@ -53,7 +54,7 @@ export default function DashboardRoute() {
               >
                 <AppIcon
                   name="bell"
-                  size={24}
+                  size={25}
                   color={AppTheme.colors.textMuted}
                 />
                 <View style={styles.bellDot} />
@@ -67,6 +68,7 @@ export default function DashboardRoute() {
 
           <PatientSummaryCard />
           <WeeklyVitalsCard />
+          <NonEmergencyInsightCard />
           <ActiveAlertCard />
 
           <Text style={styles.sectionTitle}>Today&apos;s Priority</Text>
@@ -105,9 +107,9 @@ export default function DashboardRoute() {
           />
 
           <BottomNavItem
-            label="Profile"
-            icon="profile"
-            onPress={() => router.push("/profile")}
+            label="More"
+            icon="more"
+            onPress={() => router.push("/more")}
           />
         </View>
       </View>
@@ -133,7 +135,7 @@ function BottomNavItem({
       <View style={[styles.navIconCircle, active && styles.navIconCircleActive]}>
         <AppIcon
           name={icon}
-          size={active ? 28 : 24}
+          size={active ? 30 : 26}
           color={active ? AppTheme.colors.white : AppTheme.colors.navMuted}
         />
 
@@ -164,7 +166,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 24,
     paddingTop: 22,
-    paddingBottom: 112,
+    paddingBottom: 124,
   },
   header: {
     marginBottom: 24,
@@ -203,9 +205,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   bellButton: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: AppTheme.colors.softSurface,
     alignItems: "center",
     justifyContent: "center",
@@ -235,15 +237,16 @@ const styles = StyleSheet.create({
     letterSpacing: 1.1,
     textTransform: "uppercase",
   },
+
   bottomNav: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    minHeight: 78,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: 10,
+    minHeight: 92,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
     borderTopWidth: 1,
     borderTopColor: AppTheme.colors.border,
     backgroundColor: AppTheme.colors.white,
@@ -253,36 +256,36 @@ const styles = StyleSheet.create({
   navItem: {
     alignItems: "center",
     justifyContent: "center",
-    minWidth: 46,
+    minWidth: 50,
   },
   navIconCircle: {
-    width: 44,
-    height: 34,
-    borderRadius: 18,
+    width: 48,
+    height: 38,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
   },
   navIconCircleActive: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     backgroundColor: AppTheme.colors.brand,
   },
   navAlertDot: {
     position: "absolute",
-    right: 4,
-    top: -2,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    right: 3,
+    top: -3,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
     backgroundColor: AppTheme.colors.danger,
   },
   navLabel: {
     color: AppTheme.colors.navMuted,
-    fontSize: 11,
-    fontWeight: "800",
-    marginTop: 4,
+    fontSize: 12,
+    fontWeight: "900",
+    marginTop: 5,
   },
   navLabelActive: {
     color: AppTheme.colors.brand,
