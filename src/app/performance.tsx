@@ -1,7 +1,7 @@
 /**
  * Performance / RAM dashboard.
  *
- * Shows a live, 1 Hz device-RAM snapshot with the loaded SLM's footprint
+ * Shows a live, 2 Hz device-RAM snapshot with the loaded SLM's footprint
  * carved out of the "used" bucket so the caregiver (or developer) can see
  * how much of the phone's RAM the on-device model is responsible for.
  *
@@ -35,7 +35,7 @@ const SEVERITY_LABEL: Record<Severity, string> = {
   crit: "Critical",
 };
 
-const POLL_INTERVAL_MS = 1000;
+const POLL_INTERVAL_MS = 500;
 
 export default function PerformanceScreen() {
   const router = useRouter();
@@ -77,7 +77,7 @@ export default function PerformanceScreen() {
         </View>
 
         <View style={styles.headerCard}>
-          <Text style={styles.eyebrow}>Live · 1 Hz</Text>
+          <Text style={styles.eyebrow}>Live · 2 Hz</Text>
           <Text style={styles.title}>RAM & Device Load</Text>
           <Text style={styles.subtitle}>
             Total vs. used memory, with the on-device SLM model carved out so
