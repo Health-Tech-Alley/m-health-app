@@ -50,7 +50,7 @@ export function ActiveAlertCard() {
 
         <Pressable
           style={styles.checkButton}
-          onPress={() => router.push("/(tabs)/care")}
+          onPress={() => router.push("/care")}
         >
           <Text style={styles.checkButtonText}>Check on {patientFirstName}</Text>
         </Pressable>
@@ -59,27 +59,27 @@ export function ActiveAlertCard() {
       <View style={styles.secondaryActions}>
         <Pressable
           style={styles.secondaryButton}
-          onPress={() => router.push("/(tabs)/care")}
+          onPress={() => router.push("/care")}
         >
           <Text style={styles.secondaryButtonText}>Contact Provider</Text>
         </Pressable>
 
         <Pressable
           style={styles.secondaryButton}
-          onPress={() => router.push("/(tabs)/care")}
+          onPress={() => router.push("/care")}
         >
           <Text style={styles.secondaryButtonText}>Acknowledge</Text>
         </Pressable>
 
         <Pressable
           style={styles.secondaryButton}
-          onPress={() => router.push("/(tabs)/care")}
+          onPress={() => router.push("/care")}
         >
           <Text style={styles.secondaryButtonText}>Add Note</Text>
         </Pressable>
       </View>
 
-      <Pressable onPress={() => router.push("/(tabs)/care")}>
+      <Pressable onPress={() => router.push("/care")}>
         <Text style={styles.footerLink}>Dismiss from home · View full alert →</Text>
       </Pressable>
     </View>

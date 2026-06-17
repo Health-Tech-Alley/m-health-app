@@ -3,361 +3,437 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
 
-type VitalKey = "spo2" | "heartRate" | "respRate";
+type VitalKey = "spo2" | "heartRate" | "respRate" | "mobility";
 
-const vitalData = {
-  spo2: {
-    label: "SpO₂",
+type VitalMetric = {
+  key: VitalKey;
+  tabLabel: string;
+  label: string;
+  value: string;
+  unit: string;
+  status: string;
+  statusTone: "critical" | "warning" | "good";
+  subtitle: string;
+  data: number[];
+};
+
+const metrics: VitalMetric[] = [
+  {
+    key: "spo2",
+    tabLabel: "SpO₂",
+    label: "Oxygen Saturation",
     value: "84",
     unit: "%",
-    color: AppTheme.colors.brand,
-    maxLabel: "100",
-    midLabel: "50",
-    lowLabel: "0",
-    chartMax: 100,
-    trend: [86, 85, 85, 84, 83, 82, 80],
-    footerLeftLabel: "Heart Rate",
-    footerLeftValue: "118 BPM",
-    footerRightLabel: "Resp. Rate",
-    footerRightValue: "32 br/min",
+    status: "↓ Today · Critical",
+    statusTone: "critical",
+    subtitle: "Declining trend this week",
+    data: [96, 95, 96, 94, 93, 92, 90],
   },
-  heartRate: {
+  {
+    key: "heartRate",
+    tabLabel: "Heart Rate",
     label: "Heart Rate",
     value: "118",
     unit: "BPM",
-    color: AppTheme.colors.danger,
-    maxLabel: "120",
-    midLabel: "60",
-    lowLabel: "0",
-    chartMax: 120,
-    trend: [78, 82, 80, 88, 94, 104, 118],
-    footerLeftLabel: "SpO₂",
-    footerLeftValue: "84%",
-    footerRightLabel: "Resp. Rate",
-    footerRightValue: "32 br/min",
+    status: "↑ Today · Elevated",
+    statusTone: "critical",
+    subtitle: "Higher than baseline",
+    data: [82, 86, 88, 94, 98, 110, 118],
   },
-  respRate: {
-    label: "Resp. Rate",
+  {
+    key: "respRate",
+    tabLabel: "Resp. Rate",
+    label: "Respiratory Rate",
     value: "32",
     unit: "br/min",
-    color: AppTheme.colors.purple,
-    maxLabel: "32",
-    midLabel: "16",
-    lowLabel: "0",
-    chartMax: 32,
-    trend: [18, 19, 20, 22, 25, 28, 32],
-    footerLeftLabel: "SpO₂",
-    footerLeftValue: "84%",
-    footerRightLabel: "Heart Rate",
-    footerRightValue: "118 BPM",
+    status: "↑ Today · Elevated",
+    statusTone: "warning",
+    subtitle: "Breathing faster than usual",
+    data: [20, 21, 23, 24, 26, 29, 32],
   },
-} as const;
+  {
+    key: "mobility",
+    tabLabel: "Mobility",
+    label: "Mobility Score",
+    value: "55",
+    unit: "/100",
+    status: "↓ Today · Lower",
+    statusTone: "warning",
+    subtitle: "Movement below expected pattern",
+    data: [82, 78, 74, 72, 68, 61, 55],
+  },
+];
 
 const days = ["M", "T", "W", "Th", "F", "Sa", "Su"];
+const CHART_HEIGHT = 88;
+const POINT_SIZE = 13;
 
 export function WeeklyVitalsCard() {
-  const [activeVital, setActiveVital] = useState<VitalKey>("spo2");
-  const current = vitalData[activeVital];
+  const [selectedKey, setSelectedKey] = useState<VitalKey>("spo2");
 
-  const normalizedPoints = useMemo(() => {
-    return current.trend.map((value) => {
-      const ratio = value / current.chartMax;
-      return 58 - ratio * 46;
-    });
-  }, [current]);
+  const selectedMetric =
+    metrics.find((metric) => metric.key === selectedKey) ?? metrics[0];
+
+  const heartRate = metrics.find((metric) => metric.key === "heartRate");
+  const respRate = metrics.find((metric) => metric.key === "respRate");
 
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <View style={styles.titleBlock}>
-          <Text style={styles.sectionLabel}>Weekly Vitals</Text>
-          <Text style={styles.subtitle}>Declining trend this week</Text>
+          <Text style={styles.sectionTitle}>Weekly Vitals</Text>
+          <Text style={styles.subtitle}>{selectedMetric.subtitle}</Text>
         </View>
 
         <View style={styles.tabRow}>
-          <VitalTab
-            label="SpO₂"
-            active={activeVital === "spo2"}
-            color={vitalData.spo2.color}
-            onPress={() => setActiveVital("spo2")}
-          />
+          {metrics.map((metric) => {
+            const active = metric.key === selectedKey;
 
-          <VitalTab
-            label="Heart Rate"
-            active={activeVital === "heartRate"}
-            color={vitalData.heartRate.color}
-            onPress={() => setActiveVital("heartRate")}
-          />
-
-          <VitalTab
-            label="Resp. Rate"
-            active={activeVital === "respRate"}
-            color={vitalData.respRate.color}
-            onPress={() => setActiveVital("respRate")}
-          />
+            return (
+              <Pressable
+                key={metric.key}
+                style={[styles.tab, active && styles.tabActive]}
+                onPress={() => setSelectedKey(metric.key)}
+              >
+                <Text style={[styles.tabText, active && styles.tabTextActive]}>
+                  {metric.tabLabel}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
       </View>
 
-      <View style={styles.metricRow}>
-        <Text style={[styles.primaryValue, { color: current.color }]}>
-          {current.value}
+      <View style={styles.valueRow}>
+        <Text style={styles.mainValue}>{selectedMetric.value}</Text>
+        <Text style={styles.unit}>{selectedMetric.unit}</Text>
+        <Text
+          style={[
+            styles.status,
+            selectedMetric.statusTone === "critical" && styles.statusCritical,
+            selectedMetric.statusTone === "warning" && styles.statusWarning,
+            selectedMetric.statusTone === "good" && styles.statusGood,
+          ]}
+        >
+          {selectedMetric.status}
         </Text>
-
-        <Text style={styles.unit}>{current.unit}</Text>
-        <Text style={styles.criticalText}>↓ Today · Critical</Text>
       </View>
 
-      <View style={styles.chart}>
-        <View style={styles.axisLabels}>
-          <Text style={styles.axisText}>{current.maxLabel}</Text>
-          <Text style={styles.axisText}>{current.midLabel}</Text>
-          <Text style={styles.axisText}>{current.lowLabel}</Text>
-        </View>
+      <TrendChart values={selectedMetric.data} />
 
-        <View style={styles.chartArea}>
-          <View
-            style={[
-              styles.chartLine,
-              {
-                backgroundColor: current.color,
-                top: normalizedPoints[3],
-              },
-            ]}
-          />
+      <View style={styles.divider} />
 
-          {normalizedPoints.map((top, index) => (
+      <View style={styles.bottomStats}>
+        <SmallStat
+          label="Heart Rate"
+          value={heartRate?.value ?? "118"}
+          unit={heartRate?.unit ?? "BPM"}
+          tone="critical"
+        />
+
+        <SmallStat
+          label="Resp. Rate"
+          value={respRate?.value ?? "32"}
+          unit={respRate?.unit ?? "br/min"}
+          tone="purple"
+        />
+      </View>
+    </View>
+  );
+}
+
+function TrendChart({ values }: { values: number[] }) {
+  const [chartWidth, setChartWidth] = useState(0);
+
+  const points = useMemo(() => {
+    if (chartWidth <= 0 || values.length === 0) return [];
+
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = Math.max(max - min, 1);
+
+    return values.map((value, index) => {
+      const x =
+        values.length === 1 ? chartWidth / 2 : (index / (values.length - 1)) * chartWidth;
+
+      const normalized = (value - min) / range;
+      const y = CHART_HEIGHT - normalized * (CHART_HEIGHT - 12) - 6;
+
+      return { x, y };
+    });
+  }, [chartWidth, values]);
+
+  return (
+    <View style={styles.chartWrap}>
+      <View style={styles.yAxis}>
+        <Text style={styles.axisLabel}>100</Text>
+        <Text style={styles.axisLabel}>50</Text>
+        <Text style={styles.axisLabel}>0</Text>
+      </View>
+
+      <View style={styles.chartArea}>
+        <View
+          style={styles.plotArea}
+          onLayout={(event) => {
+            setChartWidth(event.nativeEvent.layout.width);
+          }}
+        >
+          {points.map((point, index) => {
+            if (index === points.length - 1) return null;
+
+            const next = points[index + 1];
+            const dx = next.x - point.x;
+            const dy = next.y - point.y;
+            const length = Math.sqrt(dx * dx + dy * dy);
+            const angle = Math.atan2(dy, dx);
+
+            return (
+              <View
+                key={`segment-${index}`}
+                style={[
+                  styles.lineSegment,
+                  {
+                    width: length,
+                    left: point.x,
+                    top: point.y,
+                    transform: [{ rotate: `${angle}rad` }],
+                  },
+                ]}
+              />
+            );
+          })}
+
+          {points.map((point, index) => (
             <View
-              key={`${activeVital}-${days[index]}`}
+              key={`point-${index}`}
               style={[
-                styles.dot,
+                styles.point,
                 {
-                  backgroundColor: current.color,
-                  left: `${index * 16.3}%`,
-                  top,
+                  left: point.x - POINT_SIZE / 2,
+                  top: point.y - POINT_SIZE / 2,
                 },
               ]}
             />
           ))}
         </View>
-      </View>
 
-      <View style={styles.dayRow}>
-        {days.map((day) => (
-          <Text key={day} style={styles.dayText}>
-            {day}
-          </Text>
-        ))}
-      </View>
-
-      <View style={styles.divider} />
-
-      <View style={styles.footerMetrics}>
-        <View>
-          <Text style={styles.footerLabel}>{current.footerLeftLabel}</Text>
-          <Text
-            style={[
-              styles.footerValue,
-              { color: getFooterColor(current.footerLeftLabel) },
-            ]}
-          >
-            {current.footerLeftValue}
-          </Text>
-        </View>
-
-        <View>
-          <Text style={styles.footerLabel}>{current.footerRightLabel}</Text>
-          <Text
-            style={[
-              styles.footerValue,
-              { color: getFooterColor(current.footerRightLabel) },
-            ]}
-          >
-            {current.footerRightValue}
-          </Text>
+        <View style={styles.dayRow}>
+          {days.map((day) => (
+            <Text key={day} style={styles.dayLabel}>
+              {day}
+            </Text>
+          ))}
         </View>
       </View>
     </View>
   );
 }
 
-function VitalTab({
+function SmallStat({
   label,
-  active,
-  color,
-  onPress,
+  value,
+  unit,
+  tone,
 }: {
   label: string;
-  active: boolean;
-  color: string;
-  onPress: () => void;
+  value: string;
+  unit: string;
+  tone: "critical" | "purple";
 }) {
   return (
-    <Pressable
-      style={[
-        styles.tab,
-        active && {
-          backgroundColor: color,
-          shadowColor: color,
-          shadowOpacity: 0.25,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 4 },
-          elevation: 3,
-        },
-      ]}
-      onPress={onPress}
-    >
-      <Text style={[styles.tabText, active && styles.tabTextActive]}>
-        {label}
+    <View style={styles.smallStat}>
+      <Text style={styles.smallStatLabel}>{label}</Text>
+      <Text style={styles.smallStatValueRow}>
+        <Text
+          style={[
+            styles.smallStatValue,
+            tone === "critical" && styles.smallStatCritical,
+            tone === "purple" && styles.smallStatPurple,
+          ]}
+        >
+          {value}
+        </Text>
+        <Text style={styles.smallStatUnit}> {unit}</Text>
       </Text>
-    </Pressable>
+    </View>
   );
-}
-
-function getFooterColor(label: string): string {
-  if (label.includes("SpO")) return AppTheme.colors.brand;
-  if (label.includes("Heart")) return AppTheme.colors.danger;
-  return AppTheme.colors.purple;
 }
 
 const styles = StyleSheet.create({
   card: {
     backgroundColor: AppTheme.colors.surface,
-    borderRadius: AppTheme.radius.card,
-    padding: 24,
-    marginBottom: 22,
+    borderRadius: 30,
+    padding: 20,
+    marginBottom: 24,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
     ...AppTheme.shadow,
   },
   headerRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 12,
+    marginBottom: 22,
   },
   titleBlock: {
-    flex: 1,
+    marginBottom: 14,
   },
-  sectionLabel: {
+  sectionTitle: {
     color: AppTheme.colors.sectionText,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "900",
-    letterSpacing: 1.1,
+    letterSpacing: 1.4,
     textTransform: "uppercase",
-    marginBottom: 6,
+    marginBottom: 7,
   },
   subtitle: {
     color: AppTheme.colors.textMuted,
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 15,
+    fontWeight: "700",
   },
   tabRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
   },
   tab: {
-    width: 58,
+    flex: 1,
     minHeight: 52,
-    borderRadius: 17,
+    borderRadius: 18,
     backgroundColor: AppTheme.colors.softSurface,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 6,
   },
+  tabActive: {
+    backgroundColor: AppTheme.colors.brand,
+    ...AppTheme.shadow,
+  },
   tabText: {
     color: AppTheme.colors.textSoft,
     fontSize: 11,
+    lineHeight: 15,
     fontWeight: "900",
     textAlign: "center",
   },
   tabTextActive: {
     color: AppTheme.colors.white,
   },
-  metricRow: {
+  valueRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    marginTop: 28,
+    marginBottom: 16,
+    flexWrap: "wrap",
   },
-  primaryValue: {
+  mainValue: {
+    color: AppTheme.colors.brandDark,
     fontSize: 34,
-    lineHeight: 38,
     fontWeight: "900",
+    letterSpacing: -0.5,
   },
   unit: {
     color: AppTheme.colors.textMuted,
-    fontSize: 17,
-    fontWeight: "700",
-    marginLeft: 8,
-    marginBottom: 4,
-  },
-  criticalText: {
-    color: AppTheme.colors.danger,
     fontSize: 16,
     fontWeight: "800",
-    marginLeft: 14,
-    marginBottom: 4,
+    marginLeft: 6,
+    marginBottom: 5,
   },
-  chart: {
+  status: {
+    fontSize: 14,
+    fontWeight: "900",
+    marginLeft: 16,
+    marginBottom: 5,
+  },
+  statusCritical: {
+    color: AppTheme.colors.danger,
+  },
+  statusWarning: {
+    color: AppTheme.colors.warning,
+  },
+  statusGood: {
+    color: AppTheme.colors.brand,
+  },
+
+  chartWrap: {
     flexDirection: "row",
-    marginTop: 20,
-    height: 80,
+    minHeight: 112,
   },
-  axisLabels: {
+  yAxis: {
     width: 30,
+    height: CHART_HEIGHT,
     justifyContent: "space-between",
-    paddingVertical: 2,
+    alignItems: "flex-end",
+    paddingRight: 7,
   },
-  axisText: {
+  axisLabel: {
     color: AppTheme.colors.textMuted,
     fontSize: 11,
+    fontWeight: "700",
   },
   chartArea: {
     flex: 1,
+    height: 112,
+  },
+  plotArea: {
+    height: CHART_HEIGHT,
     position: "relative",
-    marginLeft: 8,
   },
-  chartLine: {
+  lineSegment: {
     position: "absolute",
-    left: 0,
-    right: 0,
-    height: 4,
-    borderRadius: 2,
+    height: 3,
+    borderRadius: 999,
+    backgroundColor: AppTheme.colors.brand,
+    transformOrigin: "left center",
   },
-  dot: {
+  point: {
     position: "absolute",
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: POINT_SIZE,
+    height: POINT_SIZE,
+    borderRadius: POINT_SIZE / 2,
+    backgroundColor: AppTheme.colors.brand,
   },
   dayRow: {
+    marginTop: 12,
     flexDirection: "row",
     justifyContent: "space-between",
-    marginLeft: 38,
-    marginTop: 4,
   },
-  dayText: {
+  dayLabel: {
     color: AppTheme.colors.textMuted,
     fontSize: 12,
+    fontWeight: "700",
   },
+
   divider: {
     height: 1,
     backgroundColor: AppTheme.colors.border,
-    marginTop: 26,
+    marginTop: 16,
     marginBottom: 18,
   },
-  footerMetrics: {
+  bottomStats: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    paddingRight: 72,
+    gap: 20,
   },
-  footerLabel: {
+  smallStat: {
+    flex: 1,
+  },
+  smallStatLabel: {
     color: AppTheme.colors.textMuted,
-    fontSize: 13,
-    fontWeight: "700",
-    marginBottom: 6,
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: 7,
   },
-  footerValue: {
+  smallStatValueRow: {
+    fontSize: 15,
+  },
+  smallStatValue: {
     fontSize: 17,
     fontWeight: "900",
+  },
+  smallStatCritical: {
+    color: AppTheme.colors.danger,
+  },
+  smallStatPurple: {
+    color: AppTheme.colors.purple,
+  },
+  smallStatUnit: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
   },
 });
