@@ -13,6 +13,8 @@ import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScreenHeader } from '@/components/ui/screen-header';
+
 import { AlertCard } from '@/components/dashboard/alert-card';
 import {
   useOrchestrator,
@@ -76,10 +78,7 @@ export default function DashboardTab() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Text style={styles.eyebrow}>Caregiver Concierge</Text>
-          <Text style={styles.title}>Dashboard</Text>
-        </View>
+        <ScreenHeader eyebrow="Caregiver Concierge" title="Dashboard" />
 
         {/* Patient summary */}
         <View style={styles.card}>
@@ -196,22 +195,6 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
     gap: 12,
-  },
-  header: {
-    marginBottom: 4,
-  },
-  eyebrow: {
-    color: TEAL,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: DARK,
-    marginTop: 2,
   },
   card: {
     backgroundColor: '#FFFFFF',

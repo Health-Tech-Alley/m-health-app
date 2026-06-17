@@ -8,7 +8,7 @@ export function TodayPriorityCard() {
   const router = useRouter();
 
   return (
-    <Pressable style={styles.card} onPress={() => router.push("/medications")}>
+    <Pressable style={styles.card} onPress={() => router.push("/(tabs)/medications")}>
       <View style={styles.iconCircle}>
         <AppIcon name="pill" size={30} color={AppTheme.colors.warning} />
       </View>

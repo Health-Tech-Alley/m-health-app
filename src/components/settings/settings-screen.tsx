@@ -18,11 +18,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
-import { MODEL_CATALOG } from '@/inference/model-catalog';
-import { isModelInstalled } from '@/services/model-storage';
+import { MODEL_CATALOG, type ModelEntry } from '@/inference/model-catalog';
+import { isModelInstalled, deleteModel, clearAllModels } from '@/services/model-storage';
+import { downloadModel } from '@/services/model-download';
 import {
   getActiveConsents,
   verifyAuditChain,
@@ -46,11 +48,87 @@ export function SettingsScreen() {
   const { settings, isDeveloper, toggleMode, setTheme, setNotificationPreferences } = useSettings();
   const slm = useSLM();
   const patientId = useOrchestratorPatientId();
+  const [downloads, setDownloads] = useState<Map<string, { progress: number; cancel: () => void }>>(new Map());
+
+  const handleDownload = useCallback((entry: ModelEntry) => {
+    const handle = downloadModel(entry, null, {
+      onProgress: (bytesWritten, totalBytes) => {
+        const progress = totalBytes > 0 ? bytesWritten / totalBytes : 0;
+        setDownloads((prev) => {
+          const next = new Map(prev);
+          next.set(entry.id, { progress, cancel: handle.cancel });
+          return next;
+        });
+      },
+      onComplete: () => {
+        setDownloads((prev) => {
+          const next = new Map(prev);
+          next.delete(entry.id);
+          return next;
+        });
+        Alert.alert('Download Complete', `${entry.displayName} is ready to use.`);
+      },
+      onError: (error) => {
+        setDownloads((prev) => {
+          const next = new Map(prev);
+          next.delete(entry.id);
+          return next;
+        });
+        Alert.alert('Download Failed', error);
+      },
+    });
+    setDownloads((prev) => {
+      const next = new Map(prev);
+      next.set(entry.id, { progress: 0, cancel: handle.cancel });
+      return next;
+    });
+  }, []);
+
+  const handleDelete = useCallback((entry: ModelEntry) => {
+    Alert.alert(
+      'Remove Model',
+      `Remove ${entry.displayName}? You'll need to download it again to use it.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            if (slm.currentModelId === entry.id) {
+              slm.unloadModel();
+            }
+            deleteModel(entry);
+          },
+        },
+      ],
+    );
+  }, [slm]);
+
+  const handleDeleteAll = useCallback(() => {
+    Alert.alert(
+      'Delete All Models',
+      'This will remove all downloaded models. You\'ll need to download them again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete All',
+          style: 'destructive',
+          onPress: () => {
+            if (slm.currentModelId) {
+              slm.unloadModel();
+            }
+            const count = clearAllModels();
+            Alert.alert('Complete', `Removed ${count} model${count !== 1 ? 's' : ''}.`);
+          },
+        },
+      ],
+    );
+  }, [slm]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Settings</Text>
+        <ScreenHeader eyebrow="Caregiver Concierge" title="Settings" />
 
         {/* Appearance */}
         <Section title="Appearance">
@@ -165,31 +243,77 @@ export function SettingsScreen() {
                 {MODEL_CATALOG.map((m) => {
                   const installed = isModelInstalled(m);
                   const isActive = slm.currentModelId === m.id;
+                  const download = downloads.get(m.id);
+                  const isDownloading = !!download;
                   return (
                     <View key={m.id} style={styles.modelItem}>
                       <Text style={styles.modelName}>{m.displayName}</Text>
                       <Text style={styles.modelStatus}>
-                        {installed ? 'Installed' : 'Not installed'}
+                        {isDownloading
+                          ? `Downloading... ${Math.round(download.progress * 100)}%`
+                          : installed
+                          ? 'Installed'
+                          : 'Not installed'}
                         {isActive ? ' · Active' : ''}
                       </Text>
+                      {isDownloading && (
+                        <View style={styles.progressBar}>
+                          <View
+                            style={[
+                              styles.progressFill,
+                              { width: `${Math.round(download.progress * 100)}%` },
+                            ]}
+                          />
+                        </View>
+                      )}
                       <View style={styles.modelActions}>
-                        <Pressable
-                          style={[styles.smallButton, !installed && styles.disabledButton]}
-                          disabled={!installed || slm.loadStatus === 'loading'}
-                          onPress={() => slm.loadModel(m.id)}>
-                          <Text style={styles.smallButtonText}>Load</Text>
-                        </Pressable>
-                        <Pressable
-                          style={[styles.smallButton, styles.dangerSmallButton]}
-                          disabled={!isActive}
-                          onPress={() => slm.unloadModel()}>
-                          <Text style={styles.smallButtonText}>Unload</Text>
-                        </Pressable>
+                        {!installed && !isDownloading && (
+                          <Pressable
+                            style={styles.smallButton}
+                            onPress={() => handleDownload(m)}>
+                            <Text style={styles.smallButtonText}>Download</Text>
+                          </Pressable>
+                        )}
+                        {isDownloading && (
+                          <Pressable
+                            style={[styles.smallButton, styles.dangerSmallButton]}
+                            onPress={() => download.cancel()}>
+                            <Text style={styles.smallButtonText}>Cancel</Text>
+                          </Pressable>
+                        )}
+                        {installed && (
+                          <>
+                            <Pressable
+                              style={[styles.smallButton, !installed && styles.disabledButton]}
+                              disabled={!installed || slm.loadStatus === 'loading'}
+                              onPress={() => slm.loadModel(m.id)}>
+                              <Text style={styles.smallButtonText}>Load</Text>
+                            </Pressable>
+                            <Pressable
+                              style={[styles.smallButton, styles.dangerSmallButton]}
+                              onPress={() => handleDelete(m)}>
+                              <Text style={styles.smallButtonText}>Remove</Text>
+                            </Pressable>
+                          </>
+                        )}
                       </View>
                     </View>
                   );
                 })}
               </View>
+
+              <Pressable
+                style={[styles.actionButton, styles.unloadButton, !slm.currentModelId && styles.disabledActionButton]}
+                disabled={!slm.currentModelId}
+                onPress={() => slm.unloadModel()}>
+                <Text style={styles.actionButtonText}>Unload Model</Text>
+              </Pressable>
+
+              <Pressable
+                style={[styles.actionButton, styles.dangerButton]}
+                onPress={handleDeleteAll}>
+                <Text style={styles.actionButtonText}>Delete All Models</Text>
+              </Pressable>
 
               <Pressable
                 style={styles.actionButton}
@@ -332,7 +456,6 @@ function ToggleRow({ label, value, onValueChange }: { label: string; value: bool
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: lightBg },
   content: { padding: 20, paddingBottom: 40, gap: 16 },
-  title: { fontSize: 28, fontWeight: '900', color: darkText, marginBottom: 4 },
   section: { gap: 8 },
   sectionTitle: {
     fontSize: 12,
@@ -378,6 +501,8 @@ const styles = StyleSheet.create({
   },
   actionButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
   dangerButton: { backgroundColor: dangerRed },
+  unloadButton: { backgroundColor: '#6B7280' },
+  disabledActionButton: { backgroundColor: '#D1D5DB', opacity: 0.7 },
   devSection: { gap: 12, marginTop: 8 },
   devLabel: { fontSize: 14, fontWeight: '700', color: darkText },
   devInfo: { fontSize: 12, color: mutedText },
@@ -409,4 +534,16 @@ const styles = StyleSheet.create({
   chainStatus: { fontSize: 12, fontWeight: '700', marginTop: 4 },
   chainOk: { color: teal },
   chainBroken: { color: dangerRed },
+  progressBar: {
+    height: 4,
+    backgroundColor: borderColor,
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginTop: 4,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: teal,
+    borderRadius: 2,
+  },
 });

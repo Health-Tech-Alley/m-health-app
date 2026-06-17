@@ -26,21 +26,21 @@ export function QuickActionsCard() {
         Common caregiver actions for {profile.patient.name}.
       </Text>
 
-      <Pressable style={styles.actionButton} onPress={() => router.push("/care")}>
+      <Pressable style={styles.actionButton} onPress={() => router.push("/(tabs)/care")}>
         <Text style={styles.actionTitle}>Add Care Note</Text>
         <Text style={styles.actionDescription}>
           Record a caregiver observation or action.
         </Text>
       </Pressable>
 
-      <Pressable style={styles.actionButton} onPress={() => router.push("/care")}>
+      <Pressable style={styles.actionButton} onPress={() => router.push("/(tabs)/care")}>
         <Text style={styles.actionTitle}>Contact Provider</Text>
         <Text style={styles.actionDescription}>
           View contact info for {profile.primaryCareProvider.name}.
         </Text>
       </Pressable>
 
-      <Pressable style={styles.actionButton} onPress={() => router.push("/care")}>
+      <Pressable style={styles.actionButton} onPress={() => router.push("/(tabs)/care")}>
         <Text style={styles.actionTitle}>View Care Timeline</Text>
         <Text style={styles.actionDescription}>
           Review recent alerts, notes, and caregiver actions.

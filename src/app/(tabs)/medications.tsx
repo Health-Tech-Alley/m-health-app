@@ -12,6 +12,8 @@ import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScreenHeader } from '@/components/ui/screen-header';
+
 import {
   useOrchestratorPatientId,
 } from '@/contexts/orchestrator-context';
@@ -66,8 +68,7 @@ export default function MedicationsTab() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.eyebrow}>Medication Management</Text>
-        <Text style={styles.title}>Medications</Text>
+        <ScreenHeader eyebrow="Medication Management" title="Medications" />
 
         {meds.length === 0 ? (
           <View style={styles.emptyCard}>
@@ -135,20 +136,6 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 48,
     gap: 12,
-  },
-  eyebrow: {
-    color: TEAL,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: DARK,
-    marginTop: 2,
-    marginBottom: 4,
   },
   emptyCard: {
     backgroundColor: '#FFFFFF',

@@ -330,11 +330,11 @@ m-health-app/
 │   │   ├── onboarding.tsx       # First-run caregiver + patient intake
 │   │   ├── (tabs)/              # Tab-based navigation (Dashboard, Care, Medications, Schedule, Settings)
 │   │   │   ├── _layout.tsx      # 5-tab shell (expo-router Tabs)
-│   │   │   ├── dashboard.tsx    # Alert cards + patient summary + quick actions
-│   │   │   ├── care.tsx         # Care management hub (vitals + alerts + care plan)
-│   │   │   ├── medications.tsx  # Med list + schedules + mark-as-given
-│   │   │   ├── schedule.tsx     # Alert timeline + notifications + appointments placeholder
-│   │   │   └── settings.tsx     # Full settings surface
+│   │   │   ├── dashboard.tsx    # Branded header + patient summary + alert cards + quick actions
+│   │   │   ├── care.tsx         # Branded header + vitals + alerts + care plan link
+│   │   │   ├── medications.tsx  # Branded header + med list + schedules + mark-as-given
+│   │   │   ├── schedule.tsx     # Branded header + alert timeline + notifications + appointments placeholder
+│   │   │   └── settings.tsx     # Branded header + full settings surface
 │   │   ├── alert-detail.tsx     # Unified alert detail (ST-01/02/03, severity-based)
 │   │   ├── slm-explain.tsx      # SLM explanation + clarifying Q + next-steps flow
 │   │   ├── acute-anomaly.tsx    # End-to-end orchestration demo (dev)
@@ -349,7 +349,7 @@ m-health-app/
 │   │   ├── settings/            # Settings screen component
 │   │   ├── notifications/       # In-app banner
 │   │   ├── charts/              # Vitals trend chart
-│   │   ├── ui/                  # Collapsible, themed primitives
+│   │   ├── ui/                  # Collapsible, ScreenHeader, themed primitives
 │   │   ├── markdown-renderer.tsx
 │   │   └── ...
 │   ├── contexts/                # SettingsProvider, SLMProvider, OrchestratorProvider

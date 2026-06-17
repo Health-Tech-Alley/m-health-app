@@ -61,16 +61,20 @@ Post-onboarding, the app uses a **tab-based layout** (`src/app/(tabs)/_layout.ts
 with five tabs: Dashboard, Care, Medications, Schedule, Settings. Stack overlay
 screens (`alert-detail`, `slm-explain`, dev screens) are pushed on top of the tabs.
 
+Every tab screen shares a consistent branded header: the **Health Tech Alley logo**
+in a teal rounded square to the left of the screen title, rendered by the reusable
+`ScreenHeader` component (`src/components/ui/screen-header.tsx`).
+
 | Route file | Implementation | Purpose |
 |------------|----------------|---------|
 | `index.tsx` | Redirect | First route → onboarding or `/(tabs)/dashboard` |
 | `onboarding.tsx` | Inline | 5-step intake (welcome + 4 data steps). Redirects to `/(tabs)/dashboard` on completion. |
 | `(tabs)/_layout.tsx` | expo-router `Tabs` | 5-tab shell (Dashboard, Care, Medications, Schedule, Settings) |
-| `(tabs)/dashboard.tsx` | Inline | Alert cards + patient summary + quick actions |
-| `(tabs)/care.tsx` | Inline | Care management hub (vitals + alerts + care plan) |
-| `(tabs)/medications.tsx` | Inline | Med list + schedules + mark-as-given |
-| `(tabs)/schedule.tsx` | Inline | Alert timeline + notifications + appointments placeholder |
-| `(tabs)/settings.tsx` | `src/components/settings/settings-screen.tsx` | Full settings surface |
+| `(tabs)/dashboard.tsx` | Inline | Branded header + patient summary + active alert cards + quick actions |
+| `(tabs)/care.tsx` | Inline | Branded header + patient snapshot + vitals + active alerts + care plan link |
+| `(tabs)/medications.tsx` | Inline | Branded header + med list + schedules + "Mark as given" |
+| `(tabs)/schedule.tsx` | Inline | Branded header + appointments placeholder + alert timeline + notifications |
+| `(tabs)/settings.tsx` | `src/components/settings/settings-screen.tsx` | Branded header + full settings surface |
 | `alert-detail.tsx` | Inline | Unified alert detail (ST-01/02/03, severity-based) |
 | `slm-explain.tsx` | Inline | SLM explanation + clarifying Q + next-steps flow |
 | `acute-anomaly.tsx` | Inline | End-to-end orchestration demo (dev) |
@@ -111,13 +115,14 @@ Context card, the SLM system prompt, and the orchestrator's threshold engine.
 
 ### Dashboard (`(tabs)/dashboard.tsx`)
 
-The main caregiver home dashboard. Shows a patient summary header, then
-**severity-colored alert cards** that subscribe to the event bus for
-`ml_alert_created` and `vitals_sample` events. Each alert card has a severity
-dot (red for 3, orange for 2, teal for 1), title, body, and a "View" button
-that pushes to `alert-detail`. A quick-actions grid links to Care,
-Medications, and Schedule. For severity-3 alerts, a red emergency banner
-appears at the top.
+The main caregiver home dashboard. Shows the **Health Tech Alley logo + branded
+header** ("Caregiver Concierge / Dashboard"), a patient summary card with latest
+SpO2 and heart rate, then **severity-colored alert cards** that subscribe to the
+event bus for `ml_alert_created` and `vitals_sample` events. Each alert card has
+a severity dot (red for 3, orange for 2, teal for 1), title, body, and a "View"
+button that pushes to `alert-detail`. A quick-actions grid links to Care,
+Medications, and Schedule. For severity-3 alerts, a red emergency banner appears
+at the top.
 
 ### Alert Detail (`alert-detail.tsx`)
 
@@ -154,27 +159,31 @@ The shared SLM explanation screen for all three steel threads. Takes an
 
 ### Care (`(tabs)/care.tsx`)
 
-Care management hub. Shows a patient snapshot (name, conditions), latest
-vitals (SpO2, heart rate from `getLatestHealthSample`), active alerts, and
-links to the care plan (placeholder) and the acute-anomaly demo (dev mode).
+Care management hub. Shows the **Health Tech Alley logo + branded header**
+("Care Management / Care"), a patient snapshot (name, conditions), latest vitals
+(SpO2, heart rate from `getLatestHealthSample`), active alerts, and links to the
+care plan (`/care-management`) and the acute-anomaly demo (dev mode).
 
 ### Medications (`(tabs)/medications.tsx`)
 
-Lists active medications from `getActiveMedications(patientId)`. For each med:
-name, dosage, frequency, and schedule times from
+Lists active medications from `getActiveMedications(patientId)`. Shows the
+**Health Tech Alley logo + branded header** ("Medication Management /
+Medications"). For each med: name, dosage, frequency, and schedule times from
 `getActiveMedicationSchedules(patientId)`. A "Mark as given" button per med
 logs a `caregiver_action` of type `log_observation`. Links to the acute-anomaly
 demo (dev mode).
 
 ### Schedule (`(tabs)/schedule.tsx`)
 
-Shows a timeline of recent alerts (from `getActiveAlerts` + recently resolved)
-and recent notifications (from `getNotificationsForPatient`). Appointments
-section is a placeholder (no appointments table yet).
+Shows the **Health Tech Alley logo + branded header** ("Scheduling & Timeline /
+Schedule"). Displays a timeline of recent alerts (from `getActiveAlerts` +
+recently resolved) and recent notifications (from `getNotificationsForPatient`).
+Appointments section is a placeholder (no appointments table yet).
 
 ### Settings (`(tabs)/settings.tsx` → `settings-screen.tsx`)
 
-Full settings surface with sections:
+Full settings surface with the **Health Tech Alley logo + branded header**
+("Caregiver Concierge / Settings") and sections:
 - **Appearance** — Theme toggle (light/dark/system)
 - **Notifications** — Per-trigger toggles (anomaly, medication, appointment,
   care-task), appointment lead time, quiet hours
@@ -307,14 +316,6 @@ Implements the canonical ST-01-style flow:
 - SLM load/unload controls and a mini RAM monitor are mirrored here.
 - Implemented as an MVC trio (`care-management-screen`,
   `care-management-controller`, `care-management-view`).
-
-### Other screens
-
-- **Profile / `profile.tsx`** — Lightweight profile view that accepts an
-  optional `name` search param.
-- **Explore / `explore.tsx`** — Expo starter info + collapsibles, using
-  `ThemedText` / `ThemedView` and the `Collapsible` component.
-- **AI / `ai.tsx`** — Auxiliary mock AI chat surface.
 
 ---
 

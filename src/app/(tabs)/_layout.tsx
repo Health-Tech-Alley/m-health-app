@@ -7,7 +7,8 @@
  */
 
 import { Tabs } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const TEAL = '#0E6F68';
 const MUTED = '#526866';
@@ -29,13 +30,19 @@ function TabIcon({ icon, focused }: { icon: string; focused: boolean }) {
 }
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: TEAL,
         tabBarInactiveTintColor: MUTED,
-        tabBarStyle: styles.tabBar,
+        tabBarStyle: {
+          ...styles.tabBar,
+          paddingBottom: Platform.OS === 'ios' ? insets.bottom + 4 : 6,
+          height: Platform.OS === 'ios' ? 50 + insets.bottom : 64,
+        },
         tabBarLabelStyle: styles.tabBarLabel,
         tabBarItemStyle: styles.tabBarItem,
       }}
@@ -57,11 +64,18 @@ export default function TabsLayout() {
 const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
+    borderTopWidth: Platform.OS === 'ios' ? 0 : 1,
     borderTopColor: '#E4E7EC',
-    height: 64,
-    paddingBottom: 6,
     paddingTop: 4,
+    ...(Platform.OS === 'ios'
+      ? {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -1 },
+          shadowOpacity: 0.08,
+          shadowRadius: 4,
+          elevation: 0,
+        }
+      : {}),
   },
   tabBarLabel: {
     fontSize: 11,
