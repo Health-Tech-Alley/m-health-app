@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
@@ -8,7 +8,7 @@ type TimeRange = "12h" | "day" | "week" | "month";
 
 type VitalMetric = {
   key: VitalKey;
-  tabLabel: string;
+  tabIcon: string;
   label: string;
   value: string;
   unit: string;
@@ -22,23 +22,23 @@ type VitalMetric = {
 const metrics: VitalMetric[] = [
   {
     key: "spo2",
-    tabLabel: "≡ƒ½ü",
+    tabIcon: "\u{1FAC1}",
     label: "Oxygen Saturation",
     value: "84",
     unit: "%",
-    status: "Γåô Today ┬╖ Critical",
+    status: "Down today \u2022 Critical",
     statusTone: "critical",
     subtitle: "Declining trend this week",
-    helperText: "SpOΓéé estimates how much oxygen is in the blood.",
+    helperText: "SpO2 estimates how much oxygen is in the blood.",
     data: [96, 95, 96, 94, 93, 92, 90],
   },
   {
     key: "heartRate",
-    tabLabel: "Γ¥ñ∩╕Å",
+    tabIcon: "\u2764\uFE0F",
     label: "Heart Rate",
     value: "118",
     unit: "BPM",
-    status: "Γåæ Today ┬╖ Elevated",
+    status: "Up today \u2022 Elevated",
     statusTone: "critical",
     subtitle: "Higher than baseline",
     helperText: "Heart rate shows beats per minute compared with baseline.",
@@ -46,11 +46,11 @@ const metrics: VitalMetric[] = [
   },
   {
     key: "respRate",
-    tabLabel: "≡ƒî¼∩╕Å",
+    tabIcon: "\u{1F32C}\uFE0F",
     label: "Respiratory Rate",
     value: "32",
     unit: "br/min",
-    status: "Γåæ Today ┬╖ Elevated",
+    status: "Up today \u2022 Elevated",
     statusTone: "warning",
     subtitle: "Breathing faster than usual",
     helperText: "Respiratory rate counts breaths per minute.",
@@ -58,11 +58,11 @@ const metrics: VitalMetric[] = [
   },
   {
     key: "mobility",
-    tabLabel: "≡ƒÜ╢",
+    tabIcon: "\u{1F6B6}",
     label: "Mobility Score",
     value: "55",
     unit: "/100",
-    status: "Γåô Today ┬╖ Lower",
+    status: "Down today \u2022 Lower",
     statusTone: "warning",
     subtitle: "Movement below expected pattern",
     helperText: "Mobility reflects movement compared with the usual pattern.",
@@ -84,24 +84,15 @@ const POINT_SIZE = 13;
 export function WeeklyVitalsCard() {
   const [selectedKey, setSelectedKey] = useState<VitalKey>("spo2");
   const [selectedRange, setSelectedRange] = useState<TimeRange>("week");
-  const [helperKey, setHelperKey] = useState<VitalKey | null>(null);
+  const [helperKey, setHelperKey] = useState<VitalKey>("spo2");
 
   const selectedMetric =
     metrics.find((metric) => metric.key === selectedKey) ?? metrics[0];
-  const helperMetric = metrics.find((metric) => metric.key === helperKey);
+  const helperMetric =
+    metrics.find((metric) => metric.key === helperKey) ?? selectedMetric;
 
   const heartRate = metrics.find((metric) => metric.key === "heartRate");
   const respRate = metrics.find((metric) => metric.key === "respRate");
-
-  useEffect(() => {
-    if (!helperKey) return;
-
-    const timeout = setTimeout(() => {
-      setHelperKey(null);
-    }, 3500);
-
-    return () => clearTimeout(timeout);
-  }, [helperKey]);
 
   return (
     <View style={styles.card}>
@@ -119,22 +110,22 @@ export function WeeklyVitalsCard() {
               <Pressable
                 key={metric.key}
                 style={[styles.tab, active && styles.tabActive]}
+                accessibilityRole="button"
+                accessibilityLabel={metric.label}
                 onPress={() => {
                   setSelectedKey(metric.key);
                   setHelperKey(metric.key);
                 }}
               >
-                <Text style={[styles.tabText, active && styles.tabTextActive]}>
-                  {metric.tabLabel}
+                <Text style={[styles.tabIcon, active && styles.tabIconActive]}>
+                  {metric.tabIcon}
                 </Text>
               </Pressable>
             );
           })}
         </View>
 
-        {helperMetric ? (
-          <Text style={styles.metricHelperText}>{helperMetric.helperText}</Text>
-        ) : null}
+        <Text style={styles.metricHelperText}>{helperMetric.helperText}</Text>
       </View>
 
       <View style={styles.valueRow}>
@@ -352,25 +343,26 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    minHeight: 56,
-    borderRadius: 18,
+    minHeight: 68,
+    borderRadius: 20,
     backgroundColor: AppTheme.colors.softSurface,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 6,
+    paddingVertical: 8,
   },
   tabActive: {
     backgroundColor: AppTheme.colors.brand,
     ...AppTheme.shadow,
   },
-  tabText: {
+  tabIcon: {
     color: AppTheme.colors.textSoft,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 36,
+    lineHeight: 42,
     fontWeight: "900",
     textAlign: "center",
   },
-  tabTextActive: {
+  tabIconActive: {
     color: AppTheme.colors.white,
   },
   metricHelperText: {

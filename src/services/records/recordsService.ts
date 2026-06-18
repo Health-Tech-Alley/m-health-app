@@ -7,7 +7,14 @@ import {
 import { exportCcd } from "@/services/export/ccdaExportService";
 
 const DEFAULT_PATIENT_ID = "default-patient";
-const CCDA_EXPORT_SCOPE: EgressScope = "ccda_export";
+
+export type RecordConsentScope =
+  | "ccda_export"
+  | "fhir-share"
+  | "pharmacy-communicator"
+  | "provider-message";
+
+const CCDA_EXPORT_SCOPE: RecordConsentScope = "ccda_export";
 
 export type RecordExportConsentStatus = {
   patientId: string;
@@ -33,16 +40,23 @@ export type CcdaExportStatus =
 export function getRecordExportConsentStatus(
   patientId: string = DEFAULT_PATIENT_ID,
 ): RecordExportConsentStatus {
+  return getRecordConsentStatus(CCDA_EXPORT_SCOPE, patientId);
+}
+
+export function getRecordConsentStatus(
+  scope: RecordConsentScope,
+  patientId: string = DEFAULT_PATIENT_ID,
+): RecordExportConsentStatus {
   try {
     return {
       patientId,
-      scope: CCDA_EXPORT_SCOPE,
-      granted: hasActiveConsent(patientId, CCDA_EXPORT_SCOPE),
+      scope,
+      granted: hasActiveConsent(patientId, scope),
     };
   } catch {
     return {
       patientId,
-      scope: CCDA_EXPORT_SCOPE,
+      scope,
       granted: false,
     };
   }
@@ -52,13 +66,21 @@ export function setRecordExportConsent(
   granted: boolean,
   patientId: string = DEFAULT_PATIENT_ID,
 ): RecordExportConsentStatus {
+  return setRecordConsent(CCDA_EXPORT_SCOPE, granted, patientId);
+}
+
+export function setRecordConsent(
+  scope: RecordConsentScope,
+  granted: boolean,
+  patientId: string = DEFAULT_PATIENT_ID,
+): RecordExportConsentStatus {
   if (granted) {
-    grantConsent(patientId, CCDA_EXPORT_SCOPE);
+    grantConsent(patientId, scope);
   } else {
-    revokeConsentAndAudit(patientId, CCDA_EXPORT_SCOPE);
+    revokeConsentAndAudit(patientId, scope);
   }
 
-  return getRecordExportConsentStatus(patientId);
+  return getRecordConsentStatus(scope, patientId);
 }
 
 export function exportPatientCcda(
