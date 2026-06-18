@@ -31,6 +31,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { MaxContentWidth } from '@/constants/theme';
+import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useTheme } from '@/hooks/use-theme';
 import type { ChatMessage as ProviderChatMessage } from '@/inference/inference-provider';
@@ -39,6 +40,7 @@ import { useMemoryInfo, isNativeMemoryAvailable } from '@/services/device-memory
 import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
 import {
   askCaregiverAssistantMock,
+  buildCaregiverAssistantContextFromSnapshot,
   buildCaregiverSystemContext,
   CAREGIVER_SLM_MODEL_ID,
   downloadCaregiverSLMModel,
@@ -48,6 +50,27 @@ import { isModelInstalled } from '@/services/model-storage';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 
 type MessageStatus = 'streaming' | 'done' | 'stopped' | 'error';
+
+const PROMPT_INPUT_MIN_HEIGHT = 44;
+const PROMPT_INPUT_MAX_HEIGHT = 180;
+const PROMPT_INPUT_LINE_HEIGHT = 20;
+const PROMPT_INPUT_VERTICAL_PADDING = 20;
+const PROMPT_INPUT_APPROX_CHARS_PER_LINE = 34;
+
+function getPromptInputHeight(text: string): number {
+  if (!text) return PROMPT_INPUT_MIN_HEIGHT;
+
+  const approximateLines = text.split('\n').reduce((lines, segment) => {
+    return lines + Math.max(1, Math.ceil(segment.length / PROMPT_INPUT_APPROX_CHARS_PER_LINE));
+  }, 0);
+
+  const approximateHeight = approximateLines * PROMPT_INPUT_LINE_HEIGHT + PROMPT_INPUT_VERTICAL_PADDING;
+
+  return Math.min(
+    PROMPT_INPUT_MAX_HEIGHT,
+    Math.max(PROMPT_INPUT_MIN_HEIGHT, approximateHeight),
+  );
+}
 
 interface ChatMessage {
   id: string;
@@ -166,21 +189,24 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
   }
 }
 
-export default function SLMScreen() {
+export default function SLMScreen({
+  showBackButton = true,
+}: {
+  showBackButton?: boolean;
+} = {}) {
   const slm = useSLM();
   const theme = useTheme();
   const profile = useMemo(() => getOnboardingProfile(), []);
+  const { snapshot } = usePatientRecord();
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [inputText, setInputText] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
-  const [inputHeight, setInputHeight] = useState(40);
+  const [inputHeight, setInputHeight] = useState(PROMPT_INPUT_MIN_HEIGHT);
 
   const handleInputChange = useCallback((text: string) => {
     setInputText(text);
-    if (!text) {
-      setInputHeight(40);
-    }
+    setInputHeight(getPromptInputHeight(text));
   }, []);
   const abortControllerRef = useRef<AbortController | null>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -188,38 +214,38 @@ export default function SLMScreen() {
   const hasNativeMemory = isNativeMemoryAvailable();
 
   const caregiverContext = useMemo(
-    () => ({
-      // Patient
-      patientName: profile.patient.name,
-      patientAge: profile.patient.age,
-      patientConditions: profile.patient.conditions,
-      patientBaselineDailyRoutine:
-        profile.patient.baselineDailyRoutine ?? 'No routine provided',
-      patientCurrentMedications:
-        profile.patient.currentMedications ?? 'No medications provided',
-      patientSpo2Cutoff: profile.patient.spo2Cutoff,
-      patientBaselineHeartRate: profile.patient.baselineHeartRate,
-      // Caregiver
-      caregiverName: profile.caregiver.name,
-      caregiverRelationship: profile.caregiver.relationship,
-      caregiverExperience: profile.caregiver.experience,
-      caregiverAvailability: profile.caregiver.availability,
-      caregiverLanguagePreference: profile.caregiver.languagePreference,
-      caregiverMedicalComfortLevel: profile.caregiver.medicalComfortLevel,
-      caregiverHobbiesOrRoutines: profile.caregiver.hobbiesOrRoutines,
-      caregiverMainConcern:
-        profile.caregiver.mainConcern ?? 'No active concern provided',
-      caregiverStressOrSupportNeeds: profile.caregiver.stressOrSupportNeeds,
-      caregiverBackup: profile.caregiver.backupCaregiver,
-      // Care team
-      primaryCareProviderName: profile.primaryCareProvider.name,
-      primaryCareProviderPhone: profile.primaryCareProvider.phone,
-      primaryCareProviderEmail: profile.primaryCareProvider.email,
-      // Safety
-      emergencyContact: profile.safety?.emergencyContact,
-      safetyNotes: profile.safety?.safetyNotes,
-    }),
-    [profile],
+    () =>
+      snapshot
+        ? buildCaregiverAssistantContextFromSnapshot(snapshot)
+        : {
+            // Fallback to onboarding profile if snapshot not ready yet.
+            patientName: profile.patient.name,
+            patientAge: profile.patient.age,
+            patientConditions: profile.patient.conditions,
+            patientBaselineDailyRoutine:
+              profile.patient.baselineDailyRoutine ?? 'No routine provided',
+            patientCurrentMedications:
+              profile.patient.currentMedications ?? 'No medications provided',
+            patientSpo2Cutoff: profile.patient.spo2Cutoff,
+            patientBaselineHeartRate: profile.patient.baselineHeartRate,
+            caregiverName: profile.caregiver.name,
+            caregiverRelationship: profile.caregiver.relationship,
+            caregiverExperience: profile.caregiver.experience,
+            caregiverAvailability: profile.caregiver.availability,
+            caregiverLanguagePreference: profile.caregiver.languagePreference,
+            caregiverMedicalComfortLevel: profile.caregiver.medicalComfortLevel,
+            caregiverHobbiesOrRoutines: profile.caregiver.hobbiesOrRoutines,
+            caregiverMainConcern:
+              profile.caregiver.mainConcern ?? 'No active concern provided',
+            caregiverStressOrSupportNeeds: profile.caregiver.stressOrSupportNeeds,
+            caregiverBackup: profile.caregiver.backupCaregiver,
+            primaryCareProviderName: profile.primaryCareProvider.name,
+            primaryCareProviderPhone: profile.primaryCareProvider.phone,
+            primaryCareProviderEmail: profile.primaryCareProvider.email,
+            emergencyContact: profile.safety?.emergencyContact,
+            safetyNotes: profile.safety?.safetyNotes,
+          },
+    [snapshot, profile],
   );
 
   const installedModels = useMemo(
@@ -437,10 +463,14 @@ export default function SLMScreen() {
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}>
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Text style={styles.backText}>← Back</Text>
-          </Pressable>
+        <View style={[styles.headerRow, !showBackButton && styles.headerRowTab]}>
+          {showBackButton ? (
+            <Pressable onPress={() => router.back()} style={styles.backButton}>
+              <Text style={styles.backText}>← Back</Text>
+            </Pressable>
+          ) : (
+            <Text style={styles.headerTabTitle}>Assistant</Text>
+          )}
           <Pressable onPress={handleNewConversation} style={styles.newConvButton}>
             <Text style={styles.newConvButtonText}>New conversation</Text>
           </Pressable>
@@ -640,18 +670,8 @@ export default function SLMScreen() {
                 height: inputHeight,
               },
             ]}
-            onContentSizeChange={(e) => {
-              const next = e.nativeEvent.contentSize.height;
-              // Empty / placeholder / single-line content should stay at the
-              // one-line minimum (40). Only grow once the text actually wraps.
-              if (next <= 22) {
-                setInputHeight(40);
-              } else {
-                setInputHeight(Math.min(180, Math.max(40, next + 16)));
-              }
-            }}
             textAlignVertical="top"
-            scrollEnabled={false}
+            scrollEnabled={inputHeight >= PROMPT_INPUT_MAX_HEIGHT - 1}
           />
           {state.runStatus === 'streaming' ? (
             <Pressable onPress={handleStop} style={[styles.sendButton, styles.stopButton]}>
@@ -707,6 +727,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 4,
+  },
+  headerRowTab: {
+    justifyContent: 'space-between',
+  },
+  headerTabTitle: {
+    color: '#0E6F68',
+    fontWeight: '900',
+    fontSize: 17,
   },
   backButton: {
     paddingVertical: 8,
@@ -918,8 +946,8 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    minHeight: 40,
-    maxHeight: 180,
+    minHeight: PROMPT_INPUT_MIN_HEIGHT,
+    maxHeight: PROMPT_INPUT_MAX_HEIGHT,
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 8,

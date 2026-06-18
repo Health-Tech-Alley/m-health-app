@@ -50,7 +50,7 @@ export class LlamaRnProvider implements InferenceProvider {
     try {
       this.context = await llamaRn.initLlama({
         model: cleanPath,
-        n_ctx: options?.nCtx ?? 2048,
+        n_ctx: options?.nCtx ?? 4096,
         n_gpu_layers: -1,
       });
       this.modelInfo = {
@@ -107,7 +107,7 @@ export class LlamaRnProvider implements InferenceProvider {
               role: m.role,
               content: m.content,
             })),
-            n_predict: options?.maxTokens ?? 1024,
+            n_predict: options?.maxTokens ?? 2048,
             temperature: options?.temperature ?? 0.7,
             top_p: options?.topP ?? 0.9,
             jinja: true,

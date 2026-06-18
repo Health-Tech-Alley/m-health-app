@@ -1,22 +1,65 @@
 /**
  * Root layout for the Expo Router app.
  *
- * Wraps the mobile app with SLMProvider so official screens can access
- * Ethan's SLM provider through the service layer.
+ * Wraps the mobile app with:
+ *   SettingsProvider → PatientRecordProvider → SLMProvider → OrchestratorProvider
+ *
+ * PatientRecordProvider seeds the SQLite DB from the onboarding profile and
+ * exposes the denormalized patient record snapshot that the orchestrator and
+ * the SLM system prompt both consume.
  */
 
+import { useEffect } from 'react';
 import { DefaultTheme, Stack, ThemeProvider } from "expo-router";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
-import { SLMProvider } from "@/contexts/slm-context";
+import { InAppBanner } from "@/components/notifications/in-app-banner";
+import { OrchestratorProvider } from "@/contexts/orchestrator-context";
+import { PatientRecordProvider } from "@/contexts/patient-record-context";
+import { SettingsProvider, useSettings } from "@/contexts/settings-context";
+import { SLMProvider, useSLM } from "@/contexts/slm-context";
+
+function SlmPolicySync() {
+  const { mode } = useSettings();
+  const { setPolicy } = useSLM();
+  useEffect(() => {
+    setPolicy(mode === 'demo' ? 'auto' : 'manual');
+  }, [mode, setPolicy]);
+  return null;
+}
+
+function NotificationInit() {
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { initNotifications } = await import('@/services/notifications');
+        if (!cancelled) await initNotifications();
+      } catch {
+        // Notifications unavailable (Track A without expo-notifications) — graceful.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  return null;
+}
 
 export default function RootLayout() {
   return (
     <ThemeProvider value={DefaultTheme}>
-      <SLMProvider>
-        <AnimatedSplashOverlay />
-        <Stack screenOptions={{ headerShown: false }} />
-      </SLMProvider>
+      <SettingsProvider>
+        <PatientRecordProvider>
+          <SLMProvider>
+            <SlmPolicySync />
+            <NotificationInit />
+            <OrchestratorProvider>
+              <AnimatedSplashOverlay />
+              <InAppBanner />
+              <Stack screenOptions={{ headerShown: false }} />
+            </OrchestratorProvider>
+          </SLMProvider>
+        </PatientRecordProvider>
+      </SettingsProvider>
     </ThemeProvider>
   );
 }

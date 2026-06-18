@@ -1,22 +1,500 @@
-import { StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { useState } from "react";
+import { useRouter } from "expo-router";
+import type { ReactNode } from "react";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { AppIcon, type AppIconName } from "@/components/AppIcon";
+import { AppTheme } from "@/constants/theme";
+import { usePatientRecord } from "@/contexts/patient-record-context";
+import { upsertCaregiver } from "@/data";
+import {
+  getOnboardingProfile,
+  saveOnboardingProfile,
+} from "@/services/onboarding/onboardingService";
+
+type DetailValue = string | number | boolean | null | undefined;
+
+type EditableField = "name" | "relationship" | "phone" | "mainConcern";
 
 export default function ProfileScreen() {
-  const { name } = useLocalSearchParams<{ name: string }>();
+  const router = useRouter();
+  const [profile, setProfile] = useState(() => getOnboardingProfile());
+  const { snapshot, refresh } = usePatientRecord();
+
+  const caregiver = profile.caregiver;
+  const patient = profile.patient;
+  const provider = profile.primaryCareProvider;
+  const safety = profile.safety;
+
+  const [editing, setEditing] = useState<EditableField | null>(null);
+  const [draft, setDraft] = useState("");
+
+  const openEdit = (field: EditableField) => {
+    setEditing(field);
+    setDraft(String(caregiver[field] ?? ""));
+  };
+
+  const saveEdit = () => {
+    if (!editing || !snapshot?.caregiver) {
+      setEditing(null);
+      return;
+    }
+    const updatedProfile = {
+      ...profile,
+      caregiver: { ...profile.caregiver, [editing]: draft.trim() },
+    };
+    saveOnboardingProfile(updatedProfile);
+    setProfile(updatedProfile);
+    // Persist to SQLite so the patient record snapshot stays in sync.
+    upsertCaregiver({ ...snapshot.caregiver, [editing]: draft.trim() } as any);
+    refresh();
+    setEditing(null);
+    setDraft("");
+  };
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView>
-        <ThemedText type="title">Profile</ThemedText>
-        {name && <ThemedText>{name}</ThemedText>}
-      </SafeAreaView>
-    </ThemedView>
+    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+      <View style={styles.root}>
+        <View style={styles.topBar}>
+          <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backButton}>
+            <Text style={styles.backText}>← Back</Text>
+          </Pressable>
+          <Text style={styles.topTitle}>Profile</Text>
+        </View>
+
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+        >
+          <View style={styles.profileHeader}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{getInitials(caregiver.name)}</Text>
+            </View>
+
+            <View style={styles.headerTextBlock}>
+              <Text style={styles.caregiverName}>
+                {formatDetailValue(caregiver.name)}
+              </Text>
+
+              <Text style={styles.roleText}>
+                Caregiver · {formatDetailValue(caregiver.relationship)}
+              </Text>
+
+              <Text style={styles.patientLink}>
+                Caring for {formatDetailValue(patient.name)},{" "}
+                {formatDetailValue(patient.age)}
+              </Text>
+            </View>
+          </View>
+
+          <ProfileCard title="Caregiver · tap to edit" icon="profile">
+            <EditableDetailRow label="Name" value={caregiver.name} onPress={() => openEdit("name")} />
+            <EditableDetailRow label="Relationship" value={caregiver.relationship} onPress={() => openEdit("relationship")} />
+            <EditableDetailRow label="Phone" value={caregiver.phone} onPress={() => openEdit("phone")} />
+            <DetailRow label="Experience" value={caregiver.experience} />
+            <DetailRow label="Availability" value={caregiver.availability} />
+            <EditableDetailRow label="Main concern" value={caregiver.mainConcern} onPress={() => openEdit("mainConcern")} />
+            <DetailRow label="Language" value={caregiver.languagePreference} />
+          </ProfileCard>
+
+          <ProfileCard title="Patient" icon="care">
+            <DetailRow label="Name" value={patient.name} />
+            <DetailRow label="Age" value={patient.age} />
+            <DetailRow label="Conditions" value={patient.conditions} />
+            <DetailRow label="SpO₂ cutoff" value={patient.spo2Cutoff} />
+            <DetailRow label="Baseline HR" value={patient.baselineHeartRate} />
+            <DetailRow
+              label="Routine"
+              value={patient.baselineDailyRoutine}
+              multiline
+            />
+            <DetailRow
+              label="Medications"
+              value={patient.currentMedications}
+              multiline
+            />
+          </ProfileCard>
+
+          <ProfileCard title="Primary Care Provider" icon="provider">
+            <DetailRow label="Name" value={provider.name} />
+            <DetailRow label="Phone" value={provider.phone} />
+            <DetailRow label="Email" value={provider.email} />
+          </ProfileCard>
+
+          <ProfileCard title="Preferences" icon="bell">
+            <DetailRow label="Notifications" value={caregiver.notificationStyle} />
+            <DetailRow
+              label="Medical comfort"
+              value={formatMedicalComfort(caregiver.medicalComfortLevel)}
+            />
+            <DetailRow
+              label="Emergency comfort"
+              value={formatEmergencyComfort(caregiver.emergencyComfortLevel)}
+            />
+            <DetailRow label="Backup caregiver" value={caregiver.backupCaregiver} />
+            <DetailRow
+              label="Support needs"
+              value={caregiver.stressOrSupportNeeds}
+              multiline
+            />
+          </ProfileCard>
+
+          <ProfileCard title="Safety" icon="alert">
+            <DetailRow label="Emergency contact" value={safety?.emergencyContact} />
+            <DetailRow label="Safety notes" value={safety?.safetyNotes} multiline />
+            <DetailRow
+              label="911 disclaimer"
+              value={
+                safety?.emergencyDisclaimerAccepted
+                  ? "Accepted"
+                  : "Needs review"
+              }
+            />
+          </ProfileCard>
+        </ScrollView>
+
+        {/* Caregiver field edit modal */}
+        <Modal
+          visible={editing !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setEditing(null)}
+        >
+          <Pressable style={styles.editOverlay} onPress={() => setEditing(null)}>
+            <Pressable style={styles.editSheet} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.editTitle}>
+                Edit {editing?.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}
+              </Text>
+              <TextInput
+                style={styles.editInput}
+                value={draft}
+                onChangeText={setDraft}
+                autoFocus
+                placeholder="Enter value…"
+                placeholderTextColor={AppTheme.colors.textMuted}
+              />
+              <View style={styles.editActions}>
+                <Pressable
+                  style={[styles.editButton, styles.editCancel]}
+                  onPress={() => setEditing(null)}
+                >
+                  <Text style={styles.editCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable style={styles.editButton} onPress={saveEdit}>
+                  <Text style={styles.editSaveText}>Save</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      </View>
+    </SafeAreaView>
   );
 }
 
+function ProfileCard({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon: AppIconName;
+  children: ReactNode;
+}) {
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <View style={styles.cardIconCircle}>
+          <AppIcon name={icon} size={18} color={AppTheme.colors.brand} />
+        </View>
+
+        <Text style={styles.cardTitle}>{title}</Text>
+      </View>
+
+      {children}
+    </View>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  multiline,
+}: {
+  label: string;
+  value: DetailValue;
+  multiline?: boolean;
+}) {
+  return (
+    <View style={[styles.detailRow, multiline && styles.detailRowMultiline]}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text
+        style={[styles.detailValue, multiline && styles.detailValueMultiline]}
+      >
+        {formatDetailValue(value)}
+      </Text>
+    </View>
+  );
+}
+
+function EditableDetailRow({
+  label,
+  value,
+  onPress,
+}: {
+  label: string;
+  value: DetailValue;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={styles.detailRow} onPress={onPress}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{formatDetailValue(value)}</Text>
+      <Text style={styles.editChevron}>›</Text>
+    </Pressable>
+  );
+}
+
+function getInitials(name: DetailValue): string {
+  const safeName = formatDetailValue(name);
+
+  if (safeName === "Not provided") {
+    return "CG";
+  }
+
+  return safeName
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function formatDetailValue(value: DetailValue): string {
+  if (value === null || value === undefined) {
+    return "Not provided";
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+
+  const text = String(value).trim();
+  return text.length > 0 ? text : "Not provided";
+}
+
+function formatMedicalComfort(value: DetailValue): string {
+  const text = formatDetailValue(value);
+
+  if (text === "Moderate detail") return "Moderate";
+  if (text === "Full clinical detail") return "Clinical detail";
+
+  return text;
+}
+
+function formatEmergencyComfort(value: DetailValue): string {
+  const text = formatDetailValue(value);
+
+  if (text === "Would call 911 if needed") return "Calls 911 if needed";
+  if (text === "Prefer provider first") return "Provider first";
+
+  return text;
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
+  safeArea: {
+    flex: 1,
+    backgroundColor: AppTheme.colors.screen,
+  },
+  root: {
+    flex: 1,
+    backgroundColor: AppTheme.colors.screen,
+  },
+  content: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 40,
+  },
+
+  profileHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingBottom: 22,
+    marginBottom: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.colors.border,
+  },
+  avatar: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    backgroundColor: AppTheme.colors.brandSoft,
+    borderWidth: 1,
+    borderColor: "#B7FFF1",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 18,
+  },
+  avatarText: {
+    color: AppTheme.colors.brand,
+    fontSize: 21,
+    fontWeight: "900",
+  },
+  headerTextBlock: {
+    flex: 1,
+  },
+  caregiverName: {
+    color: AppTheme.colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+    marginBottom: 5,
+  },
+  roleText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 5,
+  },
+  patientLink: {
+    color: AppTheme.colors.brand,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+
+  card: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    marginBottom: 16,
+    overflow: "hidden",
+    ...AppTheme.shadow,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.colors.border,
+  },
+  cardIconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: AppTheme.colors.brandSoft,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  cardTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+  },
+
+  detailRow: {
+    minHeight: 48,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.colors.border,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  detailRowMultiline: {
+    alignItems: "flex-start",
+  },
+  detailLabel: {
+    flex: 1,
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  detailValue: {
+    flex: 1.25,
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+    textAlign: "right",
+  },
+  detailValueMultiline: {
+    textAlign: "right",
+  },
+
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  backButton: {
+    paddingVertical: 6,
+    paddingRight: 6,
+  },
+  backText: {
+    color: AppTheme.colors.brand,
+    fontWeight: "800",
+    fontSize: 15,
+  },
+  topTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  editChevron: {
+    color: AppTheme.colors.brand,
+    fontSize: 16,
+    fontWeight: "900",
+    marginLeft: 8,
+  },
+  editOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    padding: 20,
+  },
+  editSheet: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.card,
+    padding: 22,
+  },
+  editTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+    marginBottom: 14,
+  },
+  editInput: {
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: AppTheme.colors.text,
+  },
+  editActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 16,
+  },
+  editButton: {
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  editCancel: { backgroundColor: AppTheme.colors.softSurface },
+  editCancelText: { color: AppTheme.colors.textSoft, fontSize: 14, fontWeight: "900" },
+  editSaveText: { color: AppTheme.colors.white, fontSize: 14, fontWeight: "900" },
 });

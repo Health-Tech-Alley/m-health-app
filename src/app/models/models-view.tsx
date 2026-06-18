@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useSettings } from '@/contexts/settings-context';
 import { useTheme } from '@/hooks/use-theme';
 import type { ModelItem, ModelsState } from './types';
 
@@ -119,6 +120,8 @@ function ModelRow({
 
 export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
   const theme = useTheme();
+  const { settings, setDemoDefaultModelId } = useSettings();
+  const defaultModelId = settings.demoDefaultModelId ?? 'healthgpt-pro-4b';
   const [tokenInput, setTokenInput] = useState('');
   const [tokenSectionOpen, setTokenSectionOpen] = useState(false);
 
@@ -221,6 +224,44 @@ export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
             ))}
           </View>
 
+          <ThemedView type="backgroundElement" style={styles.defaultSection}>
+            <ThemedText type="smallBold">Default SLM Model</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.defaultHint}>
+              Auto-loaded when an assistant task (safety-note explain, custom-med
+              check) runs in Demo mode. Current: {defaultModelId}. Only installed
+              models are selectable.
+            </ThemedText>
+            <View style={styles.defaultActions}>
+              {state.items.map((item) => {
+                const isDefault = defaultModelId === item.id;
+                const selectable = item.status === 'installed';
+                const active = isDefault && selectable;
+                return (
+                  <Pressable
+                    key={item.id}
+                    style={[
+                      styles.actionButton,
+                      styles.defaultButton,
+                      active && styles.defaultActiveButton,
+                      !selectable && styles.defaultDisabledButton,
+                    ]}
+                    disabled={!selectable}
+                    onPress={() => setDemoDefaultModelId(item.id)}>
+                    <ThemedText
+                      type="small"
+                      style={{
+                        color: active ? '#ffffff' : theme.text,
+                        fontWeight: '600',
+                      }}>
+                      {isDefault ? '✓ ' : ''}
+                      {item.displayName}
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </ThemedView>
+
           <Pressable
             onPress={() => {
               Alert.alert(
@@ -295,6 +336,28 @@ const styles = StyleSheet.create({
   },
   modelsList: {
     gap: Spacing.two,
+  },
+  defaultSection: {
+    padding: Spacing.three,
+    borderRadius: Spacing.two,
+    gap: Spacing.two,
+  },
+  defaultHint: {
+    marginBottom: Spacing.one,
+  },
+  defaultActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  defaultButton: {
+    minWidth: 100,
+  },
+  defaultActiveButton: {
+    backgroundColor: '#3c87f7',
+  },
+  defaultDisabledButton: {
+    opacity: 0.45,
   },
   modelRow: {
     padding: Spacing.three,
