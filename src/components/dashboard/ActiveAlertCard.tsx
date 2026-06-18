@@ -1,15 +1,163 @@
 import { useRouter } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  Alert,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
+import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
+import { insertCaregiverAction } from "@/data";
+import { audit } from "@/services/audit/auditService";
+import {
+  acknowledgeCareAlert,
+  getActiveCareAlerts,
+  resolveCareAlert,
+  type CareAlert,
+} from "@/services/care/careService";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 export function ActiveAlertCard() {
   const router = useRouter();
   const profile = getOnboardingProfile();
+  const patientId = useOrchestratorPatientId();
+  const [activeAlert, setActiveAlert] = useState<CareAlert | null>(null);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteText, setNoteText] = useState("");
+
   const patientFirstName =
     profile.patient.name.trim().split(/\s+/)[0] || "patient";
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      try {
+        setActiveAlert(getActiveCareAlerts(patientId)[0] ?? null);
+      } catch (error) {
+        if (__DEV__) {
+          console.warn("Falling back to mock active alert.", error);
+        }
+        setActiveAlert(null);
+      }
+    }, 0);
+    return () => clearTimeout(handle);
+  }, [patientId]);
+
+  const isRealAlert = activeAlert !== null;
+  const title = activeAlert?.title ?? "Red Breath Alert";
+  const subtitle = activeAlert
+    ? `Severity ${activeAlert.severity} · ${capitalize(activeAlert.status)} · ${formatRelativeTime(activeAlert.createdAt)}`
+    : "Severity 3 · Respiratory · Just now";
+  const pillLabel = activeAlert ? getSeverityLabel(activeAlert.severity) : "Urgent";
+  const body = activeAlert?.body
+    ? `${activeAlert.body} `
+    : `${profile.patient.name}'s oxygen is below her safe threshold. She hasn't moved in 25 min. `;
+
+  function handleCall911() {
+    audit({
+      actor: "caregiver",
+      action: "initiated_911",
+      resourceType: "alert",
+      resourceId: activeAlert?.alertId,
+      patientId,
+    });
+    Linking.openURL("tel:911").catch((err) =>
+      console.error("[ActiveAlertCard] Could not open dialer:", err),
+    );
+  }
+
+  function handleContactProvider() {
+    const phone = profile.primaryCareProvider.phone;
+    if (phone) {
+      audit({
+        actor: "caregiver",
+        action: "contact_provider",
+        resourceType: "alert",
+        resourceId: activeAlert?.alertId,
+        patientId,
+      });
+      Linking.openURL(`tel:${phone}`).catch((err) =>
+        console.error("[ActiveAlertCard] Could not open dialer:", err),
+      );
+    } else {
+      Alert.alert("No provider phone", "A primary care provider phone number was not provided during onboarding.");
+    }
+  }
+
+  function handleAcknowledge() {
+    if (isRealAlert && activeAlert) {
+      acknowledgeCareAlert(activeAlert.alertId);
+    }
+    audit({
+      actor: "caregiver",
+      action: "acknowledged",
+      resourceType: "alert",
+      resourceId: activeAlert?.alertId,
+      patientId,
+      payload: { severity: activeAlert?.severity ?? 3 },
+    });
+    Alert.alert(
+      "Alert acknowledged",
+      "The alert has been acknowledged and logged. Check on the patient immediately and call 911 if symptoms are severe.",
+      [{ text: "OK" }],
+    );
+  }
+
+  function handleMarkHandled() {
+    if (!activeAlert) return;
+    const resolved = resolveCareAlert(activeAlert.alertId);
+    if (!resolved && __DEV__) {
+      console.warn(`Unable to resolve alert ${activeAlert.alertId}`);
+    }
+    audit({
+      actor: "caregiver",
+      action: "resolved",
+      resourceType: "alert",
+      resourceId: activeAlert.alertId,
+      patientId,
+    });
+    setActiveAlert(null);
+  }
+
+  function handleSaveNote() {
+    const trimmed = noteText.trim();
+    if (!trimmed) {
+      setNoteOpen(false);
+      return;
+    }
+    audit({
+      actor: "caregiver",
+      action: "add_note",
+      resourceType: "alert",
+      resourceId: activeAlert?.alertId,
+      patientId,
+      payload: { note: trimmed },
+    });
+    insertCaregiverAction({
+      actionId: `act-${Date.now()}`,
+      alertId: activeAlert?.alertId,
+      patientId,
+      caregiverId: "caregiver-1",
+      type: "log_observation",
+      payloadJson: JSON.stringify({ note: trimmed }),
+      createdAt: new Date().toISOString(),
+    });
+    setNoteText("");
+    setNoteOpen(false);
+  }
+
+  function handleDismiss() {
+    if (isRealAlert && activeAlert) {
+      handleMarkHandled();
+    } else {
+      router.push("/care");
+    }
+  }
 
   return (
     <View style={styles.card}>
@@ -20,12 +168,12 @@ export function ActiveAlertCard() {
 
         <View style={styles.titleBlock}>
           <Text style={styles.eyebrow}>Active Alert</Text>
-          <Text style={styles.title}>Red Breath Alert</Text>
-          <Text style={styles.subtitle}>Severity 3 · Respiratory · Just now</Text>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
 
         <View style={styles.urgentPill}>
-          <Text style={styles.urgentText}>Urgent</Text>
+          <Text style={styles.urgentText}>{pillLabel}</Text>
         </View>
       </View>
 
@@ -36,15 +184,14 @@ export function ActiveAlertCard() {
       </View>
 
       <Text style={styles.bodyText}>
-        {profile.patient.name}&apos;s oxygen is below her safe threshold. She
-        hasn&apos;t moved in 25 min.{" "}
+        {body}
         <Text style={styles.boldText}>
           You decide — the app never acts for you.
         </Text>
       </Text>
 
       <View style={styles.primaryActions}>
-        <Pressable style={styles.callButton}>
+        <Pressable style={styles.callButton} onPress={handleCall911}>
           <Text style={styles.callButtonText}>Call 911</Text>
         </Pressable>
 
@@ -59,31 +206,92 @@ export function ActiveAlertCard() {
       <View style={styles.secondaryActions}>
         <Pressable
           style={styles.secondaryButton}
-          onPress={() => router.push("/care")}
+          onPress={handleContactProvider}
         >
           <Text style={styles.secondaryButtonText}>Contact Provider</Text>
         </Pressable>
 
         <Pressable
           style={styles.secondaryButton}
-          onPress={() => router.push("/care")}
+          onPress={isRealAlert ? handleMarkHandled : handleAcknowledge}
         >
-          <Text style={styles.secondaryButtonText}>Acknowledge</Text>
+          <Text style={styles.secondaryButtonText}>
+            {isRealAlert ? "✅ Mark handled" : "Acknowledge"}
+          </Text>
         </Pressable>
 
         <Pressable
           style={styles.secondaryButton}
-          onPress={() => router.push("/care")}
+          onPress={() => setNoteOpen((v) => !v)}
         >
           <Text style={styles.secondaryButtonText}>Add Note</Text>
         </Pressable>
       </View>
 
-      <Pressable onPress={() => router.push("/care")}>
-        <Text style={styles.footerLink}>Dismiss from home · View full alert →</Text>
+      {noteOpen ? (
+        <View style={styles.noteBlock}>
+          <TextInput
+            style={styles.noteInput}
+            value={noteText}
+            onChangeText={setNoteText}
+            placeholder="Add a caregiver note (logged to the audit trail)."
+            placeholderTextColor="rgba(255,255,255,0.6)"
+            multiline
+            textAlignVertical="top"
+            autoFocus
+          />
+          <View style={styles.noteActions}>
+            <Pressable
+              style={[styles.noteButton, styles.noteCancelButton]}
+              onPress={() => {
+                setNoteOpen(false);
+                setNoteText("");
+              }}
+            >
+              <Text style={styles.noteCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.noteButton, styles.noteSaveButton]}
+              onPress={handleSaveNote}
+            >
+              <Text style={styles.noteSaveText}>Save note</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      <Pressable onPress={handleDismiss}>
+        <Text style={styles.footerLink}>
+          {isRealAlert ? "Dismiss from home" : "Dismiss from home · View full alert →"}
+        </Text>
       </Pressable>
     </View>
   );
+}
+
+function getSeverityLabel(severity: CareAlert["severity"]): string {
+  if (severity === 3) return "Urgent";
+  if (severity === 2) return "Watch";
+  return "Info";
+}
+
+function formatRelativeTime(iso: string): string {
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return "Recent";
+
+  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function capitalize(value: string): string {
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function MetricBox({ label, value }: { label: string; value: string }) {
@@ -237,6 +445,46 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900",
     textAlign: "center",
+  },
+  noteBlock: {
+    marginTop: 12,
+    gap: 10,
+  },
+  noteInput: {
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    borderRadius: 14,
+    padding: 12,
+    minHeight: 70,
+    fontSize: 14,
+    color: AppTheme.colors.white,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  noteActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+  },
+  noteButton: {
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  noteCancelButton: {
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+  noteCancelText: {
+    color: AppTheme.colors.white,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  noteSaveButton: {
+    backgroundColor: AppTheme.colors.white,
+  },
+  noteSaveText: {
+    color: AppTheme.colors.danger,
+    fontSize: 14,
+    fontWeight: "900",
   },
   footerLink: {
     color: AppTheme.colors.white,

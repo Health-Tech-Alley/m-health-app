@@ -14,8 +14,6 @@ import { DefaultTheme, Stack, ThemeProvider } from "expo-router";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { InAppBanner } from "@/components/notifications/in-app-banner";
-import { ActiveAlertModal } from "@/components/dashboard/ActiveAlertModal";
-import { ActiveAlertProvider } from "@/contexts/active-alert-context";
 import { OrchestratorProvider } from "@/contexts/orchestrator-context";
 import { PatientRecordProvider } from "@/contexts/patient-record-context";
 import { SettingsProvider, useSettings } from "@/contexts/settings-context";
@@ -55,12 +53,9 @@ export default function RootLayout() {
             <SlmPolicySync />
             <NotificationInit />
             <OrchestratorProvider>
-              <ActiveAlertProvider>
-                <AnimatedSplashOverlay />
-                <InAppBanner />
-                <ActiveAlertModal />
-                <Stack screenOptions={{ headerShown: false }} />
-              </ActiveAlertProvider>
+              <AnimatedSplashOverlay />
+              <InAppBanner />
+              <Stack screenOptions={{ headerShown: false }} />
             </OrchestratorProvider>
           </SLMProvider>
         </PatientRecordProvider>

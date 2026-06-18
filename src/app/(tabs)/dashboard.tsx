@@ -10,19 +10,18 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
+import { ActiveAlertCard } from "@/components/dashboard/ActiveAlertCard";
 import { NonEmergencyInsightCard } from "@/components/dashboard/NonEmergencyInsightCard";
 import { PatientSummaryCard } from "@/components/dashboard/PatientSummaryCard";
 import { RecentActivityCard } from "@/components/dashboard/RecentActivityCard";
 import { TodayPriorityCard } from "@/components/dashboard/TodayPriorityCard";
 import { WeeklyVitalsCard } from "@/components/dashboard/WeeklyVitalsCard";
 import { AppTheme } from "@/constants/theme";
-import { useActiveAlert } from "@/contexts/active-alert-context";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 export default function DashboardRoute() {
   const router = useRouter();
   const profile = getOnboardingProfile();
-  const { alert, reopen } = useActiveAlert();
 
   const caregiverFirstName = getFirstName(profile.caregiver.name);
   const patientFirstName = getFirstName(profile.patient.name);
@@ -51,14 +50,14 @@ export default function DashboardRoute() {
 
               <Pressable
                 style={styles.bellButton}
-                onPress={() => (alert ? reopen() : router.push("/care"))}
+                onPress={() => router.push("/care")}
               >
                 <AppIcon
                   name="bell"
                   size={25}
                   color={AppTheme.colors.textMuted}
                 />
-                {alert ? <View style={styles.bellDot} /> : null}
+                <View style={styles.bellDot} />
               </Pressable>
             </View>
 
@@ -68,6 +67,7 @@ export default function DashboardRoute() {
           </View>
 
           <PatientSummaryCard />
+          <ActiveAlertCard />
           <WeeklyVitalsCard />
           <NonEmergencyInsightCard />
 

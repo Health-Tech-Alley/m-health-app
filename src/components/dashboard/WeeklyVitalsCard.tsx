@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
-import { usePatientRecord } from "@/contexts/patient-record-context";
 
 type VitalKey = "spo2" | "heartRate" | "respRate" | "mobility";
+type TimeRange = "12h" | "day" | "week" | "month";
 
 type VitalMetric = {
   key: VitalKey;
@@ -15,167 +15,93 @@ type VitalMetric = {
   status: string;
   statusTone: "critical" | "warning" | "good";
   subtitle: string;
+  helperText: string;
   data: number[];
-  yAxisMax: number;
-  yAxisMin: number;
 };
 
-// ---------------------------------------------------------------------------
-// Threshold parsing — pulls the patient's configured cutoffs/baselines so the
-// dashboard trend is clinically consistent with the care context instead of
-// arbitrary numbers.
-// ---------------------------------------------------------------------------
+const metrics: VitalMetric[] = [
+  {
+    key: "spo2",
+    tabLabel: "≡ƒ½ü",
+    label: "Oxygen Saturation",
+    value: "84",
+    unit: "%",
+    status: "Γåô Today ┬╖ Critical",
+    statusTone: "critical",
+    subtitle: "Declining trend this week",
+    helperText: "SpOΓéé estimates how much oxygen is in the blood.",
+    data: [96, 95, 96, 94, 93, 92, 90],
+  },
+  {
+    key: "heartRate",
+    tabLabel: "Γ¥ñ∩╕Å",
+    label: "Heart Rate",
+    value: "118",
+    unit: "BPM",
+    status: "Γåæ Today ┬╖ Elevated",
+    statusTone: "critical",
+    subtitle: "Higher than baseline",
+    helperText: "Heart rate shows beats per minute compared with baseline.",
+    data: [82, 86, 88, 94, 98, 110, 118],
+  },
+  {
+    key: "respRate",
+    tabLabel: "≡ƒî¼∩╕Å",
+    label: "Respiratory Rate",
+    value: "32",
+    unit: "br/min",
+    status: "Γåæ Today ┬╖ Elevated",
+    statusTone: "warning",
+    subtitle: "Breathing faster than usual",
+    helperText: "Respiratory rate counts breaths per minute.",
+    data: [20, 21, 23, 24, 26, 29, 32],
+  },
+  {
+    key: "mobility",
+    tabLabel: "≡ƒÜ╢",
+    label: "Mobility Score",
+    value: "55",
+    unit: "/100",
+    status: "Γåô Today ┬╖ Lower",
+    statusTone: "warning",
+    subtitle: "Movement below expected pattern",
+    helperText: "Mobility reflects movement compared with the usual pattern.",
+    data: [82, 78, 74, 72, 68, 61, 55],
+  },
+];
 
-function parseSpO2Cutoff(raw: string | undefined | null): number | null {
-  if (!raw) return null;
-  const m = raw.match(/(\d+)/);
-  return m ? parseInt(m[1], 10) : null;
-}
-
-function parseHrBaseline(raw: string | undefined | null): { low: number; high: number } | null {
-  if (!raw) return null;
-  const nums = raw.match(/\d+/g);
-  if (!nums || nums.length < 2) {
-    const single = nums ? parseInt(nums[0], 10) : null;
-    return single ? { low: single, high: single } : null;
-  }
-  return { low: parseInt(nums[0], 10), high: parseInt(nums[1], 10) };
-}
-
-/**
- * Build a 7-day trend for each vital. Values stay near the patient's
- * configured baseline for the first 5 days, then trend toward the threshold
- * on day 6 and breach on day 7 (today) — reflecting the active alert. This is
- * deterministic (no RNG) so the chart is stable across renders.
- */
-function buildMetrics(
-  spo2Cutoff: number | null,
-  hrBaseline: { low: number; high: number } | null,
-): VitalMetric[] {
-  const spo2Base = spo2Cutoff ?? 88; // percent — values stay above cutoff until today
-  const hrLow = hrBaseline?.low ?? 72;
-  const hrHigh = hrBaseline?.high ?? 88;
-  const rrBase = 18; // br/min — normal adult resting RR
-
-  // SpO2: 5 days slightly above cutoff, day 6 borderline, day 7 below (breach).
-  const spo2Today = Math.max(82, spo2Base - 4);
-  const spo2Data = [
-    spo2Base + 4,
-    spo2Base + 3,
-    spo2Base + 4,
-    spo2Base + 2,
-    spo2Base + 1,
-    spo2Base,
-    spo2Today,
-  ];
-
-  // Heart rate: baseline band then climbs above the high end today.
-  const hrToday = hrHigh + 28;
-  const hrData = [
-    hrLow + 2,
-    hrHigh - 2,
-    hrHigh,
-    hrHigh + 4,
-    hrHigh + 10,
-    hrHigh + 22,
-    hrToday,
-  ];
-
-  // Respiratory rate: normal (~18) then elevates today.
-  const rrToday = 30;
-  const rrData = [rrBase, rrBase + 1, rrBase + 2, rrBase + 3, rrBase + 5, rrBase + 8, rrToday];
-
-  // Mobility score: stable baseline then dips today (matches the non-emergency insight).
-  const mobilityBase = 80;
-  const mobilityToday = 55;
-  const mobilityData = [
-    mobilityBase,
-    mobilityBase - 2,
-    mobilityBase - 4,
-    mobilityBase - 6,
-    mobilityBase - 8,
-    mobilityBase - 15,
-    mobilityToday,
-  ];
-
-  const spo2StatusTone: VitalMetric["statusTone"] = spo2Today < (spo2Cutoff ?? 88) ? "critical" : "warning";
-  const hrStatusTone: VitalMetric["statusTone"] = hrToday > hrHigh + 20 ? "critical" : "warning";
-
-  return [
-    {
-      key: "spo2",
-      tabLabel: "SpO₂",
-      label: "Oxygen Saturation",
-      value: String(spo2Today),
-      unit: "%",
-      status: `↓ Today · ${spo2StatusTone === "critical" ? "Critical" : "Below cutoff"}`,
-      statusTone: spo2StatusTone,
-      subtitle: spo2Cutoff ? `Cutoff ${spo2Cutoff}% · declining trend` : "Declining trend this week",
-      data: spo2Data,
-      yAxisMax: 100,
-      yAxisMin: Math.min(80, spo2Today - 2),
-    },
-    {
-      key: "heartRate",
-      tabLabel: "Heart Rate",
-      label: "Heart Rate",
-      value: String(hrToday),
-      unit: "BPM",
-      status: `↑ Today · ${hrStatusTone === "critical" ? "Critical" : "Elevated"}`,
-      statusTone: hrStatusTone,
-      subtitle: hrBaseline ? `Baseline ${hrBaseline.low}–${hrBaseline.high} BPM · climbing` : "Higher than baseline",
-      data: hrData,
-      yAxisMax: Math.max(130, hrToday + 10),
-      yAxisMin: Math.min(60, hrLow - 10),
-    },
-    {
-      key: "respRate",
-      tabLabel: "Resp. Rate",
-      label: "Respiratory Rate",
-      value: String(rrToday),
-      unit: "br/min",
-      status: "↑ Today · Elevated",
-      statusTone: "warning",
-      subtitle: "Breathing faster than usual",
-      data: rrData,
-      yAxisMax: Math.max(36, rrToday + 4),
-      yAxisMin: 12,
-    },
-    {
-      key: "mobility",
-      tabLabel: "Mobility",
-      label: "Mobility Score",
-      value: String(mobilityToday),
-      unit: "/100",
-      status: "↓ Today · Lower",
-      statusTone: "warning",
-      subtitle: "Movement below expected pattern",
-      data: mobilityData,
-      yAxisMax: 100,
-      yAxisMin: 40,
-    },
-  ];
-}
+const timeRanges: { key: TimeRange; label: string }[] = [
+  { key: "12h", label: "12h" },
+  { key: "day", label: "Day" },
+  { key: "week", label: "Week" },
+  { key: "month", label: "Month" },
+];
 
 const days = ["M", "T", "W", "Th", "F", "Sa", "Su"];
 const CHART_HEIGHT = 88;
 const POINT_SIZE = 13;
 
 export function WeeklyVitalsCard() {
-  const { snapshot } = usePatientRecord();
   const [selectedKey, setSelectedKey] = useState<VitalKey>("spo2");
-
-  const metrics = useMemo<VitalMetric[]>(() => {
-    const spo2Cutoff = parseSpO2Cutoff(snapshot?.patient?.spo2Cutoff);
-    const hrBaseline = parseHrBaseline(snapshot?.patient?.baselineHeartRate);
-    return buildMetrics(spo2Cutoff, hrBaseline);
-  }, [snapshot?.patient?.spo2Cutoff, snapshot?.patient?.baselineHeartRate]);
+  const [selectedRange, setSelectedRange] = useState<TimeRange>("week");
+  const [helperKey, setHelperKey] = useState<VitalKey | null>(null);
 
   const selectedMetric =
     metrics.find((metric) => metric.key === selectedKey) ?? metrics[0];
+  const helperMetric = metrics.find((metric) => metric.key === helperKey);
 
   const heartRate = metrics.find((metric) => metric.key === "heartRate");
   const respRate = metrics.find((metric) => metric.key === "respRate");
+
+  useEffect(() => {
+    if (!helperKey) return;
+
+    const timeout = setTimeout(() => {
+      setHelperKey(null);
+    }, 3500);
+
+    return () => clearTimeout(timeout);
+  }, [helperKey]);
 
   return (
     <View style={styles.card}>
@@ -193,7 +119,10 @@ export function WeeklyVitalsCard() {
               <Pressable
                 key={metric.key}
                 style={[styles.tab, active && styles.tabActive]}
-                onPress={() => setSelectedKey(metric.key)}
+                onPress={() => {
+                  setSelectedKey(metric.key);
+                  setHelperKey(metric.key);
+                }}
               >
                 <Text style={[styles.tabText, active && styles.tabTextActive]}>
                   {metric.tabLabel}
@@ -202,6 +131,10 @@ export function WeeklyVitalsCard() {
             );
           })}
         </View>
+
+        {helperMetric ? (
+          <Text style={styles.metricHelperText}>{helperMetric.helperText}</Text>
+        ) : null}
       </View>
 
       <View style={styles.valueRow}>
@@ -219,25 +152,44 @@ export function WeeklyVitalsCard() {
         </Text>
       </View>
 
-      <TrendChart
-        values={selectedMetric.data}
-        yMax={selectedMetric.yAxisMax}
-        yMin={selectedMetric.yAxisMin}
-      />
+      <View style={styles.rangeRow}>
+        {timeRanges.map((range) => {
+          const active = range.key === selectedRange;
+
+          return (
+            <Pressable
+              key={range.key}
+              style={[styles.rangePill, active && styles.rangePillActive]}
+              onPress={() => setSelectedRange(range.key)}
+            >
+              <Text
+                style={[
+                  styles.rangePillText,
+                  active && styles.rangePillTextActive,
+                ]}
+              >
+                {range.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <TrendChart values={selectedMetric.data} />
 
       <View style={styles.divider} />
 
       <View style={styles.bottomStats}>
         <SmallStat
           label="Heart Rate"
-          value={heartRate?.value ?? "—"}
+          value={heartRate?.value ?? "118"}
           unit={heartRate?.unit ?? "BPM"}
           tone="critical"
         />
 
         <SmallStat
           label="Resp. Rate"
-          value={respRate?.value ?? "—"}
+          value={respRate?.value ?? "32"}
           unit={respRate?.unit ?? "br/min"}
           tone="purple"
         />
@@ -246,43 +198,35 @@ export function WeeklyVitalsCard() {
   );
 }
 
-function TrendChart({
-  values,
-  yMax,
-  yMin,
-}: {
-  values: number[];
-  yMax: number;
-  yMin: number;
-}) {
+function TrendChart({ values }: { values: number[] }) {
   const [chartWidth, setChartWidth] = useState(0);
 
   const points = useMemo(() => {
     if (chartWidth <= 0 || values.length === 0) return [];
 
-    const min = Math.min(yMin, ...values);
-    const max = Math.max(yMax, ...values);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
     const range = Math.max(max - min, 1);
 
     return values.map((value, index) => {
       const x =
-        values.length === 1 ? chartWidth / 2 : (index / (values.length - 1)) * chartWidth;
+        values.length === 1
+          ? chartWidth / 2
+          : (index / (values.length - 1)) * chartWidth;
 
       const normalized = (value - min) / range;
       const y = CHART_HEIGHT - normalized * (CHART_HEIGHT - 12) - 6;
 
       return { x, y };
     });
-  }, [chartWidth, values, yMax, yMin]);
-
-  const midLabel = Math.round((yMax + yMin) / 2);
+  }, [chartWidth, values]);
 
   return (
     <View style={styles.chartWrap}>
       <View style={styles.yAxis}>
-        <Text style={styles.axisLabel}>{yMax}</Text>
-        <Text style={styles.axisLabel}>{midLabel}</Text>
-        <Text style={styles.axisLabel}>{yMin}</Text>
+        <Text style={styles.axisLabel}>100</Text>
+        <Text style={styles.axisLabel}>50</Text>
+        <Text style={styles.axisLabel}>0</Text>
       </View>
 
       <View style={styles.chartArea}>
@@ -322,7 +266,6 @@ function TrendChart({
               key={`point-${index}`}
               style={[
                 styles.point,
-                index === points.length - 1 && styles.pointLast,
                 {
                   left: point.x - POINT_SIZE / 2,
                   top: point.y - POINT_SIZE / 2,
@@ -409,7 +352,7 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    minHeight: 52,
+    minHeight: 56,
     borderRadius: 18,
     backgroundColor: AppTheme.colors.softSurface,
     alignItems: "center",
@@ -422,25 +365,31 @@ const styles = StyleSheet.create({
   },
   tabText: {
     color: AppTheme.colors.textSoft,
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: "900",
     textAlign: "center",
   },
   tabTextActive: {
     color: AppTheme.colors.white,
   },
+  metricHelperText: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
+    marginTop: 10,
+  },
   valueRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    marginBottom: 16,
+    marginBottom: 12,
     flexWrap: "wrap",
   },
   mainValue: {
     color: AppTheme.colors.brandDark,
     fontSize: 34,
     fontWeight: "900",
-    letterSpacing: -0.5,
   },
   unit: {
     color: AppTheme.colors.textMuted,
@@ -462,6 +411,28 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.warning,
   },
   statusGood: {
+    color: AppTheme.colors.brand,
+  },
+  rangeRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 16,
+  },
+  rangePill: {
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.colors.softSurface,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  rangePillActive: {
+    backgroundColor: AppTheme.colors.brandSoft,
+  },
+  rangePillText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  rangePillTextActive: {
     color: AppTheme.colors.brand,
   },
 
@@ -502,9 +473,6 @@ const styles = StyleSheet.create({
     height: POINT_SIZE,
     borderRadius: POINT_SIZE / 2,
     backgroundColor: AppTheme.colors.brand,
-  },
-  pointLast: {
-    backgroundColor: AppTheme.colors.danger,
   },
   dayRow: {
     marginTop: 12,

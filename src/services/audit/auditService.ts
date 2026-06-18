@@ -6,7 +6,12 @@
  * builders so callers do not have to construct IDs or timestamps.
  */
 
-import { insertAuditEntry, type AuditLogEntry } from '@/data';
+import {
+  getAuditEntriesForResource,
+  insertAuditEntry,
+  verifyAuditChain,
+  type AuditLogEntry,
+} from '@/data';
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
@@ -75,4 +80,39 @@ export function auditConsentDecision(
     patientId,
     payload: { scope, granted },
   });
+}
+
+export interface AuditLogEntrySummary {
+  auditId: string;
+  actor: AuditLogEntry['actor'];
+  action: string;
+  resourceType: string;
+  resourceId?: string;
+  createdAt: string;
+  hashChain: string;
+}
+
+export interface AuditChainStatus {
+  ok: boolean;
+  firstBrokenId?: string;
+}
+
+export function getAuditLogEntriesForResource(
+  resourceType = 'alert',
+  resourceId?: string,
+  limit = 50,
+): AuditLogEntrySummary[] {
+  return getAuditEntriesForResource(resourceType, resourceId, limit).map((entry) => ({
+    auditId: entry.auditId,
+    actor: entry.actor,
+    action: entry.action,
+    resourceType: entry.resourceType,
+    resourceId: entry.resourceId,
+    createdAt: entry.createdAt,
+    hashChain: entry.hashChain,
+  }));
+}
+
+export function verifyAuditLogChain(): AuditChainStatus {
+  return verifyAuditChain();
 }

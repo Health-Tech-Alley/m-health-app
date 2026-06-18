@@ -118,13 +118,12 @@ Context card, the SLM system prompt, and the orchestrator's threshold engine.
 ### Dashboard (`(tabs)/dashboard.tsx`)
 
 The main caregiver home dashboard. Shows the **Health Tech Alley logo + branded
-header** ("Caregiver Concierge / Dashboard"), a patient summary card with latest
-SpO2 and heart rate, then **severity-colored alert cards** that subscribe to the
-event bus for `ml_alert_created` and `vitals_sample` events. Each alert card has
-a severity dot (red for 3, orange for 2, teal for 1), title, body, and a "View"
-button that pushes to `alert-detail`. A quick-actions grid links to Care,
-Medications, and Schedule. For severity-3 alerts, a red emergency banner appears
-at the top.
+header** ("Caregiver Concierge / ACCESS-DP"), a patient summary card, the
+**ActiveAlertCard** (severity-3 alert with functional Call 911 / Contact Provider
+/ Acknowledge / Mark handled / Add Note buttons), the **Weekly Vitals card**
+(emoji-tabbed vital trends with time-range selectors), and the
+**Non-Emergency Insight card** (context-aware anomaly explanation with
+caregiver context tags). Below: Today's Priority and Recent Activity cards.
 
 ### Alert Detail (`alert-detail.tsx`)
 
@@ -173,18 +172,16 @@ therapy day's progress; pain before/after, fatigue, and the caregiver note are
 `upsertDailyCareEntry`. The legacy "Your Response" action block was removed
 (those actions now live in the active-alert pop-up).
 
-### Active alert pop-up (Home + Care)
+### Active alert card (Dashboard + Care)
 
-The severity-3 active alert is no longer an inline section in the dashboard
-scroll — it is an **in-app modal pop-up shown once per app cold-start**
-(`ActiveAlertProvider` + `ActiveAlertModal`, mounted globally in `_layout.tsx`).
-Actions: **Call 911** opens the phone dialer with `911` populated (does not
-place the call) and audit-logs; **Acknowledge** opens a severity-stressing
-dialog then audit-logs; **Add Note** shows an inline audit-logged note input;
-**Remind me later** = temp-dismiss (hides for the session, reappears next cold
-start); **Clear without rectifying** = confirmation dialog → persistently
-cleared in `app_settings` + audit-logged. The dashboard bell reopens the modal
-while an alert is active.
+The severity-3 active alert is shown as a **red card** on the dashboard and Care
+screen (Sebastian's visual design). Pulls real alerts from
+`careService.getActiveCareAlerts()` with a demo-data fallback. All buttons are
+functional and audit-logged: **Call 911** opens the phone dialer (`tel:911`);
+**Contact Provider** opens `tel:<providerPhone>`; **Acknowledge** calls
+`acknowledgeCareAlert` + audit-logs; **Mark handled** calls `resolveCareAlert` +
+audit-logs; **Add Note** shows an inline audit-logged note input. The previous
+`ActiveAlertModal` / `ActiveAlertStore` global pop-up approach has been removed.
 
 ### Transient SLM use — `SlmInsightSheet`
 
@@ -261,12 +258,18 @@ Full settings surface with the **Health Tech Alley logo + branded header**
 
 ### More (`(tabs)/more.tsx`)
 
-Profile + preferences hub. **Profile** row combines caregiver + patient into a
-single link to `/profile` (previously two rows navigated to the same screen).
-**Notification preferences** opens an in-app modal with live toggles backed by
-`SettingsContext` (anomaly, medication, appointment, care-task). Developer/Demo
-section links to the acute-anomaly demo, model management, and the
-**Performance** dashboard.
+Profile + preferences + privacy + developer hub (Sebastian's visual design).
+Sections: **Profile** (caregiver + patient links to `/profile`), **Appearance**
+(theme picker: light / dark / system), **Preferences** (notifications, device,
+data source), **Communication** (secure messages — coming soon), **Privacy &
+Records** (C-CDA export consent toggle + export button, backed by
+`recordsService`), **Future integrations** (EHR import, care team), **Developer /
+Demo** (developer-mode toggle, acute-anomaly demo, models, performance, raw SLM
+chat, advanced developer settings link to `/settings`, and an **audit log
+viewer** that verifies the hash chain and shows recent audited events), and
+**About**. The full `SettingsScreen` (SLM management, model downloads, API keys,
+knowledge cache, data reset) is accessible via the "Advanced developer settings"
+link.
 
 ### Profile (`/profile`)
 

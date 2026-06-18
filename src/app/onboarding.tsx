@@ -20,6 +20,7 @@ import {
   COMMON_ICD_OPTIONS,
   COMMON_SYMPTOM_OPTIONS,
   WEARABLE_DEVICE_OPTIONS,
+  getMockEhrPatientRecord,
   getOnboardingProfile,
   saveOnboardingProfile,
   type AddressProfile,
@@ -87,7 +88,80 @@ const emergencyComfortOptions: EmergencyComfortLevel[] = [
   "Not sure — guide me",
 ];
 
-type ExpandedSelect = "comorbidities" | "symptoms" | null;
+type ExpandedSelect = "comorbidities" | "symptoms" | "gmfcs" | "fms" | null;
+
+type MobilityOption = {
+  value: string;
+  label: string;
+  description: string;
+  detail?: string;
+};
+
+const gmfcsOptions: MobilityOption[] = [
+  {
+    value: "Level I",
+    label: "Level I",
+    description: "Walks without major limits",
+    detail: "Score 1",
+  },
+  {
+    value: "Level II",
+    label: "Level II",
+    description: "Walks with some limits",
+    detail: "Score 2",
+  },
+  {
+    value: "Level III",
+    label: "Level III",
+    description: "Uses a hand-held mobility aid",
+    detail: "Score 3",
+  },
+  {
+    value: "Level IV",
+    label: "Level IV",
+    description: "Uses assisted or powered mobility",
+    detail: "Score 4",
+  },
+  {
+    value: "Level V",
+    label: "Level V",
+    description: "Transported in a wheelchair, needs significant support",
+    detail: "Score 5",
+  },
+];
+
+const fmsOptions: MobilityOption[] = [
+  {
+    value: "1",
+    label: "1",
+    description: "Uses wheelchair",
+  },
+  {
+    value: "2",
+    label: "2",
+    description: "Uses walker/frame",
+  },
+  {
+    value: "3",
+    label: "3",
+    description: "Uses crutches",
+  },
+  {
+    value: "4",
+    label: "4",
+    description: "Uses sticks/canes",
+  },
+  {
+    value: "5",
+    label: "5",
+    description: "Independent on level surfaces",
+  },
+  {
+    value: "6",
+    label: "6",
+    description: "Independent on all surfaces",
+  },
+];
 
 export default function OnboardingScreen() {
   const router = useRouter();
@@ -198,6 +272,26 @@ export default function OnboardingScreen() {
   const [baselineHeartRate, setBaselineHeartRate] = useState(
     existingProfile.patient.baselineHeartRate ?? "72–88 BPM",
   );
+
+  const [gmfcsLevel, setGmfcsLevel] = useState(
+    existingProfile.patient.gmfcsLevel ?? "",
+  );
+  const [fmsScore, setFmsScore] = useState(
+    existingProfile.patient.fmsScore ?? "",
+  );
+  const [ehrRecordApplied, setEhrRecordApplied] = useState(false);
+
+  function handleApplyEhrRecord() {
+    if (ehrRecordApplied) return;
+    const record = getMockEhrPatientRecord();
+    if (record.primaryIcdLabel) {
+      setPrimaryDiagnosisText(record.primaryIcdLabel);
+    }
+    if (record.comorbidities?.length) {
+      setComorbidities(record.comorbidities);
+    }
+    setEhrRecordApplied(true);
+  }
 
   const [providerName, setProviderName] = useState(
     existingProfile.primaryCareProvider.name,
@@ -323,6 +417,8 @@ export default function OnboardingScreen() {
         currentMedications,
         spo2Cutoff,
         baselineHeartRate,
+        gmfcsLevel,
+        fmsScore,
         wearableDevice: {
           deviceType,
           deviceLabel,
@@ -619,7 +715,11 @@ export default function OnboardingScreen() {
                   possible.
                 </Text>
 
-                <Pressable style={styles.ehrPlaceholderButton}>
+                <Pressable
+                  style={[styles.ehrPlaceholderButton, ehrRecordApplied && styles.ehrAppliedButton]}
+                  onPress={handleApplyEhrRecord}
+                  disabled={ehrRecordApplied}
+                >
                   <View style={styles.ehrIconCircle}>
                     <AppIcon
                       name="plus"
@@ -629,9 +729,13 @@ export default function OnboardingScreen() {
                   </View>
 
                   <View style={styles.ehrTextBlock}>
-                    <Text style={styles.ehrTitle}>Populate from EHR</Text>
+                    <Text style={styles.ehrTitle}>
+                      {ehrRecordApplied ? "EHR record applied" : "Populate from EHR"}
+                    </Text>
                     <Text style={styles.ehrSubtitle}>
-                      Coming soon — C-CDA / FHIR import
+                      {ehrRecordApplied
+                        ? "Diagnosis and comorbidities imported from sample record"
+                        : "Coming soon — C-CDA / FHIR import"}
                     </Text>
                   </View>
                 </Pressable>
@@ -780,6 +884,88 @@ export default function OnboardingScreen() {
                     placeholder="72–88 BPM"
                   />
                 </View>
+
+                <SectionLabel title="Mobility levels" />
+
+                <SelectPanel
+                  title="GMFCS level"
+                  value={gmfcsLevel ? `${gmfcsOptions.find((o) => o.value === gmfcsLevel)?.detail ?? gmfcsLevel}` : "Not selected"}
+                  expanded={expandedSelect === "gmfcs"}
+                  onToggle={() =>
+                    setExpandedSelect((current) =>
+                      current === "gmfcs" ? null : "gmfcs",
+                    )
+                  }
+                >
+                  {gmfcsOptions.map((option) => {
+                    const selected = gmfcsLevel === option.value;
+                    return (
+                      <Pressable
+                        key={option.value}
+                        style={[
+                          styles.mobilityOptionRow,
+                          selected && styles.mobilityOptionRowSelected,
+                        ]}
+                        onPress={() => {
+                          setGmfcsLevel(option.value);
+                          setExpandedSelect(null);
+                        }}
+                      >
+                        <View style={styles.mobilityOptionTextBlock}>
+                          <Text style={styles.mobilityOptionLabel}>
+                            {option.label}
+                          </Text>
+                          <Text style={styles.mobilityOptionDescription}>
+                            {option.description}
+                          </Text>
+                        </View>
+                        {selected ? (
+                          <AppIcon name="check" size={20} color={AppTheme.colors.brand} />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </SelectPanel>
+
+                <SelectPanel
+                  title="FMS score"
+                  value={fmsScore ? `Score ${fmsScore}` : "Not selected"}
+                  expanded={expandedSelect === "fms"}
+                  onToggle={() =>
+                    setExpandedSelect((current) =>
+                      current === "fms" ? null : "fms",
+                    )
+                  }
+                >
+                  {fmsOptions.map((option) => {
+                    const selected = fmsScore === option.value;
+                    return (
+                      <Pressable
+                        key={option.value}
+                        style={[
+                          styles.mobilityOptionRow,
+                          selected && styles.mobilityOptionRowSelected,
+                        ]}
+                        onPress={() => {
+                          setFmsScore(option.value);
+                          setExpandedSelect(null);
+                        }}
+                      >
+                        <View style={styles.mobilityOptionTextBlock}>
+                          <Text style={styles.mobilityOptionLabel}>
+                            {option.label}
+                          </Text>
+                          <Text style={styles.mobilityOptionDescription}>
+                            {option.description}
+                          </Text>
+                        </View>
+                        {selected ? (
+                          <AppIcon name="check" size={20} color={AppTheme.colors.brand} />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </SelectPanel>
               </StepShell>
             ) : null}
 
@@ -1632,6 +1818,37 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.textSoft,
     fontSize: 13,
     lineHeight: 18,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  ehrAppliedButton: {
+    borderColor: AppTheme.colors.brand,
+    backgroundColor: AppTheme.colors.brandSoft,
+    opacity: 0.7,
+  },
+  mobilityOptionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.colors.border,
+    gap: 10,
+  },
+  mobilityOptionRowSelected: {
+    backgroundColor: AppTheme.colors.brandSoft,
+  },
+  mobilityOptionTextBlock: {
+    flex: 1,
+  },
+  mobilityOptionLabel: {
+    color: AppTheme.colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  mobilityOptionDescription: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
     fontWeight: "700",
     marginTop: 2,
   },

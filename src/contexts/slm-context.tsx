@@ -12,6 +12,7 @@ import { AppState } from 'react-native';
 import type {
   ChatMessage,
   ChatResult,
+  GenerateOptions,
   InferenceProvider,
   ModelInfo,
 } from '@/inference/inference-provider';
@@ -43,6 +44,7 @@ interface SLMContextValue {
     messages: ChatMessage[],
     onToken: (token: string) => void,
     signal: AbortSignal,
+    options?: GenerateOptions,
   ) => Promise<ChatResult>;
   /** The task queue — the single owner of SLM load/unload lifecycle. */
   taskQueue: SlmTaskQueue;
@@ -76,7 +78,7 @@ export function SLMProvider({ children }: { children: ReactNode }) {
 
     try {
       const path = resolveModelPath(entry.file);
-      await provider.loadModel(path);
+      await provider.loadModel(path, { nCtx: 4096 });
       const info: ModelInfo | null = provider.getModelInfo();
       setCurrentModelId(modelId);
       setModelSizeGB(info ? info.sizeBytes / (1024 * 1024 * 1024) : null);
@@ -155,8 +157,9 @@ export function SLMProvider({ children }: { children: ReactNode }) {
       messages: ChatMessage[],
       onToken: (token: string) => void,
       signal: AbortSignal,
+      options?: GenerateOptions,
     ): Promise<ChatResult> => {
-      return provider.chat(messages, onToken, signal);
+      return provider.chat(messages, onToken, signal, options);
     },
     [provider],
   );
