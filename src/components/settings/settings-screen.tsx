@@ -22,6 +22,7 @@ import { ScreenHeader } from '@/components/ui/screen-header';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
+import { usePatientRecord } from '@/contexts/patient-record-context';
 import { MODEL_CATALOG, type ModelEntry } from '@/inference/model-catalog';
 import { isModelInstalled, deleteModel, clearAllModels } from '@/services/model-storage';
 import { downloadModel } from '@/services/model-download';
@@ -30,10 +31,13 @@ import {
   verifyAuditChain,
   getAuditEntriesForResource,
   resetDatabase,
+  clearKnowledgeCache,
   type ConsentToken,
 } from '@/data';
 import { grantConsent, revokeConsentAndAudit } from '@/services/consent/consentGate';
 import { exportCcd } from '@/services/export/ccdaExportService';
+import { setNcbiApiKey, clearNcbiApiKey } from '@/services/ncbi-token-store';
+import { setOpenFdaApiKey, clearOpenFdaApiKey } from '@/services/openfda-token-store';
 
 const teal = '#0E6F68';
 const darkText = '#123433';
@@ -45,9 +49,12 @@ const dangerRed = '#B42318';
 
 export function SettingsScreen() {
   const router = useRouter();
-  const { settings, isDeveloper, toggleMode, setTheme, setNotificationPreferences } = useSettings();
+  const { settings, isDeveloper, toggleMode, setTheme, setNotificationPreferences, setDemoDefaultModelId } = useSettings();
   const slm = useSLM();
   const patientId = useOrchestratorPatientId();
+  const { snapshot, refresh } = usePatientRecord();
+  const [ncbiKeyInput, setNcbiKeyInput] = useState('');
+  const [openfdaKeyInput, setOpenFdaKeyInput] = useState('');
   const [downloads, setDownloads] = useState<Map<string, { progress: number; cancel: () => void }>>(new Map());
 
   const handleDownload = useCallback((entry: ModelEntry) => {
@@ -302,6 +309,28 @@ export function SettingsScreen() {
                 })}
               </View>
 
+              <Text style={[styles.devLabel, { marginTop: 8 }]}>Default SLM Model (Demo auto-load)</Text>
+              <Text style={styles.devInfo}>
+                The model auto-loaded when a transient task (alert explain,
+                safety-note explain, custom-med check) acquires a lease in Demo
+                mode. Currently: {settings.demoDefaultModelId ?? 'healthgpt-pro-4b'}
+              </Text>
+              <View style={styles.modelActions}>
+                {MODEL_CATALOG.map((m) => {
+                  const active = (settings.demoDefaultModelId ?? 'healthgpt-pro-4b') === m.id;
+                  return (
+                    <Pressable
+                      key={m.id}
+                      style={[styles.smallButton, !active && styles.disabledButton]}
+                      onPress={() => setDemoDefaultModelId(m.id)}>
+                      <Text style={styles.smallButtonText}>
+                        {active ? '✓ ' : ''}{m.displayName}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
               <Pressable
                 style={[styles.actionButton, styles.unloadButton, !slm.currentModelId && styles.disabledActionButton]}
                 disabled={!slm.currentModelId}
@@ -329,6 +358,130 @@ export function SettingsScreen() {
                 style={styles.actionButton}
                 onPress={() => router.push('/slm')}>
                 <Text style={styles.actionButtonText}>Raw SLM Chat</Text>
+              </Pressable>
+
+              {/* Clinical Evidence API Keys */}
+              <Text style={[styles.devLabel, { marginTop: 16 }]}>Clinical Evidence API Keys</Text>
+              <Text style={styles.devInfo}>
+                Optional. PubMed uses an NCBI key (3→10 req/s). OpenFDA uses a key
+                for higher rate limits. MedlinePlus, RxNorm, and DailyMed require
+                no key.
+              </Text>
+
+              <Text style={[styles.devLabel, { marginTop: 8 }]}>NCBI API Key (PubMed)</Text>
+              <View style={styles.modelRow}>
+                <View style={styles.modelItem}>
+                  <TextInput
+                    style={styles.ncbiInput}
+                    value={ncbiKeyInput}
+                    onChangeText={setNcbiKeyInput}
+                    placeholder="Enter NCBI API key…"
+                    placeholderTextColor={mutedText}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <View style={styles.modelActions}>
+                    <Pressable
+                      style={styles.smallButton}
+                      onPress={async () => {
+                        await setNcbiApiKey(ncbiKeyInput.trim());
+                        setNcbiKeyInput('');
+                        Alert.alert('Saved', 'NCBI API key stored securely.');
+                      }}>
+                      <Text style={styles.smallButtonText}>Save Key</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.smallButton, styles.dangerSmallButton]}
+                      onPress={async () => {
+                        await clearNcbiApiKey();
+                        setNcbiKeyInput('');
+                        Alert.alert('Cleared', 'NCBI API key removed.');
+                      }}>
+                      <Text style={styles.smallButtonText}>Clear</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+
+              <Text style={[styles.devLabel, { marginTop: 8 }]}>OpenFDA API Key</Text>
+              <View style={styles.modelRow}>
+                <View style={styles.modelItem}>
+                  <TextInput
+                    style={styles.ncbiInput}
+                    value={openfdaKeyInput}
+                    onChangeText={setOpenFdaKeyInput}
+                    placeholder="Enter OpenFDA API key…"
+                    placeholderTextColor={mutedText}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <View style={styles.modelActions}>
+                    <Pressable
+                      style={styles.smallButton}
+                      onPress={async () => {
+                        await setOpenFdaApiKey(openfdaKeyInput.trim());
+                        setOpenFdaKeyInput('');
+                        Alert.alert('Saved', 'OpenFDA API key stored securely.');
+                      }}>
+                      <Text style={styles.smallButtonText}>Save Key</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.smallButton, styles.dangerSmallButton]}
+                      onPress={async () => {
+                        await clearOpenFdaApiKey();
+                        setOpenFdaKeyInput('');
+                        Alert.alert('Cleared', 'OpenFDA API key removed.');
+                      }}>
+                      <Text style={styles.smallButtonText}>Clear</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+
+              {/* Knowledge Cache Stats */}
+              <Text style={[styles.devLabel, { marginTop: 16 }]}>Knowledge Cache</Text>
+              <Text style={styles.devInfo}>
+                Bundle status: {snapshot?.bundleStatus.state ?? 'unknown'}
+                {snapshot?.bundleStatus.state === 'complete'
+                  ? ` · ${snapshot.bundleStatus.chunksAdded} chunks added`
+                  : ''}
+                {snapshot?.bundleStatus.state === 'failed' && snapshot.bundleStatus.error
+                  ? ` · ${snapshot.bundleStatus.error}`
+                  : ''}
+                {snapshot?.bundleStatus.updatedAt
+                  ? `\nLast updated: ${snapshot.bundleStatus.updatedAt}`
+                  : ''}
+              </Text>
+              <Text style={styles.devInfo}>
+                Total chunks: {snapshot?.knowledgeStats.total ?? 0}
+                {snapshot && snapshot.knowledgeStats.total > 0
+                  ? Object.entries(snapshot.knowledgeStats.bySource)
+                      .map(([src, count]) => `\n  ${src}: ${count}`)
+                      .join('')
+                  : ''}
+              </Text>
+              {snapshot && snapshot.knowledgeStats.total > 0 ? (
+                <Pressable
+                  style={[styles.actionButton, styles.dangerButton]}
+                  onPress={() => {
+                    clearKnowledgeCache();
+                    refresh();
+                    Alert.alert('Cleared', 'Knowledge cache cleared.');
+                  }}>
+                  <Text style={styles.actionButtonText}>Clear Knowledge Cache</Text>
+                </Pressable>
+              ) : null}
+
+              {/* Import Record (stub) */}
+              <Text style={[styles.devLabel, { marginTop: 16 }]}>Import Record</Text>
+              <Text style={styles.devInfo}>
+                Import a C-CDA or FHIR JSON record from the care team. Coming soon.
+              </Text>
+              <Pressable
+                style={[styles.actionButton, styles.disabledActionButton]}
+                disabled
+                onPress={() => {}}>
+                <Text style={styles.actionButtonText}>Import Record (Coming Soon)</Text>
               </Pressable>
 
               <AuditViewer patientId={patientId} />
@@ -524,6 +677,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   smallButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  ncbiInput: {
+    borderWidth: 1,
+    borderColor,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: darkText,
+    marginBottom: 8,
+  },
   disabledButton: { opacity: 0.4 },
   dangerSmallButton: { backgroundColor: dangerRed },
   aboutText: { fontSize: 14, color: darkText, fontWeight: '500' },

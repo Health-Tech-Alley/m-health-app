@@ -31,6 +31,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { MaxContentWidth } from '@/constants/theme';
+import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useTheme } from '@/hooks/use-theme';
 import type { ChatMessage as ProviderChatMessage } from '@/inference/inference-provider';
@@ -39,6 +40,7 @@ import { useMemoryInfo, isNativeMemoryAvailable } from '@/services/device-memory
 import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
 import {
   askCaregiverAssistantMock,
+  buildCaregiverAssistantContextFromSnapshot,
   buildCaregiverSystemContext,
   CAREGIVER_SLM_MODEL_ID,
   downloadCaregiverSLMModel,
@@ -191,6 +193,7 @@ export default function SLMScreen() {
   const slm = useSLM();
   const theme = useTheme();
   const profile = useMemo(() => getOnboardingProfile(), []);
+  const { snapshot } = usePatientRecord();
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [inputText, setInputText] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
@@ -207,38 +210,38 @@ export default function SLMScreen() {
   const hasNativeMemory = isNativeMemoryAvailable();
 
   const caregiverContext = useMemo(
-    () => ({
-      // Patient
-      patientName: profile.patient.name,
-      patientAge: profile.patient.age,
-      patientConditions: profile.patient.conditions,
-      patientBaselineDailyRoutine:
-        profile.patient.baselineDailyRoutine ?? 'No routine provided',
-      patientCurrentMedications:
-        profile.patient.currentMedications ?? 'No medications provided',
-      patientSpo2Cutoff: profile.patient.spo2Cutoff,
-      patientBaselineHeartRate: profile.patient.baselineHeartRate,
-      // Caregiver
-      caregiverName: profile.caregiver.name,
-      caregiverRelationship: profile.caregiver.relationship,
-      caregiverExperience: profile.caregiver.experience,
-      caregiverAvailability: profile.caregiver.availability,
-      caregiverLanguagePreference: profile.caregiver.languagePreference,
-      caregiverMedicalComfortLevel: profile.caregiver.medicalComfortLevel,
-      caregiverHobbiesOrRoutines: profile.caregiver.hobbiesOrRoutines,
-      caregiverMainConcern:
-        profile.caregiver.mainConcern ?? 'No active concern provided',
-      caregiverStressOrSupportNeeds: profile.caregiver.stressOrSupportNeeds,
-      caregiverBackup: profile.caregiver.backupCaregiver,
-      // Care team
-      primaryCareProviderName: profile.primaryCareProvider.name,
-      primaryCareProviderPhone: profile.primaryCareProvider.phone,
-      primaryCareProviderEmail: profile.primaryCareProvider.email,
-      // Safety
-      emergencyContact: profile.safety?.emergencyContact,
-      safetyNotes: profile.safety?.safetyNotes,
-    }),
-    [profile],
+    () =>
+      snapshot
+        ? buildCaregiverAssistantContextFromSnapshot(snapshot)
+        : {
+            // Fallback to onboarding profile if snapshot not ready yet.
+            patientName: profile.patient.name,
+            patientAge: profile.patient.age,
+            patientConditions: profile.patient.conditions,
+            patientBaselineDailyRoutine:
+              profile.patient.baselineDailyRoutine ?? 'No routine provided',
+            patientCurrentMedications:
+              profile.patient.currentMedications ?? 'No medications provided',
+            patientSpo2Cutoff: profile.patient.spo2Cutoff,
+            patientBaselineHeartRate: profile.patient.baselineHeartRate,
+            caregiverName: profile.caregiver.name,
+            caregiverRelationship: profile.caregiver.relationship,
+            caregiverExperience: profile.caregiver.experience,
+            caregiverAvailability: profile.caregiver.availability,
+            caregiverLanguagePreference: profile.caregiver.languagePreference,
+            caregiverMedicalComfortLevel: profile.caregiver.medicalComfortLevel,
+            caregiverHobbiesOrRoutines: profile.caregiver.hobbiesOrRoutines,
+            caregiverMainConcern:
+              profile.caregiver.mainConcern ?? 'No active concern provided',
+            caregiverStressOrSupportNeeds: profile.caregiver.stressOrSupportNeeds,
+            caregiverBackup: profile.caregiver.backupCaregiver,
+            primaryCareProviderName: profile.primaryCareProvider.name,
+            primaryCareProviderPhone: profile.primaryCareProvider.phone,
+            primaryCareProviderEmail: profile.primaryCareProvider.email,
+            emergencyContact: profile.safety?.emergencyContact,
+            safetyNotes: profile.safety?.safetyNotes,
+          },
+    [snapshot, profile],
   );
 
   const installedModels = useMemo(

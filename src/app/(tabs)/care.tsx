@@ -1,33 +1,42 @@
+import { useState } from "react";
 import { useRouter } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
+import { SlmInsightSheet } from "@/components/slm-insight-sheet";
 import { AppTheme } from "@/constants/theme";
+import { usePatientRecord } from "@/contexts/patient-record-context";
+import {
+  getDailyCareEntry,
+  upsertDailyCareEntry,
+  type DailyCareEntry,
+} from "@/data";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
-const dailyCareEntry = {
-  patient_id: "patient_12345",
-  care_plan_id: "careplan_abc123",
-  entry_date: "2026-06-15",
-  therapy_day: 21,
-  logged_by: {
-    user_id: "caregiver_67890",
-    role: "caregiver",
-    relationship: "spouse",
-  },
-  therapy_completed: true,
-  sets_completed: 3,
-  recommended_sets: 3,
-  pain_before: 3,
-  pain_after: 4,
+// Seed defaults used the first time the Care screen is opened for today.
+const DEFAULT_DAILY_ENTRY: Partial<DailyCareEntry> = {
+  therapyDay: 21,
+  carePlanId: "careplan_abc123",
+  therapyCompleted: true,
+  setsCompleted: 3,
+  recommendedSets: 3,
+  painBefore: 3,
+  painAfter: 4,
   fatigue: 5,
-  assistance_required: "some",
-  caregiver_concern: false,
-  functional_task_score: 2.6,
-  guided_movement_score: 55,
-  notes:
-    "Completed all exercises but shoulder movement looked about the same as last week.",
+  assistanceRequired: "some",
+  caregiverConcern: false,
+  functionalTaskScore: 2.6,
+  guidedMovementScore: 55,
+  notes: "Completed all exercises but shoulder movement looked about the same as last week.",
 };
 
 const providerCarePlan = {
@@ -56,12 +65,69 @@ const providerCarePlan = {
 export default function CareScreen() {
   const router = useRouter();
   const profile = getOnboardingProfile();
+  const { patientId } = usePatientRecord();
 
   const patientFirstName =
     profile.patient.name.trim().split(/\s+/)[0] || "patient";
 
   const caregiverFirstName =
     profile.caregiver.name.trim().split(/\s+/)[0] || "caregiver";
+
+  // Daily care entry — sourced from SQLite (or seeded defaults), editable,
+  // persisted via upsertDailyCareEntry on each edit.
+  const [entry, setEntry] = useState<DailyCareEntry>(() => {
+    if (!patientId) {
+      return {
+        entryId: "temp",
+        patientId: "temp",
+        ...DEFAULT_DAILY_ENTRY,
+        therapyCompleted: true,
+        setsCompleted: 3,
+        recommendedSets: 3,
+        caregiverConcern: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as DailyCareEntry;
+    }
+    const existing = getDailyCareEntry(patientId);
+    if (existing) return existing;
+    return upsertDailyCareEntry({
+      patientId,
+      ...DEFAULT_DAILY_ENTRY,
+    } as DailyCareEntry & { patientId: string });
+  });
+
+  const [editingField, setEditingField] = useState<null | "painBefore" | "painAfter" | "fatigue" | "notes">(null);
+  const [editDraft, setEditDraft] = useState("");
+
+  const openFieldEdit = (field: "painBefore" | "painAfter" | "fatigue" | "notes") => {
+    setEditingField(field);
+    setEditDraft(String(entry[field] ?? ""));
+  };
+
+  const saveFieldEdit = () => {
+    if (!editingField || !patientId) {
+      setEditingField(null);
+      return;
+    }
+    const isNumeric = editingField !== "notes";
+    const newValue = isNumeric ? Number(editDraft) : editDraft;
+    const updated = upsertDailyCareEntry({
+      ...entry,
+      [editingField]: isNumeric ? Number(newValue) || 0 : newValue,
+    });
+    setEntry(updated);
+    setEditingField(null);
+    setEditDraft("");
+  };
+
+  // Safety considerations: split the safety-notes string into individual,
+  // period-less, tappable lines. Clicking one opens a combined explanation.
+  const safetyConsiderations = parseSafetyConsiderations(
+    profile.safety?.safetyNotes ?? "No safety notes provided.",
+  );
+  const [openConsideration, setOpenConsideration] = useState<string | null>(null);
+  const [slmOpen, setSlmOpen] = useState(false);
 
   const functionalTarget =
     providerCarePlan.milestones.week_3.functional_task_score_target;
@@ -76,42 +142,12 @@ export default function CareScreen() {
         contentContainerStyle={styles.content}
       >
         <View style={styles.headerRow}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Text style={styles.backIcon}>‹</Text>
-          </Pressable>
-
           <View style={styles.headerTextBlock}>
             <Text style={styles.kicker}>Caregiver Concierge ACCESS-DP</Text>
             <Text style={styles.title}>Care Management</Text>
           </View>
 
           <Text style={styles.patientName}>{patientFirstName}</Text>
-        </View>
-
-        <View style={styles.alertCard}>
-          <View style={styles.alertHeader}>
-            <View style={styles.alertIconCircle}>
-              <AppIcon name="alert" size={28} color={AppTheme.colors.white} />
-            </View>
-
-            <View style={styles.alertTitleBlock}>
-              <Text style={styles.alertKicker}>Active Alert</Text>
-              <Text style={styles.alertTitle}>Red Breath Alert</Text>
-              <Text style={styles.alertSubtitle}>
-                Severity 3 · Respiratory · Just now
-              </Text>
-            </View>
-
-            <View style={styles.newPill}>
-              <Text style={styles.newPillText}>New</Text>
-            </View>
-          </View>
-
-          <View style={styles.metricRow}>
-            <MetricBox label="SpO₂" value="84%" detail="cutoff 88%" />
-            <MetricBox label="Heart Rate" value="118" detail="BPM" />
-            <MetricBox label="Resp. Rate" value="32" detail="br/min" />
-          </View>
         </View>
 
         <View style={styles.patientCard}>
@@ -129,26 +165,21 @@ export default function CareScreen() {
         </View>
 
         <View style={styles.safetyCard}>
-          <Text style={styles.safetyKicker}>Safety Note</Text>
-          <Text style={styles.safetyText}>
-            {profile.safety?.safetyNotes ?? "No safety notes provided."}
+          <Text style={styles.safetyKicker}>Safety Considerations</Text>
+          <Text style={styles.safetyHint}>
+            Tap any consideration for details and an assistant explanation.
           </Text>
-        </View>
-
-        <View style={styles.infoCard}>
-          <Text style={styles.sectionLabel}>Reason</Text>
-          <Text style={styles.infoText}>
-            {profile.patient.name}&apos;s oxygen reading is below the configured
-            safe threshold, with elevated respiratory rate and heart rate.
-          </Text>
-        </View>
-
-        <View style={styles.recommendationCard}>
-          <Text style={styles.recommendationKicker}>Recommendation</Text>
-          <Text style={styles.recommendationText}>
-            Check on {patientFirstName} immediately. Consider ER or 911 if
-            symptoms are severe. The app will not act automatically.
-          </Text>
+          {safetyConsiderations.map((consideration, idx) => (
+            <Pressable
+              key={idx}
+              style={styles.safetyRow}
+              onPress={() => setOpenConsideration(consideration)}
+            >
+              <Text style={styles.safetyBullet}>•</Text>
+              <Text style={styles.safetyLine}>{consideration}</Text>
+              <Text style={styles.safetyChevron}>›</Text>
+            </Pressable>
+          ))}
         </View>
 
         <Text style={styles.sectionTitle}>Care Plan</Text>
@@ -159,7 +190,7 @@ export default function CareScreen() {
               <Text style={styles.carePlanKicker}>Therapy Progress</Text>
               <Text style={styles.carePlanTitle}>
                 Week {providerCarePlan.current_therapy_week} · Day{" "}
-                {dailyCareEntry.therapy_day}
+                {entry.therapyDay}
               </Text>
               <Text style={styles.carePlanSubtitle}>
                 {formatCarePlanText(providerCarePlan.therapy_focus)}
@@ -168,7 +199,7 @@ export default function CareScreen() {
 
             <View style={styles.completedPill}>
               <Text style={styles.completedPillText}>
-                {dailyCareEntry.therapy_completed ? "Completed" : "Pending"}
+                {entry.therapyCompleted ? "Completed" : "Pending"}
               </Text>
             </View>
           </View>
@@ -188,7 +219,7 @@ export default function CareScreen() {
             />
             <CarePlanMeta
               label="Assistance"
-              value={capitalize(dailyCareEntry.assistance_required)}
+              value={capitalize(entry.assistanceRequired ?? "some")}
             />
           </View>
 
@@ -196,8 +227,8 @@ export default function CareScreen() {
             <View>
               <Text style={styles.setsLabel}>Daily Sets</Text>
               <Text style={styles.setsValue}>
-                {dailyCareEntry.sets_completed}/
-                {dailyCareEntry.recommended_sets}
+                {entry.setsCompleted}/
+                {entry.recommendedSets}
               </Text>
             </View>
 
@@ -208,8 +239,8 @@ export default function CareScreen() {
                   {
                     width: `${Math.min(
                       100,
-                      (dailyCareEntry.sets_completed /
-                        dailyCareEntry.recommended_sets) *
+                      (entry.setsCompleted /
+                        Math.max(entry.recommendedSets, 1)) *
                         100,
                     )}%`,
                   },
@@ -219,29 +250,41 @@ export default function CareScreen() {
           </View>
 
           <View style={styles.symptomRow}>
-            <SymptomBox label="Pain Before" value={dailyCareEntry.pain_before} />
-            <SymptomBox label="Pain After" value={dailyCareEntry.pain_after} />
-            <SymptomBox label="Fatigue" value={dailyCareEntry.fatigue} />
+            <EditableSymptomBox
+              label="Pain Before"
+              value={entry.painBefore}
+              onPress={() => openFieldEdit("painBefore")}
+            />
+            <EditableSymptomBox
+              label="Pain After"
+              value={entry.painAfter}
+              onPress={() => openFieldEdit("painAfter")}
+            />
+            <EditableSymptomBox
+              label="Fatigue"
+              value={entry.fatigue}
+              onPress={() => openFieldEdit("fatigue")}
+            />
           </View>
 
           <ProgressMetric
             label="Functional Task Score"
-            value={dailyCareEntry.functional_task_score}
+            value={entry.functionalTaskScore ?? 0}
             target={functionalTarget}
             max={5}
           />
 
           <ProgressMetric
             label="Guided Movement Score"
-            value={dailyCareEntry.guided_movement_score}
+            value={entry.guidedMovementScore ?? 0}
             target={movementTarget}
             max={100}
           />
 
-          <View style={styles.notesCard}>
-            <Text style={styles.notesLabel}>Caregiver Note</Text>
-            <Text style={styles.notesText}>{dailyCareEntry.notes}</Text>
-          </View>
+          <Pressable style={styles.notesCard} onPress={() => openFieldEdit("notes")}>
+            <Text style={styles.notesLabel}>Caregiver Note · tap to edit</Text>
+            <Text style={styles.notesText}>{entry.notes}</Text>
+          </Pressable>
 
           <View style={styles.consentRow}>
             <View style={styles.consentDot} />
@@ -252,41 +295,7 @@ export default function CareScreen() {
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Your Response</Text>
-
-        <Pressable style={styles.callButton}>
-          <Text style={styles.callButtonText}>Call 911</Text>
-        </Pressable>
-
-        <View style={styles.twoColumnActions}>
-          <Pressable style={styles.actionButton}>
-            <Text style={styles.actionButtonText}>
-              Check on {patientFirstName}
-            </Text>
-          </Pressable>
-
-          <Pressable style={styles.actionButton}>
-            <Text style={styles.actionButtonText}>Go to ER</Text>
-          </Pressable>
-        </View>
-
-        <Pressable style={styles.fullWidthAction}>
-          <Text style={styles.actionButtonText}>Contact Provider</Text>
-        </Pressable>
-
-        <View style={styles.twoColumnActions}>
-          <Pressable style={styles.actionButton}>
-            <Text style={styles.secondaryActionText}>Acknowledge</Text>
-          </Pressable>
-
-          <Pressable style={styles.actionButton}>
-            <Text style={styles.secondaryActionText}>Add Note</Text>
-          </Pressable>
-        </View>
-
-        <Text style={styles.loggedText}>
-          All responses logged · You remain in control
-        </Text>
+        <Text style={styles.sectionTitle}>Care Analysis</Text>
 
         <Pressable
           style={styles.mlButton}
@@ -300,26 +309,126 @@ export default function CareScreen() {
           <Text style={styles.mlButtonLink}>Open care analysis →</Text>
         </Pressable>
       </ScrollView>
+
+      {/* Combined safety explanation dialog (safety note + reason + recommendation) */}
+      <Modal
+        visible={openConsideration !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOpenConsideration(null)}
+      >
+        <Pressable style={styles.explainOverlay} onPress={() => setOpenConsideration(null)}>
+          <Pressable style={styles.explainSheet} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.explainHeader}>
+              <Text style={styles.explainKicker}>Safety Consideration</Text>
+              <Pressable onPress={() => setOpenConsideration(null)} hitSlop={12}>
+                <Text style={styles.explainClose}>×</Text>
+              </Pressable>
+            </View>
+
+            <Text style={styles.explainTitle}>{openConsideration}</Text>
+
+            <View style={styles.explainBlock}>
+              <Text style={styles.explainLabel}>Why this matters</Text>
+              <Text style={styles.explainBody}>
+                {profile.patient.name}&apos;s vitals are outside the configured
+                safe range (oxygen below cutoff, elevated respiratory and heart
+                rate). This consideration is part of the configured safety plan
+                to catch deterioration early.
+              </Text>
+            </View>
+
+            <View style={styles.explainBlock}>
+              <Text style={styles.explainLabel}>Recommendation</Text>
+              <Text style={styles.explainBody}>
+                Check on {patientFirstName} immediately. Consider ER or 911 if
+                symptoms are severe. The app will not act automatically.
+              </Text>
+            </View>
+
+            <Pressable
+              style={styles.explainSlmButton}
+              onPress={() => {
+                setSlmOpen(true);
+                setOpenConsideration(null);
+              }}
+            >
+              <AppIcon name="care" size={18} color={AppTheme.colors.white} />
+              <Text style={styles.explainSlmText}>Explain with assistant</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <SlmInsightSheet
+        visible={slmOpen}
+        onClose={() => setSlmOpen(false)}
+        title="Assistant explanation"
+        reason="safety_note_explain"
+        prompt={`Explain this safety consideration for ${profile.patient.name} in plain, calm language a family caregiver can act on: "${openConsideration ?? ""}". Include why it matters, what to watch for, and what to do next.`}
+      />
+
+      {/* Field edit modal (pain before/after, fatigue, notes) */}
+      <Modal
+        visible={editingField !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditingField(null)}
+      >
+        <Pressable style={styles.editOverlay} onPress={() => setEditingField(null)}>
+          <Pressable style={styles.editSheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.editTitle}>
+              Edit {editingField?.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}
+            </Text>
+            {editingField === "notes" ? (
+              <TextInput
+                style={[styles.editInput, styles.editInputMultiline]}
+                value={editDraft}
+                onChangeText={setEditDraft}
+                placeholder="Caregiver note…"
+                multiline
+                textAlignVertical="top"
+                autoFocus
+              />
+            ) : (
+              <TextInput
+                style={styles.editInput}
+                value={editDraft}
+                onChangeText={setEditDraft}
+                placeholder="0–10"
+                keyboardType="numeric"
+                autoFocus
+              />
+            )}
+            <View style={styles.editActions}>
+              <Pressable
+                style={[styles.editButton, styles.editCancel]}
+                onPress={() => setEditingField(null)}
+              >
+                <Text style={styles.editCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.editButton} onPress={saveFieldEdit}>
+                <Text style={styles.editSaveText}>Save</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-function MetricBox({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <View style={styles.metricBox}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricDetail}>{detail}</Text>
-    </View>
-  );
+/**
+ * Split the safety-notes string into individual, period-less considerations.
+ * Splits on newlines and sentence-ending periods; strips trailing punctuation.
+ */
+function parseSafetyConsiderations(notes: string): string[] {
+  const raw = notes
+    .split(/\n|\.|\u2022|\u2023|\u25E6|\u2043/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 2);
+  const unique = Array.from(new Set(raw));
+  return unique.length > 0 ? unique : ["No safety notes provided."];
 }
 
 function CarePlanMeta({ label, value }: { label: string; value: string }) {
@@ -331,12 +440,20 @@ function CarePlanMeta({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SymptomBox({ label, value }: { label: string; value: number }) {
+function EditableSymptomBox({
+  label,
+  value,
+  onPress,
+}: {
+  label: string;
+  value?: number;
+  onPress: () => void;
+}) {
   return (
-    <View style={styles.symptomBox}>
-      <Text style={styles.symptomValue}>{value}/10</Text>
-      <Text style={styles.symptomLabel}>{label}</Text>
-    </View>
+    <Pressable style={styles.symptomBox} onPress={onPress}>
+      <Text style={styles.symptomValue}>{value ?? "–"}/10</Text>
+      <Text style={styles.symptomLabel}>{label} ›</Text>
+    </Pressable>
   );
 }
 
@@ -423,21 +540,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 24,
-  },
-  backButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: AppTheme.colors.softSurface,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 14,
-  },
-  backIcon: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 34,
-    lineHeight: 36,
-    fontWeight: "500",
   },
   headerTextBlock: {
     flex: 1,
@@ -606,13 +708,167 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1,
     textTransform: "uppercase",
-    marginBottom: 6,
+    marginBottom: 4,
+  },
+  safetyHint: {
+    color: "#92400E",
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 10,
+  },
+  safetyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(180,83,9,0.15)",
+    gap: 8,
+  },
+  safetyBullet: {
+    color: "#B45309",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  safetyLine: {
+    flex: 1,
+    color: "#92400E",
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 21,
+  },
+  safetyChevron: {
+    color: "#B45309",
+    fontSize: 20,
+    fontWeight: "900",
   },
   safetyText: {
     color: "#92400E",
     fontSize: 16,
     lineHeight: 23,
     fontWeight: "700",
+  },
+  explainOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    padding: 20,
+  },
+  explainSheet: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.card,
+    padding: 22,
+  },
+  explainHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  explainKicker: {
+    color: AppTheme.colors.brand,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  explainClose: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 24,
+    fontWeight: "900",
+    lineHeight: 26,
+  },
+  explainTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+    lineHeight: 23,
+    marginBottom: 16,
+  },
+  explainBlock: {
+    marginBottom: 14,
+  },
+  explainLabel: {
+    color: AppTheme.colors.sectionText,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 5,
+  },
+  explainBody: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  explainSlmButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: 14,
+    paddingVertical: 14,
+    marginTop: 6,
+  },
+  explainSlmText: {
+    color: AppTheme.colors.white,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  editOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    padding: 20,
+  },
+  editSheet: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.card,
+    padding: 22,
+  },
+  editTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+    marginBottom: 14,
+  },
+  editInput: {
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: AppTheme.colors.text,
+  },
+  editInputMultiline: {
+    minHeight: 90,
+    textAlignVertical: "top",
+  },
+  editActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 16,
+  },
+  editButton: {
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  editCancel: {
+    backgroundColor: AppTheme.colors.softSurface,
+  },
+  editCancelText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  editSaveText: {
+    color: AppTheme.colors.white,
+    fontSize: 14,
+    fontWeight: "900",
   },
   infoCard: {
     backgroundColor: AppTheme.colors.surface,

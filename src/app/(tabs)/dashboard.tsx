@@ -9,19 +9,20 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { AppIcon, type AppIconName } from "@/components/AppIcon";
-import { ActiveAlertCard } from "@/components/dashboard/ActiveAlertCard";
+import { AppIcon } from "@/components/AppIcon";
 import { NonEmergencyInsightCard } from "@/components/dashboard/NonEmergencyInsightCard";
 import { PatientSummaryCard } from "@/components/dashboard/PatientSummaryCard";
 import { RecentActivityCard } from "@/components/dashboard/RecentActivityCard";
 import { TodayPriorityCard } from "@/components/dashboard/TodayPriorityCard";
 import { WeeklyVitalsCard } from "@/components/dashboard/WeeklyVitalsCard";
 import { AppTheme } from "@/constants/theme";
+import { useActiveAlert } from "@/contexts/active-alert-context";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 export default function DashboardRoute() {
   const router = useRouter();
   const profile = getOnboardingProfile();
+  const { alert, reopen } = useActiveAlert();
 
   const caregiverFirstName = getFirstName(profile.caregiver.name);
   const patientFirstName = getFirstName(profile.patient.name);
@@ -50,14 +51,14 @@ export default function DashboardRoute() {
 
               <Pressable
                 style={styles.bellButton}
-                onPress={() => router.push("/care")}
+                onPress={() => (alert ? reopen() : router.push("/care"))}
               >
                 <AppIcon
                   name="bell"
                   size={25}
                   color={AppTheme.colors.textMuted}
                 />
-                <View style={styles.bellDot} />
+                {alert ? <View style={styles.bellDot} /> : null}
               </Pressable>
             </View>
 
@@ -69,7 +70,6 @@ export default function DashboardRoute() {
           <PatientSummaryCard />
           <WeeklyVitalsCard />
           <NonEmergencyInsightCard />
-          <ActiveAlertCard />
 
           <Text style={styles.sectionTitle}>Today&apos;s Priority</Text>
           <TodayPriorityCard />
@@ -77,75 +77,8 @@ export default function DashboardRoute() {
           <Text style={styles.sectionTitle}>Recent Activity</Text>
           <RecentActivityCard />
         </ScrollView>
-
-        <View style={styles.bottomNav}>
-          <BottomNavItem label="Home" icon="home" active onPress={() => {}} />
-
-          <BottomNavItem
-            label="Care"
-            icon="care"
-            alert
-            onPress={() => router.push("/care")}
-          />
-
-          <BottomNavItem
-            label="Meds"
-            icon="pill"
-            onPress={() => router.push("/medications")}
-          />
-
-          <BottomNavItem
-            label="Schedule"
-            icon="schedule"
-            onPress={() => router.push("/schedule")}
-          />
-
-          <BottomNavItem
-            label="Assistant"
-            icon="assistant"
-            onPress={() => router.push("/slm")}
-          />
-
-          <BottomNavItem
-            label="More"
-            icon="more"
-            onPress={() => router.push("/more")}
-          />
-        </View>
       </View>
     </SafeAreaView>
-  );
-}
-
-function BottomNavItem({
-  label,
-  icon,
-  active,
-  alert,
-  onPress,
-}: {
-  label: string;
-  icon: AppIconName;
-  active?: boolean;
-  alert?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable style={styles.navItem} onPress={onPress}>
-      <View style={[styles.navIconCircle, active && styles.navIconCircleActive]}>
-        <AppIcon
-          name={icon}
-          size={active ? 30 : 26}
-          color={active ? AppTheme.colors.white : AppTheme.colors.navMuted}
-        />
-
-        {alert ? <View style={styles.navAlertDot} /> : null}
-      </View>
-
-      <Text style={[styles.navLabel, active && styles.navLabelActive]}>
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -236,58 +169,5 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1.1,
     textTransform: "uppercase",
-  },
-
-  bottomNav: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    minHeight: 92,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 12,
-    borderTopWidth: 1,
-    borderTopColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.white,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  navItem: {
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 50,
-  },
-  navIconCircle: {
-    width: 48,
-    height: 38,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-  },
-  navIconCircleActive: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: AppTheme.colors.brand,
-  },
-  navAlertDot: {
-    position: "absolute",
-    right: 3,
-    top: -3,
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    backgroundColor: AppTheme.colors.danger,
-  },
-  navLabel: {
-    color: AppTheme.colors.navMuted,
-    fontSize: 12,
-    fontWeight: "900",
-    marginTop: 5,
-  },
-  navLabelActive: {
-    color: AppTheme.colors.brand,
   },
 });

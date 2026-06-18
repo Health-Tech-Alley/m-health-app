@@ -170,6 +170,7 @@ export interface Medication {
   route?: string;
   indication?: string;
   active: boolean;
+  source?: 'care_plan' | 'custom';
 }
 
 export interface PatientCondition {
@@ -178,6 +179,164 @@ export interface PatientCondition {
   name: string;
   icd10?: string;
   onsetDate?: string;
+  // M12 extensions — structured clinical metadata
+  category?: string; // 'Respiratory' | 'Neurologic' | 'Cardiac' | 'Metabolic' | 'Cognitive' | 'Neurologic / Mobility' | ...
+  isPrimary?: boolean;
+  source?: ConditionSource; // 'onboarding' | 'medlineplus' | 'pubmed' | 'rxnorm' | 'ccda_import'
+  sourceDocId?: string; // e.g. 'MLP-J44.9'
+  retrievedAt?: string;
+  needsReview?: boolean; // true for MedlinePlus-suggested comorbidities
+}
+
+export type ConditionSource = 'onboarding' | 'medlineplus' | 'pubmed' | 'rxnorm' | 'ccda_import' | 'fhir_import';
+
+// ---------------------------------------------------------------------------
+// Symptoms (structured from onboarding catalog + future EHR import)
+// ---------------------------------------------------------------------------
+
+export type SymptomCategory =
+  | 'respiratory'
+  | 'cardiac'
+  | 'neurologic'
+  | 'mobility'
+  | 'general'
+  | 'pain'
+  | 'behavioral'
+  | 'other';
+
+export interface Symptom {
+  symptomId: string;
+  patientId: string;
+  label: string;
+  category: SymptomCategory;
+  source?: ConditionSource;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Wearable devices (structured from onboarding)
+// ---------------------------------------------------------------------------
+
+export type WearableDeviceType =
+  | 'Apple Watch'
+  | 'Fitbit'
+  | 'Garmin'
+  | 'Samsung Galaxy Watch'
+  | 'Oura Ring'
+  | 'Phone only'
+  | 'No device yet'
+  | 'Other';
+
+export type WearableBaselineStatus = 'not_started' | 'simulated' | 'connected' | 'failed';
+
+export interface WearableDevice {
+  deviceId: string;
+  patientId: string;
+  deviceType: WearableDeviceType;
+  deviceLabel?: string;
+  connected: boolean;
+  baselineStatus: WearableBaselineStatus;
+  baselineStartedAt?: string;
+  baselineCompletedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge cache (PubMed / MedlinePlus / RxNorm / DailyMed / OpenFDA chunks)
+// (see planning/22_clinical-data-gathering.md §6a)
+// ---------------------------------------------------------------------------
+
+export type KnowledgeSource = 'pubmed' | 'medlineplus' | 'rxnorm' | 'dailymed' | 'openfda';
+
+export interface KnowledgeChunk {
+  chunkId: string; // docId, e.g. 'PMID-12345678', 'MLP-J44.1'
+  source: KnowledgeSource;
+  text: string;
+  queryHash?: string;
+  conditions?: string; // CSV
+  retrievedAt: string;
+  expiresAt?: string;
+  useCount: number;
+  metadataJson?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Patient enrichment log (auditable record of every clinical-source enrichment)
+// ---------------------------------------------------------------------------
+
+export type EnrichmentField = 'condition' | 'medication' | 'threshold' | 'goal';
+export type EnrichmentAction = 'bundled' | 'suggested' | 'supplemented_live';
+
+export interface PatientEnrichmentLogEntry {
+  logId: string;
+  patientId: string;
+  field: EnrichmentField;
+  resourceId?: string;
+  source: KnowledgeSource;
+  action: EnrichmentAction;
+  deidentifiedQuery?: string;
+  resultCount?: number;
+  latencyMs?: number;
+  chunkIds?: string; // CSV
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// ML events (full structured output from the Alert ML model)
+// (Jay's sample JSON shape — preserved verbatim for the ML → SLM bridge)
+// ---------------------------------------------------------------------------
+
+export interface MlEvent {
+  eventId: string;
+  patientId: string;
+  deviceId?: string;
+  alertId?: string;
+  queueType?: string; // 'SLM_HEURISTIC_REFINEMENT' | ...
+  eventType?: string; // 'TRIGGER_WORKFLOW_ANOMALY_TYPE_04' | ...
+  timestamp: string;
+  modelVersion?: string;
+  threshold?: number;
+  personalizedThreshold?: number;
+  reconstructionError?: number;
+  anomalyDetected: boolean;
+  inputHash?: string;
+  topFeaturesJson?: string; // [["stress_level",23.19],...]
+  ruleEngineJson?: string; // {is_emergency, severity, reasons[]}
+  caregiverJson?: string; // {action, confirmed, observations[]}
+  rawVitalsJson?: string; // full 8-feature snapshot
+  trainingLabelProxyJson?: string;
+  createdAt: string;
+}
+
+/** Parsed top-feature tuple from MlEvent.topFeaturesJson. */
+export type MlTopFeature = [string, number];
+
+/** Parsed rule-engine block from MlEvent.ruleEngineJson. */
+export interface MlRuleEngine {
+  is_emergency: boolean;
+  severity: number;
+  reasons: string[];
+}
+
+/** Parsed caregiver block from MlEvent.caregiverJson. */
+export interface MlCaregiverBlock {
+  action?: string; // 'confirmed' | 'pending' | ...
+  confirmed?: boolean;
+  observations?: string[];
+}
+
+/** Parsed raw-vitals snapshot from MlEvent.rawVitalsJson. */
+export interface MlRawVitals {
+  heart_rate?: number;
+  blood_oxygen?: number;
+  respiratory_rate?: number;
+  activity_level?: number;
+  sleep_quality?: number;
+  stress_level?: number;
+  hrv_sdnn?: number;
+  body_temperature?: number;
+  [key: string]: number | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -274,4 +433,50 @@ export interface NextStep {
   actionId: NextStepActionId;
   label: string;
   rationale?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Appointments (Schedule screen)
+// ---------------------------------------------------------------------------
+
+export interface Appointment {
+  appointmentId: string;
+  patientId: string;
+  type: string;
+  provider?: string;
+  date: string; // ISO date yyyy-mm-dd
+  time?: string;
+  location?: string;
+  reason?: string;
+  reminder?: string;
+  status: 'scheduled' | 'completed' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Daily care entries (per-day therapy log editable from the Care screen)
+// ---------------------------------------------------------------------------
+
+export interface DailyCareEntry {
+  entryId: string;
+  patientId: string;
+  carePlanId?: string;
+  entryDate: string; // ISO date (yyyy-mm-dd)
+  therapyDay?: number;
+  loggedByUserId?: string;
+  loggedByRole?: string;
+  therapyCompleted: boolean;
+  setsCompleted: number;
+  recommendedSets: number;
+  painBefore?: number;
+  painAfter?: number;
+  fatigue?: number;
+  assistanceRequired?: string;
+  caregiverConcern: boolean;
+  functionalTaskScore?: number;
+  guidedMovementScore?: number;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
 }

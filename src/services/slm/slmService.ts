@@ -14,6 +14,7 @@ import { MODEL_CATALOG } from "@/inference/model-catalog";
 import { getHfToken } from "@/services/hf-token-store";
 import { downloadModel } from "@/services/model-download";
 import { isModelInstalled } from "@/services/model-storage";
+import type { PatientRecordSnapshot } from "@/data/repositories/patientRecordRepository";
 
 export const CAREGIVER_SLM_MODEL_ID = "healthgpt-pro-4b";
 
@@ -22,6 +23,12 @@ export type CaregiverAssistantContext = {
   patientName?: string;
   patientAge?: string;
   patientConditions?: string;
+  /** Structured: primary condition name + ICD-10 code. */
+  primaryCondition?: { name: string; icd10?: string; category?: string };
+  /** Structured: comorbidity names with ICD-10 codes. */
+  comorbidities?: { name: string; icd10?: string; category?: string }[];
+  /** Structured: caregiver-reported symptoms. */
+  symptoms?: { label: string; category: string }[];
   patientBaselineDailyRoutine?: string;
   patientCurrentMedications?: string;
   patientSpo2Cutoff?: string;
@@ -50,6 +57,49 @@ export type CaregiverAssistantContext = {
   medicationSummary?: string;
   scheduleSummary?: string;
 };
+
+/**
+ * Build a CaregiverAssistantContext from the PatientRecordStore snapshot.
+ * This is the preferred way to construct the context — it includes structured
+ * conditions, comorbidities, and symptoms that the onboarding-profile-only
+ * path doesn't have.
+ */
+export function buildCaregiverAssistantContextFromSnapshot(
+  snapshot: PatientRecordSnapshot,
+): CaregiverAssistantContext {
+  const confirmedConditions = snapshot.conditions.filter((c) => !c.needsReview);
+  const primary = confirmedConditions.find((c) => c.isPrimary) ?? confirmedConditions[0];
+  const comorbidities = confirmedConditions.filter((c) => c !== primary);
+
+  return {
+    patientName: snapshot.patient?.name,
+    patientAge: snapshot.patient?.age,
+    patientConditions: snapshot.patient?.conditions,
+    primaryCondition: primary
+      ? { name: primary.name, icd10: primary.icd10, category: primary.category }
+      : undefined,
+    comorbidities: comorbidities.map((c) => ({
+      name: c.name,
+      icd10: c.icd10,
+      category: c.category,
+    })),
+    symptoms: snapshot.symptoms.map((s) => ({ label: s.label, category: s.category })),
+    patientBaselineDailyRoutine: snapshot.patient?.baselineDailyRoutine,
+    patientCurrentMedications: snapshot.patient?.currentMedications,
+    patientSpo2Cutoff: snapshot.patient?.spo2Cutoff,
+    patientBaselineHeartRate: snapshot.patient?.baselineHeartRate,
+    caregiverName: snapshot.caregiver?.name,
+    caregiverRelationship: snapshot.caregiver?.relationship,
+    caregiverExperience: snapshot.caregiver?.experience,
+    caregiverAvailability: snapshot.caregiver?.availability,
+    caregiverLanguagePreference: snapshot.caregiver?.languagePreference,
+    caregiverMedicalComfortLevel: snapshot.caregiver?.medicalComfortLevel,
+    caregiverHobbiesOrRoutines: snapshot.caregiver?.hobbiesOrRoutines,
+    caregiverMainConcern: snapshot.caregiver?.mainConcern,
+    caregiverStressOrSupportNeeds: snapshot.caregiver?.stressOrSupportNeeds,
+    caregiverBackup: snapshot.caregiver?.backupCaregiver,
+  };
+}
 
 export type CaregiverAssistantResponse = {
   answer: string;
@@ -219,7 +269,20 @@ export function buildCaregiverSystemContext(context: CaregiverAssistantContext):
     "## Patient",
     `- Name: ${context.patientName ?? "Unknown"}`,
     `- Age: ${context.patientAge ?? "Not provided"}`,
-    `- Documented conditions: ${context.patientConditions ?? "Not provided"}`,
+    "",
+    "## Conditions (structured)",
+    context.primaryCondition
+      ? `- PRIMARY: ${context.primaryCondition.name}${context.primaryCondition.icd10 ? ` (${context.primaryCondition.icd10})` : ""}${context.primaryCondition.category ? ` [${context.primaryCondition.category}]` : ""}`
+      : `- Documented conditions: ${context.patientConditions ?? "Not provided"}`,
+    context.comorbidities && context.comorbidities.length > 0
+      ? `Comorbidities:\n${context.comorbidities.map((c) => `  - ${c.name}${c.icd10 ? ` (${c.icd10})` : ""}${c.category ? ` [${c.category}]` : ""}`).join("\n")}`
+      : "Comorbidities: none documented",
+    "",
+    "## Current symptoms (caregiver-reported)",
+    context.symptoms && context.symptoms.length > 0
+      ? context.symptoms.map((s) => `- ${s.label} [${s.category}]`).join("\n")
+      : "None documented",
+    "",
     `- Baseline daily routine: ${context.patientBaselineDailyRoutine ?? context.scheduleSummary ?? "Not provided"}`,
     `- Current medications: ${context.patientCurrentMedications ?? context.medicationSummary ?? "Not provided"}`,
     `- SpO2 cutoff (red breath alert threshold): ${context.patientSpo2Cutoff ?? "Not provided"}`,

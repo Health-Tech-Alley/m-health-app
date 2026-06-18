@@ -70,8 +70,8 @@ in a teal rounded square to the left of the screen title, rendered by the reusab
 | `index.tsx` | Redirect | First route → onboarding or `/(tabs)/dashboard` |
 | `onboarding.tsx` | Inline | 5-step intake (welcome + 4 data steps). Redirects to `/(tabs)/dashboard` on completion. |
 | `(tabs)/_layout.tsx` | expo-router `Tabs` | 5-tab shell (Dashboard, Care, Medications, Schedule, Settings) |
-| `(tabs)/dashboard.tsx` | Inline | Branded header + patient summary + active alert cards + quick actions |
-| `(tabs)/care.tsx` | Inline | Branded header + patient snapshot + vitals + active alerts + care plan link |
+| `(tabs)/dashboard.tsx` | Inline | Branded header + patient summary + weekly vitals + non-emergency insight + priority/activity |
+| `(tabs)/care.tsx` | Inline | Branded header + patient snapshot + tappable safety considerations + editable care plan (daily entry persisted to `daily_care_entries`) + care analysis link |
 | `(tabs)/medications.tsx` | Inline | Branded header + med list + schedules + "Mark as given" |
 | `(tabs)/schedule.tsx` | Inline | Branded header + appointments placeholder + alert timeline + notifications |
 | `(tabs)/settings.tsx` | `src/components/settings/settings-screen.tsx` | Branded header + full settings surface |
@@ -160,25 +160,81 @@ The shared SLM explanation screen for all three steel threads. Takes an
 ### Care (`(tabs)/care.tsx`)
 
 Care management hub. Shows the **Health Tech Alley logo + branded header**
-("Care Management / Care"), a patient snapshot (name, conditions), latest vitals
-(SpO2, heart rate from `getLatestHealthSample`), active alerts, and links to the
-care plan (`/care-management`) and the acute-anomaly demo (dev mode).
+("Care Management / Care"), a patient snapshot (name, conditions), and the
+**Safety Considerations** card: each consideration renders on its own line
+(no trailing period). Tapping a consideration opens a combined explanation
+dialog (safety note + why it matters + recommendation) with an
+**Explain with assistant** button that opens the shared `SlmInsightSheet`
+(controlled SLM load/unload — see below). The **Care Plan** card shows the
+therapy day's progress; pain before/after, fatigue, and the caregiver note are
+**tappable and persisted** to the `daily_care_entries` SQLite table via
+`upsertDailyCareEntry`. The legacy "Your Response" action block was removed
+(those actions now live in the active-alert pop-up).
+
+### Active alert pop-up (Home + Care)
+
+The severity-3 active alert is no longer an inline section in the dashboard
+scroll — it is an **in-app modal pop-up shown once per app cold-start**
+(`ActiveAlertProvider` + `ActiveAlertModal`, mounted globally in `_layout.tsx`).
+Actions: **Call 911** opens the phone dialer with `911` populated (does not
+place the call) and audit-logs; **Acknowledge** opens a severity-stressing
+dialog then audit-logs; **Add Note** shows an inline audit-logged note input;
+**Remind me later** = temp-dismiss (hides for the session, reappears next cold
+start); **Clear without rectifying** = confirmation dialog → persistently
+cleared in `app_settings` + audit-logged. The dashboard bell reopens the modal
+while an alert is active.
+
+### Transient SLM use — `SlmInsightSheet`
+
+A reusable bottom-sheet (`src/components/slm-insight-sheet.tsx`) for on-demand
+SLM explanations that are not the main alert-explain flow (safety-note
+explanations, future custom-med checks). On open it acquires an SLM lease via
+the task queue (auto-loads the configured default model in Demo mode), shows a
+"Loading…" → "Thinking…" indicator, then streams the answer (which occupies the
+thinking space). On close the lease is released and the task queue's auto-unload
+timer unloads the model. Falls back to the mock assistant on Track A. The
+default model is configurable in **Settings → Developer → Default SLM Model**
+(`demoDefaultModelId` in `app_settings`).
+
+### Clinical-evidence bundle status
+
+The condition bundler (`src/clinical-evidence/condition-bundler.ts`) now wraps
+its run in try/finally and records a 3-state `BundleStatus`
+(`in_flight` / `complete` / `failed`) in `app_settings`, so the dashboard never
+gets stuck on "Enrichment in progress…" — if the live PubMed/MedlinePlus fetch
+fails (e.g. offline on Track A), the Patient Summary shows
+"Live fetch unavailable — using offline knowledge" and the bundle is retried
+once on the next cold start. **Settings → Developer → Clinical Evidence API
+Keys** exposes NCBI (PubMed) and OpenFDA key fields; MedlinePlus, RxNorm, and
+DailyMed require no key.
 
 ### Medications (`(tabs)/medications.tsx`)
 
-Lists active medications from `getActiveMedications(patientId)`. Shows the
+Lists active medications from `getActiveMedications(patientId)` joined with
+schedule times from `getActiveMedicationSchedules(patientId)`. Shows the
 **Health Tech Alley logo + branded header** ("Medication Management /
-Medications"). For each med: name, dosage, frequency, and schedule times from
-`getActiveMedicationSchedules(patientId)`. A "Mark as given" button per med
-logs a `caregiver_action` of type `log_observation`. Links to the acute-anomaly
-demo (dev mode).
+Medications"). For each med: name, dosage, frequency, schedule time, and a
+status pill (Pending / Confirmed). Per-med actions:
+- **Confirm Given** toggles to Confirmed (tap again to **unconfirm**) — audit-logged.
+- **Edit** (note icon) opens a modal to edit name, dose, instructions, and
+  **administration time** (updates the `medication_schedules` row).
+- **＋ Add Medication** creates a custom med (`source='custom'`) with an optional
+  schedule — audit-logged.
+- Custom meds show a purple **Custom** badge and gain a **delete** (🗑) button
+  (hard-delete + audit) and an **assistant check** (care icon) that opens the
+  `SlmInsightSheet` (`custom_med_check` lease) to ask the SLM whether the custom
+  med is a good choice, with a keep/modify/remove suggestion.
 
 ### Schedule (`(tabs)/schedule.tsx`)
 
-Shows the **Health Tech Alley logo + branded header** ("Scheduling & Timeline /
-Schedule"). Displays a timeline of recent alerts (from `getActiveAlerts` +
-recently resolved) and recent notifications (from `getNotificationsForPatient`).
-Appointments section is a placeholder (no appointments table yet).
+Appointment scheduling persisted to the `appointments` SQLite table. Shows the
+**Health Tech Alley logo + branded header** ("Scheduling & Timeline /
+Schedule"). The form (type, provider, date, time, location, reason, reminder)
+writes a row via `insertAppointment` + audit-logs, then shows a **fading toast**
+("Appointment added — you'll be notified") and resets the form. The **Upcoming**
+list reads `getUpcomingAppointments`; each row has **Edit** (opens a modal to
+modify any field → `updateAppointment`) and **Delete** (confirmation dialog →
+`deleteAppointment` + audit). A demo appointment is seeded on first run.
 
 ### Settings (`(tabs)/settings.tsx` → `settings-screen.tsx`)
 
@@ -189,6 +245,37 @@ Full settings surface with the **Health Tech Alley logo + branded header**
   care-task), appointment lead time, quiet hours
 - **Consent Management** — Grant/revoke scopes (`ccda_export`, `location_access`,
   `fhir-share`, `pharmacy-communicator`, `provider-message`)
+
+### More (`(tabs)/more.tsx`)
+
+Profile + preferences hub. **Profile** row combines caregiver + patient into a
+single link to `/profile` (previously two rows navigated to the same screen).
+**Notification preferences** opens an in-app modal with live toggles backed by
+`SettingsContext` (anomaly, medication, appointment, care-task). Developer/Demo
+section links to the acute-anomaly demo, model management, and the
+**Performance** dashboard.
+
+### Profile (`/profile`)
+
+Read-only patient / PCP / safety / preferences cards, plus an **editable
+Caregiver card** — name, relationship, phone, and main concern are tap-to-edit
+and persist via `upsertCaregiver` (SQLite) + `saveOnboardingProfile`
+(in-memory) so the patient record snapshot stays in sync.
+
+### Performance (`/performance`)
+
+Live RAM dashboard polling the device-memory bridge at 2 Hz. The used-RAM bar
+is split into **SLM** vs **other** so the model's footprint is visible. On
+Track A the native bridge is absent and a wandering mock supplies realistic,
+visibly-changing values (sinusoidal wander in the 0.45–0.70 usage band) so the
+dashboard is never static. Severity pill colors (ok/warn/crit) reflect the
+current used ratio.
+
+### Tab navigation
+
+The 5-tab shell animates the active icon: a spring scales the icon up and a
+timing transition fills the circle background, giving a tactile transition
+between tabs.
 - **Data** — Export C-CDA record (consent-gated), Reset all data
 - **Developer** — Developer mode toggle, manual SLM load/unload, RAM dashboard
   link, audit log viewer with hash-chain verification, dev screen links
@@ -221,34 +308,6 @@ the SQLite data layer, and the SLM in one flow.
 
 The screen is wrapped in `SafeAreaView edges={['top', 'bottom']}`.
 Alerts can be swipe-dismissed (resolved) from the active list.
-
-### Performance / RAM Dashboard (`performance.tsx`)
-
-A live, 1 Hz RAM dashboard backed by
-`src/services/performance/performanceService.ts`.
-
-- **Hero summary card** — Three big numbers (Used / Free / Total) plus a
-  color-coded severity pill (`ok` / `warn` / `crit`, labeled Healthy /
-  Elevated / Critical) and a progress bar. The bar recolors green → amber →
-  red as `usedRatio` crosses 0.75 / 0.9. When a model is loaded, the SLM
-  portion of the bar is overlaid in brand teal.
-- **Used RAM breakdown card** — A legend (SLM model vs Other) and a
-  stacked bar showing the two pieces in MB. "Other" = everything else
-  (system, foreground app, other apps).
-- **SLM status card** — Mirrors the SLM provider's state: `loadStatus`,
-  `currentModelId`, `modelSizeGB` on disk, and whether the native memory
-  bridge is present (vs the Track A mock).
-- **Safe-area aware** — Wrapped in `SafeAreaView` with
-  `edges={['top', 'bottom']}`.
-
-Data flow:
-
-```
-useRamSnapshot(1000, modelSizeGB)
-  → NativeModules.DeviceMemory.getMemoryInfo()  (Track B)
-  → mock module (Track A) when the native bridge is absent
-  → RamSnapshot { usedMB, freeMB, totalMB, appMB, slmMB, otherMB, ... }
-```
 
 ### SLM Prompt / Caregiver Assistant (`slm.tsx`)
 

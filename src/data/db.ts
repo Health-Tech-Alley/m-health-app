@@ -85,6 +85,13 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS notifications;
     DROP TABLE IF EXISTS notification_preferences;
     DROP TABLE IF EXISTS app_settings;
+    DROP TABLE IF EXISTS knowledge_cache;
+    DROP TABLE IF EXISTS patient_enrichment_log;
+    DROP TABLE IF EXISTS symptoms;
+    DROP TABLE IF EXISTS wearable_devices;
+    DROP TABLE IF EXISTS ml_events;
+    DROP TABLE IF EXISTS daily_care_entries;
+    DROP TABLE IF EXISTS appointments;
     DROP TABLE IF EXISTS __migrations;
   `);
   closeDatabase();

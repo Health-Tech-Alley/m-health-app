@@ -32,13 +32,24 @@ function resolveModule(): DeviceMemoryModule | null {
 
 function createMockModule(): DeviceMemoryModule {
   const totalMB = Device.totalMemory ? Device.totalMemory / 1_048_576 : 4096;
+  // Track a wandering baseline so the mock dashboard visibly updates over time
+  // (the real native bridge returns fresh values each call; the mock must too,
+  // otherwise the Performance screen looks static on Track A).
+  let baseline = 0.55;
+  let phase = 0;
   return {
-    getMemoryInfo: () => ({
-      totalMB,
-      usedMB: totalMB * 0.55,
-      freeMB: totalMB * 0.45,
-      appMB: 0,
-    }),
+    getMemoryInfo: () => {
+      // Smooth sinusoidal wander in the 0.45–0.70 usage band, plus tiny noise.
+      phase += 0.18;
+      baseline = 0.575 + Math.sin(phase) * 0.08 + (Math.random() - 0.5) * 0.02;
+      const usedMB = totalMB * Math.max(0.4, Math.min(0.72, baseline));
+      return {
+        totalMB,
+        usedMB,
+        freeMB: totalMB - usedMB,
+        appMB: 0,
+      };
+    },
   };
 }
 

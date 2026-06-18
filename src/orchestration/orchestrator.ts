@@ -24,13 +24,25 @@ import {
   type CaregiverAction,
   type HealthSample,
   type SlmTurn,
+  type MlEvent,
 } from '@/data';
+import {
+  insertMlEvent,
+  getMlEventForAlert,
+  parseTopFeatures,
+  parseRuleEngine,
+  parseCaregiverBlock,
+  parseRawVitals,
+  getAnomalyConfidenceRatio,
+} from '@/data/repositories/mlEventRepository';
+import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
 import type { InferenceProvider } from '@/inference/inference-provider';
 import type { FusedRetriever } from '@/knowledge';
 import { audit, auditAlertCreated, auditCaregiverAction, auditSampleRead, auditSlmTurn } from '@/services/audit/auditService';
 import { checkEgressConsent } from '@/services/consent/consentGate';
 import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
 import { AlertMlService } from '@/services/ml/alert-ml-service';
+import type { SlmTaskQueue } from '@/services/slm/slm-task-queue';
 
 import {
   CaregiverAgent,
@@ -69,9 +81,18 @@ import type { NextStep, NextStepActionId } from '@/data/types';
 
 export type OrchestratorConfig = {
   slm: InferenceProvider;
+  /** The task queue that owns the SLM load/unload lifecycle. */
+  slmTasks: SlmTaskQueue;
   retriever: FusedRetriever;
   alertMl?: AlertMlModel;
   bus?: EventBus;
+  /**
+   * Returns the current patient record snapshot. Called on-demand (during
+   * explainAlert / fanOutAndExecute) so the orchestrator always sees the
+   * latest structured conditions, comorbidities, symptoms, and thresholds
+   * without being recreated on every store update.
+   */
+  snapshotProvider: () => PatientRecordSnapshot | null;
 };
 
 export type ClarifyingQuestion = {
@@ -104,6 +125,7 @@ function formatScore(score: unknown): string {
 
 export class Orchestrator {
   private slm: InferenceProvider;
+  private slmTasks: SlmTaskQueue;
   private retriever: FusedRetriever;
   private client: InProcessMcpClient;
   private cep: CepEngine;
@@ -115,10 +137,13 @@ export class Orchestrator {
   private safetyReviewer = new SafetyReviewerAgent();
   private vitalsDebounce: Map<string, { timer: ReturnType<typeof setTimeout>; events: OrchestrationEvent[] }> = new Map();
   private static readonly DEBOUNCE_MS = 3000;
+  private snapshotProvider: () => PatientRecordSnapshot | null;
 
   constructor(config: OrchestratorConfig) {
     this.slm = config.slm;
+    this.slmTasks = config.slmTasks;
     this.retriever = config.retriever;
+    this.snapshotProvider = config.snapshotProvider;
     const { client } = createInProcessMcp({ tools: createAllAgents() });
     this.client = client;
     this.cep = createDefaultCepEngine();
@@ -263,10 +288,37 @@ export class Orchestrator {
       createdAt: event.at,
     };
     insertAlert(alert);
+
+    // Persist the full structured ML payload to ml_events for the SLM bridge.
+    const mlEvent: MlEvent = {
+      eventId: `mlevent-${event.alertId}`,
+      patientId: event.patientId,
+      deviceId: event.deviceId,
+      alertId: event.alertId,
+      queueType: event.queueType,
+      eventType: event.eventType,
+      timestamp: event.at,
+      modelVersion: event.modelVersion,
+      threshold: event.threshold,
+      personalizedThreshold: event.personalizedThreshold,
+      reconstructionError: event.reconstructionError,
+      anomalyDetected: true,
+      inputHash: event.inputHash,
+      topFeaturesJson: event.topFeatures ? JSON.stringify(event.topFeatures) : undefined,
+      ruleEngineJson: event.ruleEngine ? JSON.stringify(event.ruleEngine) : undefined,
+      caregiverJson: event.caregiverBlock ? JSON.stringify(event.caregiverBlock) : undefined,
+      rawVitalsJson: event.rawVitals ? JSON.stringify(event.rawVitals) : undefined,
+      trainingLabelProxyJson: event.trainingLabelProxy ? JSON.stringify(event.trainingLabelProxy) : undefined,
+      createdAt: new Date().toISOString(),
+    };
+    insertMlEvent(mlEvent);
+
     auditAlertCreated(event.patientId, alert.alertId, {
       mlScore: event.score,
       severity: event.severity,
       features: event.features,
+      queueType: event.queueType,
+      reconstructionError: event.reconstructionError,
     });
 
     // Run multi-agent fan-out so the coordinator can propose immediate actions.
@@ -351,7 +403,11 @@ export class Orchestrator {
    * consent gate to egress-bearing actions, and executes allowed actions.
    */
   private async fanOutAndExecute(ctx: Omit<AgentContext, 'aggregatedContext'>): Promise<AgentProposalInternal[]> {
-    const aggregatedContext = await buildAggregatedContext(ctx.patientId, ctx.intent, this.retriever);
+    const snapshot = this.snapshotProvider();
+    if (!snapshot) {
+      throw new Error('PatientRecordStore snapshot not available');
+    }
+    const aggregatedContext = await buildAggregatedContext(ctx.patientId, ctx.intent, this.retriever, snapshot);
     const fullContext: AgentContext = { ...ctx, aggregatedContext };
 
     const proposals = await Promise.all(
@@ -424,16 +480,41 @@ export class Orchestrator {
     const patientId = alert.patientId;
     const intent = `Explain alert ${alertId}: ${alert.title}`;
 
-    // Confidence router: if the alert is severity-3 with clear threshold
-    // violations and an unambiguous care-plan instruction, return preliminary
-    // guidance without loading the SLM. The caregiver can still tap "Ask
-    // assistant" for a full SLM explanation.
+    // Load the structured ML event (if this alert originated from the ML model)
+    // so the explain prompt can include top_features, caregiver observations,
+    // rule-engine findings, and the reconstruction-error ratio.
+    const mlEvent = getMlEventForAlert(alertId);
+    const mlTopFeatures = mlEvent ? parseTopFeatures(mlEvent) : [];
+    const mlRuleEngine = mlEvent ? parseRuleEngine(mlEvent) : null;
+    const mlCaregiverBlock = mlEvent ? parseCaregiverBlock(mlEvent) : null;
+    const mlRawVitals = mlEvent ? parseRawVitals(mlEvent) : null;
+    const mlConfidenceRatio = mlEvent ? getAnomalyConfidenceRatio(mlEvent) : null;
+
+    // Confidence router (upgraded): short-circuits SLM invocation when the
+    // anomaly confidence is very high. Two paths:
+    //   1. Severity-3 alerts → always return preliminary guidance (no SLM).
+    //   2. High-confidence sub-severity-3 alerts (ratio > 3) with
+    //      caregiver-confirmed observations → return heuristic next-steps
+    //      without loading the SLM. The caregiver can still tap "Ask assistant".
     if (alert.severity === 3) {
       const preliminary = this.buildPreliminaryGuidance(alert);
       if (preliminary) {
         this.addTrace({ agent: 'orchestrator', thought: 'Confidence router: returning preliminary guidance for severity-3 alert without SLM.' });
         return preliminary;
       }
+    }
+
+    if (
+      alert.severity < 3 &&
+      mlConfidenceRatio !== null &&
+      mlConfidenceRatio > 3 &&
+      mlCaregiverBlock?.confirmed === true
+    ) {
+      this.addTrace({
+        agent: 'orchestrator',
+        thought: `Confidence router: high-confidence anomaly (ratio=${mlConfidenceRatio.toFixed(2)}) with caregiver confirmation — returning heuristic guidance without SLM.`,
+      });
+      return this.buildHighConfidenceGuidance(alert, mlTopFeatures, mlCaregiverBlock);
     }
 
     // Fan out agents first to collect proposed actions and safety notes.
@@ -445,26 +526,44 @@ export class Orchestrator {
     });
 
     this.addTrace({ agent: 'orchestrator', thought: 'Building aggregated context for SLM explain.' });
-    const context = await buildAggregatedContext(patientId, intent, this.retriever);
+    const snapshot = this.snapshotProvider();
+    if (!snapshot) {
+      throw new Error('PatientRecordStore snapshot not available');
+    }
+    const context = await buildAggregatedContext(patientId, intent, this.retriever, snapshot);
 
     this.addTrace({ agent: 'orchestrator', thought: 'Building knowledge-graph context subgraph.' });
     const graph = this.graphProjector.build(patientId);
     const subgraph = buildContextSubgraph(graph, patientId, alertId);
 
-    let prompt = this.buildExplainPrompt(context, alert, agentProposals, subgraph);
+    let prompt = this.buildExplainPrompt(context, alert, agentProposals, subgraph, {
+      topFeatures: mlTopFeatures,
+      ruleEngine: mlRuleEngine,
+      caregiverBlock: mlCaregiverBlock,
+      rawVitals: mlRawVitals,
+      confidenceRatio: mlConfidenceRatio,
+    });
     prompt = this.truncateToTokenBudget(prompt, 4096);
 
     const turnId = `turn-${Date.now()}`;
 
-    this.addTrace({ agent: 'orchestrator', thought: 'Calling SLM with RAG context and tool schemas.' });
-    const slmResult = await this.slm.chat(
-      [
-        { role: 'system', content: this.buildSystemPrompt(context) },
-        { role: 'user', content: prompt },
-      ],
-      () => {},
-      new AbortController().signal,
-    );
+    this.addTrace({ agent: 'orchestrator', thought: 'Acquiring SLM lease for explain_alert.' });
+    const lease = await this.slmTasks.acquire('explain_alert');
+
+    let slmResult;
+    try {
+      this.addTrace({ agent: 'orchestrator', thought: 'Calling SLM with RAG context and tool schemas.' });
+      slmResult = await this.slm.chat(
+        [
+          { role: 'system', content: this.buildSystemPrompt(context) },
+          { role: 'user', content: prompt },
+        ],
+        () => {},
+        new AbortController().signal,
+      );
+    } finally {
+      lease.release();
+    }
 
     const citations = context.retrieval.citations;
     const turn: SlmTurn = {
@@ -558,6 +657,18 @@ export class Orchestrator {
       .map((t) => `- ${t.name}: ${t.description}`)
       .join('\n');
 
+    // Structured conditions block — primary + comorbidities with ICD codes.
+    const primaryLine = context.patient.primaryCondition
+      ? `- ${context.patient.primaryCondition.name}${context.patient.primaryCondition.icd10 ? ` (${context.patient.primaryCondition.icd10})` : ''}${context.patient.primaryCondition.category ? ` [${context.patient.primaryCondition.category}]` : ''} — PRIMARY`
+      : '- None documented';
+    const comorbiditiesLine = context.patient.comorbidities.length > 0
+      ? context.patient.comorbidities.map((c) => `  - ${c}`).join('\n')
+      : '  - None documented';
+
+    const symptomsBlock = context.symptoms.length > 0
+      ? context.symptoms.map((s) => `- ${s.label} [${s.category}]`).join('\n')
+      : 'None documented';
+
     return [
       'You are a caregiver-support assistant inside a mobile health app.',
       'Your job is to help a non-clinical family caregiver understand a health alert and decide on safe next steps.',
@@ -573,9 +684,18 @@ export class Orchestrator {
       'PATIENT CONTEXT',
       `Name: ${context.patient.name}`,
       `Age: ${context.patient.age ?? 'unknown'}`,
-      `Conditions: ${context.patient.conditions.join(', ') || 'none documented'}`,
+      '',
+      'CONDITIONS (structured)',
+      primaryLine,
+      'Comorbidities:',
+      comorbiditiesLine,
+      '',
+      'CURRENT SYMPTOMS (caregiver-reported)',
+      symptomsBlock,
+      '',
       `Medications: ${context.patient.medications ?? 'none documented'}`,
       `SpO2 cutoff: ${context.patient.spo2Cutoff ?? 'not set'}`,
+      `Baseline heart rate: ${context.patient.baselineHeartRate ?? 'not set'}`,
       '',
       'ACTIVE THRESHOLDS (from the personalized care plan)',
       thresholdBlock || 'None configured',
@@ -602,6 +722,13 @@ export class Orchestrator {
     alert: Alert,
     agentProposals: AgentProposalInternal[],
     subgraph: import('@/knowledge/graph').ContextSubgraph,
+    mlData?: {
+      topFeatures: [string, number][];
+      ruleEngine: { is_emergency: boolean; severity: number; reasons: string[] } | null;
+      caregiverBlock: { action?: string; confirmed?: boolean; observations?: string[] } | null;
+      rawVitals: Record<string, number | undefined> | null;
+      confidenceRatio: number | null;
+    },
   ): string {
     const agentNotes = agentProposals
       .flatMap((p) => p.safetyNotes)
@@ -621,10 +748,46 @@ export class Orchestrator {
       .map((n) => `- ${n.label}`)
       .join('\n');
 
+    // ML → SLM bridge: structured pre-explanation from the ML model.
+    // The SLM's job narrows from "explain this alert" to "contextualize this
+    // already-explained anomaly for this specific caregiver."
+    const mlBlock: string[] = [];
+    if (mlData) {
+      mlBlock.push('', 'ML MODEL OUTPUT (structured pre-explanation — do not contradict)');
+      if (mlData.topFeatures.length > 0) {
+        mlBlock.push('Top contributing features (feature → reconstruction error contribution):');
+        for (const [name, contribution] of mlData.topFeatures) {
+          mlBlock.push(`  - ${name}: ${contribution.toFixed(2)}`);
+        }
+      }
+      if (mlData.ruleEngine) {
+        mlBlock.push(`Rule engine: emergency=${mlData.ruleEngine.is_emergency}, severity=${mlData.ruleEngine.severity}`);
+        if (mlData.ruleEngine.reasons.length > 0) {
+          mlBlock.push(`Reasons: ${mlData.ruleEngine.reasons.join('; ')}`);
+        }
+      }
+      if (mlData.caregiverBlock) {
+        mlBlock.push(`Caregiver HITL: action=${mlData.caregiverBlock.action ?? 'pending'}, confirmed=${mlData.caregiverBlock.confirmed ?? false}`);
+        if (mlData.caregiverBlock.observations && mlData.caregiverBlock.observations.length > 0) {
+          mlBlock.push(`Caregiver observations (ground truth — use these): ${mlData.caregiverBlock.observations.join(', ')}`);
+        }
+      }
+      if (mlData.rawVitals) {
+        const vitalsEntries = Object.entries(mlData.rawVitals)
+          .map(([k, v]) => `${k}=${typeof v === 'number' ? v.toFixed(2) : v}`)
+          .join(', ');
+        mlBlock.push(`Raw vitals snapshot: ${vitalsEntries}`);
+      }
+      if (mlData.confidenceRatio !== null) {
+        mlBlock.push(`Anomaly confidence ratio: ${mlData.confidenceRatio.toFixed(2)} (higher = more confident anomaly)`);
+      }
+    }
+
     return [
       `Alert: ${alert.title}`,
       `Severity: ${alert.severity}`,
       typeof alert.mlScore === 'number' ? `ML anomaly score: ${formatScore(alert.mlScore)}` : '',
+      ...mlBlock,
       '',
       'Agent safety notes:',
       agentNotes || 'None',
@@ -640,6 +803,9 @@ export class Orchestrator {
       '',
       'Explain what this alert means for this specific patient, what the caregiver should do now,',
       'and what red flags would require calling emergency services.',
+      'Ground your explanation in the ML model output above — the top features explain WHY the',
+      'anomaly fired. The caregiver observations are ground truth; do not ask about things the',
+      'caregiver already confirmed.',
       'If the information is insufficient, ask ONE multiple-choice clarifying question.',
       '',
       'Then, recommend 1–4 next steps for the caregiver as multiple-choice options.',
@@ -698,6 +864,54 @@ export class Orchestrator {
       safety: {
         ok: true,
         notes: ['Preliminary guidance — SLM not invoked for severity-3 fast path.'],
+      },
+      trace: [],
+    };
+  }
+
+  /**
+   * High-confidence guidance: for sub-severity-3 alerts with a very high
+   * reconstruction-error/threshold ratio AND caregiver confirmation, return
+   * heuristic next-steps without loading the SLM. The SLM is spared for
+   * ambiguous cases; the caregiver can still tap "Ask assistant" for a
+   * full explanation.
+   */
+  private buildHighConfidenceGuidance(
+    alert: Alert,
+    topFeatures: [string, number][],
+    caregiverBlock: { action?: string; confirmed?: boolean; observations?: string[] } | null,
+  ): AgentProposal {
+    const featureSummary = topFeatures.length > 0
+      ? topFeatures.slice(0, 3).map(([name, val]) => `${name} (↑${val.toFixed(1)})`).join(', ')
+      : 'multiple vitals';
+
+    const observationSummary = caregiverBlock?.observations?.length
+      ? `\n\nCaregiver confirmed: ${caregiverBlock.observations.join(', ')}.`
+      : '';
+
+    const message = [
+      `**Anomaly detected: ${alert.title}**`,
+      '',
+      `The Alert ML model flagged this anomaly with high confidence. The top contributing`,
+      `factors were: ${featureSummary}.${observationSummary}`,
+      '',
+      'This does not appear to be an emergency, but it warrants attention. Monitor the',
+      'patient closely and contact the care team if symptoms worsen.',
+      '',
+      'You can tap "Ask the assistant" for a detailed explanation.',
+    ].join('\n');
+
+    return {
+      message,
+      citations: [],
+      proposedActions: [],
+      nextSteps: this.injectSeverityGatedNextSteps(
+        [{ actionId: 'monitor_home' as const, label: 'Continue monitoring at home' }],
+        alert.severity,
+      ),
+      safety: {
+        ok: true,
+        notes: ['High-confidence heuristic guidance — SLM not invoked (reconstruction-error ratio > 3 with caregiver confirmation).'],
       },
       trace: [],
     };

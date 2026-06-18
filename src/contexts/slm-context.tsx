@@ -3,7 +3,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -18,6 +17,14 @@ import type {
 } from '@/inference/inference-provider';
 import { LlamaRnProvider } from '@/inference/llama-rn-provider';
 import { MODEL_CATALOG, resolveModelPath } from '@/inference/model-catalog';
+import { useSettings } from '@/contexts/settings-context';
+import {
+  SlmTaskQueue,
+  type SlmTaskLease,
+  type SlmTaskReason,
+  type SlmLoadStatus as QueueLoadStatus,
+  type SlmPolicy as QueuePolicy,
+} from '@/services/slm/slm-task-queue';
 
 export type SLMStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type SlmPolicy = 'manual' | 'auto';
@@ -32,31 +39,29 @@ interface SLMContextValue {
   setPolicy: (policy: SlmPolicy) => void;
   loadModel: (modelId: string) => Promise<void>;
   unloadModel: () => Promise<void>;
-  scheduleAutoUnload: () => void;
   chat: (
     messages: ChatMessage[],
     onToken: (token: string) => void,
     signal: AbortSignal,
   ) => Promise<ChatResult>;
+  /** The task queue — the single owner of SLM load/unload lifecycle. */
+  taskQueue: SlmTaskQueue;
+  /** Acquire an SLM lease for a task. See SlmTaskQueue.acquire(). */
+  acquireSlm: (reason: SlmTaskReason) => Promise<SlmTaskLease>;
 }
 
 const SLMContext = createContext<SLMContextValue | null>(null);
 
 export function SLMProvider({ children }: { children: ReactNode }) {
+  const { settings } = useSettings();
+  const defaultModelId = settings.demoDefaultModelId ?? 'healthgpt-pro-4b';
   const [provider] = useState<InferenceProvider>(() => new LlamaRnProvider());
   const [loadStatus, setLoadStatus] = useState<SLMStatus>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
   const [modelSizeGB, setModelSizeGB] = useState<number | null>(null);
   const [policy, setPolicy] = useState<SlmPolicy>('manual');
-  const autoUnloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      provider.release().catch(() => {});
-      if (autoUnloadTimer.current) clearTimeout(autoUnloadTimer.current);
-    };
-  }, [provider]);
+  const loadPromiseRef = useRef<Promise<void> | null>(null);
 
   const loadModel = useCallback(async (modelId: string) => {
     const entry = MODEL_CATALOG.find((m) => m.id === modelId);
@@ -96,31 +101,54 @@ export function SLMProvider({ children }: { children: ReactNode }) {
     setLoadError(null);
   }, [provider]);
 
-  /**
-   * In auto (Demo) policy, schedule an unload after 60s idle.
-   * Called by the slm-explain screen after the explain flow completes.
-   */
-  const scheduleAutoUnload = useCallback(() => {
-    if (policy !== 'auto') return;
-    if (autoUnloadTimer.current) {
-      clearTimeout(autoUnloadTimer.current);
-    }
-    autoUnloadTimer.current = setTimeout(() => {
-      autoUnloadTimer.current = null;
-      void unloadModel();
-    }, 60_000);
-  }, [policy, unloadModel]);
+  // Create the task queue once. Its config is updated in a useEffect below
+  // whenever loadStatus/policy/currentModelId change, so it always reads the
+  // latest state without being recreated.
+  const [taskQueue] = useState(() => new SlmTaskQueue({
+    getLoadStatus: () => 'idle' as QueueLoadStatus,
+    getPolicy: () => 'manual' as QueuePolicy,
+    getDefaultModelId: () => defaultModelId,
+    loadModel,
+    unloadModel,
+    getLoadPromise: () => null,
+    setLoadPromise: () => {},
+  }));
 
-  // Auto-management: unload on background (Demo mode only)
+  // Update the task queue config whenever state changes.
   useEffect(() => {
-    if (policy !== 'auto') return;
+    taskQueue.updateConfig({
+      getLoadStatus: () => loadStatus as QueueLoadStatus,
+      getPolicy: () => policy as QueuePolicy,
+      getDefaultModelId: () => currentModelId ?? defaultModelId,
+      loadModel,
+      unloadModel,
+      getLoadPromise: () => loadPromiseRef.current,
+      setLoadPromise: (p) => { loadPromiseRef.current = p; },
+    });
+  }, [taskQueue, loadStatus, policy, currentModelId, defaultModelId, loadModel, unloadModel]);
+
+  // AppState: on background, the task queue force-releases all leases and
+  // unloads the model. This replaces the old AppState effect.
+  useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'background' && loadStatus === 'ready') {
-        void unloadModel();
+      if (state === 'background') {
+        taskQueue.onAppBackground();
       }
     });
     return () => sub.remove();
-  }, [policy, loadStatus, unloadModel]);
+  }, [taskQueue]);
+
+  // Cleanup on unmount.
+  useEffect(() => {
+    return () => {
+      provider.release().catch(() => {});
+    };
+  }, [provider]);
+
+  const acquireSlm = useCallback(
+    (reason: SlmTaskReason) => taskQueue.acquire(reason),
+    [taskQueue],
+  );
 
   const chat = useCallback(
     async (
@@ -133,22 +161,20 @@ export function SLMProvider({ children }: { children: ReactNode }) {
     [provider],
   );
 
-  const value = useMemo<SLMContextValue>(
-    () => ({
-      provider,
-      loadStatus,
-      loadError,
-      currentModelId,
-      modelSizeGB,
-      policy,
-      setPolicy,
-      loadModel,
-      unloadModel,
-      scheduleAutoUnload,
-      chat,
-    }),
-    [provider, loadStatus, loadError, currentModelId, modelSizeGB, policy, loadModel, unloadModel, scheduleAutoUnload, chat],
-  );
+  const value: SLMContextValue = {
+    provider,
+    loadStatus,
+    loadError,
+    currentModelId,
+    modelSizeGB,
+    policy,
+    setPolicy,
+    loadModel,
+    unloadModel,
+    chat,
+    taskQueue,
+    acquireSlm,
+  };
 
   return <SLMContext.Provider value={value}>{children}</SLMContext.Provider>;
 }

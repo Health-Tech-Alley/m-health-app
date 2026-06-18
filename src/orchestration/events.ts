@@ -26,6 +26,23 @@ export type OrchestrationEvent =
       score: number;
       features: number[];
       at: string;
+      // ── ML → SLM bridge (Phase 4): structured payload from the ML model ──
+      // These fields carry the full output shape (Jay's sample JSON). Optional
+      // so the existing AlertMlService doesn't break; populated when the model
+      // emits the rich format.
+      deviceId?: string;
+      queueType?: string; // 'SLM_HEURISTIC_REFINEMENT' | ...
+      eventType?: string; // 'TRIGGER_WORKFLOW_ANOMALY_TYPE_04' | ...
+      modelVersion?: string;
+      threshold?: number;
+      personalizedThreshold?: number;
+      reconstructionError?: number;
+      inputHash?: string;
+      topFeatures?: [string, number][]; // [["stress_level",23.19], ...]
+      ruleEngine?: { is_emergency: boolean; severity: number; reasons: string[] };
+      caregiverBlock?: { action?: string; confirmed?: boolean; observations?: string[] };
+      rawVitals?: Record<string, number>;
+      trainingLabelProxy?: { health_event: number; event_label: number };
     }
   | {
       type: 'caregiver_override';

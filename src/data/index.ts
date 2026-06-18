@@ -22,13 +22,35 @@ export {
   resolveAllAlerts,
 } from './repositories/alertRepository';
 export * from './repositories/ragRepository';
-export * from './repositories/patientRepository';
+export {
+  upsertPatient,
+  getPatient,
+  upsertCaregiver,
+  getCaregiverForPatient,
+  upsertMedication,
+  getActiveMedications,
+  getMedicationById,
+  deleteMedication,
+  upsertCondition,
+  getConditionsForPatient,
+  confirmPendingCondition,
+  deleteCondition,
+  deleteConditionsForPatient,
+} from './repositories/patientRepository';
 export * from './repositories/auditRepository';
 export * from './repositories/consentRepository';
 export * from './repositories/fhirResourceRepository';
 export * from './repositories/medicationScheduleRepository';
 export * from './repositories/notificationRepository';
 export * from './repositories/appSettingsRepository';
+export * from './repositories/knowledgeCacheRepository';
+export * from './repositories/patientEnrichmentLogRepository';
+export * from './repositories/symptomRepository';
+export * from './repositories/wearableDeviceRepository';
+export * from './repositories/mlEventRepository';
+export * from './repositories/patientRecordRepository';
+export * from './repositories/dailyCareEntryRepository';
+export * from './repositories/appointmentRepository';
 export * from './sensors';
 export { seedDatabaseFromProfile } from './seed/seedFromProfile';
 

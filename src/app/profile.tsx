@@ -1,22 +1,57 @@
+import { useState } from "react";
 import { useRouter } from "expo-router";
 import type { ReactNode } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
-import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
+import { usePatientRecord } from "@/contexts/patient-record-context";
+import { upsertCaregiver } from "@/data";
+import {
+  getOnboardingProfile,
+  saveOnboardingProfile,
+} from "@/services/onboarding/onboardingService";
 
 type DetailValue = string | number | boolean | null | undefined;
 
+type EditableField = "name" | "relationship" | "phone" | "mainConcern";
+
 export default function ProfileScreen() {
   const router = useRouter();
-  const profile = getOnboardingProfile();
+  const [profile, setProfile] = useState(() => getOnboardingProfile());
+  const { snapshot, refresh } = usePatientRecord();
 
   const caregiver = profile.caregiver;
   const patient = profile.patient;
   const provider = profile.primaryCareProvider;
   const safety = profile.safety;
+
+  const [editing, setEditing] = useState<EditableField | null>(null);
+  const [draft, setDraft] = useState("");
+
+  const openEdit = (field: EditableField) => {
+    setEditing(field);
+    setDraft(String(caregiver[field] ?? ""));
+  };
+
+  const saveEdit = () => {
+    if (!editing || !snapshot?.caregiver) {
+      setEditing(null);
+      return;
+    }
+    const updatedProfile = {
+      ...profile,
+      caregiver: { ...profile.caregiver, [editing]: draft.trim() },
+    };
+    saveOnboardingProfile(updatedProfile);
+    setProfile(updatedProfile);
+    // Persist to SQLite so the patient record snapshot stays in sync.
+    upsertCaregiver({ ...snapshot.caregiver, [editing]: draft.trim() } as any);
+    refresh();
+    setEditing(null);
+    setDraft("");
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -46,13 +81,13 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          <ProfileCard title="Caregiver" icon="profile">
-            <DetailRow label="Name" value={caregiver.name} />
-            <DetailRow label="Relationship" value={caregiver.relationship} />
-            <DetailRow label="Phone" value={caregiver.phone} />
+          <ProfileCard title="Caregiver · tap to edit" icon="profile">
+            <EditableDetailRow label="Name" value={caregiver.name} onPress={() => openEdit("name")} />
+            <EditableDetailRow label="Relationship" value={caregiver.relationship} onPress={() => openEdit("relationship")} />
+            <EditableDetailRow label="Phone" value={caregiver.phone} onPress={() => openEdit("phone")} />
             <DetailRow label="Experience" value={caregiver.experience} />
             <DetailRow label="Availability" value={caregiver.availability} />
-            <DetailRow label="Main concern" value={caregiver.mainConcern} />
+            <EditableDetailRow label="Main concern" value={caregiver.mainConcern} onPress={() => openEdit("mainConcern")} />
             <DetailRow label="Language" value={caregiver.languagePreference} />
           </ProfileCard>
 
@@ -111,6 +146,41 @@ export default function ProfileScreen() {
             />
           </ProfileCard>
         </ScrollView>
+
+        {/* Caregiver field edit modal */}
+        <Modal
+          visible={editing !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setEditing(null)}
+        >
+          <Pressable style={styles.editOverlay} onPress={() => setEditing(null)}>
+            <Pressable style={styles.editSheet} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.editTitle}>
+                Edit {editing?.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}
+              </Text>
+              <TextInput
+                style={styles.editInput}
+                value={draft}
+                onChangeText={setDraft}
+                autoFocus
+                placeholder="Enter value…"
+                placeholderTextColor={AppTheme.colors.textMuted}
+              />
+              <View style={styles.editActions}>
+                <Pressable
+                  style={[styles.editButton, styles.editCancel]}
+                  onPress={() => setEditing(null)}
+                >
+                  <Text style={styles.editCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable style={styles.editButton} onPress={saveEdit}>
+                  <Text style={styles.editSaveText}>Save</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
 
         <View style={styles.bottomNav}>
           <BottomNavItem
@@ -198,6 +268,24 @@ function DetailRow({
         {formatDetailValue(value)}
       </Text>
     </View>
+  );
+}
+
+function EditableDetailRow({
+  label,
+  value,
+  onPress,
+}: {
+  label: string;
+  value: DetailValue;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={styles.detailRow} onPress={onPress}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{formatDetailValue(value)}</Text>
+      <Text style={styles.editChevron}>›</Text>
+    </Pressable>
   );
 }
 
@@ -457,4 +545,51 @@ const styles = StyleSheet.create({
   navLabelActive: {
     color: AppTheme.colors.brand,
   },
+  editChevron: {
+    color: AppTheme.colors.brand,
+    fontSize: 16,
+    fontWeight: "900",
+    marginLeft: 8,
+  },
+  editOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    padding: 20,
+  },
+  editSheet: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.card,
+    padding: 22,
+  },
+  editTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+    marginBottom: 14,
+  },
+  editInput: {
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: AppTheme.colors.text,
+  },
+  editActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 16,
+  },
+  editButton: {
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  editCancel: { backgroundColor: AppTheme.colors.softSurface },
+  editCancelText: { color: AppTheme.colors.textSoft, fontSize: 14, fontWeight: "900" },
+  editSaveText: { color: AppTheme.colors.white, fontSize: 14, fontWeight: "900" },
 });

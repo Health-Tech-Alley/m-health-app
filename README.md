@@ -150,13 +150,13 @@ The caregiver's calendar view of the care plan in motion.
 - **On-device SLM:** llama.cpp via `llama.rn` — model catalog includes HealthGPT-Pro-4B (Q4_K_M), Gemma-4-E4B (UD-Q2_K_XL), and Gemma-4-E2B (UD-Q2_K_XL); all behind an `InferenceProvider` seam
 - **Orchestration:** Model Context Protocol (MCP) — 4 agents (caregiver / patient-state / coordinator / safety-reviewer) mediated by a single `Orchestrator` with CEP debouncing, confidence router, and prompt-budget guard; exposed through `OrchestratorProvider`
 - **Retrieval:** Hybrid RAG (`TrackAFusedRetriever`) — BM25 sparse index + deterministic hash dense embeddings + reciprocal rank fusion; fused tool-RAG + knowledge-RAG in a single hop
-- **Knowledge base:** OpenEvidence (primary clinical evidence, planned), RxNorm, DailyMed, OpenFDA — Track A uses synthetic fixtures; Track B will use live NLM/NIH API clients (see `planning/22_clinical-data-gathering.md`)
+- **Knowledge base:** OpenEvidence (primary clinical evidence, planned), PubMed E-utilities, MedlinePlus Connect, RxNorm, DailyMed, OpenFDA — Track A uses synthetic fixtures; the CachedFusedRetriever (BM25-only) reads from the `knowledge_cache` table populated by the condition-bundler at onboarding + live supplement at query time (see `planning/22_clinical-data-gathering.md`)
 - **Local storage:** `expo-sqlite` with migration-driven schema; SQLCipher-ready design
 - **Alert ML:** TensorFlow Lite via `react-native-fast-tflite` with CoreML delegate enabled; autoencoder model + scaler/metadata JSON
 - **Wearables:** HealthKit (iOS), Health Connect (Android) — `src/data/sensors` is scaffolded
 - **Notifications:** `expo-notifications` (dynamic require) with in-app banner fallback; deterministic reminder engine
 - **FHIR/C-CDA:** FHIR R4 resource mappers (`src/data/fhir/`) + C-CDA XML serializer for consent-gated export
-- **State management:** React Context (`SettingsProvider` → `SLMProvider` → `OrchestratorProvider`) + local component reducer patterns
+- **State management:** React Context (`SettingsProvider` → `PatientRecordProvider` → `SLMProvider` → `OrchestratorProvider`) + `useSyncExternalStore` for the patient-record store + local component reducer patterns
 - **CEP:** Custom TypeScript Complex Event Processing bus (`src/orchestration/event-bus.ts`) correlates sensor + UI + state events before the SLM is called
 - **Security:** `expo-secure-store` for HF tokens + NCBI API keys; default-deny consent gate + tamper-evident audit log
 

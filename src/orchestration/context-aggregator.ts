@@ -3,17 +3,17 @@
  *
  * Fuses patient state, recent events, geofence (deferred), and RAG retrieval
  * into a single context object passed to the SLM.
+ *
+ * Reads the denormalized patient record from PatientRecordStore (the single
+ * source of truth) rather than re-querying individual repositories, so the
+ * SLM and the UI always see the same point-in-time view.
  */
 
 import {
-  getActiveThresholds,
-  getCaregiverForPatient,
-  getConditionsForPatient,
-  getDatabase,
-  getPatient,
   getRecentHealthSamples,
   type HealthSample,
 } from '@/data';
+import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
 import type { FusedRetriever, RetrievalResult } from '@/knowledge';
 
 export type CarePlanGoalSummary = {
@@ -29,15 +29,18 @@ export type AggregatedContext = {
     name: string;
     age?: string;
     conditions: string[];
+    comorbidities: string[];
     medications?: string;
     spo2Cutoff?: string;
     baselineHeartRate?: string;
+    primaryCondition?: { name: string; icd10?: string; category?: string };
   };
   caregiver?: {
     name: string;
     relationship?: string;
     mainConcern?: string;
   };
+  symptoms: { label: string; category: string }[];
   recentVitals: Record<string, { latest?: number; unit: string; samples: number }>;
   activeThresholds: {
     thresholdId: string;
@@ -50,34 +53,19 @@ export type AggregatedContext = {
   retrieval: RetrievalResult;
 };
 
-function getCarePlanGoals(patientId: string): CarePlanGoalSummary[] {
-  try {
-    const db = getDatabase();
-    return db.getAllSync<CarePlanGoalSummary>(
-      `SELECT g.goal_id AS goalId, g.description, g.target_date AS targetDate, g.status
-       FROM care_plan_goals g
-       JOIN care_plans p ON g.plan_id = p.plan_id
-       WHERE p.patient_id = ? AND g.status = 'active'
-       ORDER BY g.target_date;`,
-      patientId,
-    );
-  } catch {
-    return [];
-  }
-}
-
 export async function buildAggregatedContext(
   patientId: string,
   intent: string,
   retriever: FusedRetriever,
+  snapshot: PatientRecordSnapshot,
 ): Promise<AggregatedContext> {
-  const patient = getPatient(patientId);
-  const caregiver = getCaregiverForPatient(patientId);
-  const conditions = getConditionsForPatient(patientId);
-  const thresholds = getActiveThresholds(patientId);
-
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const vitalsTypes: HealthSample['type'][] = ['spo2', 'heart_rate', 'respiratory_rate', 'temperature'];
+  const vitalsTypes: HealthSample['type'][] = [
+    'spo2',
+    'heart_rate',
+    'respiratory_rate',
+    'temperature',
+  ];
   const recentVitals: AggregatedContext['recentVitals'] = {};
   for (const type of vitalsTypes) {
     const samples = getRecentHealthSamples(patientId, type, since, 100);
@@ -90,9 +78,20 @@ export async function buildAggregatedContext(
     }
   }
 
-  const medsList = patient?.currentMedications ?? '';
-  const meds = medsList.split(',').map((m) => m.trim()).filter(Boolean);
-  const conditionNames = conditions.map((c) => c.name);
+  // Use structured conditions from the snapshot — exclude pending-review
+  // suggestions so the SLM only sees confirmed conditions.
+  const confirmedConditions = snapshot.conditions.filter((c) => !c.needsReview);
+  const conditionNames = confirmedConditions.map((c) => c.name);
+  const comorbidityNames = confirmedConditions
+    .filter((c) => !c.isPrimary)
+    .map((c) => c.name);
+  const primaryCondition = confirmedConditions.find((c) => c.isPrimary) ?? confirmedConditions[0];
+
+  const medsList = snapshot.patient?.currentMedications ?? '';
+  const meds = medsList
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean);
 
   const retrieval = await retriever.retrieve({
     intent,
@@ -105,23 +104,34 @@ export async function buildAggregatedContext(
   return {
     patient: {
       patientId,
-      name: patient?.name ?? 'Unknown',
-      age: patient?.age,
+      name: snapshot.patient?.name ?? 'Unknown',
+      age: snapshot.patient?.age,
       conditions: conditionNames,
-      medications: patient?.currentMedications,
-      spo2Cutoff: patient?.spo2Cutoff,
-      baselineHeartRate: patient?.baselineHeartRate,
+      comorbidities: comorbidityNames,
+      medications: snapshot.patient?.currentMedications,
+      spo2Cutoff: snapshot.patient?.spo2Cutoff,
+      baselineHeartRate: snapshot.patient?.baselineHeartRate,
+      primaryCondition: primaryCondition
+        ? { name: primaryCondition.name, icd10: primaryCondition.icd10, category: primaryCondition.category }
+        : undefined,
     },
-    caregiver: caregiver
+    caregiver: snapshot.caregiver
       ? {
-          name: caregiver.name,
-          relationship: caregiver.relationship,
-          mainConcern: caregiver.mainConcern,
+          name: snapshot.caregiver.name,
+          relationship: snapshot.caregiver.relationship,
+          mainConcern: snapshot.caregiver.mainConcern,
         }
       : undefined,
+    symptoms: snapshot.symptoms.map((s) => ({ label: s.label, category: s.category })),
     recentVitals,
-    activeThresholds: thresholds,
-    carePlanGoals: getCarePlanGoals(patientId),
+    activeThresholds: snapshot.thresholds.map((t) => ({
+      thresholdId: t.thresholdId,
+      vitalType: t.vitalType,
+      value: t.value,
+      direction: t.direction,
+      severity: t.severity,
+    })),
+    carePlanGoals: snapshot.carePlanGoals,
     retrieval,
   };
 }

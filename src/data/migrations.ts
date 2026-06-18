@@ -315,4 +315,167 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE slm_turns ADD COLUMN tokens_generated INTEGER;
   ALTER TABLE slm_turns ADD COLUMN peak_ram_bytes INTEGER;
   `,
+
+  // 10: knowledge_cache — PubMed/MedlinePlus/RxNorm/DailyMed/OpenFDA chunks
+  // (see planning/22_clinical-data-gathering.md §6a)
+  `
+  CREATE TABLE IF NOT EXISTS knowledge_cache (
+    chunk_id      TEXT PRIMARY KEY,          -- docId (e.g. "PMID-12345678", "MLP-J44.1")
+    source        TEXT NOT NULL,             -- 'pubmed' | 'medlineplus' | 'rxnorm' | 'dailymed' | 'openfda'
+    text          TEXT NOT NULL,             -- chunk text (abstract, summary, label excerpt)
+    query_hash    TEXT,                      -- hash of the de-identified query that retrieved this chunk
+    conditions    TEXT,                      -- CSV of condition names this chunk relates to
+    retrieved_at  TEXT NOT NULL,             -- ISO timestamp
+    expires_at    TEXT,                      -- optional TTL (OpenFDA adverse events = +30d)
+    use_count     INTEGER NOT NULL DEFAULT 0,
+    metadata_json TEXT                       -- extra fields (PMID, MeSH terms, RxCUI, etc.)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_knowledge_source
+    ON knowledge_cache(source, retrieved_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_knowledge_conditions
+    ON knowledge_cache(conditions);
+  `,
+
+  // 11: patient_enrichment_log — observable/auditable record of every
+  // clinical-source enrichment (which field, which source, when, query used)
+  `
+  CREATE TABLE IF NOT EXISTS patient_enrichment_log (
+    log_id        TEXT PRIMARY KEY,
+    patient_id    TEXT NOT NULL,
+    field         TEXT NOT NULL,             -- 'condition' | 'medication' | 'threshold' | 'goal'
+    resource_id   TEXT,                      -- condition_id | medication_id | ...
+    source        TEXT NOT NULL,             -- 'pubmed' | 'medlineplus' | 'rxnorm' | 'dailymed' | 'openfda'
+    action        TEXT NOT NULL,             -- 'bundled' | 'suggested' | 'supplemented_live'
+    deidentified_query TEXT,                 -- the query that was actually sent
+    result_count  INTEGER,
+    latency_ms    INTEGER,
+    chunk_ids     TEXT,                      -- CSV of knowledge_cache.chunk_id written
+    created_at    TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_enrichment_patient
+    ON patient_enrichment_log(patient_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_enrichment_source
+    ON patient_enrichment_log(source, created_at DESC);
+  `,
+
+  // 12: extend patient_conditions + new clinical-detail tables
+  // (structured ICD codes, comorbidities, symptoms, wearable devices, ML events)
+  `
+  ALTER TABLE patient_conditions ADD COLUMN category TEXT;
+  ALTER TABLE patient_conditions ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE patient_conditions ADD COLUMN source TEXT NOT NULL DEFAULT 'onboarding';
+  ALTER TABLE patient_conditions ADD COLUMN source_doc_id TEXT;
+  ALTER TABLE patient_conditions ADD COLUMN retrieved_at TEXT;
+  ALTER TABLE patient_conditions ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 0;
+
+  CREATE INDEX IF NOT EXISTS idx_conditions_patient_review
+    ON patient_conditions(patient_id, needs_review, is_primary);
+
+  CREATE TABLE IF NOT EXISTS symptoms (
+    symptom_id    TEXT PRIMARY KEY,
+    patient_id    TEXT NOT NULL,
+    label         TEXT NOT NULL,
+    category      TEXT NOT NULL,             -- 'respiratory' | 'cardiac' | 'neurologic' | 'mobility' | 'general' | 'pain' | 'behavioral' | 'other'
+    source        TEXT NOT NULL DEFAULT 'onboarding',
+    created_at    TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_symptoms_patient
+    ON symptoms(patient_id, category);
+
+  CREATE TABLE IF NOT EXISTS wearable_devices (
+    device_id     TEXT PRIMARY KEY,
+    patient_id    TEXT NOT NULL,
+    device_type   TEXT NOT NULL,             -- 'Apple Watch' | 'Fitbit' | ...
+    device_label  TEXT,
+    connected     INTEGER NOT NULL DEFAULT 0,
+    baseline_status TEXT NOT NULL DEFAULT 'not_started', -- 'not_started' | 'simulated' | 'connected' | 'failed'
+    baseline_started_at   TEXT,
+    baseline_completed_at TEXT,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS ml_events (
+    event_id      TEXT PRIMARY KEY,
+    patient_id    TEXT NOT NULL,
+    device_id     TEXT,
+    alert_id      TEXT,
+    queue_type    TEXT,                      -- 'SLM_HEURISTIC_REFINEMENT' | ...
+    event_type    TEXT,                      -- 'TRIGGER_WORKFLOW_ANOMALY_TYPE_04' | ...
+    timestamp     TEXT NOT NULL,
+    model_version TEXT,
+    threshold     REAL,
+    personalized_threshold REAL,
+    reconstruction_error REAL,
+    anomaly_detected INTEGER NOT NULL DEFAULT 0,
+    input_hash    TEXT,
+    top_features_json TEXT,                  -- [["stress_level",23.19],...]
+    rule_engine_json TEXT,                   -- {is_emergency,severity,reasons[]}
+    caregiver_json   TEXT,                   -- {action,confirmed,observations[]}
+    raw_vitals_json  TEXT,                   -- full 8-feature snapshot
+    training_label_proxy_json TEXT,
+    created_at    TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_ml_events_patient
+    ON ml_events(patient_id, timestamp DESC);
+  CREATE INDEX IF NOT EXISTS idx_ml_events_alert
+    ON ml_events(alert_id);
+  `,
+
+  // 13: daily_care_entries — the per-day therapy log (pain before/after,
+  // fatigue, sets completed, notes). Editable from the Care screen.
+  `
+  CREATE TABLE IF NOT EXISTS daily_care_entries (
+    entry_id            TEXT PRIMARY KEY,
+    patient_id          TEXT NOT NULL,
+    care_plan_id        TEXT,
+    entry_date          TEXT NOT NULL,
+    therapy_day        INTEGER,
+    logged_by_user_id   TEXT,
+    logged_by_role      TEXT,
+    therapy_completed   INTEGER NOT NULL DEFAULT 0,
+    sets_completed      INTEGER NOT NULL DEFAULT 0,
+    recommended_sets    INTEGER NOT NULL DEFAULT 0,
+    pain_before         INTEGER,
+    pain_after          INTEGER,
+    fatigue             INTEGER,
+    assistance_required TEXT,
+    caregiver_concern   INTEGER NOT NULL DEFAULT 0,
+    functional_task_score REAL,
+    guided_movement_score INTEGER,
+    notes               TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_care_patient_date
+    ON daily_care_entries(patient_id, entry_date);
+  `,
+
+  // 14: medication source (care_plan vs custom) + appointments table
+  `
+  ALTER TABLE medications ADD COLUMN source TEXT NOT NULL DEFAULT 'care_plan';
+
+  CREATE TABLE IF NOT EXISTS appointments (
+    appointment_id   TEXT PRIMARY KEY,
+    patient_id       TEXT NOT NULL,
+    type             TEXT NOT NULL,
+    provider         TEXT,
+    date             TEXT NOT NULL,
+    time             TEXT,
+    location         TEXT,
+    reason           TEXT,
+    reminder         TEXT,
+    status           TEXT NOT NULL DEFAULT 'scheduled',
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_appointments_patient
+    ON appointments(patient_id, date);
+  `,
 ];

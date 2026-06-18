@@ -1,18 +1,21 @@
+import { useState } from "react";
 import { useRouter } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
+import { useSettings } from "@/contexts/settings-context";
 import {
     getOnboardingProfile,
-    getPrimaryIcdDisplay,
     getWearableDeviceDisplay,
 } from "@/services/onboarding/onboardingService";
 
 export default function MoreScreen() {
   const router = useRouter();
   const profile = getOnboardingProfile();
+  const { settings, setNotificationPreferences } = useSettings();
+  const [notifOpen, setNotifOpen] = useState(false);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -48,15 +51,8 @@ export default function MoreScreen() {
           <SettingsSection title="Profile">
             <SettingsRow
               icon="profile"
-              title="Caregiver profile"
-              subtitle={`${profile.caregiver.phone} · ${profile.caregiver.languagePreference ?? "Language not set"}`}
-              onPress={() => router.push("/profile")}
-            />
-
-            <SettingsRow
-              icon="care"
-              title="Patient profile"
-              subtitle={getPrimaryIcdDisplay(profile.patient)}
+              title="Caregiver & patient profile"
+              subtitle={`${profile.caregiver.name} · caring for ${profile.patient.name}`}
               onPress={() => router.push("/profile")}
             />
           </SettingsSection>
@@ -65,8 +61,8 @@ export default function MoreScreen() {
             <SettingsRow
               icon="bell"
               title="Notification preferences"
-              subtitle={profile.caregiver.notificationStyle ?? "Push + sound"}
-              disabled
+              subtitle={`Anomaly ${settings.notifications.anomaly ? "on" : "off"} · Meds ${settings.notifications.medication ? "on" : "off"} · Appts ${settings.notifications.appointment ? "on" : "off"}`}
+              onPress={() => setNotifOpen(true)}
             />
 
             <SettingsRow
@@ -123,43 +119,69 @@ export default function MoreScreen() {
             />
           </SettingsSection>
         </ScrollView>
-
-        <View style={styles.bottomNav}>
-          <BottomNavItem
-            label="Home"
-            icon="home"
-            onPress={() => router.push("/dashboard")}
-          />
-
-          <BottomNavItem
-            label="Care"
-            icon="care"
-            alert
-            onPress={() => router.push("/care")}
-          />
-
-          <BottomNavItem
-            label="Meds"
-            icon="pill"
-            onPress={() => router.push("/medications")}
-          />
-
-          <BottomNavItem
-            label="Schedule"
-            icon="schedule"
-            onPress={() => router.push("/schedule")}
-          />
-
-          <BottomNavItem
-            label="Assistant"
-            icon="assistant"
-            onPress={() => router.push("/slm")}
-          />
-
-          <BottomNavItem label="More" icon="more" active onPress={() => {}} />
-        </View>
       </View>
+
+      {/* Notification preferences modal */}
+      <Modal
+        visible={notifOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setNotifOpen(false)}
+      >
+        <Pressable style={styles.notifOverlay} onPress={() => setNotifOpen(false)}>
+          <Pressable style={styles.notifSheet} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.notifHeader}>
+              <Text style={styles.notifTitle}>Notification preferences</Text>
+              <Pressable onPress={() => setNotifOpen(false)} hitSlop={12}>
+                <Text style={styles.notifClose}>×</Text>
+              </Pressable>
+            </View>
+
+            <NotifToggle
+              label="Anomaly alerts"
+              value={settings.notifications.anomaly}
+              onValueChange={(v) => setNotificationPreferences({ anomaly: v })}
+            />
+            <NotifToggle
+              label="Medication reminders"
+              value={settings.notifications.medication}
+              onValueChange={(v) => setNotificationPreferences({ medication: v })}
+            />
+            <NotifToggle
+              label="Appointment reminders"
+              value={settings.notifications.appointment}
+              onValueChange={(v) => setNotificationPreferences({ appointment: v })}
+            />
+            <NotifToggle
+              label="Care task reminders"
+              value={settings.notifications.careTask}
+              onValueChange={(v) => setNotificationPreferences({ careTask: v })}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
+  );
+}
+
+function NotifToggle({
+  label,
+  value,
+  onValueChange,
+}: {
+  label: string;
+  value: boolean;
+  onValueChange: (v: boolean) => void;
+}) {
+  return (
+    <View style={styles.notifRow}>
+      <Text style={styles.notifLabel}>{label}</Text>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: AppTheme.colors.border, true: AppTheme.colors.brand }}
+      />
+    </View>
   );
 }
 
@@ -207,38 +229,6 @@ function SettingsRow({
       </View>
 
       <Text style={styles.chevron}>{disabled ? "Soon" : "›"}</Text>
-    </Pressable>
-  );
-}
-
-function BottomNavItem({
-  label,
-  icon,
-  active,
-  alert,
-  onPress,
-}: {
-  label: string;
-  icon: AppIconName;
-  active?: boolean;
-  alert?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable style={styles.navItem} onPress={onPress}>
-      <View style={[styles.navIconCircle, active && styles.navIconCircleActive]}>
-        <AppIcon
-          name={icon}
-          size={active ? 30 : 26}
-          color={active ? AppTheme.colors.white : AppTheme.colors.navMuted}
-        />
-
-        {alert ? <View style={styles.navAlertDot} /> : null}
-      </View>
-
-      <Text style={[styles.navLabel, active && styles.navLabelActive]}>
-        {label}
-      </Text>
     </Pressable>
   );
 }
@@ -395,57 +385,46 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginLeft: 12,
   },
-
-  bottomNav: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    minHeight: 92,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 12,
-    borderTopWidth: 1,
-    borderTopColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.white,
+  notifOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    padding: 20,
+  },
+  notifSheet: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.card,
+    padding: 22,
+  },
+  notifHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-  },
-  navItem: {
     alignItems: "center",
-    justifyContent: "center",
-    minWidth: 50,
+    marginBottom: 14,
   },
-  navIconCircle: {
-    width: 48,
-    height: 38,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-  },
-  navIconCircleActive: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: AppTheme.colors.brand,
-  },
-  navAlertDot: {
-    position: "absolute",
-    right: 3,
-    top: -3,
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    backgroundColor: AppTheme.colors.danger,
-  },
-  navLabel: {
-    color: AppTheme.colors.navMuted,
-    fontSize: 12,
+  notifTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 17,
     fontWeight: "900",
-    marginTop: 5,
   },
-  navLabelActive: {
-    color: AppTheme.colors.brand,
+  notifClose: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 24,
+    fontWeight: "900",
+    lineHeight: 26,
+  },
+  notifRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: AppTheme.colors.border,
+  },
+  notifLabel: {
+    color: AppTheme.colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+    flex: 1,
   },
 });

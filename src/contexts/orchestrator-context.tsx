@@ -1,20 +1,21 @@
 /**
  * Orchestrator provider.
  *
- * Creates a single Orchestrator instance at app start and seeds the local
- * database from the onboarding profile. The orchestrator is the only
- * component that should call L4–L7 on behalf of the UI.
+ * Creates a single Orchestrator instance at app start. The patient record is
+ * seeded by PatientRecordProvider (a parent), which also exposes the
+ * denormalized snapshot used here to build the retriever's condition list.
+ * The orchestrator is the only component that should call L4–L7 on behalf
+ * of the UI.
  */
 
 import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
 
 import { useSLM } from '@/contexts/slm-context';
+import { usePatientRecord, getCurrentPatientSnapshot } from '@/contexts/patient-record-context';
 import type { FusedRetriever } from '@/knowledge';
-import { TrackAFusedRetriever } from '@/knowledge';
+import { CachedFusedRetriever } from '@/knowledge';
 import { Orchestrator, TOOL_SCHEMAS } from '@/orchestration';
 import { MockAlertAutoencoder } from '@/ml-models/alert-autoencoder';
-import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
-import { seedDatabaseFromProfile } from '@/data/seed/seedFromProfile';
 
 interface OrchestratorContextValue {
   orchestrator: Orchestrator | null;
@@ -26,12 +27,22 @@ const OrchestratorContext = createContext<OrchestratorContextValue | null>(null)
 
 export function OrchestratorProvider({ children }: { children: ReactNode }) {
   const slm = useSLM();
+  const { snapshot, patientId } = usePatientRecord();
   const sensorStopRef = useRef<(() => void) | null>(null);
-  const { orchestrator, patientId } = useMemo(() => {
-    const profile = getOnboardingProfile();
-    const seededPatientId = seedDatabaseFromProfile(profile);
 
-    const retriever: FusedRetriever = new TrackAFusedRetriever({
+  const orchestrator = useMemo(() => {
+    if (!snapshot || !patientId) {
+      return null;
+    }
+
+    // Build condition list from structured conditions (ICD-10 codes preferred).
+    const conditionNames = snapshot.conditions
+      .filter((c) => !c.needsReview)
+      .map((c) => c.name);
+
+    const activeMeds = snapshot.medications.map((m) => m.name);
+
+    const retriever: FusedRetriever = new CachedFusedRetriever({
       tools: TOOL_SCHEMAS.map((t) => ({
         name: t.name,
         description: t.description,
@@ -39,37 +50,38 @@ export function OrchestratorProvider({ children }: { children: ReactNode }) {
           Object.entries(t.params).map(([name, p]) => [name, { type: p.type, required: p.required ?? false }]),
         ),
       })),
-      patientName: profile.patient.name,
-      patientConditions: profile.patient.conditions.split(',').map((c) => c.trim()).filter(Boolean),
-      activeMeds: (profile.patient.currentMedications ?? '')
-        .split(',')
-        .map((m) => m.trim())
-        .filter(Boolean),
-      spo2Cutoff: profile.patient.spo2Cutoff,
+      patientName: snapshot.patient?.name ?? 'Unknown',
+      patientConditions: conditionNames,
+      activeMeds,
+      spo2Cutoff: snapshot.patient?.spo2Cutoff,
+      patientId, // enables live supplement queries
     });
 
     const alertMl = new MockAlertAutoencoder();
-    const orchestrator = new Orchestrator({ slm: slm.provider, retriever, alertMl });
-    return { orchestrator, patientId: seededPatientId };
-  }, [slm]);
+    // The orchestrator reads the latest snapshot on-demand via the module-level
+    // accessor, so it isn't recreated on every store update (e.g. confirming a
+    // pending condition). The retriever's condition list is built from the
+    // initial snapshot; Phase 3's CachedFusedRetriever will rebuild dynamically.
+    return new Orchestrator({
+      slm: slm.provider,
+      slmTasks: slm.taskQueue,
+      retriever,
+      alertMl,
+      snapshotProvider: getCurrentPatientSnapshot,
+    });
+  }, [slm, snapshot, patientId]);
 
   useEffect(() => {
-    // Mock sensor is disabled by default to avoid creating noise.
-    // Use the Acute Anomaly screen's "Send vitals" button to manually trigger events.
-    // To enable automatic mock sensor, uncomment the lines below:
-    // const sensor = createSensorSource({ patientId, forceMock: true });
-    // const stopFn = sensor.startPublishingToEventBus?.() ?? null;
-    // sensorStopRef.current = stopFn;
-
+    if (!orchestrator) return;
     return () => {
       const stopFn = sensorStopRef.current;
       stopFn?.();
       orchestrator.dispose();
     };
-  }, [orchestrator, patientId]);
+  }, [orchestrator]);
 
   return (
-    <OrchestratorContext.Provider value={{ orchestrator, patientId, ready: true }}>
+    <OrchestratorContext.Provider value={{ orchestrator, patientId: patientId ?? '', ready: orchestrator !== null }}>
       {children}
     </OrchestratorContext.Provider>
   );

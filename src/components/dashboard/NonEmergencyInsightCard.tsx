@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
@@ -15,11 +16,23 @@ const contextOptions = [
 ];
 
 export function NonEmergencyInsightCard() {
+  const router = useRouter();
   const profile = getOnboardingProfile();
   const patientFirstName =
     profile.patient.name.trim().split(/\s+/)[0] || "the patient";
 
   const [selectedContext, setSelectedContext] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+
+  if (dismissed) return null;
+
+  const answered = selectedContext !== null;
+
+  const handleDismiss = () => {
+    // Only allow dismissal once the prompt has been answered.
+    if (!answered) return;
+    setDismissed(true);
+  };
 
   return (
     <View style={styles.card}>
@@ -70,12 +83,31 @@ export function NonEmergencyInsightCard() {
       </View>
 
       <View style={styles.recommendationBox}>
-        <Text style={styles.recommendationLabel}>Assistant recommendation</Text>
+        <View style={styles.recommendationHeader}>
+          <Text style={styles.recommendationLabel}>Assistant recommendation</Text>
+          {answered ? (
+            <Pressable style={styles.checkmarkButton} onPress={handleDismiss}>
+              <AppIcon name="check" size={16} color={AppTheme.colors.white} />
+              <Text style={styles.checkmarkText}>Dismiss</Text>
+            </Pressable>
+          ) : null}
+        </View>
         <Text style={styles.recommendationText}>
-          {selectedContext
+          {answered
             ? `${selectedContext} has been added as context. If this repeats at the same time or without explanation, consider asking the provider about the pattern.`
             : "If there is a clear reason, add context. If this repeats without explanation, the app can suggest a provider check-in."}
         </Text>
+
+        {answered ? (
+          <Pressable
+            style={styles.suggestedFeatureButton}
+            onPress={() => router.push("/schedule")}
+          >
+            <Text style={styles.suggestedFeatureText}>
+              Schedule a provider check-in →
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -177,18 +209,51 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 15,
   },
+  recommendationHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
   recommendationLabel: {
     color: AppTheme.colors.brand,
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 1,
     textTransform: "uppercase",
-    marginBottom: 6,
+    flex: 1,
+  },
+  checkmarkButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  checkmarkText: {
+    color: AppTheme.colors.white,
+    fontSize: 11,
+    fontWeight: "900",
   },
   recommendationText: {
     color: AppTheme.colors.text,
     fontSize: 14,
     lineHeight: 21,
     fontWeight: "800",
+  },
+  suggestedFeatureButton: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  suggestedFeatureText: {
+    color: AppTheme.colors.white,
+    fontSize: 13,
+    fontWeight: "900",
   },
 });

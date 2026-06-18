@@ -10,7 +10,7 @@ export type RetrievedChunk = {
   /** Combined score after RRF + optional re-rank. */
   score: number;
   /** Which corpus it came from. */
-  source: 'openevidence' | 'rxnorm' | 'dailymed' | 'openfda' | 'patient-plan';
+  source: 'openevidence' | 'rxnorm' | 'dailymed' | 'openfda' | 'patient-plan' | 'pubmed' | 'medlineplus';
 };
 
 export type McpToolSummary = {

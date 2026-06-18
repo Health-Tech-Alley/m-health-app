@@ -77,7 +77,6 @@ export default function SlmExplainScreen() {
       const result = await orchestrator.explainAlert(alertId, 'caregiver-1');
         setProposal(result);
         log(`Explanation received. Citations: ${result.citations.length}.`);
-        slm.scheduleAutoUnload();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(msg);
@@ -111,7 +110,6 @@ export default function SlmExplainScreen() {
         );
         setProposal(result);
         log('Clarifying question answered; SLM re-ran.');
-        slm.scheduleAutoUnload();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(msg);

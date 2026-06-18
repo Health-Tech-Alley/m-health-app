@@ -89,12 +89,72 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   },
   {
     name: 'schedule_appointment',
-    description: 'Schedule an appointment for the patient.',
+    description: 'Schedule an appointment for the patient. Persists to the appointments table and audit-logs. Requires confirmation.',
     params: {
       patientId: { type: 'string', description: 'Patient identifier', required: true },
       providerName: { type: 'string', description: 'Provider name', required: false },
       reason: { type: 'string', description: 'Reason for visit', required: true },
-      preferredDate: { type: 'string', description: 'ISO date', required: false },
+      preferredDate: { type: 'string', description: 'ISO date (yyyy-mm-dd)', required: false },
+      time: { type: 'string', description: 'Time label e.g. 10:30 AM', required: false },
+      type: { type: 'string', description: 'Appointment type e.g. Primary care', required: false },
+    },
+  },
+  {
+    name: 'update_appointment',
+    description: 'Modify an existing appointment (date, time, provider, reason, etc.).',
+    params: {
+      appointmentId: { type: 'string', description: 'Appointment identifier', required: true },
+      patientId: { type: 'string', description: 'Patient identifier', required: true },
+      type: { type: 'string', description: 'New appointment type', required: false },
+      providerName: { type: 'string', description: 'New provider name', required: false },
+      date: { type: 'string', description: 'New ISO date', required: false },
+      time: { type: 'string', description: 'New time label', required: false },
+      reason: { type: 'string', description: 'New reason', required: false },
+    },
+  },
+  {
+    name: 'delete_appointment',
+    description: 'Cancel and delete an appointment. Requires confirmation.',
+    params: {
+      appointmentId: { type: 'string', description: 'Appointment identifier', required: true },
+      patientId: { type: 'string', description: 'Patient identifier', required: true },
+    },
+  },
+  {
+    name: 'list_upcoming_appointments',
+    description: 'List the patient\'s upcoming (scheduled) appointments.',
+    params: {
+      patientId: { type: 'string', description: 'Patient identifier', required: true },
+    },
+  },
+  {
+    name: 'add_medication',
+    description: 'Add a custom medication to the patient\'s regimen. Requires confirmation.',
+    params: {
+      patientId: { type: 'string', description: 'Patient identifier', required: true },
+      name: { type: 'string', description: 'Medication name', required: true },
+      dosage: { type: 'string', description: 'Dose e.g. 2 puffs', required: false },
+      frequency: { type: 'string', description: 'Instructions / frequency', required: false },
+      timeOfDay: { type: 'string', description: 'Administration time (HH:mm)', required: false },
+    },
+  },
+  {
+    name: 'update_medication',
+    description: 'Edit a medication\'s name, dose, frequency, or administration time. Requires confirmation.',
+    params: {
+      medicationId: { type: 'string', description: 'Medication identifier', required: true },
+      patientId: { type: 'string', description: 'Patient identifier', required: true },
+      name: { type: 'string', description: 'New name', required: false },
+      dosage: { type: 'string', description: 'New dose', required: false },
+      frequency: { type: 'string', description: 'New instructions / frequency', required: false },
+    },
+  },
+  {
+    name: 'delete_medication',
+    description: 'Remove a medication (hard-delete for custom meds, deactivate for care-plan meds). Requires confirmation.',
+    params: {
+      medicationId: { type: 'string', description: 'Medication identifier', required: true },
+      patientId: { type: 'string', description: 'Patient identifier', required: true },
     },
   },
   {
