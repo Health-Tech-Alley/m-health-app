@@ -69,19 +69,21 @@ in a teal rounded square to the left of the screen title, rendered by the reusab
 |------------|----------------|---------|
 | `index.tsx` | Redirect | First route → onboarding or `/(tabs)/dashboard` |
 | `onboarding.tsx` | Inline | 5-step intake (welcome + 4 data steps). Redirects to `/(tabs)/dashboard` on completion. |
-| `(tabs)/_layout.tsx` | expo-router `Tabs` | 5-tab shell (Dashboard, Care, Medications, Schedule, Settings) |
+| `(tabs)/_layout.tsx` | expo-router `Tabs` | 6-tab shell (Dashboard, Care, Medications, Schedule, Assistant, More) |
 | `(tabs)/dashboard.tsx` | Inline | Branded header + patient summary + weekly vitals + non-emergency insight + priority/activity |
 | `(tabs)/care.tsx` | Inline | Branded header + patient snapshot + tappable safety considerations + editable care plan (daily entry persisted to `daily_care_entries`) + care analysis link |
 | `(tabs)/medications.tsx` | Inline | Branded header + med list + schedules + "Mark as given" |
 | `(tabs)/schedule.tsx` | Inline | Branded header + appointments placeholder + alert timeline + notifications |
-| `(tabs)/settings.tsx` | `src/components/settings/settings-screen.tsx` | Branded header + full settings surface |
+| `(tabs)/assistant.tsx` | Re-exports `slm.tsx` with `showBackButton={false}` | Caregiver Assistant (SLM prompt) chat as a main-nav tab |
+| `(tabs)/more.tsx` | Inline | Profile + preferences + device/integrations + dev/demo hub |
 | `alert-detail.tsx` | Inline | Unified alert detail (ST-01/02/03, severity-based) |
 | `slm-explain.tsx` | Inline | SLM explanation + clarifying Q + next-steps flow |
 | `acute-anomaly.tsx` | Inline | End-to-end orchestration demo (dev) |
-| `slm.tsx` | Inline | Caregiver Assistant chat (dev) |
+| `slm.tsx` | Inline | Caregiver Assistant chat — also rendered as the Assistant tab (stack version keeps the "← Back" button; reachable from Settings → Developer → Raw SLM Chat) |
+| `profile.tsx` | Inline | Caregiver & patient profile — isolated stack screen (no tab bar) reached from More → Profile |
 | `models.tsx` → `models-screen.tsx` | `src/app/models/` (MVC) | Model manager (dev) |
 | `care-management.tsx` → `care-management-screen.tsx` | `src/app/care-management/` (MVC) | Vitals → Alert ML → SLM "Explain" flow |
-| `performance.tsx` | Inline | 1 Hz RAM dashboard (dev) |
+| `performance.tsx` | Inline | 1Hz RAM dashboard (dev) |
 
 ### Service-layer rule
 
@@ -188,12 +190,23 @@ while an alert is active.
 
 A reusable bottom-sheet (`src/components/slm-insight-sheet.tsx`) for on-demand
 SLM explanations that are not the main alert-explain flow (safety-note
-explanations, future custom-med checks). On open it acquires an SLM lease via
-the task queue (auto-loads the configured default model in Demo mode), shows a
-"Loading…" → "Thinking…" indicator, then streams the answer (which occupies the
-thinking space). On close the lease is released and the task queue's auto-unload
-timer unloads the model. Falls back to the mock assistant on Track A. The
-default model is configurable in **Settings → Developer → Default SLM Model**
+explanations, custom-med checks). On open it acquires an SLM lease via the task
+queue (auto-loads the configured default model in Demo/auto policy). If the
+lease fails — Developer/manual policy with no model loaded, or the configured
+default model isn't installed — the sheet explicitly loads any installed model
+so the explanation works on a dev build (Track B) regardless of mode. The
+status line shows the current phase plus the model id or a `(mock)` tag.
+
+Chat output mirrors the SLM prompt demo screen: a "Loading…" → "Thinking…"
+indicator, then the **raw token stream** rendered live while generating, which
+is **replaced by the rendered Markdown answer** once generation completes. On
+Track A (no `llama.rn`) or when no model is installed, it falls back to a
+**streaming mock** (word-by-word) so the UX is still demonstrable instead of
+dumping the whole answer at once. On close the lease is released and the task
+queue's auto-unload timer unloads the model (auto policy); if the sheet loaded
+the model itself without a queue lease, it unloads it on close (auto policy
+only — in Developer/manual policy the developer manages the model). The default
+model is configurable in **Settings → Developer → Default SLM Model**
 (`demoDefaultModelId` in `app_settings`).
 
 ### Clinical-evidence bundle status
@@ -257,10 +270,12 @@ section links to the acute-anomaly demo, model management, and the
 
 ### Profile (`/profile`)
 
-Read-only patient / PCP / safety / preferences cards, plus an **editable
-Caregiver card** — name, relationship, phone, and main concern are tap-to-edit
-and persist via `upsertCaregiver` (SQLite) + `saveOnboardingProfile`
-(in-memory) so the patient record snapshot stays in sync.
+An **isolated stack screen** (no bottom tab bar) reached from More →
+"Caregiver & patient profile". Read-only patient / PCP / safety / preferences
+cards, plus an **editable Caregiver card** — name, relationship, phone, and main
+concern are tap-to-edit and persist via `upsertCaregiver` (SQLite) +
+`saveOnboardingProfile` (in-memory) so the patient record snapshot stays in
+sync. A "← Back" button returns to the previous screen.
 
 ### Performance (`/performance`)
 
@@ -273,9 +288,11 @@ current used ratio.
 
 ### Tab navigation
 
-The 5-tab shell animates the active icon: a spring scales the icon up and a
-timing transition fills the circle background, giving a tactile transition
-between tabs.
+The 6-tab shell (Dashboard, Care, Medications, Schedule, Assistant, More)
+animates the active icon: a spring scales the icon up and a timing transition
+fills the circle background, giving a tactile transition between tabs. The
+**Assistant** tab renders the caregiver SLM prompt interface (`slm.tsx`) without
+a back button so it behaves as a persistent tab.
 - **Data** — Export C-CDA record (consent-gated), Reset all data
 - **Developer** — Developer mode toggle, manual SLM load/unload, RAM dashboard
   link, audit log viewer with hash-chain verification, dev screen links
@@ -311,8 +328,11 @@ Alerts can be swipe-dismissed (resolved) from the active list.
 
 ### SLM Prompt / Caregiver Assistant (`slm.tsx`)
 
-The on-device SLM chat playground. Streaming output, control-token stripping,
-multiline auto-growing input, and a detailed Care Context card.
+The on-device SLM chat playground. Also surfaced as the **Assistant** tab on the
+main navigation bar (`(tabs)/assistant.tsx` re-exports this screen with
+`showBackButton={false}`). The standalone `/slm` route (Settings → Developer →
+Raw SLM Chat) keeps the "← Back" button. Streaming output, control-token
+stripping, multiline auto-growing input, and a detailed Care Context card.
 
 - **Header card** — "Caregiver Assistant / SLM Support" hero with subtitle.
 - **Model Status card** — Current model id, size on disk, load status, and a

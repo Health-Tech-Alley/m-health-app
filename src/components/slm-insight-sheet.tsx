@@ -6,16 +6,22 @@
  *
  * Lifecycle (controlled load/unload):
  *   - On open: acquires an SLM lease via the task queue (auto-loads the default
- *     model in Demo mode). A persistent status line shows the current phase
- *     (loading model / thinking / generating / done / error) plus the model id.
- *   - As tokens stream, the answer is rendered below the echoed prompt and the
- *     view auto-scrolls to keep the latest output visible.
- *   - On close: the lease is released. In Demo (auto) policy the task queue's
- *     auto-unload timer takes over, unloading the model after idle. The sheet
- *     itself never owns the model.
+ *     model in Demo/auto policy). If the lease fails (Developer/manual policy
+ *     with no model loaded, or the default model isn't installed), the sheet
+ *     explicitly loads an installed model when available so the UX works on a
+ *     dev build (Track B) regardless of mode. A persistent status line shows the
+ *     current phase (loading model / thinking / generating / done / error) plus
+ *     the model id or a "(mock)" tag.
+ *   - As tokens stream, the raw token stream is shown live (like the SLM prompt
+ *     demo screen). When generation completes, the streamed text is replaced by
+ *     the rendered Markdown answer.
+ *   - On close: the lease is released. In auto policy the task queue's
+ *     auto-unload timer takes over; if the sheet loaded the model explicitly
+ *     without a queue lease, it unloads it on close (auto policy only). The
+ *     sheet itself never owns the model beyond this task.
  *
  * Renders with the caregiver system context (patient record) so answers are
- * personalized. Falls back to the mock assistant when the native SLM is
+ * personalized. Falls back to a streaming mock when the native SLM is
  * unavailable (Track A) so the UX is always demonstrable.
  */
 
@@ -33,8 +39,11 @@ import {
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
+import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
+import { MODEL_CATALOG } from '@/inference/model-catalog';
 import type { SlmTaskReason, SlmTaskLease } from '@/services/slm/slm-task-queue';
+import { isModelInstalled } from '@/services/model-storage';
 import {
   buildCaregiverAssistantContextFromSnapshot,
   buildCaregiverSystemContext,
@@ -56,6 +65,8 @@ export interface SlmInsightSheetProps {
 type Phase = 'idle' | 'loading' | 'thinking' | 'streaming' | 'done' | 'error';
 type Source = 'native' | 'mock';
 
+const MOCK_STREAM_DELAY_MS = 25;
+
 export function SlmInsightSheet({
   visible,
   onClose,
@@ -66,61 +77,140 @@ export function SlmInsightSheet({
   const slm = useSLM();
   // Pull only the stable pieces used inside runExplain so the callback doesn't
   // churn on every render (the `slm` value object is recreated each render).
-  const { acquireSlm, provider } = slm;
+  const {
+    acquireSlm,
+    provider,
+    loadModel: slmLoadModel,
+    unloadModel: slmUnloadModel,
+    policy: slmPolicy,
+    taskQueue,
+    currentModelId,
+  } = slm;
   const { snapshot } = usePatientRecord();
+  const { settings } = useSettings();
+  const defaultModelId = settings.demoDefaultModelId ?? 'healthgpt-pro-4b';
+
   const [phase, setPhase] = useState<Phase>('idle');
   const [answer, setAnswer] = useState('');
+  const [finalText, setFinalText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const leaseRef = useRef<SlmTaskLease | null>(null);
+  // True when the sheet loaded the model itself (not via the task queue's
+  // auto-load). Used to unload on close when no queue lease tracks it.
+  const loadedBySheetRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  const cancelRef = useRef(false);
   const scrollRef = useRef<ScrollView | null>(null);
   const ranRef = useRef(false);
+
+  /**
+   * Ensure a model is loaded and return a lease when possible.
+   *
+   * 1. Try `acquireSlm` — in auto policy this auto-loads the default model.
+   * 2. If that throws (manual policy, or default model not installed), look for
+   *    any installed model and load it explicitly, then acquire a lease so the
+   *    queue still tracks auto-unload. A microtask flush lets the queue's config
+   *    effect run before the second acquire.
+   * 3. If no model can be loaded, returns a null lease — caller falls back to
+   *    the streaming mock.
+   */
+  const ensureModelAndLease = useCallback(async (): Promise<SlmTaskLease | null> => {
+    loadedBySheetRef.current = false;
+
+    try {
+      const lease = await acquireSlm(reason);
+      return lease;
+    } catch {
+      // Fall through to explicit load.
+    }
+
+    const installed = MODEL_CATALOG.filter(isModelInstalled);
+    if (installed.length === 0) {
+      return null;
+    }
+
+    const preferred =
+      installed.find((m) => m.id === defaultModelId) ?? installed[0];
+
+    try {
+      await slmLoadModel(preferred.id);
+    } catch {
+      return null;
+    }
+
+    loadedBySheetRef.current = true;
+
+    // Give React a tick to commit the loadStatus change and run the task-queue
+    // config effect, so acquire() sees 'ready' and grants a lease (which lets
+    // the queue handle auto-unload instead of the sheet doing it manually).
+    await new Promise((r) => setTimeout(r, 0));
+    if (cancelRef.current) return null;
+
+    try {
+      return await acquireSlm(reason);
+    } catch {
+      // Queue still not seeing ready (timing) — proceed without a lease; the
+      // sheet will unload the model it loaded on close (auto policy only).
+      return null;
+    }
+  }, [acquireSlm, reason, defaultModelId, slmLoadModel]);
+
+  const streamMock = useCallback(
+    async (text: string): Promise<void> => {
+      setPhase('thinking');
+      const words = text.split(' ');
+      let first = true;
+      for (const word of words) {
+        if (cancelRef.current) return;
+        if (first) {
+          first = false;
+          setPhase('streaming');
+        }
+        setAnswer((prev) => (prev ? `${prev} ${word}` : word));
+        await new Promise((r) => setTimeout(r, MOCK_STREAM_DELAY_MS));
+      }
+    },
+    [],
+  );
 
   const runExplain = useCallback(async () => {
     setPhase('loading');
     setAnswer('');
+    setFinalText(null);
     setError(null);
     setSource(null);
-    setActiveModelId(slm.currentModelId);
+    setActiveModelId(currentModelId);
+    cancelRef.current = false;
 
-    // Acquire an SLM lease (auto-loads the default model in Demo mode).
-    try {
-      leaseRef.current = await acquireSlm(reason);
-      setActiveModelId(slm.currentModelId);
-    } catch (err) {
-      // SLM not ready (manual policy) or load failed — fall back to mock so the
-      // UX is still demonstrable on Track A.
-      console.warn('[SlmInsightSheet] SLM lease failed, using mock:', err);
-      leaseRef.current = null;
-      setSource('mock');
-      const mock = await askCaregiverAssistantMock(prompt, {});
-      setAnswer(mock.answer);
-      setPhase('done');
+    const lease = await ensureModelAndLease();
+    if (cancelRef.current) {
+      lease?.release();
       return;
     }
+    leaseRef.current = lease;
+    setActiveModelId(currentModelId);
 
-    setPhase('thinking');
+    const context = snapshot
+      ? buildCaregiverAssistantContextFromSnapshot(snapshot)
+      : {};
 
-    const controller = new AbortController();
-    abortRef.current = controller;
-    let firstTokenSeen = false;
+    // Prefer the native provider when a model is actually loaded. We check the
+    // provider directly (getModelInfo()) rather than slm.loadStatus: after
+    // awaiting a load the continuation runs as a microtask, before React
+    // re-renders, so slm.loadStatus may still read 'loading'. A loaded provider
+    // implies the model is ready.
+    if (provider.getModelInfo()) {
+      setSource('native');
+      setPhase('thinking');
 
-    try {
-      const context = snapshot
-        ? buildCaregiverAssistantContextFromSnapshot(snapshot)
-        : {};
-      const systemContext = buildCaregiverSystemContext(context);
+      const controller = new AbortController();
+      abortRef.current = controller;
+      let firstTokenSeen = false;
 
-      // Prefer the native provider when a model is actually loaded. We check
-      // the provider directly (getModelInfo()) rather than slm.loadStatus:
-      // after `await acquireSlm` the continuation runs as a microtask, before
-      // React re-renders, so slm.loadStatus may still read 'loading' even
-      // though the model just loaded successfully. A granted lease implies the
-      // provider is loaded.
-      if (provider.getModelInfo()) {
-        setSource('native');
+      try {
+        const systemContext = buildCaregiverSystemContext(context);
         const result = await provider.chat(
           [
             { role: 'system', content: systemContext },
@@ -135,37 +225,50 @@ export function SlmInsightSheet({
           },
           controller.signal,
         );
-        if (!firstTokenSeen) {
-          setAnswer(stripControlTokens(result.text).answer);
-        }
+        if (cancelRef.current) return;
+        const cleaned = stripControlTokens(result.text).answer;
+        setAnswer(cleaned);
+        setFinalText(cleaned);
         setPhase('done');
-      } else {
-        // Lease granted but provider reports no loaded model (unexpected) —
-        // fall back to mock so the UX is still demonstrable.
-        setSource('mock');
-        const mock = await askCaregiverAssistantMock(prompt, context);
-        // Simulate streaming for visual continuity.
-        for (const word of mock.answer.split(' ')) {
-          if (!firstTokenSeen) {
-            firstTokenSeen = true;
-            setPhase('streaming');
-          }
-          setAnswer((prev) => (prev ? `${prev} ${word}` : word));
-          await new Promise((r) => setTimeout(r, 20));
+      } catch (err) {
+        if (cancelRef.current || controller.signal.aborted) {
+          setPhase('done');
+          return;
         }
-        setPhase('done');
+        setError(err instanceof Error ? err.message : String(err));
+        setPhase('error');
+      } finally {
+        abortRef.current = null;
       }
+      return;
+    }
+
+    // No native model available — fall back to a streaming mock so the UX
+    // matches the SLM prompt demo screen (tokens stream, then the answer is
+    // rendered as Markdown when done).
+    setSource('mock');
+    try {
+      const mock = await askCaregiverAssistantMock(prompt, context);
+      if (cancelRef.current) return;
+      await streamMock(mock.answer);
+      if (cancelRef.current) return;
+      const cleaned = stripControlTokens(mock.answer).answer;
+      setAnswer(cleaned);
+      setFinalText(cleaned);
+      setPhase('done');
     } catch (err) {
-      if (controller.signal.aborted) {
-        setPhase('done');
-        return;
-      }
+      if (cancelRef.current) return;
       setError(err instanceof Error ? err.message : String(err));
       setPhase('error');
-    } finally {
-      abortRef.current = null;
     }
-  }, [acquireSlm, provider, snapshot, prompt, reason, slm.currentModelId]);
+  }, [
+    ensureModelAndLease,
+    provider,
+    snapshot,
+    prompt,
+    currentModelId,
+    streamMock,
+  ]);
 
   // Kick off the explanation when the sheet becomes visible. Deferred to a
   // microtask so we don't trigger setState synchronously inside the effect
@@ -178,7 +281,9 @@ export function SlmInsightSheet({
     }
     if (ranRef.current) return;
     ranRef.current = true;
-    const handle = setTimeout(() => { void runExplain(); }, 0);
+    const handle = setTimeout(() => {
+      void runExplain();
+    }, 0);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
@@ -187,33 +292,58 @@ export function SlmInsightSheet({
   useEffect(() => {
     if (!visible) return;
     if (phase !== 'streaming' && phase !== 'done') return;
-    if (!answer) return;
+    const text = finalText ?? answer;
+    if (!text) return;
     // Defer to next frame so the new content has been laid out.
     const handle = setTimeout(() => {
       scrollRef.current?.scrollToEnd({ animated: phase === 'streaming' });
     }, 16);
     return () => clearTimeout(handle);
-  }, [visible, phase, answer]);
+  }, [visible, phase, answer, finalText]);
 
   // Release the lease on close / unmount.
   const handleClose = useCallback(() => {
+    cancelRef.current = true;
     abortRef.current?.abort();
     leaseRef.current?.release();
+    const hadLease = leaseRef.current !== null;
     leaseRef.current = null;
+
+    // If the sheet loaded the model explicitly and the queue isn't tracking it
+    // (no lease), unload it on close in auto policy so we don't leave RAM
+    // pinned. In manual/Developer policy, leave it loaded (developer manages).
+    if (
+      loadedBySheetRef.current &&
+      !hadLease &&
+      slmPolicy === 'auto' &&
+      taskQueue.activeLeaseCount === 0
+    ) {
+      void slmUnloadModel();
+    }
+    loadedBySheetRef.current = false;
+
     onClose();
-  }, [onClose]);
+  }, [onClose, slmPolicy, slmUnloadModel, taskQueue]);
 
   useEffect(() => {
     return () => {
+      cancelRef.current = true;
       abortRef.current?.abort();
       leaseRef.current?.release();
       leaseRef.current = null;
     };
   }, []);
 
-  const statusLabel = deriveStatusLabel(phase, source, activeModelId, slm.currentModelId, error);
+  const statusLabel = deriveStatusLabel(
+    phase,
+    source,
+    activeModelId,
+    currentModelId,
+    error,
+  );
   const statusTone = deriveStatusTone(phase);
-  const inProgress = phase === 'loading' || phase === 'thinking' || phase === 'streaming';
+  const inProgress =
+    phase === 'loading' || phase === 'thinking' || phase === 'streaming';
 
   return (
     <Modal
@@ -268,10 +398,29 @@ export function SlmInsightSheet({
               </Text>
             ) : null}
 
-            {answer.length > 0 ? (
-              <MarkdownRenderer size="large">{stripControlTokens(answer).answer}</MarkdownRenderer>
-            ) : !inProgress && phase !== 'error' ? (
-              <Text style={styles.emptyText}>No response yet.</Text>
+            {phase === 'thinking' ? (
+              <Text style={styles.thinkingText}>Thinking…</Text>
+            ) : null}
+
+            {phase === 'streaming' ? (
+              <Text style={styles.streamingText}>{answer || '…'}</Text>
+            ) : null}
+
+            {phase === 'done' ? (
+              finalText ? (
+                <MarkdownRenderer size="large">{finalText}</MarkdownRenderer>
+              ) : answer ? (
+                <Text style={styles.answerText}>{answer}</Text>
+              ) : (
+                <Text style={styles.emptyText}>No response yet.</Text>
+              )
+            ) : null}
+
+            {phase !== 'error' &&
+            phase !== 'done' &&
+            phase !== 'streaming' &&
+            phase !== 'thinking' ? (
+              <Text style={styles.emptyText}>Waiting for the assistant…</Text>
             ) : null}
           </ScrollView>
 
@@ -294,18 +443,19 @@ function deriveStatusLabel(
   error: string | null,
 ): string {
   const modelId = activeModelId ?? currentModelId;
-  const modelTag = modelId ? ` · ${modelId}` : source === 'mock' ? ' · mock' : '';
+  const mockSuffix = source === 'mock' ? ' (mock)' : '';
+  const modelTag = modelId ? ` · ${modelId}` : '';
   switch (phase) {
     case 'idle':
       return 'Preparing…';
     case 'loading':
-      return modelId ? `Loading model${modelTag}…` : 'Loading assistant…';
+      return modelId ? `Loading model · ${modelId}…` : 'Loading assistant…';
     case 'thinking':
-      return `Thinking${modelTag}…`;
+      return `Thinking${modelTag}${mockSuffix}…`;
     case 'streaming':
-      return `Generating${modelTag}…`;
+      return `Generating${modelTag}${mockSuffix}…`;
     case 'done':
-      return `Complete${modelTag}${source === 'mock' ? ' (mock)' : ''}`;
+      return `Complete${modelTag}${mockSuffix}`;
     case 'error':
       return `Error: ${error ?? 'unknown'}`;
     default:
@@ -429,6 +579,22 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     marginBottom: 6,
     textTransform: 'uppercase',
+  },
+  thinkingText: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 14,
+    fontStyle: 'italic',
+  },
+  streamingText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 14,
+    lineHeight: 20,
+    fontStyle: 'italic',
+  },
+  answerText: {
+    color: AppTheme.colors.text,
+    fontSize: 15,
+    lineHeight: 22,
   },
   emptyText: {
     color: AppTheme.colors.textMuted,

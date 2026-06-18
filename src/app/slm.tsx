@@ -189,7 +189,11 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
   }
 }
 
-export default function SLMScreen() {
+export default function SLMScreen({
+  showBackButton = true,
+}: {
+  showBackButton?: boolean;
+} = {}) {
   const slm = useSLM();
   const theme = useTheme();
   const profile = useMemo(() => getOnboardingProfile(), []);
@@ -459,10 +463,14 @@ export default function SLMScreen() {
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}>
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Text style={styles.backText}>← Back</Text>
-          </Pressable>
+        <View style={[styles.headerRow, !showBackButton && styles.headerRowTab]}>
+          {showBackButton ? (
+            <Pressable onPress={() => router.back()} style={styles.backButton}>
+              <Text style={styles.backText}>← Back</Text>
+            </Pressable>
+          ) : (
+            <Text style={styles.headerTabTitle}>Assistant</Text>
+          )}
           <Pressable onPress={handleNewConversation} style={styles.newConvButton}>
             <Text style={styles.newConvButtonText}>New conversation</Text>
           </Pressable>
@@ -719,6 +727,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 4,
+  },
+  headerRowTab: {
+    justifyContent: 'space-between',
+  },
+  headerTabTitle: {
+    color: '#0E6F68',
+    fontWeight: '900',
+    fontSize: 17,
   },
   backButton: {
     paddingVertical: 8,

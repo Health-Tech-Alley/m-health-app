@@ -56,6 +56,13 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <View style={styles.root}>
+        <View style={styles.topBar}>
+          <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backButton}>
+            <Text style={styles.backText}>← Back</Text>
+          </Pressable>
+          <Text style={styles.topTitle}>Profile</Text>
+        </View>
+
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
@@ -181,46 +188,6 @@ export default function ProfileScreen() {
             </Pressable>
           </Pressable>
         </Modal>
-
-        <View style={styles.bottomNav}>
-          <BottomNavItem
-            label="Home"
-            icon="home"
-            onPress={() => router.push("/dashboard")}
-          />
-
-          <BottomNavItem
-            label="Care"
-            icon="care"
-            alert
-            onPress={() => router.push("/care")}
-          />
-
-          <BottomNavItem
-            label="Meds"
-            icon="pill"
-            onPress={() => router.push("/medications")}
-          />
-
-          <BottomNavItem
-            label="Schedule"
-            icon="schedule"
-            onPress={() => router.push("/schedule")}
-          />
-
-          <BottomNavItem
-            label="Assistant"
-            icon="assistant"
-            onPress={() => router.push("/slm")}
-          />
-
-          <BottomNavItem
-            label="Profile"
-            icon="profile"
-            active
-            onPress={() => {}}
-          />
-        </View>
       </View>
     </SafeAreaView>
   );
@@ -289,38 +256,6 @@ function EditableDetailRow({
   );
 }
 
-function BottomNavItem({
-  label,
-  icon,
-  active,
-  alert,
-  onPress,
-}: {
-  label: string;
-  icon: AppIconName;
-  active?: boolean;
-  alert?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable style={styles.navItem} onPress={onPress}>
-      <View style={[styles.navIconCircle, active && styles.navIconCircleActive]}>
-        <AppIcon
-          name={icon}
-          size={active ? 26 : 23}
-          color={active ? AppTheme.colors.white : AppTheme.colors.navMuted}
-        />
-
-        {alert ? <View style={styles.navAlertDot} /> : null}
-      </View>
-
-      <Text style={[styles.navLabel, active && styles.navLabelActive]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 function getInitials(name: DetailValue): string {
   const safeName = formatDetailValue(name);
 
@@ -379,8 +314,8 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 24,
-    paddingTop: 22,
-    paddingBottom: 112,
+    paddingTop: 16,
+    paddingBottom: 40,
   },
 
   profileHeader: {
@@ -493,57 +428,27 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
 
-  bottomNav: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    minHeight: 78,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: 10,
-    borderTopWidth: 1,
-    borderTopColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.white,
+  topBar: {
     flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  navItem: {
     alignItems: "center",
-    justifyContent: "center",
-    minWidth: 46,
+    gap: 12,
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 4,
   },
-  navIconCircle: {
-    width: 44,
-    height: 34,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
+  backButton: {
+    paddingVertical: 6,
+    paddingRight: 6,
   },
-  navIconCircleActive: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: AppTheme.colors.brand,
-  },
-  navAlertDot: {
-    position: "absolute",
-    right: 4,
-    top: -2,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: AppTheme.colors.danger,
-  },
-  navLabel: {
-    color: AppTheme.colors.navMuted,
-    fontSize: 11,
-    fontWeight: "800",
-    marginTop: 4,
-  },
-  navLabelActive: {
+  backText: {
     color: AppTheme.colors.brand,
+    fontWeight: "800",
+    fontSize: 15,
+  },
+  topTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 17,
+    fontWeight: "900",
   },
   editChevron: {
     color: AppTheme.colors.brand,
