@@ -1,31 +1,44 @@
+import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
 import {
-  getOnboardingProfile,
-  getPrimaryIcdDisplay,
-} from "@/services/onboarding/onboardingService";
+  getDashboardPatientSummary,
+  getFallbackDashboardPatientSummary,
+  type DashboardPatientSummary,
+} from "@/services/patient/patientService";
 
 export function PatientSummaryCard() {
-  const profile = getOnboardingProfile();
-  const patient = profile.patient;
-  const caregiver = profile.caregiver;
-  const provider = profile.primaryCareProvider;
+  const [summary, setSummary] = useState<DashboardPatientSummary>(() =>
+    getFallbackDashboardPatientSummary(),
+  );
 
-  const comorbidityCount = patient.comorbidities?.length ?? 0;
+  useEffect(() => {
+    let isMounted = true;
+
+    getDashboardPatientSummary().then((nextSummary) => {
+      if (isMounted) {
+        setSummary(nextSummary);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{getInitials(patient.name)}</Text>
+          <Text style={styles.avatarText}>{summary.patientInitials}</Text>
         </View>
 
         <View style={styles.patientTextBlock}>
           <View style={styles.nameRow}>
-            <Text style={styles.patientName}>{patient.name}</Text>
+            <Text style={styles.patientName}>{summary.patientName}</Text>
 
-            {comorbidityCount > 0 ? (
+            {summary.comorbidityCount > 0 ? (
               <View style={styles.comorbidityBadge}>
                 <Text style={styles.comorbidityBadgeText}>
                   Comorbidities
@@ -35,29 +48,26 @@ export function PatientSummaryCard() {
           </View>
 
           <Text style={styles.patientMeta}>
-            Age {patient.age} · PCP {provider.name}
+            Age {summary.patientAge} · PCP {summary.providerName}
           </Text>
         </View>
       </View>
 
       <View style={styles.diagnosisBox}>
         <Text style={styles.diagnosisLabel}>Primary diagnosis</Text>
-        <Text style={styles.diagnosisText}>{getPrimaryIcdDisplay(patient)}</Text>
+        <Text style={styles.diagnosisText}>{summary.primaryDiagnosis}</Text>
       </View>
 
       <View style={styles.infoGrid}>
-        <InfoBox label="SpO₂ cutoff" value={patient.spo2Cutoff ?? "88%"} />
-        <InfoBox
-          label="Baseline HR"
-          value={patient.baselineHeartRate ?? "72–88 BPM"}
-        />
+        <InfoBox label="SpO₂ cutoff" value={summary.spo2Cutoff} />
+        <InfoBox label="Baseline HR" value={summary.baselineHeartRate} />
       </View>
 
       <View style={styles.footerRow}>
         <View>
           <Text style={styles.footerLabel}>Caregiver</Text>
           <Text style={styles.footerValue}>
-            {caregiver.name} · {caregiver.relationship}
+            {summary.caregiverName} · {summary.caregiverRelationship}
           </Text>
         </View>
 
@@ -76,16 +86,6 @@ function InfoBox({ label, value }: { label: string; value: string }) {
       <Text style={styles.infoValue}>{value}</Text>
     </View>
   );
-}
-
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
 }
 
 const styles = StyleSheet.create({

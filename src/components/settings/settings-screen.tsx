@@ -4,36 +4,36 @@
  * the standalone settings route.
  */
 
-import { useState, useCallback } from 'react';
+import { useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
+  Alert,
+  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  View,
-  Pressable,
   Switch,
+  Text,
   TextInput,
-  Alert,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
-import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
-import { MODEL_CATALOG, type ModelEntry } from '@/inference/model-catalog';
-import { isModelInstalled, deleteModel, clearAllModels } from '@/services/model-storage';
-import { downloadModel } from '@/services/model-download';
 import {
   getActiveConsents,
-  verifyAuditChain,
   getAuditEntriesForResource,
   resetDatabase,
+  verifyAuditChain,
   type ConsentToken,
 } from '@/data';
+import { MODEL_CATALOG, type ModelEntry } from '@/inference/model-catalog';
 import { grantConsent, revokeConsentAndAudit } from '@/services/consent/consentGate';
 import { exportCcd } from '@/services/export/ccdaExportService';
+import { downloadModel } from '@/services/model-download';
+import { clearAllModels, deleteModel, isModelInstalled } from '@/services/model-storage';
 
 const teal = '#0E6F68';
 const darkText = '#123433';
@@ -322,7 +322,7 @@ export function SettingsScreen() {
               </Pressable>
               <Pressable
                 style={styles.actionButton}
-                onPress={() => router.push('/acute-anomaly')}>
+                onPress={() => router.push('/acute-anomaly' as never)}>
                 <Text style={styles.actionButtonText}>Acute Anomaly Demo</Text>
               </Pressable>
               <Pressable

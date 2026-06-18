@@ -8,8 +8,8 @@
  * and routes to the shared SLM explain screen.
  */
 
-import { useCallback, useMemo, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -27,8 +27,8 @@ import {
   insertCaregiverAction,
   updateAlertStatus,
 } from '@/data';
-import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
+import { executeNextStep } from '@/orchestration/next-steps';
 
 const TEAL = '#0E6F68';
 const BG = '#EEF7F6';
@@ -128,7 +128,7 @@ export default function AlertDetailScreen() {
 
   const askAssistant = useCallback(() => {
     if (!alert) return;
-    router.push({ pathname: '/slm-explain', params: { alertId: alert.alertId } });
+    router.push(`/slm-explain?alertId=${encodeURIComponent(alert.alertId)}` as never);
   }, [alert, router]);
 
   if (!alert) {

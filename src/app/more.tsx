@@ -5,9 +5,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
 import {
-    getOnboardingProfile,
-    getPrimaryIcdDisplay,
-    getWearableDeviceDisplay,
+  getOnboardingProfile,
+  getPrimaryIcdDisplay,
+  getWearableDeviceDisplay,
 } from "@/services/onboarding/onboardingService";
 
 export default function MoreScreen() {
@@ -105,7 +105,7 @@ export default function MoreScreen() {
               icon="alert"
               title="Acute anomaly demo"
               subtitle="End-to-end orchestration flow"
-              onPress={() => router.push("/acute-anomaly")}
+              onPress={() => router.push("/acute-anomaly" as never)}
             />
 
             <SettingsRow

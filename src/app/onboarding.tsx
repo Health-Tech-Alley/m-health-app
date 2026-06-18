@@ -20,8 +20,8 @@ import {
   COMMON_ICD_OPTIONS,
   COMMON_SYMPTOM_OPTIONS,
   WEARABLE_DEVICE_OPTIONS,
+  completeOnboardingProfile,
   getOnboardingProfile,
-  saveOnboardingProfile,
   type AddressProfile,
   type Availability,
   type CaregivingExperience,
@@ -277,7 +277,7 @@ export default function OnboardingScreen() {
     setStepIndex((current) => Math.min(current + 1, totalScreens - 1));
   }
 
-  function saveProfileAndContinue() {
+  async function saveProfileAndContinue() {
     const finalPatientAddress = patientAddressSameAsCaregiver
       ? caregiverAddress
       : patientAddress;
@@ -345,7 +345,7 @@ export default function OnboardingScreen() {
       completedAt: new Date().toISOString(),
     };
 
-    saveOnboardingProfile(profile);
+    await completeOnboardingProfile(profile);
     router.replace("/dashboard");
   }
 

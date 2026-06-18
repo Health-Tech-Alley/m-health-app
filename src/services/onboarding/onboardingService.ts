@@ -417,25 +417,30 @@ export function saveOnboardingProfile(profile: OnboardingProfile): void {
   };
 }
 
-/**
- * UI-branch version.
- *
- * Ethan's database seed file is not available in this branch yet, so this keeps
- * onboarding independent and compile-safe. Once Ethan's data scaffold is merged,
- * this function can call seedDatabaseFromProfile(profile) through the agreed
- * service/repository boundary.
- */
 export async function completeOnboardingProfile(
   profile: OnboardingProfile,
 ): Promise<OnboardingSeedResult> {
   saveOnboardingProfile(profile);
 
-  return {
-    savedInMemory: true,
-    seededDatabase: false,
-    error:
-      "Database seed is not connected in this UI branch yet. Onboarding profile was saved in memory.",
-  };
+  try {
+    const { seedDatabaseFromProfile } = await import("@/data");
+    const patientId = seedDatabaseFromProfile(getOnboardingProfile());
+
+    return {
+      savedInMemory: true,
+      seededDatabase: true,
+      patientId,
+    };
+  } catch (error) {
+    return {
+      savedInMemory: true,
+      seededDatabase: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "SQLite seed failed after onboarding profile was saved in memory.",
+    };
+  }
 }
 
 export function getOnboardingProfile(): OnboardingProfile {
