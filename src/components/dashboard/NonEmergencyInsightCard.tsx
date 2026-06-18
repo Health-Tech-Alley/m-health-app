@@ -6,11 +6,18 @@ import { AppTheme } from "@/constants/theme";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 const contextOptions = [
-  "Resting",
-  "Walking",
-  "Exercising",
-  "Climbing stairs",
-  "Stress or anxiety",
+  "Exercising / increased activity",
+  "Poor sleep",
+  "Stress or emotional upset",
+  "Eating/drinking less than usual",
+  "Missed or changed medication",
+  "Bathroom changes",
+  "Vomiting or diarrhea",
+  "More tired, weak, confused, or not acting normal",
+  "Pain or discomfort",
+  "Breathing seemed different",
+  "Sensor/watch issue",
+  "Nothing unusual noticed",
   "Not sure",
 ];
 

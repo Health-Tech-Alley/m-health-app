@@ -21,6 +21,7 @@ import {
   COMMON_SYMPTOM_OPTIONS,
   WEARABLE_DEVICE_OPTIONS,
   completeOnboardingProfile,
+  getMockEhrPatientRecord,
   getOnboardingProfile,
   type AddressProfile,
   type Availability,
@@ -87,7 +88,80 @@ const emergencyComfortOptions: EmergencyComfortLevel[] = [
   "Not sure — guide me",
 ];
 
-type ExpandedSelect = "comorbidities" | "symptoms" | null;
+type ExpandedSelect = "comorbidities" | "symptoms" | "gmfcs" | "fms" | null;
+
+type MobilityOption = {
+  value: string;
+  label: string;
+  description: string;
+  detail?: string;
+};
+
+const gmfcsOptions: MobilityOption[] = [
+  {
+    value: "Level I",
+    label: "Level I",
+    description: "Walks without major limits",
+    detail: "Score 1",
+  },
+  {
+    value: "Level II",
+    label: "Level II",
+    description: "Walks with some limits",
+    detail: "Score 2",
+  },
+  {
+    value: "Level III",
+    label: "Level III",
+    description: "Uses a hand-held mobility aid",
+    detail: "Score 3",
+  },
+  {
+    value: "Level IV",
+    label: "Level IV",
+    description: "Uses assisted or powered mobility",
+    detail: "Score 4",
+  },
+  {
+    value: "Level V",
+    label: "Level V",
+    description: "Transported in a wheelchair, needs significant support",
+    detail: "Score 5",
+  },
+];
+
+const fmsOptions: MobilityOption[] = [
+  {
+    value: "1",
+    label: "1",
+    description: "Uses wheelchair",
+  },
+  {
+    value: "2",
+    label: "2",
+    description: "Uses walker/frame",
+  },
+  {
+    value: "3",
+    label: "3",
+    description: "Uses crutches",
+  },
+  {
+    value: "4",
+    label: "4",
+    description: "Uses sticks/canes",
+  },
+  {
+    value: "5",
+    label: "5",
+    description: "Independent on level surfaces",
+  },
+  {
+    value: "6",
+    label: "6",
+    description: "Independent on all surfaces",
+  },
+];
 
 export default function OnboardingScreen() {
   const router = useRouter();
@@ -167,21 +241,17 @@ export default function OnboardingScreen() {
     country: existingProfile.patient.address?.country ?? "United States",
   });
 
-  const [primaryDiagnosisText, setPrimaryDiagnosisText] = useState(
-    getInitialPrimaryDiagnosisText({
-      code: existingProfile.patient.primaryIcdCode,
-      label: existingProfile.patient.primaryIcdLabel,
-      fallback: existingProfile.patient.conditions,
-    }),
-  );
+  const [ehrRecordApplied, setEhrRecordApplied] = useState(false);
+  const [primaryDiagnosisText, setPrimaryDiagnosisText] = useState("");
 
   const [comorbidities, setComorbidities] = useState<IcdConditionProfile[]>(
-    existingProfile.patient.comorbidities ?? [],
+    [],
   );
 
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>(
     existingProfile.patient.symptoms ?? [],
   );
+  const [symptomSearchText, setSymptomSearchText] = useState("");
   const [otherSymptoms, setOtherSymptoms] = useState(
     existingProfile.patient.otherSymptoms ?? "",
   );
@@ -197,6 +267,13 @@ export default function OnboardingScreen() {
   );
   const [baselineHeartRate, setBaselineHeartRate] = useState(
     existingProfile.patient.baselineHeartRate ?? "72–88 BPM",
+  );
+
+  const [gmfcsLevel, setGmfcsLevel] = useState(
+    existingProfile.patient.gmfcsLevel ?? "",
+  );
+  const [fmsScore, setFmsScore] = useState(
+    existingProfile.patient.fmsScore ?? "",
   );
 
   const [providerName, setProviderName] = useState(
@@ -238,11 +315,6 @@ export default function OnboardingScreen() {
     string | undefined
   >(existingProfile.patient.wearableDevice?.baselineCompletedAt);
 
-  const matchedPrimaryCondition = useMemo(
-    () => findMatchingDiagnosis(primaryDiagnosisText),
-    [primaryDiagnosisText],
-  );
-
   const selectedSymptomLabels = useMemo(
     () =>
       selectedSymptoms
@@ -253,6 +325,18 @@ export default function OnboardingScreen() {
         .map((option) => option.label),
     [selectedSymptoms],
   );
+
+  const filteredSymptomOptions = useMemo(() => {
+    const normalizedSearch = symptomSearchText.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return COMMON_SYMPTOM_OPTIONS;
+    }
+
+    return COMMON_SYMPTOM_OPTIONS.filter((symptom) =>
+      symptom.label.toLowerCase().includes(normalizedSearch),
+    );
+  }, [symptomSearchText]);
 
   const isIntroScreen = stepIndex === 0;
   const canGoBack = stepIndex > 0;
@@ -311,7 +395,7 @@ export default function OnboardingScreen() {
       patient: {
         name: patientName,
         age: patientAge,
-        conditions: conditions || existingProfile.patient.conditions,
+        conditions,
         addressSameAsCaregiver: patientAddressSameAsCaregiver,
         address: finalPatientAddress,
         primaryIcdCode: primaryDiagnosis.code,
@@ -323,6 +407,8 @@ export default function OnboardingScreen() {
         currentMedications,
         spo2Cutoff,
         baselineHeartRate,
+        gmfcsLevel,
+        fmsScore,
         wearableDevice: {
           deviceType,
           deviceLabel,
@@ -363,22 +449,19 @@ export default function OnboardingScreen() {
     }));
   }
 
-  function toggleComorbidity(condition: IcdConditionProfile) {
-    setComorbidities((current) => {
-      const exists = current.some((item) => item.code === condition.code);
+  function applyMockEhrRecord() {
+    const mockEhrRecord = getMockEhrPatientRecord();
 
-      if (exists) {
-        return current.filter((item) => item.code !== condition.code);
-      }
-
-      return [
-        ...current,
-        {
-          ...condition,
-          isPrimary: false,
-        },
-      ];
-    });
+    setPrimaryDiagnosisText(
+      getInitialPrimaryDiagnosisText({
+        code: mockEhrRecord.primaryIcdCode,
+        label: mockEhrRecord.primaryIcdLabel,
+        fallback: mockEhrRecord.conditions,
+      }),
+    );
+    setComorbidities(mockEhrRecord.comorbidities ?? []);
+    setExpandedSelect(null);
+    setEhrRecordApplied(true);
   }
 
   function toggleSymptom(symptomId: string) {
@@ -611,27 +694,33 @@ export default function OnboardingScreen() {
                   label="ICD code or official diagnosis name"
                   value={primaryDiagnosisText}
                   onChangeText={setPrimaryDiagnosisText}
-                  placeholder="Example: J44.9 or Chronic obstructive pulmonary disease"
+                  placeholder="Use EHR record to populate diagnosis"
+                  editable={false}
                 />
 
                 <Text style={styles.diagnosisHelper}>
-                  Enter the main diagnosis exactly as it appears in paperwork if
-                  possible.
+                  Diagnosis and comorbidities come from the patient record after
+                  caregiver consent.
                 </Text>
 
-                <Pressable style={styles.ehrPlaceholderButton}>
+                <Pressable
+                  style={styles.ehrPlaceholderButton}
+                  onPress={applyMockEhrRecord}
+                >
                   <View style={styles.ehrIconCircle}>
                     <AppIcon
-                      name="plus"
+                      name={ehrRecordApplied ? "check" : "plus"}
                       size={18}
                       color={AppTheme.colors.brand}
                     />
                   </View>
 
                   <View style={styles.ehrTextBlock}>
-                    <Text style={styles.ehrTitle}>Populate from EHR</Text>
+                    <Text style={styles.ehrTitle}>Use EHR record</Text>
                     <Text style={styles.ehrSubtitle}>
-                      Coming soon — C-CDA / FHIR import
+                      {ehrRecordApplied
+                        ? "EHR record applied"
+                        : "Consent to use Elena's temporary mock EHR record"}
                     </Text>
                   </View>
                 </Pressable>
@@ -643,46 +732,33 @@ export default function OnboardingScreen() {
                   title="Comorbidities"
                   value={
                     comorbidities.length > 0
-                      ? `${comorbidities.length} selected`
-                      : "No comorbidities selected"
+                      ? `${comorbidities.length} from EHR`
+                      : "Use EHR record to populate"
                   }
-                  expanded={expandedSelect === "comorbidities"}
+                  expanded={
+                    ehrRecordApplied && expandedSelect === "comorbidities"
+                  }
                   onToggle={() =>
-                    setExpandedSelect((current) =>
-                      current === "comorbidities" ? null : "comorbidities",
-                    )
+                    ehrRecordApplied
+                      ? setExpandedSelect((current) =>
+                          current === "comorbidities" ? null : "comorbidities",
+                        )
+                      : undefined
                   }
                 >
-                  {COMMON_ICD_OPTIONS.filter(
-                    (condition) =>
-                      condition.code !== matchedPrimaryCondition?.code,
-                  ).map((condition) => {
-                    const selected = comorbidities.some(
-                      (item) => item.code === condition.code,
-                    );
-
-                    return (
-                      <Pressable
-                        key={condition.code}
-                        style={[
-                          styles.optionRow,
-                          selected && styles.optionRowSelected,
-                        ]}
-                        onPress={() => toggleComorbidity(condition)}
-                      >
+                  {comorbidities.map((condition) => (
+                    <View
+                      key={condition.code}
+                      style={[styles.optionRow, styles.optionRowSelected]}
+                    >
                         <View
-                          style={[
-                            styles.checkCircle,
-                            selected && styles.checkCircleSelected,
-                          ]}
+                          style={[styles.checkCircle, styles.checkCircleSelected]}
                         >
-                          {selected ? (
-                            <AppIcon
-                              name="check"
-                              size={14}
-                              color={AppTheme.colors.white}
-                            />
-                          ) : null}
+                          <AppIcon
+                            name="check"
+                            size={14}
+                            color={AppTheme.colors.white}
+                          />
                         </View>
 
                         <View style={styles.optionTextBlock}>
@@ -696,9 +772,8 @@ export default function OnboardingScreen() {
                             {condition.category}
                           </Text>
                         </View>
-                      </Pressable>
-                    );
-                  })}
+                    </View>
+                  ))}
                 </SelectPanel>
 
                 <SectionLabel title="Common symptoms" />
@@ -717,8 +792,16 @@ export default function OnboardingScreen() {
                     )
                   }
                 >
+                  <TextInput
+                    style={styles.symptomSearchInput}
+                    value={symptomSearchText}
+                    onChangeText={setSymptomSearchText}
+                    placeholder="Search symptoms"
+                    placeholderTextColor={AppTheme.colors.textMuted}
+                  />
+
                   <View style={styles.symptomGrid}>
-                    {COMMON_SYMPTOM_OPTIONS.map((symptom) => {
+                    {filteredSymptomOptions.map((symptom) => {
                       const selected = selectedSymptoms.includes(symptom.id);
 
                       return (
@@ -750,6 +833,56 @@ export default function OnboardingScreen() {
                   onChangeText={setOtherSymptoms}
                   placeholder="Add symptoms not listed above..."
                 />
+
+                <SelectPanel
+                  title="GMFCS level"
+                  value={getMobilitySelectValue(
+                    gmfcsOptions,
+                    gmfcsLevel,
+                    "Select GMFCS level",
+                  )}
+                  helper="Describes the patient's usual gross motor function."
+                  expanded={expandedSelect === "gmfcs"}
+                  onToggle={() =>
+                    setExpandedSelect((current) =>
+                      current === "gmfcs" ? null : "gmfcs",
+                    )
+                  }
+                >
+                  <MobilityOptionList
+                    options={gmfcsOptions}
+                    selectedValue={gmfcsLevel}
+                    onSelect={(value) => {
+                      setGmfcsLevel(value);
+                      setExpandedSelect(null);
+                    }}
+                  />
+                </SelectPanel>
+
+                <SelectPanel
+                  title="FMS score"
+                  value={getMobilitySelectValue(
+                    fmsOptions,
+                    fmsScore,
+                    "Select FMS score",
+                  )}
+                  helper="Describes how the patient usually moves with or without support."
+                  expanded={expandedSelect === "fms"}
+                  onToggle={() =>
+                    setExpandedSelect((current) =>
+                      current === "fms" ? null : "fms",
+                    )
+                  }
+                >
+                  <MobilityOptionList
+                    options={fmsOptions}
+                    selectedValue={fmsScore}
+                    onSelect={(value) => {
+                      setFmsScore(value);
+                      setExpandedSelect(null);
+                    }}
+                  />
+                </SelectPanel>
 
                 <LargeField
                   label="Baseline daily routine"
@@ -1066,6 +1199,7 @@ function Field({
   placeholder,
   keyboardType,
   autoCapitalize,
+  editable = true,
 }: {
   label: string;
   value: string;
@@ -1073,18 +1207,20 @@ function Field({
   placeholder: string;
   keyboardType?: "default" | "phone-pad" | "number-pad" | "email-address";
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  editable?: boolean;
 }) {
   return (
     <View style={styles.fieldBlock}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, !editable && styles.inputReadOnly]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={AppTheme.colors.textMuted}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        editable={editable}
       />
     </View>
   );
@@ -1247,12 +1383,14 @@ function ChoiceCard({
 function SelectPanel({
   title,
   value,
+  helper,
   expanded,
   onToggle,
   children,
 }: {
   title: string;
   value: string;
+  helper?: string;
   expanded: boolean;
   onToggle: () => void;
   children: ReactNode;
@@ -1262,6 +1400,7 @@ function SelectPanel({
       <Pressable style={styles.selectHeader} onPress={onToggle}>
         <View style={styles.selectTextBlock}>
           <Text style={styles.selectTitle}>{title}</Text>
+          {helper ? <Text style={styles.selectHelper}>{helper}</Text> : null}
           <Text style={styles.selectValue}>{value}</Text>
         </View>
 
@@ -1270,6 +1409,52 @@ function SelectPanel({
 
       {expanded ? <View style={styles.selectContent}>{children}</View> : null}
     </View>
+  );
+}
+
+function MobilityOptionList({
+  options,
+  selectedValue,
+  onSelect,
+}: {
+  options: MobilityOption[];
+  selectedValue: string;
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <>
+      {options.map((option) => {
+        const selected = option.value === selectedValue;
+
+        return (
+          <Pressable
+            key={option.value}
+            style={[styles.optionRow, selected && styles.optionRowSelected]}
+            onPress={() => onSelect(option.value)}
+          >
+            <View
+              style={[styles.checkCircle, selected && styles.checkCircleSelected]}
+            >
+              {selected ? (
+                <AppIcon
+                  name="check"
+                  size={14}
+                  color={AppTheme.colors.white}
+                />
+              ) : null}
+            </View>
+
+            <View style={styles.optionTextBlock}>
+              <Text style={styles.optionCode}>{option.label}</Text>
+              <Text style={styles.optionLabel}>{option.description}</Text>
+              {option.detail ? (
+                <Text style={styles.optionCategory}>{option.detail}</Text>
+              ) : null}
+            </View>
+          </Pressable>
+        );
+      })}
+    </>
   );
 }
 
@@ -1296,6 +1481,24 @@ function getInitialPrimaryDiagnosisText({
   }
 
   return code ?? label ?? fallback ?? "";
+}
+
+function getMobilitySelectValue(
+  options: MobilityOption[],
+  selectedValue: string,
+  placeholder: string,
+) {
+  if (!selectedValue) {
+    return placeholder;
+  }
+
+  const selectedOption = options.find((option) => option.value === selectedValue);
+
+  if (!selectedOption) {
+    return selectedValue;
+  }
+
+  return `${selectedOption.label}: ${selectedOption.description}`;
 }
 
 function normalizeDiagnosisText(value: string): string {
@@ -1585,6 +1788,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
   },
+  inputReadOnly: {
+    backgroundColor: AppTheme.colors.softSurface,
+  },
   largeInput: {
     minHeight: 104,
     lineHeight: 22,
@@ -1779,6 +1985,13 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginBottom: 4,
   },
+  selectHelper: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
   selectValue: {
     color: AppTheme.colors.text,
     fontSize: 14,
@@ -1853,6 +2066,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
+  },
+  symptomSearchInput: {
+    minHeight: 48,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 12,
   },
   symptomChip: {
     borderRadius: AppTheme.radius.pill,

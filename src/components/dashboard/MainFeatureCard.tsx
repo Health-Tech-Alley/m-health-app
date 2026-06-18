@@ -59,10 +59,10 @@ export function MainFeatureCard({
 }
 
 function getDefaultIconLabel(tone: FeatureTone) {
-  if (tone === "red") return "!";
-  if (tone === "green") return "✓";
-  if (tone === "gray") return "AI";
-  return "CC";
+  if (tone === "red") return "🚨";
+  if (tone === "green") return "✅";
+  if (tone === "gray") return "🤖";
+  return "❤️";
 }
 
 function getToneStyles(tone: FeatureTone) {

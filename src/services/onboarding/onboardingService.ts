@@ -152,6 +152,8 @@ export type PatientProfile = {
   currentMedications?: string;
   spo2Cutoff?: string;
   baselineHeartRate?: string;
+  gmfcsLevel?: string;
+  fmsScore?: string;
 
   /**
    * Device and baseline setup.
@@ -187,6 +189,11 @@ export type OnboardingSeedResult = {
   patientId?: string;
   error?: string;
 };
+
+export type MockEhrPatientRecord = Pick<
+  PatientProfile,
+  "primaryIcdCode" | "primaryIcdLabel" | "comorbidities" | "conditions"
+>;
 
 /**
  * Prototype ICD list.
@@ -386,6 +393,8 @@ export const defaultOnboardingProfile: OnboardingProfile = {
     currentMedications: "Albuterol PRN, Tiotropium daily, Prednisone",
     spo2Cutoff: "88%",
     baselineHeartRate: "72–88 BPM",
+    gmfcsLevel: "",
+    fmsScore: "",
     wearableDevice: {
       deviceType: "Apple Watch",
       deviceLabel: "Elena's Apple Watch",
@@ -445,6 +454,19 @@ export async function completeOnboardingProfile(
 
 export function getOnboardingProfile(): OnboardingProfile {
   return savedOnboardingProfile ?? defaultOnboardingProfile;
+}
+
+export function getMockEhrPatientRecord(): MockEhrPatientRecord {
+  const patient = defaultOnboardingProfile.patient;
+
+  return {
+    primaryIcdCode: patient.primaryIcdCode,
+    primaryIcdLabel: patient.primaryIcdLabel,
+    comorbidities: patient.comorbidities?.map((condition) => ({
+      ...condition,
+    })) ?? [],
+    conditions: patient.conditions,
+  };
 }
 
 export function hasCompletedOnboarding(): boolean {
@@ -556,6 +578,8 @@ function normalizeOnboardingProfile(
       comorbidities: profile.patient.comorbidities ?? [],
       symptoms: profile.patient.symptoms ?? [],
       otherSymptoms: profile.patient.otherSymptoms ?? "",
+      gmfcsLevel: profile.patient.gmfcsLevel ?? "",
+      fmsScore: profile.patient.fmsScore ?? "",
     },
   };
 }

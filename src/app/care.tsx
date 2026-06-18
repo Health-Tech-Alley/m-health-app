@@ -1,10 +1,17 @@
 import { useRouter } from "expo-router";
+import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
+import {
+  getActiveCareAlerts,
+  resolveCareAlert,
+  type CareAlert,
+} from "@/services/care/careService";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
+import { getFallbackDashboardPatientSummary } from "@/services/patient/patientService";
 
 const dailyCareEntry = {
   patient_id: "patient_12345",
@@ -56,18 +63,52 @@ const providerCarePlan = {
 export default function CareScreen() {
   const router = useRouter();
   const profile = getOnboardingProfile();
+  const patientSummary = getFallbackDashboardPatientSummary();
+  const [activeAlert, setActiveAlert] = useState<CareAlert | null>(
+    getInitialActiveCareAlert,
+  );
 
   const patientFirstName =
-    profile.patient.name.trim().split(/\s+/)[0] || "patient";
+    patientSummary.patientName.trim().split(/\s+/)[0] || "patient";
 
   const caregiverFirstName =
-    profile.caregiver.name.trim().split(/\s+/)[0] || "caregiver";
+    patientSummary.caregiverName.trim().split(/\s+/)[0] || "caregiver";
+
+  const caregiverContext =
+    patientSummary.caregiverRelationship || patientSummary.caregiverName;
+
+  const patientSummaryDetail = [
+    patientSummary.patientAge ? `${patientSummary.patientAge} yrs` : null,
+    patientSummary.primaryDiagnosis,
+  ]
+    .filter(Boolean)
+    .join(" - ");
 
   const functionalTarget =
     providerCarePlan.milestones.week_3.functional_task_score_target;
 
   const movementTarget =
     providerCarePlan.milestones.week_3.guided_movement_score_target;
+
+  const isRealAlert = activeAlert !== null;
+  const activeAlertTitle = activeAlert?.title ?? "Red Breath Alert";
+  const activeAlertSubtitle = activeAlert
+    ? `Severity ${activeAlert.severity} - ${capitalize(activeAlert.status)} - ${formatRelativeTime(activeAlert.createdAt)}`
+    : "Severity 3 - Respiratory - Just now";
+  const activeAlertPill = activeAlert
+    ? getSeverityLabel(activeAlert.severity)
+    : "New";
+  const activeAlertBody = activeAlert?.body;
+
+  function handleMarkHandled() {
+    if (!activeAlert) return;
+
+    const resolved = resolveCareAlert(activeAlert.alertId);
+    if (!resolved && __DEV__) {
+      console.warn(`Unable to resolve alert ${activeAlert.alertId}`);
+    }
+    setActiveAlert(null);
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -77,7 +118,7 @@ export default function CareScreen() {
       >
         <View style={styles.headerRow}>
           <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Text style={styles.backIcon}>‹</Text>
+            <Text style={styles.backIcon}>{"<"}</Text>
           </Pressable>
 
           <View style={styles.headerTextBlock}>
@@ -88,6 +129,24 @@ export default function CareScreen() {
           <Text style={styles.patientName}>{patientFirstName}</Text>
         </View>
 
+        <View style={styles.patientCard}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {patientSummary.patientInitials}
+            </Text>
+          </View>
+
+          <View style={styles.patientInfo}>
+            <Text style={styles.patientCardName}>
+              {patientSummary.patientName}
+            </Text>
+            <Text style={styles.patientDetail}>{patientSummaryDetail}</Text>
+            <Text style={styles.patientMuted}>
+              Caregiver: {caregiverContext}
+            </Text>
+          </View>
+        </View>
+
         <View style={styles.alertCard}>
           <View style={styles.alertHeader}>
             <View style={styles.alertIconCircle}>
@@ -96,59 +155,35 @@ export default function CareScreen() {
 
             <View style={styles.alertTitleBlock}>
               <Text style={styles.alertKicker}>Active Alert</Text>
-              <Text style={styles.alertTitle}>Red Breath Alert</Text>
+              <Text style={styles.alertTitle}>{activeAlertTitle}</Text>
               <Text style={styles.alertSubtitle}>
-                Severity 3 · Respiratory · Just now
+                {activeAlertSubtitle}
               </Text>
             </View>
 
             <View style={styles.newPill}>
-              <Text style={styles.newPillText}>New</Text>
+              <Text style={styles.newPillText}>{activeAlertPill}</Text>
             </View>
           </View>
 
           <View style={styles.metricRow}>
-            <MetricBox label="SpO₂" value="84%" detail="cutoff 88%" />
+            <MetricBox label="SpO2" value="84%" detail="cutoff 88%" />
             <MetricBox label="Heart Rate" value="118" detail="BPM" />
             <MetricBox label="Resp. Rate" value="32" detail="br/min" />
           </View>
-        </View>
 
-        <View style={styles.patientCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{getInitials(profile.patient.name)}</Text>
-          </View>
+          {activeAlertBody ? (
+            <Text style={styles.alertBodyText}>{activeAlertBody}</Text>
+          ) : null}
 
-          <View style={styles.patientInfo}>
-            <Text style={styles.patientCardName}>{profile.patient.name}</Text>
-            <Text style={styles.patientDetail}>
-              {profile.patient.age} yrs · {profile.patient.conditions}
-            </Text>
-            <Text style={styles.patientMuted}>No movement · 25 min</Text>
-          </View>
-        </View>
-
-        <View style={styles.safetyCard}>
-          <Text style={styles.safetyKicker}>Safety Note</Text>
-          <Text style={styles.safetyText}>
-            {profile.safety?.safetyNotes ?? "No safety notes provided."}
-          </Text>
-        </View>
-
-        <View style={styles.infoCard}>
-          <Text style={styles.sectionLabel}>Reason</Text>
-          <Text style={styles.infoText}>
-            {profile.patient.name}&apos;s oxygen reading is below the configured
-            safe threshold, with elevated respiratory rate and heart rate.
-          </Text>
-        </View>
-
-        <View style={styles.recommendationCard}>
-          <Text style={styles.recommendationKicker}>Recommendation</Text>
-          <Text style={styles.recommendationText}>
-            Check on {patientFirstName} immediately. Consider ER or 911 if
-            symptoms are severe. The app will not act automatically.
-          </Text>
+          {isRealAlert ? (
+            <Pressable
+              style={styles.alertHandledButton}
+              onPress={handleMarkHandled}
+            >
+              <Text style={styles.alertHandledText}>Mark handled</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <Text style={styles.sectionTitle}>Care Plan</Text>
@@ -158,7 +193,7 @@ export default function CareScreen() {
             <View>
               <Text style={styles.carePlanKicker}>Therapy Progress</Text>
               <Text style={styles.carePlanTitle}>
-                Week {providerCarePlan.current_therapy_week} · Day{" "}
+                Week {providerCarePlan.current_therapy_week} - Day{" "}
                 {dailyCareEntry.therapy_day}
               </Text>
               <Text style={styles.carePlanSubtitle}>
@@ -184,7 +219,7 @@ export default function CareScreen() {
             />
             <CarePlanMeta
               label="Logged by"
-              value={`${caregiverFirstName} · ${profile.caregiver.relationship}`}
+              value={`${caregiverFirstName} - ${caregiverContext}`}
             />
             <CarePlanMeta
               label="Assistance"
@@ -252,6 +287,13 @@ export default function CareScreen() {
           </View>
         </View>
 
+        <View style={styles.safetyCard}>
+          <Text style={styles.safetyKicker}>Safety Note</Text>
+          <Text style={styles.safetyText}>
+            {profile.safety?.safetyNotes ?? "No safety notes provided."}
+          </Text>
+        </View>
+
         <Text style={styles.sectionTitle}>Your Response</Text>
 
         <Pressable style={styles.callButton}>
@@ -285,7 +327,7 @@ export default function CareScreen() {
         </View>
 
         <Text style={styles.loggedText}>
-          All responses logged · You remain in control
+          All responses logged - You remain in control
         </Text>
 
         <Pressable
@@ -297,7 +339,7 @@ export default function CareScreen() {
             Review anomaly detection, wearable scenario details, and generated
             care explanation.
           </Text>
-          <Text style={styles.mlButtonLink}>Open care analysis →</Text>
+          <Text style={styles.mlButtonLink}>{"Open care analysis ->"}</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -386,14 +428,16 @@ function ProgressMetric({
   );
 }
 
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+function getInitialActiveCareAlert(): CareAlert | null {
+  try {
+    return getActiveCareAlerts()[0] ?? null;
+  } catch (error) {
+    if (__DEV__) {
+      console.warn("Falling back to mock Care Management alert.", error);
+    }
+
+    return null;
+  }
 }
 
 function formatCarePlanText(value: string): string {
@@ -407,6 +451,26 @@ function formatCarePlanText(value: string): string {
 function capitalize(value: string): string {
   if (!value) return value;
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function getSeverityLabel(severity: CareAlert["severity"]): string {
+  if (severity === 3) return "Urgent";
+  if (severity === 2) return "Watch";
+  return "Info";
+}
+
+function formatRelativeTime(iso: string): string {
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return "Recent";
+
+  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  return `${Math.round(hours / 24)}d ago`;
 }
 
 const styles = StyleSheet.create({
@@ -545,6 +609,28 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.white,
     fontSize: 12,
     marginTop: 3,
+  },
+  alertBodyText: {
+    color: AppTheme.colors.white,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "700",
+    marginTop: 16,
+  },
+  alertHandledButton: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.38)",
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    marginTop: 16,
+  },
+  alertHandledText: {
+    color: AppTheme.colors.white,
+    fontSize: 14,
+    fontWeight: "900",
   },
   patientCard: {
     backgroundColor: AppTheme.colors.surface,

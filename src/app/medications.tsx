@@ -101,7 +101,7 @@ export default function MedicationsScreen() {
 
           <View style={styles.nextDueCard}>
             <View style={styles.clockCircle}>
-              <Text style={styles.clockText}>◷</Text>
+              <Text style={styles.clockText}>⏰</Text>
             </View>
 
             <View style={styles.nextDueTextBlock}>
@@ -128,7 +128,7 @@ export default function MedicationsScreen() {
           ))}
 
           <Pressable style={styles.addMedicationButton}>
-            <Text style={styles.addMedicationText}>＋ Add Medication</Text>
+            <Text style={styles.addMedicationText}>➕ Add Medication</Text>
           </Pressable>
         </ScrollView>
 
@@ -210,7 +210,7 @@ function MedicationCard({
             isConfirmed && styles.timeTextConfirmed,
           ]}
         >
-          ◷ {medication.timeLabel}
+          ⏰ {medication.timeLabel}
         </Text>
       </View>
 
@@ -231,10 +231,10 @@ function MedicationCard({
             ]}
           >
             {isConfirmed
-              ? "✓ Confirmed"
+              ? "✅ Confirmed"
               : isMissed
                 ? "Mark Given Now"
-                : "✓ Confirm Given"}
+                : "✅ Confirm Given"}
           </Text>
         </Pressable>
 

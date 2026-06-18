@@ -1,15 +1,54 @@
 import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
+import {
+  getActiveCareAlerts,
+  resolveCareAlert,
+  type CareAlert,
+} from "@/services/care/careService";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 export function ActiveAlertCard() {
   const router = useRouter();
   const profile = getOnboardingProfile();
+  const [activeAlert, setActiveAlert] = useState<CareAlert | null>(null);
+
   const patientFirstName =
     profile.patient.name.trim().split(/\s+/)[0] || "patient";
+
+  const isRealAlert = activeAlert !== null;
+  const title = activeAlert?.title ?? "Red Breath Alert";
+  const subtitle = activeAlert
+    ? `Severity ${activeAlert.severity} · ${capitalize(activeAlert.status)} · ${formatRelativeTime(activeAlert.createdAt)}`
+    : "Severity 3 · Respiratory · Just now";
+  const pillLabel = activeAlert ? getSeverityLabel(activeAlert.severity) : "Urgent";
+  const body = activeAlert?.body
+    ? `${activeAlert.body} `
+    : `${profile.patient.name}'s oxygen is below her safe threshold. She hasn't moved in 25 min. `;
+
+  useEffect(() => {
+    try {
+      setActiveAlert(getActiveCareAlerts()[0] ?? null);
+    } catch (error) {
+      if (__DEV__) {
+        console.warn("Falling back to mock active alert.", error);
+      }
+      setActiveAlert(null);
+    }
+  }, []);
+
+  function handleDismiss() {
+    if (!activeAlert) return;
+
+    const resolved = resolveCareAlert(activeAlert.alertId);
+    if (!resolved && __DEV__) {
+      console.warn(`Unable to resolve alert ${activeAlert.alertId}`);
+    }
+    setActiveAlert(null);
+  }
 
   return (
     <View style={styles.card}>
@@ -20,12 +59,12 @@ export function ActiveAlertCard() {
 
         <View style={styles.titleBlock}>
           <Text style={styles.eyebrow}>Active Alert</Text>
-          <Text style={styles.title}>Red Breath Alert</Text>
-          <Text style={styles.subtitle}>Severity 3 · Respiratory · Just now</Text>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
 
         <View style={styles.urgentPill}>
-          <Text style={styles.urgentText}>Urgent</Text>
+          <Text style={styles.urgentText}>{pillLabel}</Text>
         </View>
       </View>
 
@@ -36,8 +75,7 @@ export function ActiveAlertCard() {
       </View>
 
       <Text style={styles.bodyText}>
-        {profile.patient.name}&apos;s oxygen is below her safe threshold. She
-        hasn&apos;t moved in 25 min.{" "}
+        {body}
         <Text style={styles.boldText}>
           You decide — the app never acts for you.
         </Text>
@@ -66,9 +104,11 @@ export function ActiveAlertCard() {
 
         <Pressable
           style={styles.secondaryButton}
-          onPress={() => router.push("/care")}
+          onPress={isRealAlert ? handleDismiss : () => router.push("/care")}
         >
-          <Text style={styles.secondaryButtonText}>Acknowledge</Text>
+          <Text style={styles.secondaryButtonText}>
+            {isRealAlert ? "✅ Mark handled" : "Acknowledge"}
+          </Text>
         </Pressable>
 
         <Pressable
@@ -79,11 +119,38 @@ export function ActiveAlertCard() {
         </Pressable>
       </View>
 
-      <Pressable onPress={() => router.push("/care")}>
-        <Text style={styles.footerLink}>Dismiss from home · View full alert →</Text>
+      <Pressable onPress={isRealAlert ? handleDismiss : () => router.push("/care")}>
+        <Text style={styles.footerLink}>
+          {isRealAlert ? "Dismiss from home" : "Dismiss from home · View full alert →"}
+        </Text>
       </Pressable>
     </View>
   );
+}
+
+function getSeverityLabel(severity: CareAlert["severity"]): string {
+  if (severity === 3) return "Urgent";
+  if (severity === 2) return "Watch";
+  return "Info";
+}
+
+function formatRelativeTime(iso: string): string {
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return "Recent";
+
+  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function capitalize(value: string): string {
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function MetricBox({ label, value }: { label: string; value: string }) {

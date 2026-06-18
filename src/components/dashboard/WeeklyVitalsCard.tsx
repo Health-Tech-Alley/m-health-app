@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
 
 type VitalKey = "spo2" | "heartRate" | "respRate" | "mobility";
+type TimeRange = "12h" | "day" | "week" | "month";
 
 type VitalMetric = {
   key: VitalKey;
@@ -14,54 +15,66 @@ type VitalMetric = {
   status: string;
   statusTone: "critical" | "warning" | "good";
   subtitle: string;
+  helperText: string;
   data: number[];
 };
 
 const metrics: VitalMetric[] = [
   {
     key: "spo2",
-    tabLabel: "SpO₂",
+    tabLabel: "🫁",
     label: "Oxygen Saturation",
     value: "84",
     unit: "%",
     status: "↓ Today · Critical",
     statusTone: "critical",
     subtitle: "Declining trend this week",
+    helperText: "SpO₂ estimates how much oxygen is in the blood.",
     data: [96, 95, 96, 94, 93, 92, 90],
   },
   {
     key: "heartRate",
-    tabLabel: "Heart Rate",
+    tabLabel: "❤️",
     label: "Heart Rate",
     value: "118",
     unit: "BPM",
     status: "↑ Today · Elevated",
     statusTone: "critical",
     subtitle: "Higher than baseline",
+    helperText: "Heart rate shows beats per minute compared with baseline.",
     data: [82, 86, 88, 94, 98, 110, 118],
   },
   {
     key: "respRate",
-    tabLabel: "Resp. Rate",
+    tabLabel: "🌬️",
     label: "Respiratory Rate",
     value: "32",
     unit: "br/min",
     status: "↑ Today · Elevated",
     statusTone: "warning",
     subtitle: "Breathing faster than usual",
+    helperText: "Respiratory rate counts breaths per minute.",
     data: [20, 21, 23, 24, 26, 29, 32],
   },
   {
     key: "mobility",
-    tabLabel: "Mobility",
+    tabLabel: "🚶",
     label: "Mobility Score",
     value: "55",
     unit: "/100",
     status: "↓ Today · Lower",
     statusTone: "warning",
     subtitle: "Movement below expected pattern",
+    helperText: "Mobility reflects movement compared with the usual pattern.",
     data: [82, 78, 74, 72, 68, 61, 55],
   },
+];
+
+const timeRanges: { key: TimeRange; label: string }[] = [
+  { key: "12h", label: "12h" },
+  { key: "day", label: "Day" },
+  { key: "week", label: "Week" },
+  { key: "month", label: "Month" },
 ];
 
 const days = ["M", "T", "W", "Th", "F", "Sa", "Su"];
@@ -70,12 +83,25 @@ const POINT_SIZE = 13;
 
 export function WeeklyVitalsCard() {
   const [selectedKey, setSelectedKey] = useState<VitalKey>("spo2");
+  const [selectedRange, setSelectedRange] = useState<TimeRange>("week");
+  const [helperKey, setHelperKey] = useState<VitalKey | null>(null);
 
   const selectedMetric =
     metrics.find((metric) => metric.key === selectedKey) ?? metrics[0];
+  const helperMetric = metrics.find((metric) => metric.key === helperKey);
 
   const heartRate = metrics.find((metric) => metric.key === "heartRate");
   const respRate = metrics.find((metric) => metric.key === "respRate");
+
+  useEffect(() => {
+    if (!helperKey) return;
+
+    const timeout = setTimeout(() => {
+      setHelperKey(null);
+    }, 3500);
+
+    return () => clearTimeout(timeout);
+  }, [helperKey]);
 
   return (
     <View style={styles.card}>
@@ -93,7 +119,10 @@ export function WeeklyVitalsCard() {
               <Pressable
                 key={metric.key}
                 style={[styles.tab, active && styles.tabActive]}
-                onPress={() => setSelectedKey(metric.key)}
+                onPress={() => {
+                  setSelectedKey(metric.key);
+                  setHelperKey(metric.key);
+                }}
               >
                 <Text style={[styles.tabText, active && styles.tabTextActive]}>
                   {metric.tabLabel}
@@ -102,6 +131,10 @@ export function WeeklyVitalsCard() {
             );
           })}
         </View>
+
+        {helperMetric ? (
+          <Text style={styles.metricHelperText}>{helperMetric.helperText}</Text>
+        ) : null}
       </View>
 
       <View style={styles.valueRow}>
@@ -117,6 +150,29 @@ export function WeeklyVitalsCard() {
         >
           {selectedMetric.status}
         </Text>
+      </View>
+
+      <View style={styles.rangeRow}>
+        {timeRanges.map((range) => {
+          const active = range.key === selectedRange;
+
+          return (
+            <Pressable
+              key={range.key}
+              style={[styles.rangePill, active && styles.rangePillActive]}
+              onPress={() => setSelectedRange(range.key)}
+            >
+              <Text
+                style={[
+                  styles.rangePillText,
+                  active && styles.rangePillTextActive,
+                ]}
+              >
+                {range.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       <TrendChart values={selectedMetric.data} />
@@ -154,7 +210,9 @@ function TrendChart({ values }: { values: number[] }) {
 
     return values.map((value, index) => {
       const x =
-        values.length === 1 ? chartWidth / 2 : (index / (values.length - 1)) * chartWidth;
+        values.length === 1
+          ? chartWidth / 2
+          : (index / (values.length - 1)) * chartWidth;
 
       const normalized = (value - min) / range;
       const y = CHART_HEIGHT - normalized * (CHART_HEIGHT - 12) - 6;
@@ -294,7 +352,7 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    minHeight: 52,
+    minHeight: 56,
     borderRadius: 18,
     backgroundColor: AppTheme.colors.softSurface,
     alignItems: "center",
@@ -307,25 +365,31 @@ const styles = StyleSheet.create({
   },
   tabText: {
     color: AppTheme.colors.textSoft,
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: "900",
     textAlign: "center",
   },
   tabTextActive: {
     color: AppTheme.colors.white,
   },
+  metricHelperText: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
+    marginTop: 10,
+  },
   valueRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    marginBottom: 16,
+    marginBottom: 12,
     flexWrap: "wrap",
   },
   mainValue: {
     color: AppTheme.colors.brandDark,
     fontSize: 34,
     fontWeight: "900",
-    letterSpacing: -0.5,
   },
   unit: {
     color: AppTheme.colors.textMuted,
@@ -347,6 +411,28 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.warning,
   },
   statusGood: {
+    color: AppTheme.colors.brand,
+  },
+  rangeRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 16,
+  },
+  rangePill: {
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.colors.softSurface,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  rangePillActive: {
+    backgroundColor: AppTheme.colors.brandSoft,
+  },
+  rangePillText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  rangePillTextActive: {
     color: AppTheme.colors.brand,
   },
 
