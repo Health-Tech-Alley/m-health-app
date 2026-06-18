@@ -128,6 +128,7 @@ export default function CareScreen() {
   );
   const [openConsideration, setOpenConsideration] = useState<string | null>(null);
   const [slmOpen, setSlmOpen] = useState(false);
+  const [slmPrompt, setSlmPrompt] = useState("");
 
   const functionalTarget =
     providerCarePlan.milestones.week_3.functional_task_score_target;
@@ -349,6 +350,7 @@ export default function CareScreen() {
             <Pressable
               style={styles.explainSlmButton}
               onPress={() => {
+                setSlmPrompt(`Explain this safety consideration for ${profile.patient.name} in plain, calm language a family caregiver can act on: "${openConsideration ?? ""}". Include why it matters, what to watch for, and what to do next.`);
                 setSlmOpen(true);
                 setOpenConsideration(null);
               }}
@@ -362,10 +364,13 @@ export default function CareScreen() {
 
       <SlmInsightSheet
         visible={slmOpen}
-        onClose={() => setSlmOpen(false)}
+        onClose={() => {
+          setSlmOpen(false);
+          setSlmPrompt("");
+        }}
         title="Assistant explanation"
         reason="safety_note_explain"
-        prompt={`Explain this safety consideration for ${profile.patient.name} in plain, calm language a family caregiver can act on: "${openConsideration ?? ""}". Include why it matters, what to watch for, and what to do next.`}
+        prompt={slmPrompt}
       />
 
       {/* Field edit modal (pain before/after, fatigue, notes) */}

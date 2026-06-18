@@ -79,6 +79,12 @@ export class SlmTaskQueue {
    * - If policy is 'manual' and not ready, throws SlmNotReadyError.
    *
    * Cancels any pending auto-unload timer.
+   *
+   * Note: after awaiting a load we grant the lease directly rather than
+   * re-reading getLoadStatus(). The await continuation runs as a microtask,
+   * before React's scheduled render, so the status getter would still report
+   * the pre-load value ('loading'/'idle') and wrongly reject the lease. A
+   * resolved load promise means the model is ready.
    */
   async acquire(reason: SlmTaskReason): Promise<SlmTaskLease> {
     this.cancelAutoUnload();
@@ -86,52 +92,44 @@ export class SlmTaskQueue {
     const status = this.config.getLoadStatus();
     const policy = this.config.getPolicy();
 
+    // Already loaded — grant immediately.
     if (status === 'ready') {
       this.refcount++;
       return this.makeLease(reason);
     }
 
+    // A load is already in progress — await it rather than starting a second.
     if (status === 'loading') {
       const existing = this.config.getLoadPromise();
-      if (existing) {
-        await existing;
-        if (this.config.getLoadStatus() === 'ready') {
-          this.refcount++;
-          return this.makeLease(reason);
-        }
-      }
-      // Load failed — fall through to manual check below.
-    }
-
-    if (status === 'idle' || status === 'error') {
-      if (policy === 'manual') {
+      if (!existing) {
+        // Inconsistent state (loading with no tracked promise) — bail safely.
         throw new SlmNotReadyError(reason);
       }
-
-      // Auto-load the default model.
-      const modelId = this.config.getDefaultModelId();
-      const loadPromise = this.config.loadModel(modelId).then(() => {
-        this.config.setLoadPromise(null);
-      }).catch((err) => {
-        this.config.setLoadPromise(null);
-        throw err;
-      });
-      this.config.setLoadPromise(loadPromise);
-
-      await loadPromise;
-
-      if (this.config.getLoadStatus() === 'ready') {
-        this.refcount++;
-        return this.makeLease(reason);
-      }
+      await existing; // throws if the in-progress load fails
+      this.refcount++;
+      return this.makeLease(reason);
     }
 
-    // Status is 'error' after a failed load, or 'loading' but didn't become ready.
+    // status is 'idle' or 'error' — only auto-load on demand in auto policy.
     if (policy === 'manual') {
       throw new SlmNotReadyError(reason);
     }
-    // In auto mode, if the load failed, throw with the underlying error.
-    throw new SlmNotReadyError(reason);
+
+    // Auto-load the default model, then grant the lease.
+    const modelId = this.config.getDefaultModelId();
+    const loadPromise = this.config.loadModel(modelId)
+      .then(() => {
+        this.config.setLoadPromise(null);
+      })
+      .catch((err) => {
+        this.config.setLoadPromise(null);
+        throw err;
+      });
+    this.config.setLoadPromise(loadPromise);
+
+    await loadPromise; // throws if the load fails → propagates to the caller
+    this.refcount++;
+    return this.makeLease(reason);
   }
 
   /**
