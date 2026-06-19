@@ -31,6 +31,7 @@ export {
   getActiveMedications,
   getMedicationById,
   deleteMedication,
+  deleteCarePlanMedicationsForPatient,
   upsertCondition,
   getConditionsForPatient,
   confirmPendingCondition,
@@ -51,6 +52,7 @@ export * from './repositories/mlEventRepository';
 export * from './repositories/patientRecordRepository';
 export * from './repositories/dailyCareEntryRepository';
 export * from './repositories/appointmentRepository';
+export * from './repositories/thresholdRecommendationRepository';
 export * from './sensors';
 export { seedDatabaseFromProfile } from './seed/seedFromProfile';
 

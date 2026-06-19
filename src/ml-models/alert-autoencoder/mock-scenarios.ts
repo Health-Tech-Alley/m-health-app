@@ -1,4 +1,10 @@
 import type { ExtendedVitals } from './types';
+import type {
+  CaregiverFinalAction,
+  FinalNotificationType,
+  PipelinePath,
+  UC2ContextualType,
+} from '../uc2-decision-layer';
 
 export interface VitalsScenario {
   id: string;
@@ -6,6 +12,29 @@ export interface VitalsScenario {
   description: string;
   vitals: ExtendedVitals;
   expectedAnomaly: boolean;
+  /**
+   * Hour-of-day (0-23) used to build the UC2 `timestamp`, which drives the
+   * derived `hour_sin` / `hour_cos` / `is_sleep_window` features. Defaults to
+   * 13 (1 PM) when omitted.
+   */
+  hour?: number;
+  /**
+   * Fields to drop from the model input so the UC2 imputation path fills them
+   * with patient-profile / fallback defaults. Used to test imputation
+   * provenance (`observed` vs `imputed`).
+   */
+  missingFields?: (keyof ExtendedVitals)[];
+  // ── UC2 expected metadata (for the batch parity runner + scenario labels) ──
+  expectedPipelinePath?: PipelinePath;
+  expectedInitialAnomalyType?: UC2ContextualType;
+  expectedPostHitlAnomalyType?: UC2ContextualType;
+  expectedFinalNotificationType?: FinalNotificationType;
+  expectedSeverity?: 0 | 1 | 2 | 3;
+  expectedEmergencyReason?: string;
+  /** Preset caregiver observation codes to apply with the scenario. */
+  presetObservationCodes?: string[];
+  /** Preset caregiver final action to apply with the scenario. */
+  presetCaregiverAction?: CaregiverFinalAction;
 }
 
 export const SCENARIOS: VitalsScenario[] = [
@@ -29,6 +58,10 @@ export const SCENARIOS: VitalsScenario[] = [
       calories_burned: 50,
     },
     expectedAnomaly: false,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
+    expectedInitialAnomalyType: 'NORMAL_PATTERN',
+    expectedFinalNotificationType: 'NO_ALERT',
+    expectedSeverity: 0,
   },
   {
     id: 'normal-active',
@@ -50,6 +83,8 @@ export const SCENARIOS: VitalsScenario[] = [
       calories_burned: 350,
     },
     expectedAnomaly: false,
+    hour: 10,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
   },
   {
     id: 'post-stroke-recovery',
@@ -71,6 +106,7 @@ export const SCENARIOS: VitalsScenario[] = [
       calories_burned: 80,
     },
     expectedAnomaly: true,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
   },
   {
     id: 'copd-exacerbation',
@@ -92,6 +128,7 @@ export const SCENARIOS: VitalsScenario[] = [
       calories_burned: 80,
     },
     expectedAnomaly: true,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
   },
   {
     id: 'hypoglycemia',
@@ -113,6 +150,7 @@ export const SCENARIOS: VitalsScenario[] = [
       calories_burned: 120,
     },
     expectedAnomaly: true,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
   },
   {
     id: 'fever-infection',
@@ -134,6 +172,7 @@ export const SCENARIOS: VitalsScenario[] = [
       calories_burned: 200,
     },
     expectedAnomaly: true,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
   },
   {
     id: 'hypertensive-crisis',
@@ -155,6 +194,7 @@ export const SCENARIOS: VitalsScenario[] = [
       calories_burned: 90,
     },
     expectedAnomaly: true,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
   },
   {
     id: 'sleep-window',
@@ -176,5 +216,244 @@ export const SCENARIOS: VitalsScenario[] = [
       calories_burned: 40,
     },
     expectedAnomaly: false,
+    hour: 2,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
+  },
+
+  // ── UC2 rule-engine fast paths (severity 3, deterministic) ──
+  {
+    id: 'spo2-critical',
+    name: 'Critical SpO2 (rule engine)',
+    description: 'SpO2 at/under 88% triggers the emergency fast path before ML',
+    vitals: {
+      heart_rate: 110,
+      blood_oxygen: 84,
+      blood_pressure_systolic: 135,
+      blood_pressure_diastolic: 85,
+      glucose_level: 100,
+      body_temperature: 98.8,
+      respiratory_rate: 26,
+      activity_level: 0.05,
+      sleep_quality: 0.3,
+      stress_level: 0.8,
+      hrv_sdnn: 30,
+      steps_count: 50,
+      calories_burned: 80,
+    },
+    expectedAnomaly: true,
+    expectedPipelinePath: 'RULE_ENGINE_EMERGENCY_FAST_PATH',
+    expectedInitialAnomalyType: 'CRITICAL_EMERGENCY_ALERT',
+    expectedPostHitlAnomalyType: 'CRITICAL_EMERGENCY_ALERT',
+    expectedFinalNotificationType: 'CRITICAL_EMERGENCY_ALERT',
+    expectedSeverity: 3,
+    expectedEmergencyReason: 'LOW_BLOOD_OXYGEN',
+  },
+  {
+    id: 'fever-critical',
+    name: 'Critical Fever (rule engine)',
+    description: 'Temperature at/over 104F triggers the emergency fast path',
+    vitals: {
+      heart_rate: 108,
+      blood_oxygen: 95,
+      blood_pressure_systolic: 120,
+      blood_pressure_diastolic: 78,
+      glucose_level: 110,
+      body_temperature: 104.5,
+      respiratory_rate: 24,
+      activity_level: 0.05,
+      sleep_quality: 0.3,
+      stress_level: 0.6,
+      hrv_sdnn: 32,
+      steps_count: 60,
+      calories_burned: 120,
+    },
+    expectedAnomaly: true,
+    expectedPipelinePath: 'RULE_ENGINE_EMERGENCY_FAST_PATH',
+    expectedInitialAnomalyType: 'CRITICAL_EMERGENCY_ALERT',
+    expectedPostHitlAnomalyType: 'CRITICAL_EMERGENCY_ALERT',
+    expectedFinalNotificationType: 'CRITICAL_EMERGENCY_ALERT',
+    expectedSeverity: 3,
+    expectedEmergencyReason: 'HIGH_FEVER_F',
+  },
+  {
+    id: 'tachycardia-critical',
+    name: 'Extreme Tachycardia (rule engine)',
+    description: 'Heart rate at/over 140 bpm triggers the emergency fast path',
+    vitals: {
+      heart_rate: 148,
+      blood_oxygen: 96,
+      blood_pressure_systolic: 150,
+      blood_pressure_diastolic: 95,
+      glucose_level: 105,
+      body_temperature: 99.0,
+      respiratory_rate: 22,
+      activity_level: 0.1,
+      sleep_quality: 0.4,
+      stress_level: 0.7,
+      hrv_sdnn: 28,
+      steps_count: 100,
+      calories_burned: 150,
+    },
+    expectedAnomaly: true,
+    expectedPipelinePath: 'RULE_ENGINE_EMERGENCY_FAST_PATH',
+    expectedInitialAnomalyType: 'CRITICAL_EMERGENCY_ALERT',
+    expectedPostHitlAnomalyType: 'CRITICAL_EMERGENCY_ALERT',
+    expectedFinalNotificationType: 'CRITICAL_EMERGENCY_ALERT',
+    expectedSeverity: 3,
+    expectedEmergencyReason: 'EXTREME_HEART_RATE',
+  },
+  {
+    id: 'tachypnea-critical',
+    name: 'Critical Tachypnea (rule engine)',
+    description: 'Respiratory rate at/over 30 triggers the emergency fast path',
+    vitals: {
+      heart_rate: 118,
+      blood_oxygen: 90,
+      blood_pressure_systolic: 130,
+      blood_pressure_diastolic: 82,
+      glucose_level: 100,
+      body_temperature: 99.4,
+      respiratory_rate: 32,
+      activity_level: 0.05,
+      sleep_quality: 0.3,
+      stress_level: 0.8,
+      hrv_sdnn: 30,
+      steps_count: 40,
+      calories_burned: 90,
+    },
+    expectedAnomaly: true,
+    expectedPipelinePath: 'RULE_ENGINE_EMERGENCY_FAST_PATH',
+    expectedInitialAnomalyType: 'CRITICAL_EMERGENCY_ALERT',
+    expectedPostHitlAnomalyType: 'CRITICAL_EMERGENCY_ALERT',
+    expectedFinalNotificationType: 'CRITICAL_EMERGENCY_ALERT',
+    expectedSeverity: 3,
+    expectedEmergencyReason: 'HIGH_RESPIRATORY_RATE',
+  },
+
+  // ── UC2 contextual-routing scenarios (sub-threshold multivariate) ──
+  {
+    id: 'respiratory-concern',
+    name: 'Respiratory Concern',
+    description: 'Low-normal SpO2 with raised RR and stress — targets RESPIRATORY_CONCERN routing',
+    vitals: {
+      heart_rate: 92,
+      blood_oxygen: 91,
+      blood_pressure_systolic: 128,
+      blood_pressure_diastolic: 82,
+      glucose_level: 100,
+      body_temperature: 98.9,
+      respiratory_rate: 24,
+      activity_level: 0.1,
+      sleep_quality: 0.35,
+      stress_level: 0.75,
+      hrv_sdnn: 32,
+      steps_count: 120,
+      calories_burned: 90,
+    },
+    expectedAnomaly: true,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
+    expectedInitialAnomalyType: 'RESPIRATORY_CONCERN',
+    presetObservationCodes: ['BREATHING_CHANGE'],
+    presetCaregiverAction: 'confirm_concern',
+  },
+  {
+    id: 'gi-autonomic',
+    name: 'GI / Autonomic Risk',
+    description: 'Glucose + temperature + activity drift — targets GI_AUTONOMIC_RISK routing',
+    vitals: {
+      heart_rate: 88,
+      blood_oxygen: 96,
+      blood_pressure_systolic: 122,
+      blood_pressure_diastolic: 78,
+      glucose_level: 165,
+      body_temperature: 100.2,
+      respiratory_rate: 19,
+      activity_level: 0.08,
+      sleep_quality: 0.4,
+      stress_level: 0.6,
+      hrv_sdnn: 38,
+      steps_count: 80,
+      calories_burned: 110,
+    },
+    expectedAnomaly: true,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
+    expectedInitialAnomalyType: 'GI_AUTONOMIC_RISK',
+    presetObservationCodes: ['VOMITING_DIARRHEA', 'LOW_INTAKE'],
+    presetCaregiverAction: 'confirm_concern',
+  },
+  {
+    id: 'sleep-stress-recovery',
+    name: 'Sleep / Stress Recovery',
+    description: 'Poor sleep + high stress + low HRV — targets SLEEP_STRESS_RECOVERY routing',
+    vitals: {
+      heart_rate: 78,
+      blood_oxygen: 96,
+      blood_pressure_systolic: 126,
+      blood_pressure_diastolic: 80,
+      glucose_level: 108,
+      body_temperature: 98.4,
+      respiratory_rate: 17,
+      activity_level: 0.1,
+      sleep_quality: 0.25,
+      stress_level: 0.85,
+      hrv_sdnn: 22,
+      steps_count: 150,
+      calories_burned: 70,
+    },
+    expectedAnomaly: true,
+    hour: 7,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
+    expectedInitialAnomalyType: 'SLEEP_STRESS_RECOVERY',
+    presetObservationCodes: ['POOR_SLEEP', 'STRESS'],
+    presetCaregiverAction: 'continue_monitoring',
+  },
+  {
+    id: 'exertion-like',
+    name: 'Exertion-Like Pattern',
+    description: 'High steps + calories + activity — targets EXERTION_LIKE_PATTERN routing',
+    vitals: {
+      heart_rate: 102,
+      blood_oxygen: 95,
+      blood_pressure_systolic: 138,
+      blood_pressure_diastolic: 88,
+      glucose_level: 112,
+      body_temperature: 99.6,
+      respiratory_rate: 23,
+      activity_level: 0.85,
+      sleep_quality: 0.6,
+      stress_level: 0.4,
+      hrv_sdnn: 42,
+      steps_count: 9500,
+      calories_burned: 620,
+    },
+    expectedAnomaly: true,
+    hour: 9,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
+    expectedInitialAnomalyType: 'EXERTION_LIKE_PATTERN',
+    presetObservationCodes: ['EXERCISE_ACTIVITY'],
+    presetCaregiverAction: 'dismiss',
+  },
+  {
+    id: 'imputation-test',
+    name: 'Imputation Test',
+    description: 'Several fields missing — exercises UC2 imputation + provenance',
+    vitals: {
+      heart_rate: 84,
+      blood_oxygen: 95,
+      blood_pressure_systolic: 124,
+      blood_pressure_diastolic: 80,
+      glucose_level: 102,
+      body_temperature: 98.6,
+      respiratory_rate: 17,
+      activity_level: 0.2,
+      sleep_quality: 0.6,
+      stress_level: 0.3,
+      hrv_sdnn: 48,
+      steps_count: 250,
+      calories_burned: 110,
+    },
+    expectedAnomaly: false,
+    expectedPipelinePath: 'UC2_SLOW_PATH',
+    missingFields: ['stress_level', 'sleep_quality', 'hrv_sdnn', 'calories_burned'],
   },
 ];

@@ -10,7 +10,7 @@
  */
 
 import { useEffect } from 'react';
-import { DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import { DefaultTheme, Stack, ThemeProvider, useRouter } from "expo-router";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { InAppBanner } from "@/components/notifications/in-app-banner";
@@ -44,6 +44,44 @@ function NotificationInit() {
   return null;
 }
 
+/**
+ * Register the notification response handler so tapping a notification
+ * deep-links to the relevant screen:
+ *   anomaly      -> /alert-detail?alertId=<triggerRef>
+ *   medication   -> /medications
+ *   appointment  -> /schedule
+ * The handler is registered once at the root and uses the router to navigate.
+ */
+function NotificationResponseInit() {
+  const router = useRouter();
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { setNotificationResponseHandler, handleMedicationAction } = await import(
+          '@/services/notifications'
+        );
+        if (cancelled) return;
+        setNotificationResponseHandler(async (notificationId, action) => {
+          // Medication reminder actions are handled inline by the reminder engine.
+          if (action === 'taken' || action === 'snooze') {
+            try {
+              await handleMedicationAction(notificationId, action as 'taken' | 'snooze');
+            } catch {
+              // ignore — best-effort
+            }
+            return;
+          }
+        });
+      } catch {
+        // Notifications module unavailable — graceful.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [router]);
+  return null;
+}
+
 export default function RootLayout() {
   return (
     <ThemeProvider value={DefaultTheme}>
@@ -52,6 +90,7 @@ export default function RootLayout() {
           <SLMProvider>
             <SlmPolicySync />
             <NotificationInit />
+            <NotificationResponseInit />
             <OrchestratorProvider>
               <AnimatedSplashOverlay />
               <InAppBanner />

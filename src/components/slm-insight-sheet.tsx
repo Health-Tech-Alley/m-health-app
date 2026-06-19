@@ -25,10 +25,13 @@
  * unavailable (Track A) so the UX is always demonstrable.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Dimensions,
   Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -49,6 +52,11 @@ import {
   buildCaregiverSystemContext,
   askCaregiverAssistantMock,
 } from '@/services/slm/slmService';
+import {
+  retrieveClinicalChunks,
+  formatCitationsForPrompt,
+  buildRetrievalQuery,
+} from '@/clinical-evidence/retrieval-helper';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 
 export interface SlmInsightSheetProps {
@@ -66,6 +74,11 @@ type Phase = 'idle' | 'loading' | 'thinking' | 'streaming' | 'done' | 'error';
 type Source = 'native' | 'mock';
 
 const MOCK_STREAM_DELAY_MS = 25;
+
+// Points-based cap for the scrollable answer area. A definite (non-percentage)
+// maxHeight guarantees the ScrollView bounds + scrolls regardless of the
+// surrounding flex layout — the fragile part of the previous implementation.
+const BODY_MAX_HEIGHT = Math.round(Dimensions.get('window').height * 0.5);
 
 export function SlmInsightSheet({
   visible,
@@ -104,6 +117,12 @@ export function SlmInsightSheet({
   const cancelRef = useRef(false);
   const scrollRef = useRef<ScrollView | null>(null);
   const ranRef = useRef(false);
+
+  // Swipe-down-to-dismiss: the sheet translates with a downward drag on the
+  // handle/header; releasing past the threshold closes it. Kept on the handle
+  // area only so the ScrollView below keeps scrolling normally.
+  const [panY] = useState(() => new Animated.Value(0));
+  const dragThreshold = 90;
 
   /**
    * Ensure a model is loaded and return a lease when possible.
@@ -196,6 +215,18 @@ export function SlmInsightSheet({
       ? buildCaregiverAssistantContextFromSnapshot(snapshot)
       : {};
 
+    // Retrieve clinical knowledge chunks from the knowledge cache (cache-only,
+    // no live supplement — this is a transient sheet and latency matters).
+    // Query: patient's primary condition + the prompt text (which contains the
+    // safety consideration or med-check question).
+    const conditionName = snapshot?.primaryCondition?.name;
+    const retrievalQuery = buildRetrievalQuery(conditionName, prompt);
+    const citations = retrieveClinicalChunks(retrievalQuery, 3);
+    const citationBlock = formatCitationsForPrompt(citations);
+    const enrichedPrompt = citationBlock
+      ? `${prompt}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above. Cite sources in brackets like [PMID-12345678].`
+      : prompt;
+
     // Prefer the native provider when a model is actually loaded. We check the
     // provider directly (getModelInfo()) rather than slm.loadStatus: after
     // awaiting a load the continuation runs as a microtask, before React
@@ -214,7 +245,7 @@ export function SlmInsightSheet({
         const result = await provider.chat(
           [
             { role: 'system', content: systemContext },
-            { role: 'user', content: prompt },
+            { role: 'user', content: enrichedPrompt },
           ],
           (token) => {
             if (!firstTokenSeen) {
@@ -248,7 +279,7 @@ export function SlmInsightSheet({
     // rendered as Markdown when done).
     setSource('mock');
     try {
-      const mock = await askCaregiverAssistantMock(prompt, context);
+      const mock = await askCaregiverAssistantMock(enrichedPrompt, context);
       if (cancelRef.current) return;
       await streamMock(mock.answer);
       if (cancelRef.current) return;
@@ -325,6 +356,38 @@ export function SlmInsightSheet({
     onClose();
   }, [onClose, slmPolicy, slmUnloadModel, taskQueue]);
 
+  // Reset the drag offset whenever the sheet opens/closes so a previous
+  // partial drag doesn't linger.
+  useEffect(() => {
+    panY.setValue(0);
+  }, [visible, panY]);
+
+  /* eslint-disable react-hooks/refs -- PanResponder callbacks fire at event
+     time, not during render; handleClose/panY are captured, not invoked. */
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_evt, g) =>
+          g.dy > 8 && Math.abs(g.dy) > Math.abs(g.dx),
+        onPanResponderMove: (_evt, g) => {
+          if (g.dy > 0) panY.setValue(g.dy);
+        },
+        onPanResponderRelease: (_evt, g) => {
+          if (g.dy > dragThreshold) {
+            handleClose();
+          } else {
+            Animated.spring(panY, { toValue: 0, useNativeDriver: true }).start();
+          }
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(panY, { toValue: 0, useNativeDriver: true }).start();
+        },
+      }),
+    [handleClose, panY],
+  );
+  /* eslint-enable react-hooks/refs */
+
   useEffect(() => {
     return () => {
       cancelRef.current = true;
@@ -352,19 +415,26 @@ export function SlmInsightSheet({
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <Pressable style={styles.overlay} onPress={handleClose}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.header}>
-            <Text style={styles.title}>{title}</Text>
-            <Pressable style={styles.closeButton} onPress={handleClose} hitSlop={12}>
-              <Text style={styles.closeText}>×</Text>
-            </Pressable>
+      <View style={styles.overlay}>
+        {/* Tappable backdrop fills the space above the sheet (sheet is pinned
+            to the bottom by the column's flex). Tapping the sheet itself never
+            hits this, so the sheet stays open. */}
+        <Pressable style={styles.backdrop} onPress={handleClose} />
+
+        <Animated.View style={[styles.sheet, { transform: [{ translateY: panY }] }]}>
+          {/* Drag handle + header — swipe down here to dismiss. */}
+          <View style={styles.dragArea} {...panResponder.panHandlers}>
+            <View style={styles.handle} />
+            <View style={styles.header}>
+              <Text style={styles.title}>{title}</Text>
+              <Pressable style={styles.closeButton} onPress={handleClose} hitSlop={12}>
+                <Text style={styles.closeText}>×</Text>
+              </Pressable>
+            </View>
           </View>
 
-          <View style={styles.handle} />
-
-          {/* Persistent status line — always visible so the caregiver knows
-              exactly what the assistant is doing right now. */}
+          {/* Persistent status line — always visible (pinned, outside the
+              scroll) so the caregiver always sees the model state. */}
           <View style={[styles.statusRow, { backgroundColor: statusTone.bg }]}>
             {inProgress ? (
               <ActivityIndicator color={statusTone.fg} size="small" />
@@ -376,13 +446,15 @@ export function SlmInsightSheet({
             </Text>
           </View>
 
+          {/* Scrollable body — bounded by a points-based maxHeight so it always
+              scrolls reliably regardless of the sheet's content height. */}
           <ScrollView
             ref={scrollRef}
             style={styles.body}
             contentContainerStyle={styles.bodyContent}
             keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
           >
-            {/* Echo the prompt so the caregiver sees what was asked. */}
             {prompt.length > 0 ? (
               <View style={styles.promptBlock}>
                 <Text style={styles.promptLabel}>You asked</Text>
@@ -398,29 +470,24 @@ export function SlmInsightSheet({
               </Text>
             ) : null}
 
-            {phase === 'thinking' ? (
+            {(phase === 'loading' || phase === 'thinking') ? (
               <Text style={styles.thinkingText}>Thinking…</Text>
             ) : null}
 
+            {/* Streaming: raw token stream in faded italic (like the Assistant tab). */}
             {phase === 'streaming' ? (
               <Text style={styles.streamingText}>{answer || '…'}</Text>
             ) : null}
 
+            {/* Done: the cleaned answer rendered as Markdown (bold/headers). */}
             {phase === 'done' ? (
               finalText ? (
                 <MarkdownRenderer size="large">{finalText}</MarkdownRenderer>
               ) : answer ? (
                 <Text style={styles.answerText}>{answer}</Text>
               ) : (
-                <Text style={styles.emptyText}>No response yet.</Text>
+                <Text style={styles.emptyText}>No response.</Text>
               )
-            ) : null}
-
-            {phase !== 'error' &&
-            phase !== 'done' &&
-            phase !== 'streaming' &&
-            phase !== 'thinking' ? (
-              <Text style={styles.emptyText}>Waiting for the assistant…</Text>
             ) : null}
           </ScrollView>
 
@@ -429,8 +496,8 @@ export function SlmInsightSheet({
               Assistant guidance — not a diagnosis. Confirm with the care team.
             </Text>
           ) : null}
-        </Pressable>
-      </Pressable>
+        </Animated.View>
+      </View>
     </Modal>
   );
 }
@@ -484,13 +551,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
+  backdrop: {
+    flex: 1,
+  },
   sheet: {
     backgroundColor: AppTheme.colors.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    maxHeight: '85%',
     paddingTop: 12,
     paddingBottom: 24,
+  },
+  dragArea: {
+    paddingHorizontal: 20,
   },
   handle: {
     width: 40,
@@ -504,7 +576,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
     marginBottom: 8,
   },
   title: {
@@ -548,6 +619,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   body: {
+    maxHeight: BODY_MAX_HEIGHT,
     paddingHorizontal: 20,
   },
   bodyContent: {

@@ -46,6 +46,11 @@ import {
   downloadCaregiverSLMModel,
   isCaregiverSLMModelInstalled,
 } from '@/services/slm/slmService';
+import {
+  retrieveClinicalChunks,
+  formatCitationsForPrompt,
+  messageHasClinicalKeywords,
+} from '@/clinical-evidence/retrieval-helper';
 import { isModelInstalled } from '@/services/model-storage';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 

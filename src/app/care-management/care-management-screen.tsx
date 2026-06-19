@@ -10,9 +10,17 @@ const initialState: CareManagementState = {
   selectedScenarioId: null,
   coreVitals: null,
   extendedVitals: null,
+  hour: 13,
+  missingFields: [],
   mlStatus: 'idle',
-  mlResult: null,
+  uc2Result: null,
+  initialUc2Result: null,
   mlError: null,
+  observationCodes: [],
+  caregiverAction: 'no_prompt_shown',
+  publishToOrchestrator: false,
+  batchRunning: false,
+  batchRows: [],
   slmStatus: 'idle',
   slmExplanation: '',
   slmThinking: '',
@@ -20,16 +28,6 @@ const initialState: CareManagementState = {
   slmError: null,
   validationErrors: [],
 };
-
-function parseSLMOutput(fullText: string): { thinking: string; explanation: string } {
-  const thinkingMatch = fullText.match(/<THINKING>([\s\S]*?)<\/THINKING>/i);
-  const explanationMatch = fullText.match(/<EXPLANATION>([\s\S]*?)<\/EXPLANATION>/i);
-
-  const thinking = thinkingMatch ? thinkingMatch[1].trim() : '';
-  const explanation = explanationMatch ? explanationMatch[1].trim() : '';
-
-  return { thinking, explanation };
-}
 
 function reducer(state: CareManagementState, action: CareManagementAction): CareManagementState {
   switch (action.type) {
@@ -39,35 +37,71 @@ function reducer(state: CareManagementState, action: CareManagementAction): Care
     case 'select-scenario':
       return {
         ...initialState,
+        // Preserve the publish toggle across scenario changes — it's a
+        // harness-level setting, not a per-scenario one.
+        publishToOrchestrator: state.publishToOrchestrator,
         selectedScenarioId: action.payload.scenarioId,
         coreVitals: action.payload.core,
         extendedVitals: action.payload.extended,
+        hour: action.payload.hour,
+        missingFields: action.payload.missingFields,
+        observationCodes: action.payload.observationCodes,
+        caregiverAction: action.payload.caregiverAction,
       };
 
     case 'update-vitals': {
       if (!state.coreVitals) return state;
-      return {
-        ...state,
-        coreVitals: {
-          ...state.coreVitals,
-          [action.payload.field]: action.payload.value,
-        },
-        mlStatus: 'idle',
-        mlResult: null,
-        mlError: null,
-        slmStatus: 'idle',
-        slmExplanation: '',
-        slmThinking: '',
-        slmFinalExplanation: '',
-        slmError: null,
+      const coreVitals = {
+        ...state.coreVitals,
+        [action.payload.field]: action.payload.value,
       };
+      // Keep the extended vitals in sync with the six core fields so the UC2
+      // input builder always sees consistent values.
+      const extendedVitals = state.extendedVitals
+        ? { ...state.extendedVitals, ...coreVitals }
+        : null;
+      return resetResult({
+        ...state,
+        coreVitals,
+        extendedVitals,
+      });
     }
+
+    case 'update-extended': {
+      if (!state.extendedVitals) return state;
+      const extendedVitals = {
+        ...state.extendedVitals,
+        [action.payload.field]: action.payload.value,
+      };
+      // If the edited field is one of the six core vitals, mirror it.
+      const coreVitals = state.coreVitals
+        ? { ...state.coreVitals, ...pickCore(extendedVitals) }
+        : null;
+      return resetResult({
+        ...state,
+        extendedVitals,
+        coreVitals,
+      });
+    }
+
+    case 'toggle-missing': {
+      const field = action.payload.field;
+      const present = state.missingFields.includes(field);
+      const missingFields = present
+        ? state.missingFields.filter((f) => f !== field)
+        : [...state.missingFields, field];
+      return resetResult({ ...state, missingFields });
+    }
+
+    case 'set-hour':
+      return resetResult({ ...state, hour: action.payload.hour });
 
     case 'ml-start':
       return {
         ...state,
         mlStatus: 'running',
-        mlResult: null,
+        uc2Result: null,
+        initialUc2Result: null,
         mlError: null,
         slmStatus: 'idle',
         slmExplanation: '',
@@ -76,11 +110,21 @@ function reducer(state: CareManagementState, action: CareManagementAction): Care
         slmError: null,
       };
 
-    case 'ml-success':
+    case 'hitl-apply':
+      return {
+        ...state,
+        mlStatus: 'running',
+        mlError: null,
+      };
+
+    case 'uc2-success':
       return {
         ...state,
         mlStatus: 'done',
-        mlResult: action.payload.result,
+        uc2Result: action.payload.result,
+        initialUc2Result: action.payload.saveAsInitial
+          ? action.payload.result
+          : state.initialUc2Result,
         mlError: null,
       };
 
@@ -90,6 +134,21 @@ function reducer(state: CareManagementState, action: CareManagementAction): Care
         mlStatus: 'error',
         mlError: action.payload.error,
       };
+
+    case 'set-observation-codes':
+      return { ...state, observationCodes: action.payload.codes };
+
+    case 'set-caregiver-action':
+      return { ...state, caregiverAction: action.payload.action };
+
+    case 'set-publish':
+      return { ...state, publishToOrchestrator: action.payload.enabled };
+
+    case 'batch-start':
+      return { ...state, batchRunning: true, batchRows: [] };
+
+    case 'batch-done':
+      return { ...state, batchRunning: false, batchRows: action.payload.rows };
 
     case 'slm-start':
       return {
@@ -102,19 +161,28 @@ function reducer(state: CareManagementState, action: CareManagementAction): Care
       };
 
     case 'slm-token':
-      const newExplanation = state.slmExplanation + action.payload.token;
       return {
         ...state,
-        slmExplanation: newExplanation,
+        slmExplanation: state.slmExplanation + action.payload.token,
       };
 
-    case 'slm-success':
-      const { thinking, explanation } = parseSLMOutput(state.slmExplanation);
+    case 'slm-success': {
       return {
         ...state,
         slmStatus: 'done',
-        slmThinking: thinking,
-        slmFinalExplanation: explanation || state.slmExplanation,
+        slmThinking: action.payload.thinking ?? '',
+        slmFinalExplanation: action.payload.answer,
+      };
+    }
+
+    case 'slm-clear':
+      return {
+        ...state,
+        slmStatus: 'idle',
+        slmExplanation: '',
+        slmThinking: '',
+        slmFinalExplanation: '',
+        slmError: null,
       };
 
     case 'slm-error':
@@ -130,6 +198,32 @@ function reducer(state: CareManagementState, action: CareManagementAction): Care
     default:
       return state;
   }
+}
+
+function pickCore(extended: import('@/ml-models/alert-autoencoder/types').ExtendedVitals) {
+  return {
+    heart_rate: extended.heart_rate,
+    blood_oxygen: extended.blood_oxygen,
+    blood_pressure_systolic: extended.blood_pressure_systolic,
+    blood_pressure_diastolic: extended.blood_pressure_diastolic,
+    glucose_level: extended.glucose_level,
+    body_temperature: extended.body_temperature,
+  };
+}
+
+function resetResult(state: CareManagementState): CareManagementState {
+  return {
+    ...state,
+    mlStatus: 'idle',
+    uc2Result: null,
+    initialUc2Result: null,
+    mlError: null,
+    slmStatus: 'idle',
+    slmExplanation: '',
+    slmThinking: '',
+    slmFinalExplanation: '',
+    slmError: null,
+  };
 }
 
 export function CareManagementScreen() {
@@ -158,21 +252,34 @@ export function CareManagementScreen() {
     (action: CareManagementAction) => {
       if (action.type === 'ml-start') {
         dispatch(action);
-        if (state.coreVitals && state.extendedVitals) {
-          controller
-            .executeMLInference(state.coreVitals, state.extendedVitals)
-            .then((resultAction) => dispatch(resultAction));
-        }
+        controller
+          .executeUC2Decision(state)
+          .then((resultAction) => dispatch(resultAction));
+        return;
+      }
+
+      if (action.type === 'hitl-apply') {
+        dispatch(action);
+        controller
+          .executeApplyHITL(state)
+          .then((resultAction) => dispatch(resultAction));
+        return;
+      }
+
+      if (action.type === 'batch-start') {
+        dispatch(action);
+        controller
+          .executeBatchParity()
+          .then((resultAction) => dispatch(resultAction));
         return;
       }
 
       if (action.type === 'slm-start') {
         dispatch(action);
-        if (state.coreVitals && state.mlResult) {
+        if (state.uc2Result) {
           controller
             .executeSLMExplanation(
-              state.coreVitals,
-              state.mlResult,
+              state,
               slm.chat,
               (token) => dispatch({ type: 'slm-token', payload: { token } }),
             )
@@ -183,7 +290,7 @@ export function CareManagementScreen() {
 
       dispatch(action);
     },
-    [controller, state.coreVitals, state.extendedVitals, state.mlResult, slm.chat],
+    [controller, state, slm.chat],
   );
 
   return (

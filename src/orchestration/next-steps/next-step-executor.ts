@@ -10,11 +10,12 @@
 import { Platform, Linking } from 'react-native';
 
 import type { NextStepActionId } from '@/data/types';
-import { insertCaregiverAction, getDatabase, type CaregiverAction } from '@/data';
+import { insertCaregiverAction, insertAppointment, getDatabase, type CaregiverAction } from '@/data';
 import { audit } from '@/services/audit/auditService';
 import { checkEgressConsent } from '@/services/consent/consentGate';
 import { hasActiveConsent } from '@/data';
 import { exportCcd } from '@/services/export/ccdaExportService';
+import { scheduleLocalNotification } from '@/services/notifications';
 
 import { getNextStepMeta } from './next-step-taxonomy';
 
@@ -135,8 +136,34 @@ export async function executeNextStep(
     }
 
     case 'schedule_urgent_appt': {
-      message = 'Appointment draft created. Review in Schedule.';
-      success = true;
+      // Create a draft appointment the caregiver can review/confirm in the
+      // Schedule screen. Marked scheduled so it shows in the Upcoming list;
+      // the caregiver edits the date/time/provider from there (HITL).
+      try {
+        const today = new Date();
+        const inTwoDays = new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000);
+        const dateStr = inTwoDays.toISOString().slice(0, 10);
+        const appt = insertAppointment({
+          patientId: ctx.patientId,
+          type: 'Urgent follow-up',
+          reason: `Follow-up for alert ${ctx.alertId ?? '(no alert id)'}`,
+          date: dateStr,
+          status: 'scheduled',
+        });
+        message = `Appointment draft created for ${dateStr}. Review in Schedule.`;
+        success = true;
+        audit({
+          actor: 'caregiver',
+          action: 'schedule_urgent_appt',
+          resourceType: 'appointment',
+          resourceId: appt.appointmentId,
+          patientId: ctx.patientId,
+          payload: { alertId: ctx.alertId, date: dateStr },
+        });
+      } catch (err) {
+        message = `Could not create appointment draft: ${err instanceof Error ? err.message : String(err)}`;
+        success = false;
+      }
       break;
     }
 
@@ -155,8 +182,26 @@ export async function executeNextStep(
     }
 
     case 'monitor_home': {
-      message = 'Follow-up reminder set. Continue monitoring at home.';
-      success = true;
+      // Set a follow-up reminder (default 2h, clamped to 30min–24h) so the
+      // caregiver is nudged to re-check. The reminder is a scheduled local
+      // notification (or in-app banner on Track A) + an audit entry.
+      const reminderMinutes = Math.min(24 * 60, Math.max(30, 120));
+      const fireAt = new Date(Date.now() + reminderMinutes * 60 * 1000);
+      try {
+        await scheduleLocalNotification({
+          patientId: ctx.patientId,
+          scope: 'care_task',
+          triggerRef: ctx.alertId,
+          title: 'Follow-up check',
+          body: `Time to re-check on the patient (from the "${ctx.alertId ?? 'alert'}" monitor-at-home plan).`,
+          triggerWhen: fireAt,
+        });
+        message = `Follow-up reminder set for ${reminderMinutes} min. Continue monitoring at home.`;
+        success = true;
+      } catch (err) {
+        message = `Could not set follow-up reminder: ${err instanceof Error ? err.message : String(err)}`;
+        success = false;
+      }
       break;
     }
 

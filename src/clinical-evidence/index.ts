@@ -26,3 +26,10 @@ export { fetchAdverseEvents, fetchDrugRecalls } from './openfda-client';
 
 export { bundleConditionPack, bundleMedicationPack, liveSupplement } from './condition-bundler';
 export { RateLimiter, withRetry, sleep } from './rate-limiter';
+export {
+  retrieveClinicalChunks,
+  formatCitationsForPrompt,
+  buildRetrievalQuery,
+  messageHasClinicalKeywords,
+} from './retrieval-helper';
+export type { RetrievedCitation } from './retrieval-helper';

@@ -276,16 +276,33 @@ export class Orchestrator {
   }
 
   private async handleMlAlert(event: Extract<OrchestrationEvent, { type: 'ml_alert_created' }>): Promise<void> {
+    const notifTitle =
+      event.notificationTitle ??
+      (event.severity === 3
+        ? `Urgent: ML anomaly detected (score ${formatScore(event.score)})`
+        : `Check on patient: unusual vitals pattern`);
+    const notifBody =
+      event.notificationBody ??
+      (event.initialAnomalyType
+        ? `Pattern: ${event.initialAnomalyType.replace(/_/g, ' ').toLowerCase()}. Open to review.`
+        : 'Alert ML flagged an anomaly based on recent vitals.');
+
     const alert: Alert = {
       alertId: event.alertId,
       patientId: event.patientId,
       severity: event.severity,
       status: 'open',
-      title: `ML anomaly detected (score ${formatScore(event.score)})`,
-      body: `Alert ML flagged an anomaly based on recent vitals.`,
+      title: notifTitle,
+      body: notifBody,
       mlScore: event.score,
       mlFeaturesJson: JSON.stringify(event.features),
       createdAt: event.at,
+      pipelinePath: event.pipelinePath,
+      initialAnomalyType: event.initialAnomalyType,
+      postHitlAnomalyType: event.postHitlAnomalyType,
+      featureQualityJson: event.featureQuality ? JSON.stringify(event.featureQuality) : undefined,
+      scoreRatio: event.scoreRatio,
+      aeScore: event.score,
     };
     insertAlert(alert);
 
@@ -310,6 +327,10 @@ export class Orchestrator {
       rawVitalsJson: event.rawVitals ? JSON.stringify(event.rawVitals) : undefined,
       trainingLabelProxyJson: event.trainingLabelProxy ? JSON.stringify(event.trainingLabelProxy) : undefined,
       createdAt: new Date().toISOString(),
+      featureQualityJson: event.featureQuality ? JSON.stringify(event.featureQuality) : undefined,
+      initialAnomalyType: event.initialAnomalyType,
+      postHitlAnomalyType: event.postHitlAnomalyType,
+      scoreRatio: event.scoreRatio,
     };
     insertMlEvent(mlEvent);
 
@@ -319,7 +340,25 @@ export class Orchestrator {
       features: event.features,
       queueType: event.queueType,
       reconstructionError: event.reconstructionError,
+      initialAnomalyType: event.initialAnomalyType,
+      scoreRatio: event.scoreRatio,
     });
+
+    // Dispatch an OS / in-app notification for severity >= 2 ML anomalies.
+    // Severity-3 bypasses DND; severity-2 is a normal-priority check-in.
+    if (event.severity >= 2) {
+      try {
+        const consent = checkEgressConsent(event.patientId, 'dispatch_alert_notification');
+        if (consent.allowed) {
+          await this.client.callTool('dispatch_alert_notification', {
+            alertId: alert.alertId,
+            bypassDnd: event.severity === 3,
+          });
+        }
+      } catch (err) {
+        console.warn('[Orchestrator] ML alert notification dispatch failed:', err);
+      }
+    }
 
     // Run multi-agent fan-out so the coordinator can propose immediate actions.
     await this.fanOutAndExecute({
@@ -817,6 +856,11 @@ export class Orchestrator {
       '',
       'Only use action ids from: call_911, go_to_er, contact_pcp, geofence_service, schedule_urgent_appt, share_record, monitor_home, log_note.',
       'Order by urgency. For severity-3 alerts, always include call_911 and/or go_to_er.',
+      '',
+      'SLM TASK CONSTRAINTS',
+      '- Allowed outputs: non-diagnostic explanation, structured follow-up questions, caregiver-safe next-step guidance, provider-ready summary if escalated.',
+      '- Blocked outputs: diagnosis, clinical certainty claim, medication change instruction, emergency decision override.',
+      '- You contextualize the already-explained anomaly; you do not decide whether an anomaly exists and you do not override the rule engine or anomaly model.',
     ].join('\n');
   }
 

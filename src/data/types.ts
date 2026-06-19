@@ -58,6 +58,13 @@ export interface Alert {
   mlFeaturesJson?: string;
   createdAt: string;
   resolvedAt?: string;
+  // ── UC2 decision-layer columns (migration 15) ──
+  pipelinePath?: string;
+  initialAnomalyType?: string;
+  postHitlAnomalyType?: string;
+  featureQualityJson?: string;
+  scoreRatio?: number;
+  aeScore?: number;
 }
 
 export type CaregiverActionType =
@@ -307,6 +314,13 @@ export interface MlEvent {
   rawVitalsJson?: string; // full 8-feature snapshot
   trainingLabelProxyJson?: string;
   createdAt: string;
+  // ── UC2 decision-layer columns (migration 15) ──
+  featureQualityJson?: string;
+  initialAnomalyType?: string;
+  postHitlAnomalyType?: string;
+  scoreRatio?: number;
+  slmTaskJson?: string;
+  thresholdRecommendationJson?: string;
 }
 
 /** Parsed top-feature tuple from MlEvent.topFeaturesJson. */
@@ -436,8 +450,21 @@ export interface NextStep {
 }
 
 // ---------------------------------------------------------------------------
-// Appointments (Schedule screen)
+// Threshold personalization queue (planning/23 §7.2)
 // ---------------------------------------------------------------------------
+
+export type ThresholdRecommendationStatus = 'pending' | 'applied' | 'dismissed';
+
+export interface ThresholdRecommendation {
+  recommendationId: string;
+  patientId: string;
+  recommendedThreshold: number;
+  adjustmentPct?: number;
+  reason?: string;
+  status: ThresholdRecommendationStatus;
+  createdAt: string;
+  resolvedAt?: string;
+}
 
 export interface Appointment {
   appointmentId: string;

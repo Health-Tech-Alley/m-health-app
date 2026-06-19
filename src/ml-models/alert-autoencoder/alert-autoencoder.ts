@@ -24,6 +24,15 @@ export class AlertAutoencoder implements AlertMlModel {
     return this.metadata?.threshold ?? 1.13;
   }
 
+  /**
+   * The fitted StandardScaler params (mean / scale), exposed so the UC2
+   * decision layer can scale features itself and so callers can build a
+   * TFLite runner bridge without reloading the JSON.
+   */
+  get scalerParams(): StandardScalerParams | null {
+    return this.scaler;
+  }
+
   async load(): Promise<void> {
     if (this.loaded) return;
 
@@ -113,6 +122,28 @@ export class AlertAutoencoder implements AlertMlModel {
     });
   }
 
+  /**
+   * Run the TFLite autoencoder on an already-scaled 18-feature vector and
+   * return the reconstruction vector. Used by the UC2 decision layer runner
+   * bridge so the decision layer can compute its own MSE reconstruction error
+   * and per-feature contributions (matching the notebook / model_handoff).
+   */
+  async runReconstruction(scaledInput: number[]): Promise<number[]> {
+    if (!this.model) {
+      throw new Error('Model not loaded');
+    }
+
+    const inputArray = new Float32Array(scaledInput);
+    const inputBuffer = inputArray.buffer.slice(
+      inputArray.byteOffset,
+      inputArray.byteOffset + inputArray.byteLength,
+    );
+
+    const outputs = await this.model.run([inputBuffer]);
+    const reconstruction = new Float32Array(outputs[0]);
+    return Array.from(reconstruction);
+  }
+
   async predict(normalizedInput: number[]): Promise<MLResult> {
     if (!this.model) {
       throw new Error('Model not loaded');
@@ -121,23 +152,18 @@ export class AlertAutoencoder implements AlertMlModel {
       throw new Error('Metadata not loaded');
     }
 
-    const inputArray = new Float32Array(normalizedInput);
-    const inputBuffer = inputArray.buffer.slice(
-      inputArray.byteOffset,
-      inputArray.byteOffset + inputArray.byteLength,
-    );
-
-    const outputs = await this.model.run([inputBuffer]);
-    const reconstruction = new Float32Array(outputs[0]);
+    const reconstruction = await this.runReconstruction(normalizedInput);
 
     const featureErrors = normalizedInput.map((val, i) => {
       const diff = val - reconstruction[i];
       return diff * diff;
     });
 
-    const reconstructionError = Math.sqrt(
-      featureErrors.reduce((sum, e) => sum + e, 0) / featureErrors.length,
-    );
+    // MSE (not RMSE) — matches the model metadata threshold, which was fit on
+    // validation mean-squared reconstruction error. The previous RMSE
+    // computation systematically under-flagged anomalies (RMSE = sqrt(MSE)).
+    const reconstructionError =
+      featureErrors.reduce((sum, e) => sum + e, 0) / featureErrors.length;
 
     const anomalyScore = reconstructionError;
     const isAnomalous = anomalyScore > this.metadata.threshold;

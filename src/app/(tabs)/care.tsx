@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
+import { ActiveAlertCard } from "@/components/dashboard/ActiveAlertCard";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
 import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
@@ -99,13 +100,6 @@ export default function CareScreen() {
   }, [patientId]);
 
   const isRealAlert = activeAlert !== null;
-  const activeAlertTitle = activeAlert?.title ?? "Red Breath Alert";
-  const activeAlertSubtitle = activeAlert
-    ? `Severity ${activeAlert.severity} · ${capitalize(activeAlert.status)} · ${formatRelativeTime(activeAlert.createdAt)}`
-    : "Severity 3 · Respiratory · Just now";
-  const activeAlertPill = activeAlert
-    ? getSeverityLabel(activeAlert.severity)
-    : "Urgent";
 
   function handleCall911() {
     audit({
@@ -283,43 +277,8 @@ export default function CareScreen() {
           </View>
         </View>
 
-        {/* Active alert card (Sebastian's visual design, wired to careService) */}
-        <View style={styles.alertCard}>
-          <View style={styles.alertHeader}>
-            <View style={styles.alertIconCircle}>
-              <AppIcon name="alert" size={28} color={AppTheme.colors.white} />
-            </View>
-
-            <View style={styles.alertTitleBlock}>
-              <Text style={styles.alertKicker}>Active Alert</Text>
-              <Text style={styles.alertTitle}>{activeAlertTitle}</Text>
-              <Text style={styles.alertSubtitle}>{activeAlertSubtitle}</Text>
-            </View>
-
-            <View style={styles.alertPill}>
-              <Text style={styles.alertPillText}>{activeAlertPill}</Text>
-            </View>
-          </View>
-
-          <View style={styles.alertMetricRow}>
-            <AlertMetricBox label="SpO₂" value="84%" detail="cutoff 88%" />
-            <AlertMetricBox label="Heart Rate" value="118" detail="BPM" />
-            <AlertMetricBox label="Resp. Rate" value="32" detail="br/min" />
-          </View>
-
-          {activeAlert?.body ? (
-            <Text style={styles.alertBodyText}>{activeAlert.body}</Text>
-          ) : null}
-
-          {isRealAlert ? (
-            <Pressable
-              style={styles.alertHandledButton}
-              onPress={handleMarkHandled}
-            >
-              <Text style={styles.alertHandledText}>Mark handled</Text>
-            </Pressable>
-          ) : null}
-        </View>
+        {/* Active alert card — shared, live-refreshing, severity-aware */}
+        <ActiveAlertCard />
 
         <View style={styles.safetyCard}>
           <Text style={styles.safetyKicker}>Safety Considerations</Text>
@@ -768,44 +727,6 @@ function formatCarePlanText(value: string): string {
 function capitalize(value: string): string {
   if (!value) return value;
   return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function getSeverityLabel(severity: CareAlert["severity"]): string {
-  if (severity === 3) return "Urgent";
-  if (severity === 2) return "Watch";
-  return "Info";
-}
-
-function formatRelativeTime(iso: string): string {
-  const timestamp = new Date(iso).getTime();
-  if (!Number.isFinite(timestamp)) return "Recent";
-
-  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes}m ago`;
-
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-
-  return `${Math.round(hours / 24)}d ago`;
-}
-
-function AlertMetricBox({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <View style={styles.alertMetricBox}>
-      <Text style={styles.alertMetricLabel}>{label}</Text>
-      <Text style={styles.alertMetricValue}>{value}</Text>
-      <Text style={styles.alertMetricDetail}>{detail}</Text>
-    </View>
-  );
 }
 
 const styles = StyleSheet.create({
