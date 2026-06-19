@@ -7,6 +7,7 @@ import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { AppTheme } from "@/constants/theme";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
+import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from "@/contexts/settings-context";
 import {
   getPendingThresholdRecommendations,
@@ -29,6 +30,8 @@ import {
   setRecordConsent,
   type RecordConsentScope,
 } from "@/services/records/recordsService";
+import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system/next';
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light" },
@@ -97,6 +100,8 @@ export default function MoreScreen() {
   const [auditError, setAuditError] = useState<string | null>(null);
   const [thresholdRecs, setThresholdRecs] = useState<ThresholdRecommendation[]>([]);
   const [recVersion, setRecVersion] = useState(0);
+  const { importFHIRBundle } = usePatientRecord();
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -180,6 +185,31 @@ export default function MoreScreen() {
         ? "Consent granted for C-CDA export"
         : "Consent required before export",
     );
+  }
+
+  async function handleOpenEHRImport() {
+    
+    // 1. Let user pick a JSON file
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'application/json',
+      copyToCacheDirectory: true,
+    });
+
+    if (result.canceled) return null;
+
+    // 2. Read the file contents
+    const fileUri = result.assets[0].uri;
+    // const contents = await FileSystem.readAsStringAsync(fileUri);
+    const file = new File(fileUri);
+    const contents = await file.text();           // ← replaces readAsStringAsync
+    // const bundle = JSON.parse(contents);
+
+    // 3. Parse FHIR JSON
+    const fhirBundle = JSON.parse(contents);
+    console.log("Parsed FHIR bundle:", fhirBundle);
+    importFHIRBundle(fhirBundle);
+    // 4. Pass to your DB layer
+    // return fhirBundle;
   }
 
   function handleCcdaExport() {
@@ -397,7 +427,7 @@ export default function MoreScreen() {
               icon="plus"
               title="Populate from EHR"
               subtitle="C-CDA / FHIR records placeholder"
-              disabled
+              onPress={handleOpenEHRImport}
             />
 
             <SettingsRow

@@ -30,11 +30,12 @@ import {
 } from 'react';
 
 import {
-  seedDatabaseFromProfile,
   getPatientRecordSnapshot,
+  seedDatabaseFromProfile,
   setBundlePending,
   type PatientRecordSnapshot,
 } from '@/data';
+import { saveFHIRBundleToDB } from '@/data/fhir/fhir-import';
 import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
 
 // ---------------------------------------------------------------------------
@@ -86,9 +87,11 @@ function setPatientId(patientId: string): void {
 }
 
 /** Re-read the snapshot from SQLite and broadcast. Called after any write. */
-export function refreshPatientRecord(): void {
-  if (!currentPatientId) return;
-  currentSnapshot = loadSnapshot(currentPatientId);
+export function refreshPatientRecord(patientId?: string): void {
+  console.log('currentPatientId: ', currentPatientId, 'patientId: ', patientId);
+  if (!currentPatientId && !patientId) return;
+  
+  currentSnapshot = loadSnapshot(patientId || (currentPatientId ?? ''));
   emitChange();
 }
 
@@ -106,6 +109,7 @@ interface PatientRecordContextValue {
   refresh: () => void;
   /** Mark the clinical-condition bundle as pending / completed. */
   setBundlePending: (pending: boolean) => void;
+  importFHIRBundle: (bundle: any) => void;
 }
 
 const PatientRecordContext = createContext<PatientRecordContextValue | null>(null);
@@ -186,6 +190,12 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [patientId, refresh]);
 
+  const importFHIRBundle = useCallback((bundle: any) => {
+    saveFHIRBundleToDB(bundle);   // writes to SQLite
+    console.log('[PatientRecordProvider] FHIR bundle imported to DB, refreshing snapshot... ', bundle.entry[0]);
+    refreshPatientRecord(bundle.entry[0]?.resource?.id);        // triggers useSyncExternalStore → all screens update
+  }, []);
+
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   // Retry the condition bundle on launch only when the previous run FAILED
@@ -214,8 +224,9 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
       error,
       refresh,
       setBundlePending: setBundlePendingFlag,
+      importFHIRBundle,
     }),
-    [snapshot, patientId, error, refresh, setBundlePendingFlag],
+    [snapshot, patientId, error, refresh, setBundlePendingFlag, importFHIRBundle],
   );
 
   return (

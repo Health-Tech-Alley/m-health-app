@@ -13,26 +13,26 @@
  */
 
 import { getDatabase } from '../db';
-import {
-  getPatient,
-  getCaregiverForPatient,
-  getConditionsForPatient,
-  getActiveMedications,
-} from './patientRepository';
-import { getActiveThresholds } from './thresholdRepository';
-import { getSymptomsForPatient } from './symptomRepository';
-import { getPrimaryWearableForPatient } from './wearableDeviceRepository';
-import { getKnowledgeCacheStats } from './knowledgeCacheRepository';
-import { getEnrichmentStats } from './patientEnrichmentLogRepository';
 import type {
-  Patient,
   Caregiver,
-  PatientCondition,
   Medication,
-  Threshold,
+  Patient,
+  PatientCondition,
   Symptom,
+  Threshold,
   WearableDevice,
 } from '../types';
+import { getKnowledgeCacheStats } from './knowledgeCacheRepository';
+import { getEnrichmentStats } from './patientEnrichmentLogRepository';
+import {
+  getActiveMedications,
+  getCaregiverForPatient,
+  getConditionsForPatient,
+  getPatient,
+} from './patientRepository';
+import { getSymptomsForPatient } from './symptomRepository';
+import { getActiveThresholds } from './thresholdRepository';
+import { getPrimaryWearableForPatient } from './wearableDeviceRepository';
 
 export interface CarePlanGoalSummary {
   goalId: string;
@@ -137,6 +137,7 @@ export function setBundleStatus(patientId: string, status: BundleStatus): void {
  * this is fast enough and keeps the snapshot consistent.
  */
 export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapshot {
+  console.log(`[DB] Loading patient record snapshot for patientId=${patientId}...`);
   const patient = getPatient(patientId);
   const caregiver = getCaregiverForPatient(patientId);
   const conditions = getConditionsForPatient(patientId);
