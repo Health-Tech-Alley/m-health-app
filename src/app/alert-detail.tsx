@@ -23,10 +23,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   getAlertById,
+  getAnomalyConfidenceRatio,
+  getMlEventForAlert,
   getRecentHealthSamples,
   insertCaregiverAction,
+  parseRawVitals,
+  parseRuleEngine,
+  parseTopFeatures,
   updateAlertStatus,
 } from '@/data';
+import { ObservationPicker } from '@/components/ObservationPicker';
 import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
 
@@ -53,6 +59,7 @@ export default function AlertDetailScreen() {
   const [noteText, setNoteText] = useState('');
   const [busy, setBusy] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [observationCodes, setObservationCodes] = useState<string[]>([]);
 
   const alert = alertId ? getAlertById(alertId) : null;
 
@@ -71,6 +78,22 @@ export default function AlertDetailScreen() {
     return { recentSpo2: spo2, recentHr: hr };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alert?.alertId, since]);
+
+  // Structured ML event for this alert (UC2 decision-layer output): contextual
+  // anomaly type, top features, feature quality, score ratio, rule engine.
+  const mlDetails = useMemo(() => {
+    if (!alert) return null;
+    const event = getMlEventForAlert(alert.alertId);
+    if (!event) return null;
+    return {
+      event,
+      topFeatures: parseTopFeatures(event),
+      ruleEngine: parseRuleEngine(event),
+      rawVitals: parseRawVitals(event),
+      ratio: getAnomalyConfidenceRatio(event),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alert?.alertId, version]);
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
   void version;
@@ -131,6 +154,21 @@ export default function AlertDetailScreen() {
     router.push({ pathname: '/slm-explain', params: { alertId: alert.alertId } });
   }, [alert, router]);
 
+  const saveObservations = useCallback(() => {
+    if (!alert || observationCodes.length === 0) return;
+    insertCaregiverAction({
+      actionId: `act-${Date.now()}`,
+      alertId: alert.alertId,
+      patientId: alert.patientId,
+      caregiverId: 'caregiver-1',
+      type: 'log_observation',
+      payloadJson: JSON.stringify({ observationCodes }),
+      createdAt: new Date().toISOString(),
+    });
+    setStatusMsg('Observations saved.');
+    bump();
+  }, [alert, observationCodes, bump]);
+
   if (!alert) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -185,6 +223,42 @@ export default function AlertDetailScreen() {
           </View>
         )}
 
+        {/* ML event details (UC2 decision-layer output) */}
+        {mlDetails && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>ML Analysis</Text>
+            {mlDetails.event.initialAnomalyType && (
+              <Text style={styles.mlLine}>
+                Pattern: {mlDetails.event.initialAnomalyType.replace(/_/g, ' ').toLowerCase()}
+                {mlDetails.event.postHitlAnomalyType &&
+                mlDetails.event.postHitlAnomalyType !== mlDetails.event.initialAnomalyType
+                  ? ` → ${mlDetails.event.postHitlAnomalyType.replace(/_/g, ' ').toLowerCase()}`
+                  : ''}
+              </Text>
+            )}
+            {mlDetails.ratio !== null && (
+              <Text style={styles.mlLine}>
+                Confidence ratio: {mlDetails.ratio.toFixed(2)} (higher = more confident)
+              </Text>
+            )}
+            {mlDetails.ruleEngine && mlDetails.ruleEngine.is_emergency && (
+              <Text style={[styles.mlLine, { color: RED }]}>
+                Rule engine: emergency ({mlDetails.ruleEngine.reasons.join(', ')})
+              </Text>
+            )}
+            {mlDetails.topFeatures.length > 0 && (
+              <>
+                <Text style={styles.mlSubTitle}>Top contributing features</Text>
+                {mlDetails.topFeatures.slice(0, 5).map(([name, val]) => (
+                  <Text key={name} style={styles.mlFeatureLine}>
+                    • {name}: {val.toFixed(2)}
+                  </Text>
+                ))}
+              </>
+            )}
+          </View>
+        )}
+
         {/* Emergency actions */}
         {isEmergency && (
           <View style={styles.card}>
@@ -193,6 +267,29 @@ export default function AlertDetailScreen() {
             <ActionRow label="🏥 Go to nearest ER" onPress={() => handleAction('go_to_er')} disabled={busy} danger />
             <ActionRow label="👨‍⚕️ Contact Provider" onPress={() => handleAction('contact_pcp')} disabled={busy} />
             <ActionRow label="💊 Find nearby pharmacy / urgent care" onPress={() => handleAction('geofence_service')} disabled={busy} />
+          </View>
+        )}
+
+        {/* Caregiver observations (severity 1-2 HITL) */}
+        {!isEmergency && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>What did you notice?</Text>
+            <Text style={styles.observationHint}>
+              Select anything unusual around this time. This feeds the anomaly
+              analysis and is logged to the audit trail.
+            </Text>
+            <ObservationPicker
+              selected={observationCodes}
+              onChange={setObservationCodes}
+            />
+            {observationCodes.length > 0 && (
+              <ActionRow
+                label="Save observations"
+                onPress={saveObservations}
+                disabled={busy}
+                primary
+              />
+            )}
           </View>
         )}
 
@@ -388,6 +485,30 @@ const styles = StyleSheet.create({
     color: MUTED,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
+  },
+  mlLine: {
+    fontSize: 14,
+    color: DARK,
+    lineHeight: 20,
+    textTransform: 'capitalize',
+  },
+  mlSubTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: TEAL,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  mlFeatureLine: {
+    fontSize: 13,
+    color: MUTED,
+    lineHeight: 19,
+  },
+  observationHint: {
+    fontSize: 12,
+    color: MUTED,
+    fontStyle: 'italic',
+    marginBottom: 8,
   },
   vitalRow: {
     flexDirection: 'row',

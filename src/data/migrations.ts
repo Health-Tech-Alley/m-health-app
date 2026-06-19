@@ -478,4 +478,40 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_appointments_patient
     ON appointments(patient_id, date);
   `,
+
+  // 15: UC2 decision-layer columns on alerts + ml_events
+  // (see planning/23_uc2_ml_alert_notification_flow_plan.md §6)
+  `
+  ALTER TABLE alerts ADD COLUMN pipeline_path TEXT;
+  ALTER TABLE alerts ADD COLUMN initial_anomaly_type TEXT;
+  ALTER TABLE alerts ADD COLUMN post_hitl_anomaly_type TEXT;
+  ALTER TABLE alerts ADD COLUMN feature_quality_json TEXT;
+  ALTER TABLE alerts ADD COLUMN score_ratio REAL;
+  ALTER TABLE alerts ADD COLUMN ae_score REAL;
+
+  ALTER TABLE ml_events ADD COLUMN feature_quality_json TEXT;
+  ALTER TABLE ml_events ADD COLUMN initial_anomaly_type TEXT;
+  ALTER TABLE ml_events ADD COLUMN post_hitl_anomaly_type TEXT;
+  ALTER TABLE ml_events ADD COLUMN score_ratio REAL;
+  ALTER TABLE ml_events ADD COLUMN slm_task_json TEXT;
+  ALTER TABLE ml_events ADD COLUMN threshold_recommendation_json TEXT;
+  `,
+
+  // 16: threshold_recommendations — queued personalization suggestions
+  // (planning/23 §7.2). Never auto-applied; the caregiver confirms + audits.
+  `
+  CREATE TABLE IF NOT EXISTS threshold_recommendations (
+    recommendation_id TEXT PRIMARY KEY,
+    patient_id        TEXT NOT NULL,
+    recommended_threshold REAL NOT NULL,
+    adjustment_pct    REAL,
+    reason            TEXT,
+    status            TEXT NOT NULL DEFAULT 'pending',
+    created_at        TEXT NOT NULL,
+    resolved_at       TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_threshold_recs_patient
+    ON threshold_recommendations(patient_id, status, created_at DESC);
+  `,
 ];

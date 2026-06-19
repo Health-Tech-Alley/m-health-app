@@ -24,6 +24,7 @@ import {
   getActiveMedications,
   getActiveMedicationSchedules,
   getNotificationPreferences,
+  getUpcomingAppointments,
   insertCaregiverAction,
   updateNotificationAction,
 } from '@/data';
@@ -89,12 +90,95 @@ export async function rescheduleMedicationReminders(patientId: string): Promise<
 }
 
 /**
- * Appointment reminders. No appointments table exists yet — logged no-op.
+ * Appointment reminders. Reads scheduled appointments and schedules one
+ * reminder per appointment at (appointment time - lead time). Skips
+ * cancelled/completed appointments. Respects the appointment scope toggle.
  */
 export async function rescheduleAppointmentReminders(patientId: string): Promise<void> {
-  // TODO: wire to the scheduling service / appointments table once built.
-  console.log('[reminderEngine] rescheduleAppointmentReminders: no appointments table yet');
-  void patientId;
+  const prefs = safeGetPreferences();
+  if (!prefs.appointment) {
+    await cancelByScope('appointment');
+    return;
+  }
+
+  await cancelByScope('appointment');
+
+  const appointments = getUpcomingAppointments(patientId);
+  const leadMinutes = prefs.appointmentLeadTimeMin ?? 30;
+  const now = new Date();
+
+  for (const appt of appointments) {
+    if (appt.status !== 'scheduled') continue;
+
+    const fireAt = computeAppointmentFireTime(appt.date, appt.time, leadMinutes);
+    if (!fireAt || fireAt <= now) continue;
+
+    const title = appt.provider
+      ? `Appointment: ${appt.provider}`
+      : 'Upcoming appointment';
+    const bodyParts: string[] = [];
+    if (appt.type) bodyParts.push(appt.type);
+    if (appt.time) bodyParts.push(appt.time);
+    if (appt.location) bodyParts.push(appt.location);
+    bodyParts.push('Opens the Schedule tab to review.');
+    const body = bodyParts.join(' · ');
+
+    try {
+      await scheduleLocalNotification({
+        patientId,
+        scope: 'appointment',
+        triggerRef: appt.appointmentId,
+        title,
+        body,
+        triggerWhen: fireAt,
+      });
+    } catch (err) {
+      console.warn('[reminderEngine] schedule appointment reminder failed:', err);
+    }
+  }
+}
+
+/**
+ * Compute the fire time for an appointment reminder: the appointment date +
+ * optional time, minus the lead-time minutes. Returns null if the time can't
+ * be parsed.
+ */
+function computeAppointmentFireTime(
+  dateStr: string,
+  timeStr: string | undefined,
+  leadMinutes: number,
+): Date | null {
+  const date = new Date(`${dateStr}T00:00:00`);
+  if (isNaN(date.getTime())) return null;
+
+  if (timeStr) {
+    // Accept "HH:mm", "HH:mm:ss", or "10:30 AM"-style labels.
+    const trimmed = timeStr.trim();
+    const match24 = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    let hours = 9;
+    let minutes = 0;
+    if (match24) {
+      hours = parseInt(match24[1], 10);
+      minutes = parseInt(match24[2], 10);
+    } else if (match12) {
+      hours = parseInt(match12[1], 10);
+      minutes = parseInt(match12[2], 10);
+      const meridiem = match12[3].toUpperCase();
+      if (meridiem === 'PM' && hours < 12) hours += 12;
+      if (meridiem === 'AM' && hours === 12) hours = 0;
+    } else {
+      // Unparseable time label — fall back to 09:00.
+      hours = 9;
+      minutes = 0;
+    }
+    date.setHours(hours, minutes, 0, 0);
+  } else {
+    date.setHours(9, 0, 0, 0);
+  }
+
+  date.setMinutes(date.getMinutes() - leadMinutes);
+  return date;
 }
 
 /**

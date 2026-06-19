@@ -89,3 +89,20 @@ export function deleteAppointment(appointmentId: string): void {
   const db = getDatabase();
   db.runSync('DELETE FROM appointments WHERE appointment_id = ?;', appointmentId);
 }
+
+/**
+ * Delete the seeded demo appointment(s) for a patient. Removes both the
+ * stable-ID demo row and any previously-seeded duplicates (from before the
+ * stable-ID fix) so the Schedule screen doesn't accumulate "Medication review"
+ * copies across cold starts. Caregiver-added appointments are preserved.
+ */
+export function deleteDemoAppointmentsForPatient(patientId: string): void {
+  const db = getDatabase();
+  db.runSync(
+    `DELETE FROM appointments
+     WHERE patient_id = ?
+       AND type = 'Medication review'
+       AND reason = 'Quarterly medication review';`,
+    patientId,
+  );
+}

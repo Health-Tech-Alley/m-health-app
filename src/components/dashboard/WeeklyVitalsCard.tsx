@@ -22,6 +22,7 @@ type VitalMetric = {
 const metrics: VitalMetric[] = [
   {
     key: "spo2",
+
     tabIcon: "\u{1FAC1}",
     label: "Oxygen Saturation",
     value: "84",
@@ -30,15 +31,18 @@ const metrics: VitalMetric[] = [
     statusTone: "critical",
     subtitle: "Declining trend this week",
     helperText: "SpO2 estimates how much oxygen is in the blood.",
+
     data: [96, 95, 96, 94, 93, 92, 90],
   },
   {
     key: "heartRate",
+
     tabIcon: "\u2764\uFE0F",
     label: "Heart Rate",
     value: "118",
     unit: "BPM",
     status: "Up today \u2022 Elevated",
+
     statusTone: "critical",
     subtitle: "Higher than baseline",
     helperText: "Heart rate shows beats per minute compared with baseline.",
@@ -46,11 +50,13 @@ const metrics: VitalMetric[] = [
   },
   {
     key: "respRate",
+
     tabIcon: "\u{1F32C}\uFE0F",
     label: "Respiratory Rate",
     value: "32",
     unit: "br/min",
     status: "Up today \u2022 Elevated",
+
     statusTone: "warning",
     subtitle: "Breathing faster than usual",
     helperText: "Respiratory rate counts breaths per minute.",
@@ -58,11 +64,13 @@ const metrics: VitalMetric[] = [
   },
   {
     key: "mobility",
+
     tabIcon: "\u{1F6B6}",
     label: "Mobility Score",
     value: "55",
     unit: "/100",
     status: "Down today \u2022 Lower",
+
     statusTone: "warning",
     subtitle: "Movement below expected pattern",
     helperText: "Mobility reflects movement compared with the usual pattern.",

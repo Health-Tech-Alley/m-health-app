@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Linking,
@@ -13,57 +13,82 @@ import {
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
-import { insertCaregiverAction } from "@/data";
+import { getMlEventForAlert, insertCaregiverAction } from "@/data";
+import type { MlEvent } from "@/data";
 import { audit } from "@/services/audit/auditService";
 import {
   acknowledgeCareAlert,
-  getActiveCareAlerts,
   resolveCareAlert,
-  type CareAlert,
 } from "@/services/care/careService";
+import { useActiveAlert } from "@/services/care/useActiveAlert";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
+/**
+ * Dashboard / Care active-alert card.
+ *
+ * Reads the highest-severity open alert from the reactive `useActiveAlert`
+ * hook (live-refreshes on alert-affecting bus events). Renders a calm teal
+ * "check-in" card for severity 1-2 and a red takeover-style card for
+ * severity 3. Surfaces real vitals + the UC2 contextual anomaly type from
+ * the associated ml_event when available.
+ *
+ * No hardcoded demo fallback — if there is no active alert, the card is not
+ * rendered (the parent decides whether to reserve space).
+ */
 export function ActiveAlertCard() {
   const router = useRouter();
   const profile = getOnboardingProfile();
   const patientId = useOrchestratorPatientId();
-  const [activeAlert, setActiveAlert] = useState<CareAlert | null>(null);
+  const activeAlert = useActiveAlert(patientId);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
 
   const patientFirstName =
     profile.patient.name.trim().split(/\s+/)[0] || "patient";
 
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      try {
-        setActiveAlert(getActiveCareAlerts(patientId)[0] ?? null);
-      } catch (error) {
-        if (__DEV__) {
-          console.warn("Falling back to mock active alert.", error);
-        }
-        setActiveAlert(null);
-      }
-    }, 0);
-    return () => clearTimeout(handle);
-  }, [patientId]);
+  // Pull the structured ML event for this alert so we can surface the
+  // contextual anomaly type + raw vitals. Re-reads when the alert changes.
+  const mlEvent = useMemo<MlEvent | null>(() => {
+    if (!activeAlert) return null;
+    try {
+      return getMlEventForAlert(activeAlert.alertId);
+    } catch {
+      return null;
+    }
+  }, [activeAlert?.alertId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isRealAlert = activeAlert !== null;
-  const title = activeAlert?.title ?? "Red Breath Alert";
-  const subtitle = activeAlert
-    ? `Severity ${activeAlert.severity} · ${capitalize(activeAlert.status)} · ${formatRelativeTime(activeAlert.createdAt)}`
-    : "Severity 3 · Respiratory · Just now";
-  const pillLabel = activeAlert ? getSeverityLabel(activeAlert.severity) : "Urgent";
-  const body = activeAlert?.body
+  // Keep a local mirror so optimistic "mark handled" hides the card before
+  // the bus event refreshes the hook.
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    // Defer so setState happens outside the effect body.
+    const t = setTimeout(() => setHidden(false), 0);
+    return () => clearTimeout(t);
+  }, [activeAlert?.alertId]);
+
+  if (!activeAlert || hidden) {
+    return null;
+  }
+
+  const isEmergency = activeAlert.severity === 3;
+  const accent = isEmergency ? AppTheme.colors.danger : AppTheme.colors.brand;
+  const title = activeAlert.title;
+  const subtitle = `Severity ${activeAlert.severity} · ${capitalize(activeAlert.status)} · ${formatRelativeTime(activeAlert.createdAt)}`;
+  const pillLabel = getSeverityLabel(activeAlert.severity);
+  const body = activeAlert.body
     ? `${activeAlert.body} `
-    : `${profile.patient.name}'s oxygen is below her safe threshold. She hasn't moved in 25 min. `;
+    : `${profile.patient.name}'s recent vitals show an unusual pattern. `;
+
+  const contextualType = mlEvent?.initialAnomalyType;
+  const vitals = parseRawVitals(mlEvent);
+  const metrics = pickMetrics(vitals, isEmergency);
 
   function handleCall911() {
     audit({
       actor: "caregiver",
       action: "initiated_911",
       resourceType: "alert",
-      resourceId: activeAlert?.alertId,
+      resourceId: activeAlert!.alertId,
       patientId,
     });
     Linking.openURL("tel:911").catch((err) =>
@@ -78,7 +103,7 @@ export function ActiveAlertCard() {
         actor: "caregiver",
         action: "contact_provider",
         resourceType: "alert",
-        resourceId: activeAlert?.alertId,
+        resourceId: activeAlert!.alertId,
         patientId,
       });
       Linking.openURL(`tel:${phone}`).catch((err) =>
@@ -90,16 +115,14 @@ export function ActiveAlertCard() {
   }
 
   function handleAcknowledge() {
-    if (isRealAlert && activeAlert) {
-      acknowledgeCareAlert(activeAlert.alertId);
-    }
+    acknowledgeCareAlert(activeAlert!.alertId);
     audit({
       actor: "caregiver",
       action: "acknowledged",
       resourceType: "alert",
-      resourceId: activeAlert?.alertId,
+      resourceId: activeAlert!.alertId,
       patientId,
-      payload: { severity: activeAlert?.severity ?? 3 },
+      payload: { severity: activeAlert!.severity },
     });
     Alert.alert(
       "Alert acknowledged",
@@ -109,19 +132,15 @@ export function ActiveAlertCard() {
   }
 
   function handleMarkHandled() {
-    if (!activeAlert) return;
-    const resolved = resolveCareAlert(activeAlert.alertId);
-    if (!resolved && __DEV__) {
-      console.warn(`Unable to resolve alert ${activeAlert.alertId}`);
-    }
+    resolveCareAlert(activeAlert!.alertId);
     audit({
       actor: "caregiver",
       action: "resolved",
       resourceType: "alert",
-      resourceId: activeAlert.alertId,
+      resourceId: activeAlert!.alertId,
       patientId,
     });
-    setActiveAlert(null);
+    setHidden(true);
   }
 
   function handleSaveNote() {
@@ -134,13 +153,13 @@ export function ActiveAlertCard() {
       actor: "caregiver",
       action: "add_note",
       resourceType: "alert",
-      resourceId: activeAlert?.alertId,
+      resourceId: activeAlert!.alertId,
       patientId,
       payload: { note: trimmed },
     });
     insertCaregiverAction({
       actionId: `act-${Date.now()}`,
-      alertId: activeAlert?.alertId,
+      alertId: activeAlert!.alertId,
       patientId,
       caregiverId: "caregiver-1",
       type: "log_observation",
@@ -151,23 +170,21 @@ export function ActiveAlertCard() {
     setNoteOpen(false);
   }
 
-  function handleDismiss() {
-    if (isRealAlert && activeAlert) {
-      handleMarkHandled();
-    } else {
-      router.push("/care");
-    }
+  function openDetail() {
+    router.push({ pathname: "/alert-detail", params: { alertId: activeAlert!.alertId } });
   }
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: accent }]}>
       <View style={styles.headerRow}>
         <View style={styles.alertIconCircle}>
           <AppIcon name="alert" size={28} color={AppTheme.colors.white} />
         </View>
 
         <View style={styles.titleBlock}>
-          <Text style={styles.eyebrow}>Active Alert</Text>
+          <Text style={styles.eyebrow}>
+            {isEmergency ? "Active Alert" : "Check-in"}
+          </Text>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
@@ -177,46 +194,53 @@ export function ActiveAlertCard() {
         </View>
       </View>
 
-      <View style={styles.metricRow}>
-        <MetricBox label="SpO₂" value="84%" />
-        <MetricBox label="HR" value="118 BPM" />
-        <MetricBox label="RR" value="32/min" />
-      </View>
+      {metrics.length > 0 && (
+        <View style={styles.metricRow}>
+          {metrics.map((m) => (
+            <MetricBox key={m.label} label={m.label} value={m.value} />
+          ))}
+        </View>
+      )}
+
+      {contextualType && (
+        <Text style={styles.contextLine}>
+          Pattern: {contextualType.replace(/_/g, " ").toLowerCase()}
+        </Text>
+      )}
 
       <Text style={styles.bodyText}>
         {body}
-        <Text style={styles.boldText}>
-          You decide — the app never acts for you.
-        </Text>
+        <Text style={styles.boldText}>You decide — the app never acts for you.</Text>
       </Text>
 
       <View style={styles.primaryActions}>
-        <Pressable style={styles.callButton} onPress={handleCall911}>
-          <Text style={styles.callButtonText}>Call 911</Text>
-        </Pressable>
+        {isEmergency ? (
+          <Pressable style={styles.callButton} onPress={handleCall911}>
+            <Text style={styles.callButtonText}>Call 911</Text>
+          </Pressable>
+        ) : null}
 
         <Pressable
-          style={styles.checkButton}
-          onPress={() => router.push("/care")}
+          style={[styles.checkButton, !isEmergency && { flex: 1 }]}
+          onPress={openDetail}
         >
-          <Text style={styles.checkButtonText}>Check on {patientFirstName}</Text>
+          <Text style={styles.checkButtonText}>
+            {isEmergency ? `Check on ${patientFirstName}` : "Review alert"}
+          </Text>
         </Pressable>
       </View>
 
       <View style={styles.secondaryActions}>
-        <Pressable
-          style={styles.secondaryButton}
-          onPress={handleContactProvider}
-        >
+        <Pressable style={styles.secondaryButton} onPress={handleContactProvider}>
           <Text style={styles.secondaryButtonText}>Contact Provider</Text>
         </Pressable>
 
         <Pressable
           style={styles.secondaryButton}
-          onPress={isRealAlert ? handleMarkHandled : handleAcknowledge}
+          onPress={isEmergency ? handleAcknowledge : handleMarkHandled}
         >
           <Text style={styles.secondaryButtonText}>
-            {isRealAlert ? "✅ Mark handled" : "Acknowledge"}
+            {isEmergency ? "Acknowledge" : "Mark handled"}
           </Text>
         </Pressable>
 
@@ -260,16 +284,14 @@ export function ActiveAlertCard() {
         </View>
       ) : null}
 
-      <Pressable onPress={handleDismiss}>
-        <Text style={styles.footerLink}>
-          {isRealAlert ? "Dismiss from home" : "Dismiss from home · View full alert →"}
-        </Text>
+      <Pressable onPress={openDetail}>
+        <Text style={styles.footerLink}>View full alert →</Text>
       </Pressable>
     </View>
   );
 }
 
-function getSeverityLabel(severity: CareAlert["severity"]): string {
+function getSeverityLabel(severity: 1 | 2 | 3): string {
   if (severity === 3) return "Urgent";
   if (severity === 2) return "Watch";
   return "Info";
@@ -294,6 +316,41 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+/** Parse the raw-vitals snapshot from the ml_event (best-effort). */
+function parseRawVitals(event: MlEvent | null): Record<string, number | undefined> {
+  if (!event?.rawVitalsJson) return {};
+  try {
+    return JSON.parse(event.rawVitalsJson) as Record<string, number | undefined>;
+  } catch {
+    return {};
+  }
+}
+
+/** Pick up to three metric boxes from the raw vitals, preferring the
+ *  emergency-relevant signals for severity 3. */
+function pickMetrics(
+  vitals: Record<string, number | undefined>,
+  isEmergency: boolean,
+): { label: string; value: string }[] {
+  const fmt = (v: number | undefined, unit: string) =>
+    v !== undefined && v !== null && Number.isFinite(v)
+      ? `${Math.round(v * 100) / 100}${unit}`
+      : "—";
+
+  if (isEmergency) {
+    return [
+      { label: "SpO₂", value: fmt(vitals.blood_oxygen, "%") },
+      { label: "HR", value: fmt(vitals.heart_rate, " BPM") },
+      { label: "RR", value: fmt(vitals.respiratory_rate, "/min") },
+    ];
+  }
+  return [
+    { label: "HR", value: fmt(vitals.heart_rate, " BPM") },
+    { label: "SpO₂", value: fmt(vitals.blood_oxygen, "%") },
+    { label: "Stress", value: fmt(vitals.stress_level, "") },
+  ];
+}
+
 function MetricBox({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.metricBox}>
@@ -305,11 +362,10 @@ function MetricBox({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: AppTheme.colors.danger,
     borderRadius: AppTheme.radius.card,
     padding: 22,
     marginBottom: 24,
-    shadowColor: "#900",
+    shadowColor: "#000",
     shadowOpacity: 0.18,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
@@ -385,11 +441,18 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 4,
   },
+  contextLine: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 14,
+    textTransform: "capitalize",
+  },
   bodyText: {
     color: AppTheme.colors.white,
     fontSize: 16,
     lineHeight: 27,
-    marginTop: 22,
+    marginTop: 18,
   },
   boldText: {
     fontWeight: "900",
@@ -412,13 +475,13 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   checkButton: {
-    flex: 1,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.35)",
     backgroundColor: "rgba(255,255,255,0.14)",
     borderRadius: 18,
     paddingVertical: 17,
     alignItems: "center",
+    paddingHorizontal: 16,
   },
   checkButtonText: {
     color: AppTheme.colors.white,

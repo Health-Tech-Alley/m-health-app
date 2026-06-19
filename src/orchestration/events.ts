@@ -43,6 +43,14 @@ export type OrchestrationEvent =
       caregiverBlock?: { action?: string; confirmed?: boolean; observations?: string[] };
       rawVitals?: Record<string, number>;
       trainingLabelProxy?: { health_event: number; event_label: number };
+      // ── UC2 decision-layer fields (planning/23 §4) ──
+      pipelinePath?: string;
+      initialAnomalyType?: string;
+      postHitlAnomalyType?: string;
+      featureQuality?: Record<string, string>;
+      scoreRatio?: number;
+      notificationTitle?: string;
+      notificationBody?: string;
     }
   | {
       type: 'caregiver_override';

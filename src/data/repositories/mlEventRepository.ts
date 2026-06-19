@@ -24,8 +24,10 @@ export function insertMlEvent(event: MlEvent): void {
        timestamp, model_version, threshold, personalized_threshold,
        reconstruction_error, anomaly_detected, input_hash, top_features_json,
        rule_engine_json, caregiver_json, raw_vitals_json,
-       training_label_proxy_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+       training_label_proxy_json, created_at,
+       feature_quality_json, initial_anomaly_type, post_hitl_anomaly_type,
+       score_ratio, slm_task_json, threshold_recommendation_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     event.eventId,
     event.patientId,
     event.deviceId ?? null,
@@ -45,23 +47,38 @@ export function insertMlEvent(event: MlEvent): void {
     event.rawVitalsJson ?? null,
     event.trainingLabelProxyJson ?? null,
     event.createdAt,
+    event.featureQualityJson ?? null,
+    event.initialAnomalyType ?? null,
+    event.postHitlAnomalyType ?? null,
+    event.scoreRatio ?? null,
+    event.slmTaskJson ?? null,
+    event.thresholdRecommendationJson ?? null,
   );
 }
+
+const ML_EVENT_SELECT_COLUMNS = `
+  event_id AS eventId, patient_id AS patientId, device_id AS deviceId,
+  alert_id AS alertId, queue_type AS queueType, event_type AS eventType,
+  timestamp, model_version AS modelVersion, threshold,
+  personalized_threshold AS personalizedThreshold,
+  reconstruction_error AS reconstructionError,
+  anomaly_detected AS anomalyDetected, input_hash AS inputHash,
+  top_features_json AS topFeaturesJson, rule_engine_json AS ruleEngineJson,
+  caregiver_json AS caregiverJson, raw_vitals_json AS rawVitalsJson,
+  training_label_proxy_json AS trainingLabelProxyJson,
+  created_at AS createdAt,
+  feature_quality_json AS featureQualityJson,
+  initial_anomaly_type AS initialAnomalyType,
+  post_hitl_anomaly_type AS postHitlAnomalyType,
+  score_ratio AS scoreRatio, slm_task_json AS slmTaskJson,
+  threshold_recommendation_json AS thresholdRecommendationJson
+`;
 
 export function getMlEvent(eventId: string): MlEvent | null {
   const db = getDatabase();
   return (
     db.getFirstSync<MlEvent>(
-      `SELECT event_id AS eventId, patient_id AS patientId, device_id AS deviceId,
-              alert_id AS alertId, queue_type AS queueType, event_type AS eventType,
-              timestamp, model_version AS modelVersion, threshold,
-              personalized_threshold AS personalizedThreshold,
-              reconstruction_error AS reconstructionError,
-              anomaly_detected AS anomalyDetected, input_hash AS inputHash,
-              top_features_json AS topFeaturesJson, rule_engine_json AS ruleEngineJson,
-              caregiver_json AS caregiverJson, raw_vitals_json AS rawVitalsJson,
-              training_label_proxy_json AS trainingLabelProxyJson,
-              created_at AS createdAt
+      `SELECT ${ML_EVENT_SELECT_COLUMNS}
        FROM ml_events WHERE event_id = ?;`,
       eventId,
     ) ?? null
@@ -72,16 +89,7 @@ export function getMlEventForAlert(alertId: string): MlEvent | null {
   const db = getDatabase();
   return (
     db.getFirstSync<MlEvent>(
-      `SELECT event_id AS eventId, patient_id AS patientId, device_id AS deviceId,
-              alert_id AS alertId, queue_type AS queueType, event_type AS eventType,
-              timestamp, model_version AS modelVersion, threshold,
-              personalized_threshold AS personalizedThreshold,
-              reconstruction_error AS reconstructionError,
-              anomaly_detected AS anomalyDetected, input_hash AS inputHash,
-              top_features_json AS topFeaturesJson, rule_engine_json AS ruleEngineJson,
-              caregiver_json AS caregiverJson, raw_vitals_json AS rawVitalsJson,
-              training_label_proxy_json AS trainingLabelProxyJson,
-              created_at AS createdAt
+      `SELECT ${ML_EVENT_SELECT_COLUMNS}
        FROM ml_events WHERE alert_id = ?
        ORDER BY created_at DESC LIMIT 1;`,
       alertId,
@@ -92,16 +100,7 @@ export function getMlEventForAlert(alertId: string): MlEvent | null {
 export function getRecentMlEvents(patientId: string, limit = 20): MlEvent[] {
   const db = getDatabase();
   return db.getAllSync<MlEvent>(
-    `SELECT event_id AS eventId, patient_id AS patientId, device_id AS deviceId,
-            alert_id AS alertId, queue_type AS queueType, event_type AS eventType,
-            timestamp, model_version AS modelVersion, threshold,
-            personalized_threshold AS personalizedThreshold,
-            reconstruction_error AS reconstructionError,
-            anomaly_detected AS anomalyDetected, input_hash AS inputHash,
-            top_features_json AS topFeaturesJson, rule_engine_json AS ruleEngineJson,
-            caregiver_json AS caregiverJson, raw_vitals_json AS rawVitalsJson,
-            training_label_proxy_json AS trainingLabelProxyJson,
-            created_at AS createdAt
+    `SELECT ${ML_EVENT_SELECT_COLUMNS}
      FROM ml_events
      WHERE patient_id = ?
      ORDER BY timestamp DESC

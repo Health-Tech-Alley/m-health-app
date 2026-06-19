@@ -9,8 +9,10 @@ export function insertAlert(alert: Alert): void {
   const db = getDatabase();
   db.runSync(
     `INSERT OR REPLACE INTO alerts
-      (alert_id, patient_id, severity, status, title, body, ml_score, ml_features_json, created_at, resolved_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      (alert_id, patient_id, severity, status, title, body, ml_score, ml_features_json,
+       pipeline_path, initial_anomaly_type, post_hitl_anomaly_type, feature_quality_json,
+       score_ratio, ae_score, created_at, resolved_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     alert.alertId,
     alert.patientId,
     alert.severity,
@@ -19,17 +21,30 @@ export function insertAlert(alert: Alert): void {
     alert.body,
     alert.mlScore ?? null,
     alert.mlFeaturesJson ?? null,
+    alert.pipelinePath ?? null,
+    alert.initialAnomalyType ?? null,
+    alert.postHitlAnomalyType ?? null,
+    alert.featureQualityJson ?? null,
+    alert.scoreRatio ?? null,
+    alert.aeScore ?? null,
     alert.createdAt,
     alert.resolvedAt ?? null,
   );
 }
 
+const ALERT_SELECT_COLUMNS = `
+  alert_id AS alertId, patient_id AS patientId, severity, status, title, body,
+  ml_score AS mlScore, ml_features_json AS mlFeaturesJson,
+  pipeline_path AS pipelinePath, initial_anomaly_type AS initialAnomalyType,
+  post_hitl_anomaly_type AS postHitlAnomalyType,
+  feature_quality_json AS featureQualityJson, score_ratio AS scoreRatio,
+  ae_score AS aeScore, created_at AS createdAt, resolved_at AS resolvedAt
+`;
+
 export function getOpenAlerts(patientId: string): Alert[] {
   const db = getDatabase();
   return db.getAllSync<Alert>(
-    `SELECT alert_id AS alertId, patient_id AS patientId, severity, status, title, body,
-            ml_score AS mlScore, ml_features_json AS mlFeaturesJson,
-            created_at AS createdAt, resolved_at AS resolvedAt
+    `SELECT ${ALERT_SELECT_COLUMNS}
      FROM alerts
      WHERE patient_id = ? AND status = 'open'
      ORDER BY severity DESC, created_at DESC;`,
@@ -43,9 +58,7 @@ export function getAlertById(alertId: string): Alert | null {
   const db = getDatabase();
   return (
     db.getFirstSync<Alert>(
-      `SELECT alert_id AS alertId, patient_id AS patientId, severity, status, title, body,
-              ml_score AS mlScore, ml_features_json AS mlFeaturesJson,
-              created_at AS createdAt, resolved_at AS resolvedAt
+      `SELECT ${ALERT_SELECT_COLUMNS}
        FROM alerts WHERE alert_id = ?;`,
       alertId,
     ) ?? null

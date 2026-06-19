@@ -32,7 +32,9 @@ import {
   getAuditEntriesForResource,
   resetDatabase,
   clearKnowledgeCache,
+  getAllKnowledgeChunks,
   type ConsentToken,
+  type KnowledgeChunk,
 } from '@/data';
 import { grantConsent, revokeConsentAndAudit } from '@/services/consent/consentGate';
 import { exportCcd } from '@/services/export/ccdaExportService';
@@ -472,6 +474,8 @@ export function SettingsScreen() {
                 </Pressable>
               ) : null}
 
+              <KnowledgeCacheViewer />
+
               {/* Import Record (stub) */}
               <Text style={[styles.devLabel, { marginTop: 16 }]}>Import Record</Text>
               <Text style={styles.devInfo}>
@@ -552,11 +556,23 @@ function AuditViewer({ patientId }: { patientId: string }) {
     setExpanded(true);
   }, []);
 
+  const closeViewer = useCallback(() => {
+    setExpanded(false);
+    setEntries([]);
+    setChainOk(null);
+  }, []);
+
   return (
     <View>
-      <Pressable style={styles.actionButton} onPress={loadEntries}>
-        <Text style={styles.actionButtonText}>View Audit Log</Text>
-      </Pressable>
+      {!expanded ? (
+        <Pressable style={styles.actionButton} onPress={loadEntries}>
+          <Text style={styles.actionButtonText}>View Audit Log</Text>
+        </Pressable>
+      ) : (
+        <Pressable style={[styles.actionButton, styles.closeButton]} onPress={closeViewer}>
+          <Text style={styles.actionButtonText}>Close Audit Log</Text>
+        </Pressable>
+      )}
       {chainOk !== null && (
         <Text style={[styles.chainStatus, chainOk ? styles.chainOk : styles.chainBroken]}>
           Hash chain: {chainOk ? 'Intact ✓' : 'BROKEN ✗'}
@@ -573,11 +589,95 @@ function AuditViewer({ patientId }: { patientId: string }) {
           ))}
         </View>
       )}
+      {expanded && entries.length === 0 && (
+        <Text style={styles.devInfo}>No audit entries found.</Text>
+      )}
     </View>
   );
 }
 
 // --- Reusable components ---
+
+function KnowledgeCacheViewer() {
+  const [loaded, setLoaded] = useState(false);
+  const [chunks, setChunks] = useState<KnowledgeChunk[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const loadChunks = useCallback(() => {
+    setChunks(getAllKnowledgeChunks());
+    setLoaded(true);
+  }, []);
+
+  const closeViewer = useCallback(() => {
+    setLoaded(false);
+    setChunks([]);
+    setExpandedId(null);
+  }, []);
+
+  if (!loaded) {
+    return (
+      <Pressable style={styles.actionButton} onPress={loadChunks}>
+        <Text style={styles.actionButtonText}>View Cached Chunks</Text>
+      </Pressable>
+    );
+  }
+
+  // Group by source for legibility.
+  const bySource: Record<string, KnowledgeChunk[]> = {};
+  for (const c of chunks) {
+    if (!bySource[c.source]) bySource[c.source] = [];
+    bySource[c.source].push(c);
+  }
+  const sources = Object.keys(bySource).sort();
+
+  return (
+    <View style={styles.cacheViewerWrap}>
+      <Pressable style={[styles.actionButton, styles.closeButton]} onPress={closeViewer}>
+        <Text style={styles.actionButtonText}>Close Chunk Viewer</Text>
+      </Pressable>
+
+      {chunks.length === 0 ? (
+        <Text style={styles.devInfo}>
+          The knowledge cache is empty. It populates after onboarding when the
+          condition-bundler fetches PubMed + MedlinePlus + RxNorm + DailyMed +
+          OpenFDA chunks for the patient&apos;s conditions and medications.
+          Requires network connectivity.
+        </Text>
+      ) : (
+        sources.map((src) => (
+          <View key={src} style={styles.cacheSourceGroup}>
+            <Text style={styles.cacheSourceLabel}>
+              {src} ({bySource[src].length})
+            </Text>
+            {bySource[src].map((chunk) => {
+              const isOpen = expandedId === chunk.chunkId;
+              return (
+                <Pressable
+                  key={chunk.chunkId}
+                  style={styles.cacheChunkRow}
+                  onPress={() => setExpandedId(isOpen ? null : chunk.chunkId)}
+                >
+                  <Text style={styles.cacheChunkId}>{chunk.chunkId}</Text>
+                  <Text style={styles.cacheChunkMeta}>
+                    {chunk.conditions ? `conditions: ${chunk.conditions}` : 'no conditions'}
+                    {' · '}uses: {chunk.useCount}
+                  </Text>
+                  {isOpen ? (
+                    <Text style={styles.cacheChunkText}>{chunk.text}</Text>
+                  ) : (
+                    <Text style={styles.cacheChunkPreview} numberOfLines={2}>
+                      {chunk.text}
+                    </Text>
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+        ))
+      )}
+    </View>
+  );
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -697,6 +797,44 @@ const styles = StyleSheet.create({
   chainStatus: { fontSize: 12, fontWeight: '700', marginTop: 4 },
   chainOk: { color: teal },
   chainBroken: { color: dangerRed },
+  closeButton: { backgroundColor: '#6B7280' },
+  cacheViewerWrap: { gap: 8, marginTop: 8 },
+  cacheSourceGroup: { gap: 4, marginTop: 8 },
+  cacheSourceLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: teal,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  cacheChunkRow: {
+    borderWidth: 1,
+    borderColor,
+    borderRadius: 8,
+    padding: 10,
+    gap: 3,
+  },
+  cacheChunkId: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: darkText,
+    fontFamily: 'monospace',
+  },
+  cacheChunkMeta: {
+    fontSize: 11,
+    color: mutedText,
+  },
+  cacheChunkPreview: {
+    fontSize: 12,
+    color: mutedText,
+    lineHeight: 17,
+  },
+  cacheChunkText: {
+    fontSize: 12,
+    color: darkText,
+    lineHeight: 18,
+    marginTop: 4,
+  },
   progressBar: {
     height: 4,
     backgroundColor: borderColor,

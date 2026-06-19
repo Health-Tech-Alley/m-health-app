@@ -25,11 +25,12 @@ import {
   upsertMedication,
   upsertPatient,
   deleteConditionsForPatient,
+  deleteCarePlanMedicationsForPatient,
 } from '../repositories/patientRepository';
 import { replaceThresholdsForVital } from '../repositories/thresholdRepository';
 import type { SymptomCategory, Threshold } from '../types';
 import { upsertMedicationSchedule } from '../repositories/medicationScheduleRepository';
-import { insertAppointment } from '../repositories/appointmentRepository';
+import { insertAppointment, deleteDemoAppointmentsForPatient } from '../repositories/appointmentRepository';
 import { ensureDefaultNotificationPreferences } from '../repositories/notificationRepository';
 import { upsertSymptom } from '../repositories/symptomRepository';
 import { upsertWearableDevice } from '../repositories/wearableDeviceRepository';
@@ -216,6 +217,11 @@ export function seedDatabaseFromProfile(
   }
 
   // -- Medications + schedules ---------------------------------------------
+  // Clear existing care-plan meds (+ their schedules) so re-seed is idempotent
+  // and duplicates don't accumulate across cold starts. Custom caregiver-added
+  // meds (source='custom') are preserved.
+  deleteCarePlanMedicationsForPatient(patientId);
+
   const medNames = (profile.patient.currentMedications ?? '')
     .split(',')
     .map((m) => m.trim())
@@ -302,11 +308,17 @@ export function seedDatabaseFromProfile(
   ensureDefaultNotificationPreferences();
 
   // -- Seed a demo appointment so the Schedule screen isn't empty -----------
+  // Use a stable appointmentId derived from the patient so re-seeding on the
+  // next cold start replaces this row instead of adding a duplicate
+  // (insertAppointment uses INSERT OR REPLACE). Also clean up any previously
+  // seeded demo duplicates (from before the stable-ID fix).
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowIso = tomorrow.toISOString().slice(0, 10);
   try {
+    deleteDemoAppointmentsForPatient(patientId);
     insertAppointment({
+      appointmentId: `appt-demo-${patientId}`,
       patientId,
       type: 'Medication review',
       provider: profile.primaryCareProvider.name,

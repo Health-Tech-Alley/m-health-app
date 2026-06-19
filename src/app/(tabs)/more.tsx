@@ -8,6 +8,12 @@ import { AppTheme } from "@/constants/theme";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
 import { useSettings } from "@/contexts/settings-context";
 import {
+  getPendingThresholdRecommendations,
+  updateThresholdRecommendationStatus,
+  type ThresholdRecommendation,
+} from "@/data";
+import {
+  audit,
   getAuditLogEntriesForResource,
   verifyAuditLogChain,
   type AuditLogEntrySummary,
@@ -88,6 +94,8 @@ export default function MoreScreen() {
   const [auditEntries, setAuditEntries] = useState<AuditLogEntrySummary[]>([]);
   const [auditChainOk, setAuditChainOk] = useState<boolean | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
+  const [thresholdRecs, setThresholdRecs] = useState<ThresholdRecommendation[]>([]);
+  const [recVersion, setRecVersion] = useState(0);
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -108,6 +116,49 @@ export default function MoreScreen() {
     }, 0);
     return () => clearTimeout(handle);
   }, [patientId]);
+
+  // Load pending threshold personalization recommendations (Developer only).
+  useEffect(() => {
+    if (!isDeveloper || !patientId) {
+      // Defer so setState happens outside the effect body.
+      const clear = setTimeout(() => setThresholdRecs([]), 0);
+      return () => clearTimeout(clear);
+    }
+
+    const handle = setTimeout(() => {
+      try {
+        setThresholdRecs(getPendingThresholdRecommendations(patientId));
+      } catch {
+        setThresholdRecs([]);
+      }
+    }, 0);
+
+    return () => clearTimeout(handle);
+  }, [isDeveloper, patientId, recVersion]);
+
+  function handleApplyThresholdRec(recId: string) {
+    updateThresholdRecommendationStatus(recId, "applied");
+    audit({
+      actor: "caregiver",
+      action: "apply_threshold_recommendation",
+      resourceType: "threshold_recommendation",
+      resourceId: recId,
+      patientId,
+    });
+    setRecVersion((version) => version + 1);
+  }
+
+  function handleDismissThresholdRec(recId: string) {
+    updateThresholdRecommendationStatus(recId, "dismissed");
+    audit({
+      actor: "caregiver",
+      action: "dismiss_threshold_recommendation",
+      resourceType: "threshold_recommendation",
+      resourceId: recId,
+      patientId,
+    });
+    setRecVersion((version) => version + 1);
+  }
 
   function handleConsentToggle(scope: RecordConsentScope) {
     const nextGranted = !consentGranted[scope];
@@ -423,6 +474,51 @@ export default function MoreScreen() {
                     error={auditError}
                   />
                 ) : null}
+
+                {/* Threshold personalization queue (read-only suggestions) */}
+                <View style={styles.thresholdBlock}>
+                  <Text style={styles.thresholdTitle}>
+                    Threshold personalization
+                  </Text>
+                  <Text style={styles.thresholdMuted}>
+                    Queued anomaly-threshold suggestions. Apply or dismiss —
+                    never auto-applied. Applying audits the change.
+                  </Text>
+                  {thresholdRecs.length === 0 ? (
+                    <Text style={styles.thresholdMuted}>
+                      No pending recommendations.
+                    </Text>
+                  ) : (
+                    thresholdRecs.map((rec) => (
+                      <View key={rec.recommendationId} style={styles.thresholdRow}>
+                        <View style={styles.thresholdTextBlock}>
+                          <Text style={styles.thresholdValue}>
+                            Recommended threshold:{" "}
+                            {rec.recommendedThreshold.toFixed(3)}
+                            {rec.adjustmentPct !== undefined
+                              ? ` (${rec.adjustmentPct > 0 ? "+" : ""}${rec.adjustmentPct.toFixed(1)}%)`
+                              : ""}
+                          </Text>
+                          {rec.reason ? (
+                            <Text style={styles.thresholdMuted}>{rec.reason}</Text>
+                          ) : null}
+                        </View>
+                        <Pressable
+                          style={[styles.thresholdBtn, styles.thresholdApplyBtn]}
+                          onPress={() => handleApplyThresholdRec(rec.recommendationId)}
+                        >
+                          <Text style={styles.thresholdBtnText}>Apply</Text>
+                        </Pressable>
+                        <Pressable
+                          style={[styles.thresholdBtn, styles.thresholdDismissBtn]}
+                          onPress={() => handleDismissThresholdRec(rec.recommendationId)}
+                        >
+                          <Text style={styles.thresholdBtnText}>Dismiss</Text>
+                        </Pressable>
+                      </View>
+                    ))
+                  )}
+                </View>
               </>
             ) : null}
           </SettingsSection>
@@ -980,5 +1076,57 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: 4,
+  },
+  thresholdBlock: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: AppTheme.radius.md,
+    backgroundColor: AppTheme.colors.softSurface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    gap: 8,
+  },
+  thresholdTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  thresholdMuted: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  thresholdRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+  },
+  thresholdTextBlock: {
+    flex: 1,
+    gap: 2,
+  },
+  thresholdValue: {
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  thresholdBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: AppTheme.radius.sm,
+  },
+  thresholdApplyBtn: {
+    backgroundColor: AppTheme.colors.brand,
+  },
+  thresholdDismissBtn: {
+    backgroundColor: AppTheme.colors.chip,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  thresholdBtnText: {
+    color: AppTheme.colors.white,
+    fontSize: 13,
+    fontWeight: "800",
   },
 });

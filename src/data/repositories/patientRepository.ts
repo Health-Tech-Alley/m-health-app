@@ -133,6 +133,28 @@ export function deleteMedication(medicationId: string, hard = false): void {
   }
 }
 
+/**
+ * Hard-delete all care-plan (`source = 'care_plan'`) medications for a patient
+ * and their schedules. Used by the seeder to make medication re-seeding
+ * idempotent (mirrors `deleteConditionsForPatient`). Caregiver-added custom
+ * medications (`source = 'custom'`) are preserved across re-seeds.
+ */
+export function deleteCarePlanMedicationsForPatient(patientId: string): void {
+  const db = getDatabase();
+  db.runSync(
+    `DELETE FROM medication_schedules
+     WHERE medication_id IN (
+       SELECT medication_id FROM medications
+       WHERE patient_id = ? AND source = 'care_plan'
+     );`,
+    patientId,
+  );
+  db.runSync(
+    `DELETE FROM medications WHERE patient_id = ? AND source = 'care_plan';`,
+    patientId,
+  );
+}
+
 export function upsertCondition(condition: PatientCondition): void {
   const db = getDatabase();
   db.runSync(
