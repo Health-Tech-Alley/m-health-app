@@ -22,7 +22,13 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.rahalcloud.mhealthapp"
+      "package": "com.rahalcloud.mhealthapp",
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM"
+      ]
     },
     "web": {
       "output": "static",
@@ -49,6 +55,14 @@
         "react-native-fast-tflite",
         {
           "enableCoreMLDelegate": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icons": [
+            "./assets/images/icon.png"
+          ]
         }
       ]
     ],

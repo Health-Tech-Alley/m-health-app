@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
-import { ActiveAlertCard } from "@/components/dashboard/ActiveAlertCard";
+import { AlertsLogCard } from "@/components/dashboard/AlertsLogCard";
 import { NonEmergencyInsightCard } from "@/components/dashboard/NonEmergencyInsightCard";
 import { PatientSummaryCard } from "@/components/dashboard/PatientSummaryCard";
 import { RecentActivityCard } from "@/components/dashboard/RecentActivityCard";
@@ -67,7 +67,7 @@ export default function DashboardRoute() {
           </View>
 
           <PatientSummaryCard />
-          <ActiveAlertCard />
+          <AlertsLogCard />
           <WeeklyVitalsCard />
           <NonEmergencyInsightCard />
 

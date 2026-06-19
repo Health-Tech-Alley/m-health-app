@@ -432,6 +432,23 @@ export class Orchestrator {
       writeTriggerEdges(event.sampleId, v.thresholdId, alert.alertId);
     }
     auditAlertCreated(event.patientId, alert.alertId, { source: 'threshold', violations });
+
+    // Dispatch an OS / in-app banner notification for non-critical threshold
+    // alerts (severity 1-2) so the caregiver is proactively notified —
+    // severity-3 is handled by the emergency fast path. Consent-gated; on
+    // Track A (no expo-notifications) this surfaces as the in-app banner so
+    // the demo shows how notifications react to dynamic data.
+    try {
+      const consent = checkEgressConsent(event.patientId, 'dispatch_alert_notification');
+      if (consent.allowed) {
+        await this.client.callTool('dispatch_alert_notification', {
+          alertId: alert.alertId,
+          bypassDnd: false,
+        });
+      }
+    } catch (err) {
+      console.warn('[Orchestrator] non-critical alert notification dispatch failed:', err);
+    }
   }
 
   /**

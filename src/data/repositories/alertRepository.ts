@@ -65,6 +65,24 @@ export function getAlertById(alertId: string): Alert | null {
   );
 }
 
+/**
+ * All alerts for the alerts log (Dashboard). Excludes `removed` alerts (which
+ * are hidden from the log but retained for audit). Ordered newest-first.
+ *
+ * The log groups these into Active (open / acknowledged) and Inactive
+ * (dismissed / resolved / escalated).
+ */
+export function getAlertsForLog(patientId: string): Alert[] {
+  const db = getDatabase();
+  return db.getAllSync<Alert>(
+    `SELECT ${ALERT_SELECT_COLUMNS}
+     FROM alerts
+     WHERE patient_id = ? AND status != 'removed'
+     ORDER BY created_at DESC;`,
+    patientId,
+  );
+}
+
 export function updateAlertStatus(
   alertId: string,
   status: Alert['status'],
@@ -77,6 +95,22 @@ export function updateAlertStatus(
     resolvedAt,
     alertId,
   );
+}
+
+/**
+ * Permanently suppress the critical-alert popup for this alert. The alert is
+ * retained (status `dismissed`) and shows as inactive in the alerts log.
+ */
+export function dismissAlert(alertId: string): void {
+  updateAlertStatus(alertId, 'dismissed');
+}
+
+/**
+ * Remove an alert from the alerts log. The row is retained in SQLite (status
+ * `removed`) so the tamper-evident audit trail stays intact.
+ */
+export function removeAlert(alertId: string): void {
+  updateAlertStatus(alertId, 'removed');
 }
 
 export function insertCaregiverAction(action: CaregiverAction): void {

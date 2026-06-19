@@ -51,7 +51,11 @@ export interface Alert {
   alertId: string;
   patientId: string;
   severity: 1 | 2 | 3;
-  status: 'open' | 'acknowledged' | 'resolved' | 'escalated';
+  // 'dismissed' = caregiver permanently suppressed the critical popup (shows
+  //   as inactive in the alerts log; kept for audit).
+  // 'removed'    = caregiver removed the alert from the log (hidden from the
+  //   log UI but preserved in SQLite for the tamper-evident audit trail).
+  status: 'open' | 'acknowledged' | 'resolved' | 'escalated' | 'dismissed' | 'removed';
   title: string;
   body: string;
   mlScore?: number;
