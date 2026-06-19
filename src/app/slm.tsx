@@ -355,10 +355,34 @@ export default function SLMScreen({
     }
 
     const systemContext = buildCaregiverSystemContext(caregiverContext);
+
+    // Opt-in clinical knowledge retrieval: only when the user's message
+    // contains a condition or medication keyword. Avoids latency on
+    // non-clinical questions.
+    const conditionNames = snapshot
+      ? [snapshot.primaryCondition?.name, ...snapshot.comorbidities.map((c) => c.name)].filter((n): n is string => Boolean(n))
+      : [];
+    const medNames = (profile.patient.currentMedications ?? '')
+      .split(',')
+      .map((m) => m.trim())
+      .filter(Boolean);
+
+    let userContent = trimmed;
+    if (messageHasClinicalKeywords(trimmed, conditionNames, medNames)) {
+      const citations = retrieveClinicalChunks(
+        [trimmed, ...conditionNames, ...medNames].join(' '),
+        5,
+      );
+      const citationBlock = formatCitationsForPrompt(citations);
+      if (citationBlock) {
+        userContent = `${trimmed}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above where relevant. Cite sources in brackets like [PMID-12345678].`;
+      }
+    }
+
     const messages: ProviderChatMessage[] = [
       { role: 'system', content: systemContext },
       ...state.messages.map((m) => ({ role: m.role, content: m.text })),
-      { role: 'user', content: trimmed },
+      { role: 'user', content: userContent },
     ];
 
     abortControllerRef.current = new AbortController();
@@ -404,7 +428,7 @@ export default function SLMScreen({
     } finally {
       abortControllerRef.current = null;
     }
-  }, [inputText, state.runStatus, state.messages, slm, caregiverContext]);
+  }, [inputText, state.runStatus, state.messages, slm, caregiverContext, snapshot, profile.patient.currentMedications]);
 
   const handleStop = useCallback(() => {
     if (abortControllerRef.current) {
