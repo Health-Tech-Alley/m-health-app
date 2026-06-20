@@ -1,6 +1,5 @@
-import { useRouter } from "expo-router";
+import { useRef, useState } from "react";
 import {
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,47 +9,49 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
-import { ActiveAlertCard } from "@/components/dashboard/ActiveAlertCard";
+import { MainTabHeader } from "@/components/MainTabHeader";
+import { AlertsLogCard } from "@/components/dashboard/AlertsLogCard";
 import { NonEmergencyInsightCard } from "@/components/dashboard/NonEmergencyInsightCard";
 import { PatientSummaryCard } from "@/components/dashboard/PatientSummaryCard";
-import { RecentActivityCard } from "@/components/dashboard/RecentActivityCard";
 import { TodayPriorityCard } from "@/components/dashboard/TodayPriorityCard";
 import { WeeklyVitalsCard } from "@/components/dashboard/WeeklyVitalsCard";
 import { AppTheme } from "@/constants/theme";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 export default function DashboardRoute() {
-  const router = useRouter();
   const profile = getOnboardingProfile();
+  const scrollRef = useRef<ScrollView | null>(null);
+  const [alertsLogY, setAlertsLogY] = useState(0);
 
   const caregiverFirstName = getFirstName(profile.caregiver.name);
   const patientFirstName = getFirstName(profile.patient.name);
+
+  const scrollToAlertsLog = () => {
+    scrollRef.current?.scrollTo({
+      y: Math.max(alertsLogY - 16, 0),
+      animated: true,
+    });
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <View style={styles.root}>
         <ScrollView
+          ref={scrollRef}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
         >
-          <View style={styles.header}>
-            <View style={styles.brandRow}>
-              <View style={styles.logoCircle}>
-                <Image
-                  source={require("@/assets/images/hta-logo.png")}
-                  style={styles.logoImage}
-                  resizeMode="contain"
-                />
-              </View>
-
-              <View style={styles.brandTextBlock}>
-                <Text style={styles.appName}>Caregiver Concierge</Text>
-                <Text style={styles.brandName}>ACCESS-DP</Text>
-              </View>
-
+          <MainTabHeader
+            title="Caregiver Concierge"
+            eyebrow="ACCESS-DP"
+            subtitle={`Good evening, ${caregiverFirstName}. Here's ${patientFirstName}'s status.`}
+            logoSource={require("@/assets/images/hta-logo.png")}
+            rightContent={
               <Pressable
                 style={styles.bellButton}
-                onPress={() => router.push("/care")}
+                onPress={scrollToAlertsLog}
+                accessibilityRole="button"
+                accessibilityLabel="View alerts"
               >
                 <AppIcon
                   name="bell"
@@ -59,23 +60,24 @@ export default function DashboardRoute() {
                 />
                 <View style={styles.bellDot} />
               </Pressable>
-            </View>
-
-            <Text style={styles.greeting}>
-              {`Good evening, ${caregiverFirstName}. Here's ${patientFirstName}'s status.`}
-            </Text>
-          </View>
+            }
+          />
 
           <PatientSummaryCard />
-          <ActiveAlertCard />
           <WeeklyVitalsCard />
           <NonEmergencyInsightCard />
 
           <Text style={styles.sectionTitle}>Today&apos;s Priority</Text>
           <TodayPriorityCard />
 
-          <Text style={styles.sectionTitle}>Recent Activity</Text>
-          <RecentActivityCard />
+          <View
+            onLayout={(event) => {
+              setAlertsLogY(event.nativeEvent.layout.y);
+            }}
+          >
+            <Text style={styles.sectionTitle}>Alerts Log</Text>
+            <AlertsLogCard />
+          </View>
         </ScrollView>
       </View>
     </SafeAreaView>
@@ -100,42 +102,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 22,
     paddingBottom: 124,
-  },
-  header: {
-    marginBottom: 24,
-  },
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  logoCircle: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
-    backgroundColor: AppTheme.colors.brand,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 14,
-    overflow: "hidden",
-  },
-  logoImage: {
-    width: 40,
-    height: 40,
-  },
-  brandTextBlock: {
-    flex: 1,
-  },
-  appName: {
-    color: AppTheme.colors.text,
-    fontSize: 18,
-    fontWeight: "900",
-  },
-  brandName: {
-    color: AppTheme.colors.brand,
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 1.4,
-    marginTop: 2,
   },
   bellButton: {
     width: 56,

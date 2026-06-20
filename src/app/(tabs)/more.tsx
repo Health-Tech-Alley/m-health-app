@@ -4,6 +4,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "re
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
+import { MainTabHeader } from "@/components/MainTabHeader";
 import { AppTheme } from "@/constants/theme";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
 import { useSettings } from "@/contexts/settings-context";
@@ -245,11 +246,12 @@ export default function MoreScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
         >
-          <Text style={styles.kicker}>Caregiver Concierge</Text>
-          <Text style={styles.title}>More</Text>
-          <Text style={styles.subtitle}>
-            Profile, device, notification, and data-source settings.
-          </Text>
+          <MainTabHeader
+            title="More"
+            eyebrow="Caregiver Concierge"
+            subtitle="Profile, device, notification, and data-source settings."
+            icon="settings"
+          />
 
           <View style={styles.profileCard}>
             <View style={styles.avatar}>
@@ -806,28 +808,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 24,
     paddingBottom: 40,
-  },
-  kicker: {
-    color: AppTheme.colors.brand,
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    marginBottom: 6,
-  },
-  title: {
-    color: AppTheme.colors.text,
-    fontSize: 36,
-    fontWeight: "900",
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: "700",
-    marginTop: 8,
-    marginBottom: 22,
   },
   profileCard: {
     backgroundColor: AppTheme.colors.surface,

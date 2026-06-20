@@ -34,8 +34,9 @@ import {
   messageHasClinicalKeywords,
   retrieveClinicalChunks,
 } from '@/clinical-evidence/retrieval-helper';
+import { MainTabHeader } from '@/components/MainTabHeader';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
-import { MaxContentWidth } from '@/constants/theme';
+import { AppTheme, MaxContentWidth } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useTheme } from '@/hooks/use-theme';
@@ -487,7 +488,7 @@ export default function SLMScreen({
   const isInputDisabled = slm.loadStatus !== 'ready' && slm.loadStatus !== 'idle';
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: '#EEF7F6' }]} edges={['top', 'bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: AppTheme.colors.screen }]} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -506,13 +507,12 @@ export default function SLMScreen({
         </View>
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-          <View style={styles.headerCard}>
-            <Text style={styles.eyebrow}>Caregiver Concierge</Text>
-            <Text style={styles.title}>Concierge Support</Text>
-            <Text style={styles.subtitle}>
-              Ask practical questions using the caregiver profile and patient context.
-            </Text>
-          </View>
+          <MainTabHeader
+            title="Concierge Support"
+            eyebrow="Caregiver Concierge"
+            subtitle="Ask practical questions using the caregiver profile and patient context."
+            icon="assistant"
+          />
 
           <View style={styles.statusCard}>
             <Text style={styles.cardTitle}>Model Status</Text>
@@ -743,7 +743,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 20,
+    paddingHorizontal: 24,
+    paddingTop: 22,
     paddingBottom: 40,
     maxWidth: MaxContentWidth,
     alignSelf: 'center',
@@ -783,30 +784,6 @@ const styles = StyleSheet.create({
     color: '#0E6F68',
     fontWeight: '700',
     fontSize: 13,
-  },
-  headerCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 22,
-    marginBottom: 16,
-  },
-  eyebrow: {
-    color: '#0E6F68',
-    fontWeight: '800',
-    marginBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#123433',
-    marginBottom: 8,
-  },
-  subtitle: {
-    color: '#526866',
-    fontSize: 15,
-    lineHeight: 22,
   },
   statusCard: {
     backgroundColor: '#FFFFFF',

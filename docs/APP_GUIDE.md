@@ -119,9 +119,10 @@ Context card, the SLM system prompt, and the orchestrator's threshold engine.
 
 The main caregiver home dashboard. Shows the **Health Tech Alley logo + branded
 header** ("Caregiver Concierge / ACCESS-DP"), a patient summary card, the
-**ActiveAlertCard** (severity-3 alert with functional Call 911 / Contact Provider
-/ Acknowledge / Mark handled / Add Note buttons), the **Weekly Vitals card**
-(emoji-tabbed vital trends with time-range selectors), and the
+**AlertsLogCard** (every alert grouped into **Active** / **Inactive** — tap an
+alert to open `alert-detail` for notes/actions; remove an alert from the log
+with a confirm, which keeps the row for the audit trail), the **Weekly Vitals
+card** (emoji-tabbed vital trends with time-range selectors), and the
 **Non-Emergency Insight card** (context-aware anomaly explanation with
 caregiver context tags). Below: Today's Priority and Recent Activity cards.
 
@@ -170,18 +171,34 @@ dialog (safety note + why it matters + recommendation) with an
 therapy day's progress; pain before/after, fatigue, and the caregiver note are
 **tappable and persisted** to the `daily_care_entries` SQLite table via
 `upsertDailyCareEntry`. The legacy "Your Response" action block was removed
-(those actions now live in the active-alert pop-up).
+(those actions now live in the critical-alert popup and the alerts log).
 
-### Active alert card (Dashboard + Care)
+### Critical alert popup + Alerts log
 
-The severity-3 active alert is shown as a **red card** on the dashboard and Care
-screen (Sebastian's visual design). Pulls real alerts from
-`careService.getActiveCareAlerts()` with a demo-data fallback. All buttons are
-functional and audit-logged: **Call 911** opens the phone dialer (`tel:911`);
-**Contact Provider** opens `tel:<providerPhone>`; **Acknowledge** calls
-`acknowledgeCareAlert` + audit-logs; **Mark handled** calls `resolveCareAlert` +
-audit-logs; **Add Note** shows an inline audit-logged note input. The previous
-`ActiveAlertModal` / `ActiveAlertStore` global pop-up approach has been removed.
+The severity-3 active alert is shown as a **transient red popup dialogue**
+(`CriticalAlertDialog`, mounted once at the root via `CriticalAlertProvider`),
+not a persistent card. It appears immediately as an overlay when a severity-3
+alert is created (e.g. the ML care-analysis demo judges a scenario critical),
+and re-surfaces whenever the **Care tab is (re)opened** — until the alert is
+Dismissed or resolved. Buttons: **Call 911** / **Go to ER** / **Contact
+Provider** (native deep-links via `executeNextStep()`), **Close** (hide for
+this session; reappears next time the Care tab opens), **Dismiss** (confirm
+prompt — permanently suppresses; sets status `dismissed`), and **View full
+alert →** (opens `alert-detail`).
+
+The **Dashboard** shows an **Alerts Log** (`AlertsLogCard`) instead of a
+persistent card: alerts are grouped **Active** (`open` / `acknowledged`) and
+**Inactive** (`dismissed` / `resolved` / `escalated`). Tapping a row opens
+`alert-detail` (notes, actions, explain); the per-row **×** removes the alert
+from the log (status `removed` — hidden from the log but retained in SQLite
+for the tamper-evident audit trail). The log live-refreshes on
+alert-affecting bus events.
+
+**Non-critical alerts (severity 1–2)** fire an OS / in-app banner notification:
+the orchestrator dispatches via the `dispatch_alert_notification` tool
+(consent-gated), which on Track A surfaces as the global `InAppBanner`. This
+lets the demo show how notifications react to dynamic data. (Severity-3 also
+dispatches a notification, with DND bypass, alongside the popup.)
 
 ### Transient SLM use — `SlmInsightSheet`
 

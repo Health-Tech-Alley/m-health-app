@@ -1,8 +1,6 @@
-import { useEffect, useState } from "react";
-import { useRouter } from "expo-router";
+import { useCallback, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
 import {
-  Alert,
-  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -14,22 +12,16 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
-import { ActiveAlertCard } from "@/components/dashboard/ActiveAlertCard";
+import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
 import { AppTheme } from "@/constants/theme";
+import { useCriticalAlert } from "@/contexts/critical-alert-context";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import {
   getDailyCareEntry,
   upsertDailyCareEntry,
   type DailyCareEntry,
 } from "@/data";
-import { audit } from "@/services/audit/auditService";
-import {
-  acknowledgeCareAlert,
-  getActiveCareAlerts,
-  resolveCareAlert,
-  type CareAlert,
-} from "@/services/care/careService";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 // Seed defaults used the first time the Care screen is opened for today.
@@ -76,6 +68,7 @@ export default function CareScreen() {
   const router = useRouter();
   const profile = getOnboardingProfile();
   const { patientId } = usePatientRecord();
+  const { reopenOnCareFocus } = useCriticalAlert();
 
   const patientFirstName =
     profile.patient.name.trim().split(/\s+/)[0] || "patient";
@@ -83,107 +76,13 @@ export default function CareScreen() {
   const caregiverFirstName =
     profile.caregiver.name.trim().split(/\s+/)[0] || "caregiver";
 
-  // Active alert from careService (real alerts from SQLite, with mock fallback).
-  const [activeAlert, setActiveAlert] = useState<CareAlert | null>(null);
-  const [alertNoteOpen, setAlertNoteOpen] = useState(false);
-  const [alertNoteText, setAlertNoteText] = useState("");
-
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      try {
-        setActiveAlert(getActiveCareAlerts(patientId ?? undefined)[0] ?? null);
-      } catch {
-        setActiveAlert(null);
-      }
-    }, 0);
-    return () => clearTimeout(handle);
-  }, [patientId]);
-
-  const isRealAlert = activeAlert !== null;
-
-  function handleCall911() {
-    audit({
-      actor: "caregiver",
-      action: "initiated_911",
-      resourceType: "alert",
-      resourceId: activeAlert?.alertId,
-      patientId: patientId ?? undefined,
-    });
-    Linking.openURL("tel:911").catch((err) =>
-      console.error("[Care] Could not open dialer:", err),
-    );
-  }
-
-  function handleContactProvider() {
-    const phone = profile.primaryCareProvider.phone;
-    if (phone) {
-      audit({
-        actor: "caregiver",
-        action: "contact_provider",
-        resourceType: "alert",
-        resourceId: activeAlert?.alertId,
-        patientId: patientId ?? undefined,
-      });
-      Linking.openURL(`tel:${phone}`).catch((err) =>
-        console.error("[Care] Could not open dialer:", err),
-      );
-    } else {
-      Alert.alert("No provider phone", "A primary care provider phone number was not provided during onboarding.");
-    }
-  }
-
-  function handleAcknowledgeAlert() {
-    if (isRealAlert && activeAlert) {
-      acknowledgeCareAlert(activeAlert.alertId);
-    }
-    audit({
-      actor: "caregiver",
-      action: "acknowledged",
-      resourceType: "alert",
-      resourceId: activeAlert?.alertId,
-      patientId: patientId ?? undefined,
-      payload: { severity: activeAlert?.severity ?? 3 },
-    });
-    Alert.alert(
-      "Alert acknowledged",
-      "The alert has been acknowledged and logged. Check on the patient immediately and call 911 if symptoms are severe.",
-      [{ text: "OK" }],
-    );
-  }
-
-  function handleMarkHandled() {
-    if (!activeAlert) return;
-    const resolved = resolveCareAlert(activeAlert.alertId);
-    if (!resolved && __DEV__) {
-      console.warn(`Unable to resolve alert ${activeAlert.alertId}`);
-    }
-    audit({
-      actor: "caregiver",
-      action: "resolved",
-      resourceType: "alert",
-      resourceId: activeAlert.alertId,
-      patientId: patientId ?? undefined,
-    });
-    setActiveAlert(null);
-  }
-
-  function handleSaveAlertNote() {
-    const trimmed = alertNoteText.trim();
-    if (!trimmed) {
-      setAlertNoteOpen(false);
-      return;
-    }
-    audit({
-      actor: "caregiver",
-      action: "add_note",
-      resourceType: "alert",
-      resourceId: activeAlert?.alertId,
-      patientId: patientId ?? undefined,
-      payload: { note: trimmed },
-    });
-    setAlertNoteText("");
-    setAlertNoteOpen(false);
-  }
+  // Re-surface the severity-3 critical-alert popup whenever the Care tab is
+  // (re)opened, until the alert is dismissed or resolved.
+  useFocusEffect(
+    useCallback(() => {
+      reopenOnCareFocus();
+    }, [reopenOnCareFocus]),
+  );
 
   // Daily care entry — sourced from SQLite (or seeded defaults), editable,
   // persisted via upsertDailyCareEntry on each edit.
@@ -254,14 +153,11 @@ export default function CareScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
-        <View style={styles.headerRow}>
-          <View style={styles.headerTextBlock}>
-            <Text style={styles.kicker}>Caregiver Concierge ACCESS-DP</Text>
-            <Text style={styles.title}>Care Management</Text>
-          </View>
-
-          <Text style={styles.patientName}>{patientFirstName}</Text>
-        </View>
+        <MainTabHeader
+          title="Care Management"
+          eyebrow="Caregiver Concierge ACCESS-DP"
+          rightContent={<Text style={styles.patientName}>{patientFirstName}</Text>}
+        />
 
         <View style={styles.patientCard}>
           <View style={styles.avatar}>
@@ -276,9 +172,6 @@ export default function CareScreen() {
             <Text style={styles.patientMuted}>No movement · 25 min</Text>
           </View>
         </View>
-
-        {/* Active alert card — shared, live-refreshing, severity-aware */}
-        <ActiveAlertCard />
 
         <View style={styles.safetyCard}>
           <Text style={styles.safetyKicker}>Safety Considerations</Text>
@@ -410,89 +303,6 @@ export default function CareScreen() {
             </Text>
           </View>
         </View>
-
-        {/* Action buttons (Sebastian's layout, wired to real actions) */}
-        <Text style={styles.sectionTitle}>Your Response</Text>
-
-        <Pressable style={styles.callButton} onPress={handleCall911}>
-          <Text style={styles.callButtonText}>Call 911</Text>
-        </Pressable>
-
-        <View style={styles.twoColumnActions}>
-          <Pressable
-            style={styles.actionButton}
-            onPress={() => router.push("/care")}
-          >
-            <Text style={styles.actionButtonText}>
-              Check on {patientFirstName}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={styles.actionButton}
-            onPress={() => router.push("/care-management")}
-          >
-            <Text style={styles.actionButtonText}>Go to ER</Text>
-          </Pressable>
-        </View>
-
-        <Pressable style={styles.fullWidthAction} onPress={handleContactProvider}>
-          <Text style={styles.actionButtonText}>Contact Provider</Text>
-        </Pressable>
-
-        <View style={styles.twoColumnActions}>
-          <Pressable
-            style={styles.actionButton}
-            onPress={isRealAlert ? handleMarkHandled : handleAcknowledgeAlert}
-          >
-            <Text style={styles.secondaryActionText}>
-              {isRealAlert ? "Acknowledge" : "Acknowledge"}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={styles.actionButton}
-            onPress={() => setAlertNoteOpen((v) => !v)}
-          >
-            <Text style={styles.secondaryActionText}>Add Note</Text>
-          </Pressable>
-        </View>
-
-        {alertNoteOpen ? (
-          <View style={styles.alertNoteBlock}>
-            <TextInput
-              style={styles.alertNoteInput}
-              value={alertNoteText}
-              onChangeText={setAlertNoteText}
-              placeholder="Add a caregiver note (logged to the audit trail)."
-              placeholderTextColor={AppTheme.colors.textMuted}
-              multiline
-              textAlignVertical="top"
-              autoFocus
-            />
-            <View style={styles.alertNoteActions}>
-              <Pressable
-                style={[styles.alertNoteBtn, styles.alertNoteCancel]}
-                onPress={() => {
-                  setAlertNoteOpen(false);
-                  setAlertNoteText("");
-                }}
-              >
-                <Text style={styles.alertNoteCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.alertNoteBtn, styles.alertNoteSave]}
-                onPress={handleSaveAlertNote}
-              >
-                <Text style={styles.alertNoteSaveText}>Save note</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-
-        <Text style={styles.loggedText}>
-          All responses logged · You remain in control
-        </Text>
 
         <Text style={styles.sectionTitle}>Care Analysis</Text>
 
@@ -739,117 +549,10 @@ const styles = StyleSheet.create({
     paddingTop: 22,
     paddingBottom: 40,
   },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  headerTextBlock: {
-    flex: 1,
-  },
-  kicker: {
-    color: AppTheme.colors.sectionText,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  title: {
-    color: AppTheme.colors.text,
-    fontSize: 22,
-    fontWeight: "900",
-    marginTop: 2,
-  },
   patientName: {
     color: AppTheme.colors.textMuted,
     fontSize: 14,
     fontWeight: "900",
-  },
-  alertCard: {
-    backgroundColor: AppTheme.colors.danger,
-    borderRadius: AppTheme.radius.card,
-    padding: 22,
-    marginBottom: 18,
-    shadowColor: "#900",
-    shadowOpacity: 0.18,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
-  },
-  alertHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-  alertIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 16,
-  },
-  alertTitleBlock: {
-    flex: 1,
-  },
-  alertKicker: {
-    color: AppTheme.colors.white,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-  alertTitle: {
-    color: AppTheme.colors.white,
-    fontSize: 23,
-    fontWeight: "900",
-  },
-  alertSubtitle: {
-    color: AppTheme.colors.white,
-    fontSize: 15,
-    lineHeight: 21,
-    marginTop: 4,
-  },
-  newPill: {
-    backgroundColor: AppTheme.colors.white,
-    borderRadius: AppTheme.radius.pill,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  newPillText: {
-    color: AppTheme.colors.danger,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-  },
-  metricRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 22,
-  },
-  metricBox: {
-    flex: 1,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.16)",
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  metricLabel: {
-    color: AppTheme.colors.white,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  metricValue: {
-    color: AppTheme.colors.white,
-    fontSize: 19,
-    fontWeight: "900",
-    marginTop: 5,
-  },
-  metricDetail: {
-    color: AppTheme.colors.white,
-    fontSize: 12,
-    marginTop: 3,
   },
   patientCard: {
     backgroundColor: AppTheme.colors.surface,
@@ -1330,69 +1033,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
   },
-  callButton: {
-    backgroundColor: AppTheme.colors.danger,
-    borderRadius: 18,
-    paddingVertical: 18,
-    alignItems: "center",
-    marginBottom: 14,
-    shadowColor: AppTheme.colors.danger,
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 4,
-  },
-  callButtonText: {
-    color: AppTheme.colors.white,
-    fontSize: 22,
-    fontWeight: "900",
-  },
-  twoColumnActions: {
-    flexDirection: "row",
-    gap: 14,
-    marginBottom: 14,
-  },
-  actionButton: {
-    flex: 1,
-    minHeight: 64,
-    backgroundColor: AppTheme.colors.surface,
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-    ...AppTheme.shadow,
-  },
-  fullWidthAction: {
-    minHeight: 64,
-    backgroundColor: AppTheme.colors.surface,
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
-  },
-  actionButtonText: {
-    color: AppTheme.colors.text,
-    fontSize: 17,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  secondaryActionText: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 17,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  loggedText: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 13,
-    textAlign: "center",
-    marginTop: 4,
-    marginBottom: 20,
-  },
   mlButton: {
     backgroundColor: AppTheme.colors.brandSoft,
     borderWidth: 1,
@@ -1417,111 +1057,6 @@ const styles = StyleSheet.create({
   mlButtonLink: {
     color: AppTheme.colors.brand,
     fontSize: 15,
-    fontWeight: "900",
-  },
-  // Alert card extras (not in the original alert card styles)
-  alertPill: {
-    backgroundColor: AppTheme.colors.white,
-    borderRadius: AppTheme.radius.pill,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  alertPillText: {
-    color: AppTheme.colors.danger,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-  },
-  alertMetricRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 22,
-  },
-  alertMetricBox: {
-    flex: 1,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.16)",
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  alertMetricLabel: {
-    color: AppTheme.colors.white,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  alertMetricValue: {
-    color: AppTheme.colors.white,
-    fontSize: 19,
-    fontWeight: "900",
-    marginTop: 5,
-  },
-  alertMetricDetail: {
-    color: AppTheme.colors.white,
-    fontSize: 12,
-    marginTop: 3,
-  },
-  alertBodyText: {
-    color: AppTheme.colors.white,
-    fontSize: 15,
-    lineHeight: 22,
-    fontWeight: "700",
-    marginTop: 16,
-  },
-  alertHandledButton: {
-    alignSelf: "flex-start",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.38)",
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.14)",
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    marginTop: 16,
-  },
-  alertHandledText: {
-    color: AppTheme.colors.white,
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  // Alert note inline input
-  alertNoteBlock: {
-    marginBottom: 14,
-    gap: 10,
-  },
-  alertNoteInput: {
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    borderRadius: 14,
-    padding: 12,
-    minHeight: 70,
-    fontSize: 14,
-    color: AppTheme.colors.text,
-    backgroundColor: AppTheme.colors.surface,
-    textAlignVertical: "top",
-  },
-  alertNoteActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 10,
-  },
-  alertNoteBtn: {
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-  },
-  alertNoteCancel: {
-    backgroundColor: AppTheme.colors.softSurface,
-  },
-  alertNoteCancelText: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  alertNoteSave: {
-    backgroundColor: AppTheme.colors.brand,
-  },
-  alertNoteSaveText: {
-    color: AppTheme.colors.white,
-    fontSize: 14,
     fontWeight: "900",
   },
 });

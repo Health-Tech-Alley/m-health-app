@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
+import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
 import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
@@ -225,18 +226,12 @@ export default function MedicationsScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
         >
-          <View style={styles.headerRow}>
-            <View style={styles.headerIconCircle}>
-              <AppIcon name="pill" size={25} color={AppTheme.colors.white} />
-            </View>
-
-            <View style={styles.headerTextBlock}>
-              <Text style={styles.kicker}>Caregiver Concierge ACCESS-DP</Text>
-              <Text style={styles.title}>Medication Management</Text>
-            </View>
-
-            <Text style={styles.patientName}>{patientFirstName}</Text>
-          </View>
+          <MainTabHeader
+            title="Medication Management"
+            eyebrow="Caregiver Concierge ACCESS-DP"
+            icon="pill"
+            rightContent={<Text style={styles.patientName}>{patientFirstName}</Text>}
+          />
 
           {nextDue ? (
             <View style={styles.nextDueCard}>
@@ -486,44 +481,14 @@ const styles = StyleSheet.create({
     backgroundColor: AppTheme.colors.screen,
   },
   content: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 24,
     paddingTop: 18,
     paddingBottom: 124,
   },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 28,
-  },
-  headerIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: AppTheme.colors.brand,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  headerTextBlock: { flex: 1 },
-  kicker: {
-    color: AppTheme.colors.brand,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 0.9,
-    textTransform: "uppercase",
-    marginBottom: 3,
-  },
-  title: {
-    color: AppTheme.colors.text,
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: "900",
-  },
   patientName: {
     color: AppTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: "800",
-    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: "900",
   },
   nextDueCard: {
     backgroundColor: AppTheme.colors.brand,
