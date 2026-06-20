@@ -462,7 +462,7 @@ export function SlmInsightSheet({
               </View>
             ) : null}
 
-            <Text style={styles.answerLabel}>Assistant response</Text>
+            <Text style={styles.answerLabel}>Concierge response</Text>
 
             {phase === 'error' ? (
               <Text style={styles.errorText}>
@@ -474,7 +474,7 @@ export function SlmInsightSheet({
               <Text style={styles.thinkingText}>Thinking…</Text>
             ) : null}
 
-            {/* Streaming: raw token stream in faded italic (like the Assistant tab). */}
+            {/* Streaming: raw token stream in faded italic (like the Concierge tab). */}
             {phase === 'streaming' ? (
               <Text style={styles.streamingText}>{answer || '…'}</Text>
             ) : null}
@@ -493,7 +493,7 @@ export function SlmInsightSheet({
 
           {phase === 'streaming' || phase === 'done' ? (
             <Text style={styles.footnote}>
-              Assistant guidance — not a diagnosis. Confirm with the care team.
+              Concierge guidance — not a diagnosis. Confirm with the care team.
             </Text>
           ) : null}
         </Animated.View>
@@ -516,7 +516,7 @@ function deriveStatusLabel(
     case 'idle':
       return 'Preparing…';
     case 'loading':
-      return modelId ? `Loading model · ${modelId}…` : 'Loading assistant…';
+      return modelId ? `Loading model · ${modelId}…` : 'Loading Concierge…';
     case 'thinking':
       return `Thinking${modelTag}${mockSuffix}…`;
     case 'streaming':

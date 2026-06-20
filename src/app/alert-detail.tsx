@@ -208,7 +208,7 @@ export default function AlertDetailScreen() {
           <View style={styles.emergencyBanner}>
             <Text style={styles.emergencyHeadline}>⚠ This is an emergency</Text>
             <Text style={styles.emergencySubtext}>
-              If the situation is life-threatening, act now. You can still ask the assistant
+              If the situation is life-threatening, act now. You can still ask the Concierge
               for an explanation afterwards.
             </Text>
           </View>
@@ -295,9 +295,9 @@ export default function AlertDetailScreen() {
 
         {/* Explain + note */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Assistant & Notes</Text>
+          <Text style={styles.cardTitle}>Concierge & Notes</Text>
           <ActionRow
-            label={isEmergency ? 'Ask the assistant (optional)' : 'Ask the assistant'}
+            label={isEmergency ? 'Ask the Concierge (optional)' : 'Ask the Concierge'}
             onPress={askAssistant}
             disabled={busy}
             primary

@@ -29,6 +29,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  formatCitationsForPrompt,
+  messageHasClinicalKeywords,
+  retrieveClinicalChunks,
+} from '@/clinical-evidence/retrieval-helper';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { MaxContentWidth } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
@@ -36,7 +41,8 @@ import { useSLM } from '@/contexts/slm-context';
 import { useTheme } from '@/hooks/use-theme';
 import type { ChatMessage as ProviderChatMessage } from '@/inference/inference-provider';
 import { MODEL_CATALOG } from '@/inference/model-catalog';
-import { useMemoryInfo, isNativeMemoryAvailable } from '@/services/device-memory';
+import { isNativeMemoryAvailable, useMemoryInfo } from '@/services/device-memory';
+import { isModelInstalled } from '@/services/model-storage';
 import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
 import {
   askCaregiverAssistantMock,
@@ -46,12 +52,6 @@ import {
   downloadCaregiverSLMModel,
   isCaregiverSLMModelInstalled,
 } from '@/services/slm/slmService';
-import {
-  retrieveClinicalChunks,
-  formatCitationsForPrompt,
-  messageHasClinicalKeywords,
-} from '@/clinical-evidence/retrieval-helper';
-import { isModelInstalled } from '@/services/model-storage';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 
 type MessageStatus = 'streaming' | 'done' | 'stopped' | 'error';
@@ -347,7 +347,7 @@ export default function SLMScreen({
             error:
               error instanceof Error
                 ? error.message
-                : 'Something went wrong while asking the caregiver assistant.',
+                : 'Something went wrong while asking the Concierge.',
           },
         });
       }
@@ -498,7 +498,7 @@ export default function SLMScreen({
               <Text style={styles.backText}>← Back</Text>
             </Pressable>
           ) : (
-            <Text style={styles.headerTabTitle}>Assistant</Text>
+            <Text style={styles.headerTabTitle}>Concierge</Text>
           )}
           <Pressable onPress={handleNewConversation} style={styles.newConvButton}>
             <Text style={styles.newConvButtonText}>New conversation</Text>
@@ -507,8 +507,8 @@ export default function SLMScreen({
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           <View style={styles.headerCard}>
-            <Text style={styles.eyebrow}>Caregiver Assistant</Text>
-            <Text style={styles.title}>SLM Support</Text>
+            <Text style={styles.eyebrow}>Caregiver Concierge</Text>
+            <Text style={styles.title}>Concierge Support</Text>
             <Text style={styles.subtitle}>
               Ask practical questions using the caregiver profile and patient context.
             </Text>
@@ -676,7 +676,7 @@ export default function SLMScreen({
 
           <View style={styles.safetyCard}>
             <Text style={styles.safetyNote}>
-              This assistant is a caregiver support prototype and does not replace emergency care
+              Concierge is a caregiver support prototype and does not replace emergency care
               or professional medical advice.
             </Text>
           </View>
@@ -686,7 +686,7 @@ export default function SLMScreen({
           <TextInput
             value={inputText}
             onChangeText={handleInputChange}
-            placeholder="Ask the caregiver assistant..."
+            placeholder="Ask the Concierge..."
             placeholderTextColor="#8A9A9A"
             multiline
             maxLength={4000}

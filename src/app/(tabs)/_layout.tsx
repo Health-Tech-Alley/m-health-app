@@ -1,6 +1,6 @@
 /**
  * Tab layout — the 6-tab shell (Dashboard, Care, Medications, Schedule,
- * Assistant, More).
+ * Concierge, More).
  *
  * Uses Expo Router's `Tabs` component so tab switches don't stack screens.
  * The tab bar is styled to match the existing branded design: teal active
@@ -24,7 +24,7 @@ const TAB_CONFIG: {
   { name: "care", label: "Care", icon: "care" },
   { name: "medications", label: "Meds", icon: "pill" },
   { name: "schedule", label: "Schedule", icon: "schedule" },
-  { name: "assistant", label: "Assistant", icon: "assistant" },
+  { name: "assistant", label: "Concierge", icon: "assistant" },
   { name: "more", label: "More", icon: "more" },
 ];
 

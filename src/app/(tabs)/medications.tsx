@@ -350,7 +350,7 @@ export default function MedicationsScreen() {
       <SlmInsightSheet
         visible={slmCheckMed !== null}
         onClose={() => setSlmCheckMed(null)}
-        title="Assistant medication check"
+        title="Concierge medication check"
         reason="custom_med_check"
         prompt={
           slmCheckMed

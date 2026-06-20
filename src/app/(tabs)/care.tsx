@@ -283,7 +283,7 @@ export default function CareScreen() {
         <View style={styles.safetyCard}>
           <Text style={styles.safetyKicker}>Safety Considerations</Text>
           <Text style={styles.safetyHint}>
-            Tap any consideration for details and an assistant explanation.
+            Tap any consideration for details and a Concierge explanation.
           </Text>
           {safetyConsiderations.map((consideration, idx) => (
             <Pressable
@@ -554,7 +554,7 @@ export default function CareScreen() {
               }}
             >
               <AppIcon name="care" size={18} color={AppTheme.colors.white} />
-              <Text style={styles.explainSlmText}>Explain with assistant</Text>
+              <Text style={styles.explainSlmText}>Explain with Concierge</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -566,7 +566,7 @@ export default function CareScreen() {
           setSlmOpen(false);
           setSlmPrompt("");
         }}
-        title="Assistant explanation"
+        title="Concierge explanation"
         reason="safety_note_explain"
         prompt={slmPrompt}
       />

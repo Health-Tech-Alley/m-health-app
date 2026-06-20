@@ -43,6 +43,7 @@ import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
 
 let currentSnapshot: PatientRecordSnapshot | null = null;
 let currentPatientId: string | null = null;
+let activeProviderToken: symbol | null = null;
 const listeners = new Set<() => void>();
 
 function loadSnapshot(patientId: string): PatientRecordSnapshot {
@@ -78,8 +79,9 @@ export function getCurrentPatientSnapshot(): PatientRecordSnapshot | null {
 
 /** Internal: set the patientId and load the initial snapshot. */
 function setPatientId(patientId: string): void {
+  const nextSnapshot = loadSnapshot(patientId);
   currentPatientId = patientId;
-  currentSnapshot = loadSnapshot(patientId);
+  currentSnapshot = nextSnapshot;
   emitChange();
 }
 
@@ -99,6 +101,7 @@ interface PatientRecordContextValue {
   snapshot: PatientRecordSnapshot | null;
   patientId: string | null;
   ready: boolean;
+  error: Error | null;
   /** Re-read the snapshot from SQLite. Call after any repository write. */
   refresh: () => void;
   /** Mark the clinical-condition bundle as pending / completed. */
@@ -107,34 +110,81 @@ interface PatientRecordContextValue {
 
 const PatientRecordContext = createContext<PatientRecordContextValue | null>(null);
 
-export function PatientRecordProvider({ children }: { children: ReactNode }) {
-  // Seed the DB from the onboarding profile synchronously on first render so
-  // that OrchestratorProvider (a child) can read the snapshot during its own
-  // render. seedDatabaseFromProfile is fully synchronous (expo-sqlite sync API).
-  const [patientId] = useState<string>(() => {
+interface PatientRecordInitState {
+  patientId: string | null;
+  error: Error | null;
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function initializePatientRecord(): PatientRecordInitState {
+  try {
     const profile = getOnboardingProfile();
     const seededId = seedDatabaseFromProfile(profile);
     setPatientId(seededId);
-    return seededId;
+    return { patientId: seededId, error: null };
+  } catch (error) {
+    currentSnapshot = null;
+    currentPatientId = null;
+    emitChange();
+    return { patientId: null, error: toError(error) };
+  }
+}
+
+export function PatientRecordProvider({ children }: { children: ReactNode }) {
+  const [providerToken] = useState(() => Symbol('PatientRecordProvider'));
+
+  // Seed the DB from the onboarding profile synchronously on first render so
+  // that OrchestratorProvider (a child) can read the snapshot during its own
+  // render. seedDatabaseFromProfile is fully synchronous (expo-sqlite sync API).
+  const [initState, setInitState] = useState<PatientRecordInitState>(() => {
+    activeProviderToken = providerToken;
+    return initializePatientRecord();
   });
+  const { patientId, error } = initState;
 
   useEffect(() => {
+    activeProviderToken = providerToken;
+    if (patientId && (!currentPatientId || currentPatientId !== patientId || !currentSnapshot)) {
+      try {
+        setPatientId(patientId);
+      } catch {
+        currentSnapshot = null;
+        currentPatientId = null;
+        emitChange();
+      }
+    }
+
     return () => {
+      if (activeProviderToken !== providerToken) return;
       // Reset module store on unmount (mainly for tests / hot reloads).
       currentSnapshot = null;
       currentPatientId = null;
+      activeProviderToken = null;
       listeners.clear();
     };
-  }, []);
+  }, [patientId, providerToken]);
 
   const refresh = useCallback(() => {
-    refreshPatientRecord();
-  }, []);
+    try {
+      if (!patientId) {
+        setInitState(initializePatientRecord());
+        return;
+      }
+      refreshPatientRecord();
+      setInitState({ patientId, error: null });
+    } catch (nextError) {
+      setInitState({ patientId, error: toError(nextError) });
+    }
+  }, [patientId]);
 
   const setBundlePendingFlag = useCallback((pending: boolean) => {
+    if (!patientId) return;
     setBundlePending(patientId, pending);
-    refreshPatientRecord();
-  }, [patientId]);
+    refresh();
+  }, [patientId, refresh]);
 
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
@@ -161,10 +211,11 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
       snapshot,
       patientId,
       ready: true,
+      error,
       refresh,
       setBundlePending: setBundlePendingFlag,
     }),
-    [snapshot, patientId, refresh, setBundlePendingFlag],
+    [snapshot, patientId, error, refresh, setBundlePendingFlag],
   );
 
   return (

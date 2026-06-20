@@ -8,6 +8,8 @@ import {
   Text,
   TextInput,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -229,12 +231,14 @@ export default function ScheduleScreen() {
 
             <View style={styles.twoColumnFields}>
               <Field
+                containerStyle={styles.twoColumnField}
                 label="Date"
                 value={form.date}
                 onChangeText={(v) => setForm({ ...form, date: v })}
                 placeholder="YYYY-MM-DD"
               />
               <Field
+                containerStyle={styles.twoColumnField}
                 label="Time"
                 value={form.time}
                 onChangeText={(v) => setForm({ ...form, time: v })}
@@ -306,10 +310,24 @@ export default function ScheduleScreen() {
                     <Text style={styles.appointmentDate}>{appt.date}</Text>
                     <Text style={styles.appointmentTime}>{appt.time}</Text>
                     <View style={styles.appointmentActions}>
-                      <Pressable onPress={() => openEdit(appt)} hitSlop={8}>
+                      <Pressable
+                        style={styles.appointmentActionButton}
+                        onPress={() => openEdit(appt)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Edit ${appt.type} appointment on ${appt.date}`}
+                      >
+                        <AppIcon name="edit" size={13} color={AppTheme.colors.brand} />
                         <Text style={styles.editLink}>Edit</Text>
                       </Pressable>
-                      <Pressable onPress={() => handleDelete(appt)} hitSlop={8}>
+                      <Pressable
+                        style={styles.appointmentActionButton}
+                        onPress={() => handleDelete(appt)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Delete ${appt.type} appointment on ${appt.date}`}
+                      >
+                        <AppIcon name="delete" size={13} color={AppTheme.colors.danger} />
                         <Text style={styles.deleteLink}>Delete</Text>
                       </Pressable>
                     </View>
@@ -336,56 +354,65 @@ export default function ScheduleScreen() {
             <View style={styles.modalSheet}>
               <Text style={styles.modalTitle}>Edit appointment</Text>
 
-              <Text style={styles.modalLabel}>Type</Text>
-              <View style={styles.chipRow}>
-                {appointmentTypes.map((type) => {
-                  const selected = editForm.appointmentType === type;
-                  return (
-                    <Pressable
-                      key={type}
-                      style={[styles.chip, selected && styles.chipSelected]}
-                      onPress={() => setEditForm({ ...editForm, appointmentType: type })}
-                    >
-                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                        {type}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <ScrollView
+                style={styles.modalScroll}
+                contentContainerStyle={styles.modalScrollContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={styles.modalLabel}>Type</Text>
+                <View style={styles.modalChipRow}>
+                  {appointmentTypes.map((type) => {
+                    const selected = editForm.appointmentType === type;
+                    return (
+                      <Pressable
+                        key={type}
+                        style={[styles.chip, selected && styles.chipSelected]}
+                        onPress={() => setEditForm({ ...editForm, appointmentType: type })}
+                      >
+                        <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                          {type}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
 
-              <Field
-                label="Provider"
-                value={editForm.providerName}
-                onChangeText={(v) => setEditForm({ ...editForm, providerName: v })}
-                placeholder="Dr. Smith"
-              />
-              <View style={styles.twoColumnFields}>
                 <Field
-                  label="Date"
-                  value={editForm.date}
-                  onChangeText={(v) => setEditForm({ ...editForm, date: v })}
-                  placeholder="YYYY-MM-DD"
+                  label="Provider"
+                  value={editForm.providerName}
+                  onChangeText={(v) => setEditForm({ ...editForm, providerName: v })}
+                  placeholder="Dr. Smith"
                 />
+                <View style={styles.twoColumnFields}>
+                  <Field
+                    containerStyle={styles.twoColumnField}
+                    label="Date"
+                    value={editForm.date}
+                    onChangeText={(v) => setEditForm({ ...editForm, date: v })}
+                    placeholder="YYYY-MM-DD"
+                  />
+                  <Field
+                    containerStyle={styles.twoColumnField}
+                    label="Time"
+                    value={editForm.time}
+                    onChangeText={(v) => setEditForm({ ...editForm, time: v })}
+                    placeholder="10:30 AM"
+                  />
+                </View>
                 <Field
-                  label="Time"
-                  value={editForm.time}
-                  onChangeText={(v) => setEditForm({ ...editForm, time: v })}
-                  placeholder="10:30 AM"
+                  label="Location"
+                  value={editForm.location}
+                  onChangeText={(v) => setEditForm({ ...editForm, location: v })}
+                  placeholder="Clinic name or address"
                 />
-              </View>
-              <Field
-                label="Location"
-                value={editForm.location}
-                onChangeText={(v) => setEditForm({ ...editForm, location: v })}
-                placeholder="Clinic name or address"
-              />
-              <LargeField
-                label="Reason"
-                value={editForm.reason}
-                onChangeText={(v) => setEditForm({ ...editForm, reason: v })}
-                placeholder="Reason for visit"
-              />
+                <LargeField
+                  label="Reason"
+                  value={editForm.reason}
+                  onChangeText={(v) => setEditForm({ ...editForm, reason: v })}
+                  placeholder="Reason for visit"
+                />
+              </ScrollView>
 
               <View style={styles.modalActions}>
                 <Pressable
@@ -411,14 +438,16 @@ function Field({
   value,
   onChangeText,
   placeholder,
+  containerStyle,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   placeholder: string;
+  containerStyle?: StyleProp<ViewStyle>;
 }) {
   return (
-    <View style={styles.fieldBlock}>
+    <View style={[styles.fieldBlock, containerStyle]}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         style={styles.input}
@@ -436,14 +465,16 @@ function LargeField({
   value,
   onChangeText,
   placeholder,
+  containerStyle,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   placeholder: string;
+  containerStyle?: StyleProp<ViewStyle>;
 }) {
   return (
-    <View style={styles.fieldBlock}>
+    <View style={[styles.fieldBlock, containerStyle]}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         style={[styles.input, styles.largeInput]}
@@ -537,7 +568,14 @@ const styles = StyleSheet.create({
   },
   chipText: { color: AppTheme.colors.textSoft, fontSize: 13, fontWeight: "900" },
   chipTextSelected: { color: AppTheme.colors.white },
-  fieldBlock: { flex: 1, marginBottom: 14 },
+  fieldBlock: {
+    marginBottom: 16,
+    width: "100%",
+  },
+  twoColumnField: {
+    flex: 1,
+    width: undefined,
+  },
   fieldLabel: {
     color: AppTheme.colors.text,
     fontSize: 13,
@@ -557,7 +595,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   largeInput: { minHeight: 102, textAlignVertical: "top" },
-  twoColumnFields: { flexDirection: "row", gap: 12 },
+  twoColumnFields: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
   scheduleButton: {
     minHeight: 58,
     borderRadius: 20,
@@ -621,6 +663,15 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 6,
   },
+  appointmentActionButton: {
+    minHeight: 32,
+    minWidth: 58,
+    paddingHorizontal: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
   editLink: {
     color: AppTheme.colors.brand,
     fontSize: 12,
@@ -655,19 +706,27 @@ const styles = StyleSheet.create({
     right: 0,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
   },
   modalSheet: {
     backgroundColor: AppTheme.colors.surface,
     borderRadius: AppTheme.radius.card,
     padding: 20,
-    maxHeight: "90%",
+    maxHeight: "100%",
+    overflow: "hidden",
+  },
+  modalScroll: {
+    flexShrink: 1,
+  },
+  modalScrollContent: {
+    paddingBottom: 4,
   },
   modalTitle: {
     color: AppTheme.colors.text,
     fontSize: 17,
     fontWeight: "900",
-    marginBottom: 14,
+    marginBottom: 18,
   },
   modalLabel: {
     color: AppTheme.colors.sectionText,
@@ -675,13 +734,22 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1,
     textTransform: "uppercase",
-    marginBottom: 5,
+    marginBottom: 8,
+  },
+  modalChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 18,
   },
   modalActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 10,
-    marginTop: 14,
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
   },
   modalButton: {
     backgroundColor: AppTheme.colors.brand,

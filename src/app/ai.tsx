@@ -20,7 +20,7 @@ type Message = {
 };
 
 const MOCK_MESSAGES: Message[] = [
-  { id: '1', role: 'assistant', text: 'Hi! I\'m your M-HEALTH assistant. How can I help you today?' },
+  { id: '1', role: 'assistant', text: 'Hi! I\'m your M-HEALTH Concierge. How can I help you today?' },
   { id: '2', role: 'user', text: 'What should I do if I have a headache?' },
   { id: '3', role: 'assistant', text: 'For a headache, try drinking water, resting in a quiet dark room, and taking an OTC pain reliever if needed. If it persists or is severe, consult a doctor.' },
 ];
@@ -68,7 +68,7 @@ export default function AIScreen() {
       <SafeAreaView style={styles.safeArea}>
 
         <ThemedView style={styles.header}>
-          <ThemedText type="title" style={styles.headerTitle}>AI Assistant</ThemedText>
+          <ThemedText type="title" style={styles.headerTitle}>Concierge</ThemedText>
         </ThemedView>
 
         <FlatList

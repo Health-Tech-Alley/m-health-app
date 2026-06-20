@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { AppIcon } from "@/components/AppIcon";
+import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
 import {
   COMMON_ICD_OPTIONS,
@@ -95,6 +95,7 @@ type MobilityOption = {
   label: string;
   description: string;
   detail?: string;
+  icon: AppIconName;
 };
 
 const gmfcsOptions: MobilityOption[] = [
@@ -103,30 +104,35 @@ const gmfcsOptions: MobilityOption[] = [
     label: "Level I",
     description: "Walks without major limits",
     detail: "Score 1",
+    icon: "walk-independent",
   },
   {
     value: "Level II",
     label: "Level II",
     description: "Walks with some limits",
     detail: "Score 2",
+    icon: "walk-limited",
   },
   {
     value: "Level III",
     label: "Level III",
     description: "Uses a hand-held mobility aid",
     detail: "Score 3",
+    icon: "assisted-walking",
   },
   {
     value: "Level IV",
     label: "Level IV",
     description: "Uses assisted or powered mobility",
     detail: "Score 4",
+    icon: "wheelchair-powered",
   },
   {
     value: "Level V",
     label: "Level V",
     description: "Transported in a wheelchair, needs significant support",
     detail: "Score 5",
+    icon: "transport-wheelchair",
   },
 ];
 
@@ -135,31 +141,37 @@ const fmsOptions: MobilityOption[] = [
     value: "1",
     label: "1",
     description: "Uses wheelchair",
+    icon: "wheelchair-manual",
   },
   {
     value: "2",
     label: "2",
     description: "Uses walker/frame",
+    icon: "walker",
   },
   {
     value: "3",
     label: "3",
     description: "Uses crutches",
+    icon: "crutches",
   },
   {
     value: "4",
     label: "4",
     description: "Uses sticks/canes",
+    icon: "cane",
   },
   {
     value: "5",
     label: "5",
     description: "Independent on level surfaces",
+    icon: "walk-independent",
   },
   {
     value: "6",
     label: "6",
     description: "Independent on all surfaces",
+    icon: "all-surfaces",
   },
 ];
 
@@ -241,21 +253,16 @@ export default function OnboardingScreen() {
     country: existingProfile.patient.address?.country ?? "United States",
   });
 
-  const [primaryDiagnosisText, setPrimaryDiagnosisText] = useState(
-    getInitialPrimaryDiagnosisText({
-      code: existingProfile.patient.primaryIcdCode,
-      label: existingProfile.patient.primaryIcdLabel,
-      fallback: existingProfile.patient.conditions,
-    }),
-  );
+  const [primaryDiagnosisText, setPrimaryDiagnosisText] = useState("");
 
   const [comorbidities, setComorbidities] = useState<IcdConditionProfile[]>(
-    existingProfile.patient.comorbidities ?? [],
+    [],
   );
 
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>(
     existingProfile.patient.symptoms ?? [],
   );
+  const [symptomSearch, setSymptomSearch] = useState("");
   const [otherSymptoms, setOtherSymptoms] = useState(
     existingProfile.patient.otherSymptoms ?? "",
   );
@@ -284,8 +291,13 @@ export default function OnboardingScreen() {
   function handleApplyEhrRecord() {
     if (ehrRecordApplied) return;
     const record = getMockEhrPatientRecord();
-    if (record.primaryIcdLabel) {
-      setPrimaryDiagnosisText(record.primaryIcdLabel);
+    const primaryDiagnosis = getInitialPrimaryDiagnosisText({
+      code: record.primaryIcdCode,
+      label: record.primaryIcdLabel,
+      fallback: record.conditions,
+    });
+    if (primaryDiagnosis) {
+      setPrimaryDiagnosisText(primaryDiagnosis);
     }
     if (record.comorbidities?.length) {
       setComorbidities(record.comorbidities);
@@ -347,6 +359,15 @@ export default function OnboardingScreen() {
         .map((option) => option.label),
     [selectedSymptoms],
   );
+
+  const visibleSymptoms = useMemo(() => {
+    const query = symptomSearch.trim().toLowerCase();
+
+    return COMMON_SYMPTOM_OPTIONS.filter((symptom) => {
+      if (!query) return true;
+      return symptom.label.toLowerCase().includes(query);
+    }).sort((a, b) => a.label.localeCompare(b.label));
+  }, [symptomSearch]);
 
   const isIntroScreen = stepIndex === 0;
   const canGoBack = stepIndex > 0;
@@ -821,8 +842,16 @@ export default function OnboardingScreen() {
                     )
                   }
                 >
+                  <TextInput
+                    style={styles.symptomSearchInput}
+                    value={symptomSearch}
+                    onChangeText={setSymptomSearch}
+                    placeholder="Search symptoms..."
+                    placeholderTextColor={AppTheme.colors.textMuted}
+                  />
+
                   <View style={styles.symptomGrid}>
-                    {COMMON_SYMPTOM_OPTIONS.map((symptom) => {
+                    {visibleSymptoms.map((symptom) => {
                       const selected = selectedSymptoms.includes(symptom.id);
 
                       return (
@@ -846,6 +875,12 @@ export default function OnboardingScreen() {
                       );
                     })}
                   </View>
+
+                  {visibleSymptoms.length === 0 ? (
+                    <Text style={styles.emptySelectText}>
+                      No matching symptoms
+                    </Text>
+                  ) : null}
                 </SelectPanel>
 
                 <LargeField
@@ -869,6 +904,36 @@ export default function OnboardingScreen() {
                   placeholder="Example: Albuterol PRN, Tiotropium daily..."
                 />
 
+                <View style={styles.clinicalGuidanceCard}>
+                  <View style={styles.clinicalGuidanceHeader}>
+                    <Text style={styles.clinicalGuidanceTitle}>
+                      Clinical guidance
+                    </Text>
+                    <Text style={styles.clinicalGuidanceText}>
+                      These values should come from the patient&apos;s care plan or
+                      be confirmed with the primary care provider.
+                    </Text>
+                  </View>
+
+                  <View style={styles.guidanceMetricRow}>
+                    <View style={styles.guidanceMetric}>
+                      <Text style={styles.guidanceMetricLabel}>
+                        Baseline SpO₂
+                      </Text>
+                      <Text style={styles.guidanceMetricValue}>
+                        Confirm from care plan
+                      </Text>
+                    </View>
+                    <View style={styles.guidanceMetric}>
+                      <Text style={styles.guidanceMetricLabel}>
+                        Mobility classification
+                      </Text>
+                      <Text style={styles.guidanceMetricValue}>
+                        GMFCS / FMS
+                      </Text>
+                    </View>
+                  </View>
+
                 <View style={styles.twoColumnFields}>
                   <Field
                     label="SpO₂ cutoff"
@@ -885,10 +950,10 @@ export default function OnboardingScreen() {
                   />
                 </View>
 
-                <SectionLabel title="Mobility levels" />
+                <SectionLabel title="Mobility classification" />
 
                 <SelectPanel
-                  title="GMFCS level"
+                  title="Gross Motor Function Classification System (GMFCS)"
                   value={gmfcsLevel ? `${gmfcsOptions.find((o) => o.value === gmfcsLevel)?.detail ?? gmfcsLevel}` : "Not selected"}
                   expanded={expandedSelect === "gmfcs"}
                   onToggle={() =>
@@ -911,6 +976,23 @@ export default function OnboardingScreen() {
                           setExpandedSelect(null);
                         }}
                       >
+                        <View
+                          style={[
+                            styles.mobilityIconCircle,
+                            selected && styles.mobilityIconCircleSelected,
+                          ]}
+                        >
+                          <AppIcon
+                            name={option.icon}
+                            size={20}
+                            color={
+                              selected
+                                ? AppTheme.colors.white
+                                : AppTheme.colors.brand
+                            }
+                          />
+                        </View>
+
                         <View style={styles.mobilityOptionTextBlock}>
                           <Text style={styles.mobilityOptionLabel}>
                             {option.label}
@@ -919,16 +1001,13 @@ export default function OnboardingScreen() {
                             {option.description}
                           </Text>
                         </View>
-                        {selected ? (
-                          <AppIcon name="check" size={20} color={AppTheme.colors.brand} />
-                        ) : null}
-                      </Pressable>
+                        </Pressable>
                     );
                   })}
                 </SelectPanel>
 
                 <SelectPanel
-                  title="FMS score"
+                  title="Functional Mobility Scale (FMS)"
                   value={fmsScore ? `Score ${fmsScore}` : "Not selected"}
                   expanded={expandedSelect === "fms"}
                   onToggle={() =>
@@ -951,6 +1030,23 @@ export default function OnboardingScreen() {
                           setExpandedSelect(null);
                         }}
                       >
+                        <View
+                          style={[
+                            styles.mobilityIconCircle,
+                            selected && styles.mobilityIconCircleSelected,
+                          ]}
+                        >
+                          <AppIcon
+                            name={option.icon}
+                            size={20}
+                            color={
+                              selected
+                                ? AppTheme.colors.white
+                                : AppTheme.colors.brand
+                            }
+                          />
+                        </View>
+
                         <View style={styles.mobilityOptionTextBlock}>
                           <Text style={styles.mobilityOptionLabel}>
                             {option.label}
@@ -959,13 +1055,11 @@ export default function OnboardingScreen() {
                             {option.description}
                           </Text>
                         </View>
-                        {selected ? (
-                          <AppIcon name="check" size={20} color={AppTheme.colors.brand} />
-                        ) : null}
-                      </Pressable>
+                        </Pressable>
                     );
                   })}
                 </SelectPanel>
+                </View>
               </StepShell>
             ) : null}
 
@@ -1826,6 +1920,54 @@ const styles = StyleSheet.create({
     backgroundColor: AppTheme.colors.brandSoft,
     opacity: 0.7,
   },
+  clinicalGuidanceCard: {
+    borderRadius: AppTheme.radius.card,
+    borderWidth: 1,
+    borderColor: "#B7DDE8",
+    backgroundColor: "#F4FBFC",
+    padding: 16,
+    gap: 14,
+  },
+  clinicalGuidanceHeader: {
+    gap: 6,
+  },
+  clinicalGuidanceTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  clinicalGuidanceText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  guidanceMetricRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  guidanceMetric: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#D9E7E5",
+    backgroundColor: AppTheme.colors.white,
+    padding: 12,
+  },
+  guidanceMetricLabel: {
+    color: AppTheme.colors.sectionText,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    marginBottom: 5,
+  },
+  guidanceMetricValue: {
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
   mobilityOptionRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1837,6 +1979,20 @@ const styles = StyleSheet.create({
   },
   mobilityOptionRowSelected: {
     backgroundColor: AppTheme.colors.brandSoft,
+  },
+  mobilityIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: AppTheme.colors.white,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mobilityIconCircleSelected: {
+    backgroundColor: AppTheme.colors.brand,
+    borderColor: AppTheme.colors.brand,
   },
   mobilityOptionTextBlock: {
     flex: 1,
@@ -2066,6 +2222,19 @@ const styles = StyleSheet.create({
     borderColor: AppTheme.colors.brand,
   },
 
+  symptomSearchInput: {
+    minHeight: 48,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 10,
+  },
   symptomGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -2090,6 +2259,13 @@ const styles = StyleSheet.create({
   },
   symptomChipTextSelected: {
     color: AppTheme.colors.white,
+  },
+  emptySelectText: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 13,
+    fontWeight: "800",
+    paddingVertical: 10,
+    textAlign: "center",
   },
 
   disclaimerCard: {

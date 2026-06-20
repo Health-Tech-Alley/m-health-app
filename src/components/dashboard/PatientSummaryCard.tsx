@@ -7,13 +7,34 @@ import { confirmPendingCondition, deleteCondition } from '@/data';
 import type { PatientCondition } from '@/data/types';
 
 export function PatientSummaryCard() {
-  const { snapshot, ready, refresh } = usePatientRecord();
+  const { snapshot, ready, error, refresh } = usePatientRecord();
   const [expanded, setExpanded] = useState(false);
 
-  if (!ready || !snapshot) {
+  if (!ready) {
     return (
       <View style={styles.card}>
         <Text style={styles.loadingText}>Loading patient record…</Text>
+      </View>
+    );
+  }
+
+  if (!snapshot) {
+    return (
+      <View style={styles.card}>
+        <Text style={styles.unavailableTitle}>Patient record unavailable</Text>
+        <Text style={styles.unavailableText}>
+          {error
+            ? 'The patient record could not be loaded. Try again or return to onboarding.'
+            : 'No patient record is available yet. Complete onboarding to create one.'}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading patient record"
+          onPress={refresh}
+          style={styles.retryButton}
+        >
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </Pressable>
       </View>
     );
   }
@@ -198,6 +219,33 @@ const styles = StyleSheet.create({
     fontSize: 15,
     textAlign: 'center',
     paddingVertical: 20,
+  },
+  unavailableTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  unavailableText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
+    marginBottom: 14,
+  },
+  retryButton: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: AppTheme.colors.brand,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retryButtonText: {
+    color: AppTheme.colors.white,
+    fontSize: 14,
+    fontWeight: '900',
   },
   headerRow: {
     flexDirection: 'row',
