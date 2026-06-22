@@ -4,30 +4,31 @@ import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "re
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
+import { MainTabHeader } from "@/components/MainTabHeader";
 import { AppTheme } from "@/constants/theme";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
 import { useSettings } from "@/contexts/settings-context";
-import {
-  getAuditLogEntriesForResource,
-  verifyAuditLogChain,
-  audit,
-  type AuditLogEntrySummary,
-} from "@/services/audit/auditService";
-import {
-  getOnboardingProfile,
-  getPrimaryIcdDisplay,
-  getWearableDeviceDisplay,
-} from "@/services/onboarding/onboardingService";
-import {
-  exportPatientCcda,
-  getRecordExportConsentStatus,
-  setRecordExportConsent,
-} from "@/services/records/recordsService";
 import {
   getPendingThresholdRecommendations,
   updateThresholdRecommendationStatus,
   type ThresholdRecommendation,
 } from "@/data";
+import {
+  audit,
+  getAuditLogEntriesForResource,
+  verifyAuditLogChain,
+  type AuditLogEntrySummary,
+} from "@/services/audit/auditService";
+import {
+  getOnboardingProfile,
+  getWearableDeviceDisplay,
+} from "@/services/onboarding/onboardingService";
+import {
+  exportPatientCcda,
+  getRecordConsentStatus,
+  setRecordConsent,
+  type RecordConsentScope,
+} from "@/services/records/recordsService";
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light" },
@@ -35,13 +36,58 @@ const THEME_OPTIONS = [
   { value: "system", label: "System" },
 ] as const;
 
+const CONSENT_OPTIONS: {
+  scope: RecordConsentScope;
+  emoji: string;
+  title: string;
+  subtitle: string;
+}[] = [
+  {
+    scope: "ccda_export",
+    emoji: "📤",
+    title: "C-CDA export consent",
+    subtitle: "Allow exporting a C-CDA record for care coordination",
+  },
+  {
+    scope: "fhir-share",
+    emoji: "🔗",
+    title: "FHIR share consent",
+    subtitle: "Allow sharing structured records with approved care systems",
+  },
+  {
+    scope: "pharmacy-communicator",
+    emoji: "💊",
+    title: "Pharmacy communicator consent",
+    subtitle: "Allow medication-related communication with pharmacy tools",
+  },
+  {
+    scope: "provider-message",
+    emoji: "💬",
+    title: "Provider message consent",
+    subtitle: "Allow sending care context to provider messaging tools",
+  },
+];
+
+const initialConsentState: Record<RecordConsentScope, boolean> = {
+  ccda_export: false,
+  "fhir-share": false,
+  "pharmacy-communicator": false,
+  "provider-message": false,
+};
+
 export default function MoreScreen() {
   const router = useRouter();
   const profile = getOnboardingProfile();
-  const { settings, isDeveloper, setTheme, toggleMode } = useSettings();
+  const {
+    settings,
+    isDeveloper,
+    setTheme,
+    toggleMode,
+    setNotificationPreferences,
+  } = useSettings();
   const patientId = useOrchestratorPatientId();
-  const [recordExportConsentGranted, setRecordExportConsentGranted] =
-    useState(false);
+  const [consentGranted, setConsentGranted] =
+    useState<Record<RecordConsentScope, boolean>>(initialConsentState);
   const [recordExportStatus, setRecordExportStatus] = useState(
     "Consent required before export",
   );
@@ -54,10 +100,17 @@ export default function MoreScreen() {
 
   useEffect(() => {
     const handle = setTimeout(() => {
-      const consent = getRecordExportConsentStatus(patientId);
-      setRecordExportConsentGranted(consent.granted);
+      const nextConsentState = CONSENT_OPTIONS.reduce(
+        (next, option) => ({
+          ...next,
+          [option.scope]: getRecordConsentStatus(option.scope, patientId)
+            .granted,
+        }),
+        initialConsentState,
+      );
+      setConsentGranted(nextConsentState);
       setRecordExportStatus(
-        consent.granted
+        nextConsentState.ccda_export
           ? "Consent granted for C-CDA export"
           : "Consent required before export",
       );
@@ -72,6 +125,7 @@ export default function MoreScreen() {
       const clear = setTimeout(() => setThresholdRecs([]), 0);
       return () => clearTimeout(clear);
     }
+
     const handle = setTimeout(() => {
       try {
         setThresholdRecs(getPendingThresholdRecommendations(patientId));
@@ -79,6 +133,7 @@ export default function MoreScreen() {
         setThresholdRecs([]);
       }
     }, 0);
+
     return () => clearTimeout(handle);
   }, [isDeveloper, patientId, recVersion]);
 
@@ -91,7 +146,7 @@ export default function MoreScreen() {
       resourceId: recId,
       patientId,
     });
-    setRecVersion((v) => v + 1);
+    setRecVersion((version) => version + 1);
   }
 
   function handleDismissThresholdRec(recId: string) {
@@ -103,13 +158,23 @@ export default function MoreScreen() {
       resourceId: recId,
       patientId,
     });
-    setRecVersion((v) => v + 1);
+    setRecVersion((version) => version + 1);
   }
 
-  function handleRecordExportConsentToggle() {
-    const nextGranted = !recordExportConsentGranted;
-    const consent = setRecordExportConsent(nextGranted, patientId);
-    setRecordExportConsentGranted(consent.granted);
+  function handleConsentToggle(scope: RecordConsentScope) {
+    const nextGranted = !consentGranted[scope];
+    const consent = setRecordConsent(scope, nextGranted, patientId);
+    const nextConsentState = {
+      ...consentGranted,
+      [scope]: consent.granted,
+    };
+
+    setConsentGranted(nextConsentState);
+
+    if (scope !== "ccda_export") {
+      return;
+    }
+
     setRecordExportStatus(
       consent.granted
         ? "Consent granted for C-CDA export"
@@ -127,7 +192,10 @@ export default function MoreScreen() {
     }
 
     if (result.status === "denied") {
-      setRecordExportConsentGranted(false);
+      setConsentGranted((current) => ({
+        ...current,
+        ccda_export: false,
+      }));
       setRecordExportStatus("Consent required before export");
       Alert.alert(
         "Consent required",
@@ -165,6 +233,12 @@ export default function MoreScreen() {
     setAuditLogExpanded(true);
   }
 
+  function updateAppointmentLeadTime(delta: number) {
+    const current = settings.notifications.appointmentLeadTimeMin ?? 0;
+    const next = Math.max(0, current + delta);
+    setNotificationPreferences({ appointmentLeadTimeMin: next });
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <View style={styles.root}>
@@ -172,11 +246,12 @@ export default function MoreScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
         >
-          <Text style={styles.kicker}>Caregiver Concierge</Text>
-          <Text style={styles.title}>More</Text>
-          <Text style={styles.subtitle}>
-            Profile, device, notification, and data-source settings.
-          </Text>
+          <MainTabHeader
+            title="More"
+            eyebrow="Caregiver Concierge"
+            subtitle="Profile, device, notification, and data-source settings."
+            icon="settings"
+          />
 
           <View style={styles.profileCard}>
             <View style={styles.avatar}>
@@ -188,7 +263,7 @@ export default function MoreScreen() {
             <View style={styles.profileTextBlock}>
               <Text style={styles.profileName}>{profile.caregiver.name}</Text>
               <Text style={styles.profileRole}>
-                Caregiver · {profile.caregiver.relationship}
+                Caregiver {"\u2022"} {profile.caregiver.relationship}
               </Text>
               <Text style={styles.profilePatient}>
                 Caring for {profile.patient.name}, {profile.patient.age}
@@ -199,16 +274,9 @@ export default function MoreScreen() {
           <SettingsSection title="Profile">
             <SettingsRow
               icon="profile"
-              title="Caregiver profile"
-              subtitle={`${profile.caregiver.phone} · ${profile.caregiver.languagePreference ?? "Language not set"}`}
-              onPress={() => router.push("/profile")}
-            />
-
-            <SettingsRow
-              icon="care"
-              title="Patient profile"
-              subtitle={getPrimaryIcdDisplay(profile.patient)}
-              onPress={() => router.push("/profile")}
+              title="Profiles"
+              subtitle="Caregiver and patient details"
+              onPress={() => router.push("/profile" as never)}
             />
           </SettingsSection>
 
@@ -219,25 +287,69 @@ export default function MoreScreen() {
             />
           </SettingsSection>
 
-          <SettingsSection title="Preferences">
-            <SettingsRow
-              icon="bell"
-              title="Notification preferences"
-              subtitle={profile.caregiver.notificationStyle ?? "Push + sound"}
-              onPress={() => router.push("/settings")}
+          <SettingsSection title="Notification & Preferences">
+            <SettingsToggleRow
+              icon="alert"
+              title="Anomaly alerts"
+              subtitle="Notify when vitals or behavior need attention"
+              value={settings.notifications.anomaly}
+              onValueChange={() =>
+                setNotificationPreferences({
+                  anomaly: !settings.notifications.anomaly,
+                })
+              }
             />
 
+            <SettingsToggleRow
+              icon="pill"
+              title="Medication reminders"
+              subtitle="Remind caregivers about medication timing"
+              value={settings.notifications.medication}
+              onValueChange={() =>
+                setNotificationPreferences({
+                  medication: !settings.notifications.medication,
+                })
+              }
+            />
+
+            <SettingsToggleRow
+              icon="schedule"
+              title="Appointment reminders"
+              subtitle="Remind caregivers before scheduled visits"
+              value={settings.notifications.appointment}
+              onValueChange={() =>
+                setNotificationPreferences({
+                  appointment: !settings.notifications.appointment,
+                })
+              }
+            />
+
+            {settings.notifications.appointment ? (
+              <SettingsStepperRow
+                emoji="⏱️"
+                title="Appointment lead time"
+                subtitle="Minutes before appointment reminders"
+                value={`${settings.notifications.appointmentLeadTimeMin ?? 0} min`}
+                onDecrease={() => updateAppointmentLeadTime(-5)}
+                onIncrease={() => updateAppointmentLeadTime(5)}
+              />
+            ) : null}
+
+            <SettingsToggleRow
+              icon="care"
+              title="Care task reminders"
+              subtitle="Remind caregivers about routine care tasks"
+              value={settings.notifications.careTask}
+              onValueChange={() =>
+                setNotificationPreferences({
+                  careTask: !settings.notifications.careTask,
+                })
+              }
+            />
             <SettingsRow
               icon="device"
               title="Device and baseline"
               subtitle={getWearableDeviceDisplay(profile.patient)}
-              disabled
-            />
-
-            <SettingsRow
-              icon="settings"
-              title="Data source status"
-              subtitle="Onboarding data · EHR import coming soon"
               disabled
             />
           </SettingsSection>
@@ -250,28 +362,36 @@ export default function MoreScreen() {
               disabled
             />
           </SettingsSection>
-
-          <SettingsSection title="Privacy & Records">
-            <SettingsToggleRow
-              emoji="🔐"
-              title="Record export consent"
-              subtitle={
-                recordExportConsentGranted
-                  ? "C-CDA export is allowed"
-                  : "Required before sharing records"
-              }
-              value={recordExportConsentGranted}
-              onValueChange={handleRecordExportConsentToggle}
-            />
-
+          <SettingsSection title="Consent Manager">
             <SettingsRow
-              emoji="📤"
-              title="Export C-CDA"
-              subtitle={recordExportStatus}
-              onPress={handleCcdaExport}
+              emoji="🗂️"
+              title="Data source status"
+              subtitle="Onboarding data - EHR import coming soon"
+              disabled
             />
-          </SettingsSection>
 
+            {CONSENT_OPTIONS.map((option) => (
+              <View key={option.scope}>
+                <SettingsToggleRow
+                  emoji={option.emoji}
+                  title={option.title}
+                  subtitle={option.subtitle}
+                  value={consentGranted[option.scope]}
+                  onValueChange={() => handleConsentToggle(option.scope)}
+                />
+
+                {option.scope === "ccda_export" &&
+                consentGranted.ccda_export ? (
+                  <SettingsRow
+                    emoji="📤"
+                    title="Export C-CDA"
+                    subtitle={recordExportStatus}
+                    onPress={handleCcdaExport}
+                  />
+                ) : null}
+              </View>
+            ))}
+          </SettingsSection>
           <SettingsSection title="Future integrations">
             <SettingsRow
               icon="plus"
@@ -335,7 +455,7 @@ export default function MoreScreen() {
                   icon="settings"
                   title="Advanced developer settings"
                   subtitle="SLM management, API keys, knowledge cache, data reset"
-                  onPress={() => router.push("/settings")}
+                  onPress={() => router.push("/settings" as never)}
                 />
 
                 <SettingsRow
@@ -406,12 +526,16 @@ export default function MoreScreen() {
           </SettingsSection>
 
           <SettingsSection title="About">
-            <Text style={styles.aboutText}>Caregiver Concierge: ACCESS-DP</Text>
-            <Text style={styles.aboutText}>Health Tech Alley · v1.0.0</Text>
-            <Text style={styles.aboutMuted}>
-              This app is a caregiver support prototype and does not replace
-              emergency care or professional medical advice.
-            </Text>
+            <View style={styles.aboutContent}>
+              <Text style={styles.aboutText}>Caregiver Concierge: ACCESS-DP</Text>
+              <Text style={styles.aboutText}>
+                Health Tech Alley {"\u2022"} v1.0.0
+              </Text>
+              <Text style={styles.aboutMuted}>
+                This app is a caregiver support prototype and does not replace
+                emergency care or professional medical advice.
+              </Text>
+            </View>
           </SettingsSection>
         </ScrollView>
       </View>
@@ -522,6 +646,51 @@ function SettingsToggleRow({
   );
 }
 
+function SettingsStepperRow({
+  icon,
+  emoji,
+  title,
+  subtitle,
+  value,
+  onDecrease,
+  onIncrease,
+}: {
+  icon?: AppIconName;
+  emoji?: string;
+  title: string;
+  subtitle: string;
+  value: string;
+  onDecrease: () => void;
+  onIncrease: () => void;
+}) {
+  return (
+    <View style={styles.settingsRow}>
+      <View style={styles.settingsIconCircle}>
+        {emoji ? (
+          <Text style={styles.settingsEmojiIcon}>{emoji}</Text>
+        ) : icon ? (
+          <AppIcon name={icon} size={22} color={AppTheme.colors.brand} />
+        ) : null}
+      </View>
+
+      <View style={styles.settingsTextBlock}>
+        <Text style={styles.settingsTitle}>{title}</Text>
+        <Text style={styles.settingsSubtitle}>{subtitle}</Text>
+      </View>
+
+      <View style={styles.stepperControl}>
+        <Pressable style={styles.stepperButton} onPress={onDecrease}>
+          <Text style={styles.stepperButtonText}>-</Text>
+        </Pressable>
+        <Text style={styles.stepperValue}>{value}</Text>
+        <Pressable style={styles.stepperButton} onPress={onIncrease}>
+          <Text style={styles.stepperButtonText}>+</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function SettingsRow({
   icon,
   emoji,
@@ -597,11 +766,12 @@ function AuditLogPanel({
           {entries.map((entry) => (
             <View key={entry.auditId} style={styles.auditEntry}>
               <Text style={styles.auditEntryTitle}>
-                {entry.actor} · {entry.action} · {entry.resourceType}
+                {entry.actor} {"\u2022"} {entry.action} {"\u2022"}{" "}
+                {entry.resourceType}
               </Text>
               <Text style={styles.auditEntryMeta}>
                 {formatAuditTimestamp(entry.createdAt)}
-                {entry.resourceId ? ` · ${entry.resourceId}` : ""}
+                {entry.resourceId ? ` \u2022 ${entry.resourceId}` : ""}
               </Text>
             </View>
           ))}
@@ -638,28 +808,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 24,
     paddingBottom: 40,
-  },
-  kicker: {
-    color: AppTheme.colors.brand,
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    marginBottom: 6,
-  },
-  title: {
-    color: AppTheme.colors.text,
-    fontSize: 36,
-    fontWeight: "900",
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: "700",
-    marginTop: 8,
-    marginBottom: 22,
   },
   profileCard: {
     backgroundColor: AppTheme.colors.surface,
@@ -766,6 +914,36 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 3,
   },
+  stepperControl: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    borderRadius: 14,
+    backgroundColor: AppTheme.colors.softSurface,
+    overflow: "hidden",
+    marginLeft: 12,
+  },
+  stepperButton: {
+    minWidth: 34,
+    minHeight: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: AppTheme.colors.white,
+  },
+  stepperButtonText: {
+    color: AppTheme.colors.brand,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  stepperValue: {
+    minWidth: 58,
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
+    paddingHorizontal: 10,
+  },
   chevron: {
     color: AppTheme.colors.textMuted,
     fontSize: 13,
@@ -861,6 +1039,11 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.danger,
     fontSize: 13,
     fontWeight: "800",
+  },
+  aboutContent: {
+    width: "100%",
+    paddingHorizontal: 18,
+    paddingVertical: 16,
   },
   aboutText: {
     color: AppTheme.colors.text,

@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppTheme } from '@/constants/theme';
 import {
   getAlertById,
   getAnomalyConfidenceRatio,
@@ -36,12 +37,12 @@ import { ObservationPicker } from '@/components/ObservationPicker';
 import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
 
-const TEAL = '#0E6F68';
-const BG = '#EEF7F6';
-const DARK = '#123433';
-const MUTED = '#526866';
-const RED = '#B42318';
-const ORANGE = '#B54708';
+const TEAL = AppTheme.colors.brand;
+const BG = AppTheme.colors.screen;
+const DARK = AppTheme.colors.text;
+const MUTED = AppTheme.colors.textSoft;
+const RED = AppTheme.colors.danger;
+const ORANGE = AppTheme.colors.warning;
 
 const SEVERITY_COLOR: Record<number, string> = { 3: RED, 2: ORANGE, 1: TEAL };
 const SEVERITY_LABEL: Record<number, string> = {
@@ -171,7 +172,7 @@ export default function AlertDetailScreen() {
 
   if (!alert) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <View style={styles.missing}>
           <Text style={styles.muted}>Alert not found.</Text>
           <Pressable style={styles.button} onPress={() => router.back()}>
@@ -186,10 +187,14 @@ export default function AlertDetailScreen() {
   const isEmergency = alert.severity === 3;
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.topBar}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable style={styles.backButton} onPress={() => router.back()} hitSlop={12}>
             <Text style={styles.backLink}>← Back</Text>
           </Pressable>
         </View>
@@ -208,7 +213,7 @@ export default function AlertDetailScreen() {
           <View style={styles.emergencyBanner}>
             <Text style={styles.emergencyHeadline}>⚠ This is an emergency</Text>
             <Text style={styles.emergencySubtext}>
-              If the situation is life-threatening, act now. You can still ask the assistant
+              If the situation is life-threatening, act now. You can still ask the Concierge
               for an explanation afterwards.
             </Text>
           </View>
@@ -295,9 +300,9 @@ export default function AlertDetailScreen() {
 
         {/* Explain + note */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Assistant & Notes</Text>
+          <Text style={styles.cardTitle}>Concierge & Notes</Text>
           <ActionRow
-            label={isEmergency ? 'Ask the assistant (optional)' : 'Ask the assistant'}
+            label={isEmergency ? 'Ask the Concierge (optional)' : 'Ask the Concierge'}
             onPress={askAssistant}
             disabled={busy}
             primary
@@ -408,157 +413,175 @@ const styles = StyleSheet.create({
     backgroundColor: BG,
   },
   content: {
-    padding: 16,
-    paddingBottom: 48,
-    gap: 14,
+    paddingHorizontal: 24,
+    paddingTop: 18,
+    paddingBottom: 124,
+    gap: 18,
   },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 2,
+  },
+  backButton: {
+    minHeight: 44,
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
   },
   backLink: {
     color: TEAL,
-    fontWeight: '700',
+    fontWeight: '900',
     fontSize: 15,
   },
   alertHeader: {
-    borderRadius: 20,
-    padding: 18,
-    gap: 6,
+    borderRadius: AppTheme.radius.card,
+    padding: 22,
+    gap: 10,
+    ...AppTheme.shadow,
   },
   alertEyebrow: {
     color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.8,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1,
     textTransform: 'uppercase',
     opacity: 0.9,
   },
   alertTitle: {
     color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '800',
-    lineHeight: 28,
+    fontSize: 25,
+    fontWeight: '900',
+    lineHeight: 31,
   },
   alertBody: {
     color: '#FFFFFF',
     fontSize: 15,
+    fontWeight: '700',
     opacity: 0.95,
-    lineHeight: 21,
+    lineHeight: 23,
   },
   alertStatus: {
     color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '900',
     opacity: 0.85,
-    marginTop: 4,
+    marginTop: 2,
   },
   emergencyBanner: {
-    backgroundColor: '#FEE4E2',
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: AppTheme.colors.dangerLight,
+    borderRadius: AppTheme.radius.lg,
+    padding: 18,
     borderWidth: 1,
-    borderColor: RED,
-    gap: 6,
+    borderColor: '#FFC7CE',
+    gap: 8,
   },
   emergencyHeadline: {
     color: RED,
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '900',
   },
   emergencySubtext: {
     color: RED,
     fontSize: 14,
-    lineHeight: 20,
+    fontWeight: '700',
+    lineHeight: 21,
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
-    gap: 10,
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.card,
+    padding: 20,
+    gap: 12,
     borderWidth: 1,
-    borderColor: '#E4E7EC',
+    borderColor: AppTheme.colors.border,
+    ...AppTheme.shadow,
   },
   cardTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: MUTED,
-    letterSpacing: 0.6,
+    fontSize: 14,
+    fontWeight: '900',
+    color: AppTheme.colors.sectionText,
+    letterSpacing: 1.1,
     textTransform: 'uppercase',
   },
   mlLine: {
     fontSize: 14,
     color: DARK,
-    lineHeight: 20,
+    lineHeight: 21,
+    fontWeight: '700',
     textTransform: 'capitalize',
   },
   mlSubTitle: {
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '900',
     color: TEAL,
-    marginTop: 8,
+    marginTop: 10,
     marginBottom: 4,
   },
   mlFeatureLine: {
     fontSize: 13,
     color: MUTED,
-    lineHeight: 19,
+    lineHeight: 20,
+    fontWeight: '700',
   },
   observationHint: {
-    fontSize: 12,
+    fontSize: 13,
     color: MUTED,
-    fontStyle: 'italic',
+    fontWeight: '700',
+    lineHeight: 19,
     marginBottom: 8,
   },
   vitalRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: 10,
-    paddingVertical: 6,
+    paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E4E7EC',
+    borderBottomColor: AppTheme.colors.border,
   },
   vitalName: {
     flex: 1,
     color: DARK,
-    fontWeight: '700',
+    fontWeight: '900',
     fontSize: 15,
   },
   vitalLatest: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '900',
     color: DARK,
   },
   vitalUnit: {
     fontSize: 12,
     color: MUTED,
-    fontWeight: '600',
+    fontWeight: '800',
   },
   vitalTrend: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '900',
     minWidth: 60,
     textAlign: 'right',
   },
   action: {
     borderWidth: 1,
-    borderColor: '#D9E7E5',
-    backgroundColor: '#F7FAF9',
-    borderRadius: 12,
-    padding: 14,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.softSurface,
+    borderRadius: AppTheme.radius.lg,
+    minHeight: 56,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
   },
   actionDanger: {
-    borderColor: RED,
-    backgroundColor: '#FEE4E2',
+    borderColor: '#FFC7CE',
+    backgroundColor: AppTheme.colors.dangerLight,
   },
   actionPrimary: {
     borderColor: TEAL,
     backgroundColor: TEAL,
   },
   actionSubtle: {
-    borderColor: '#E4E7EC',
-    backgroundColor: '#FFFFFF',
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.surface,
   },
   actionDisabled: {
     opacity: 0.5,
@@ -566,7 +589,9 @@ const styles = StyleSheet.create({
   actionText: {
     color: DARK,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '900',
+    textAlign: 'center',
+    lineHeight: 20,
   },
   actionTextDanger: {
     color: RED,
@@ -581,16 +606,17 @@ const styles = StyleSheet.create({
     color: MUTED,
   },
   statusBox: {
-    backgroundColor: '#EAFBF7',
-    borderRadius: 12,
-    padding: 12,
+    backgroundColor: AppTheme.colors.brandSoft,
+    borderRadius: AppTheme.radius.lg,
+    padding: 14,
     borderWidth: 1,
-    borderColor: TEAL,
+    borderColor: AppTheme.colors.brandPale,
   },
   statusText: {
     color: DARK,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '800',
+    lineHeight: 20,
   },
   missing: {
     flex: 1,
@@ -601,43 +627,47 @@ const styles = StyleSheet.create({
   muted: {
     color: MUTED,
     fontSize: 15,
+    fontWeight: '700',
   },
   button: {
     backgroundColor: TEAL,
+    minHeight: 48,
+    justifyContent: 'center',
     paddingVertical: 12,
     paddingHorizontal: 20,
-    borderRadius: 12,
+    borderRadius: AppTheme.radius.md,
   },
   buttonText: {
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontWeight: '900',
     fontSize: 15,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(18,52,51,0.5)',
+    backgroundColor: 'rgba(7,26,51,0.48)',
     justifyContent: 'flex-end',
   },
   modalCard: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    gap: 12,
+    backgroundColor: AppTheme.colors.surface,
+    borderTopLeftRadius: AppTheme.radius.xl,
+    borderTopRightRadius: AppTheme.radius.xl,
+    padding: 24,
+    gap: 14,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '900',
     color: DARK,
   },
   noteInput: {
     borderWidth: 1,
-    borderColor: '#D9E7E5',
-    borderRadius: 12,
-    padding: 12,
+    borderColor: AppTheme.colors.border,
+    borderRadius: AppTheme.radius.lg,
+    padding: 14,
     minHeight: 120,
     fontSize: 15,
     color: DARK,
+    backgroundColor: AppTheme.colors.softSurface,
     textAlignVertical: 'top',
   },
   modalActions: {
@@ -646,18 +676,22 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   modalCancel: {
+    minHeight: 44,
+    justifyContent: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
   modalCancelText: {
     color: MUTED,
-    fontWeight: '700',
+    fontWeight: '900',
     fontSize: 15,
   },
   modalSave: {
     backgroundColor: TEAL,
+    minHeight: 44,
+    justifyContent: 'center',
     paddingVertical: 12,
     paddingHorizontal: 20,
-    borderRadius: 12,
+    borderRadius: AppTheme.radius.md,
   },
 });

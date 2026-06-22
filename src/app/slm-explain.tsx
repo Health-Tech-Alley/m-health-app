@@ -170,7 +170,7 @@ export default function SlmExplainScreen() {
           <Pressable onPress={() => router.back()} hitSlop={12}>
             <Text style={styles.backLink}>← Back</Text>
           </Pressable>
-          <Text style={styles.topTitle}>Assistant</Text>
+          <Text style={styles.topTitle}>Concierge</Text>
         </View>
 
         {alert && (
@@ -183,7 +183,7 @@ export default function SlmExplainScreen() {
 
         {loading && (
           <View style={styles.card}>
-            <Text style={styles.muted}>Assistant is thinking…</Text>
+            <Text style={styles.muted}>Concierge is thinking…</Text>
           </View>
         )}
 

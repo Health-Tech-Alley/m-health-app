@@ -28,6 +28,21 @@ export type AppIconName =
   | "bell"
   | "check"
   | "plus"
+  | "edit"
+  | "delete"
+  | "walking"
+  | "mobilityAid"
+  | "wheelchair"
+  | "walk-independent"
+  | "walk-limited"
+  | "walker"
+  | "crutches"
+  | "cane"
+  | "wheelchair-manual"
+  | "wheelchair-powered"
+  | "assisted-walking"
+  | "transport-wheelchair"
+  | "all-surfaces"
   | "chevronRight";
 
 type AppIconProps = {
@@ -42,7 +57,11 @@ export function AppIcon({
   color = AppTheme.colors.brand,
 }: AppIconProps) {
   return (
-    <Text style={[styles.emojiIcon, { fontSize: size, color }]}>
+    <Text
+      style={[styles.emojiIcon, { fontSize: size, color }]}
+      accessible={false}
+      importantForAccessibility="no"
+    >
       {getIconLabel(name)}
     </Text>
   );
@@ -59,7 +78,7 @@ function getIconLabel(name: AppIconName): string {
     case "schedule":
       return "📅";
     case "assistant":
-      return "🤖";
+      return "🤝";
     case "profile":
       return "👤";
     case "more":
@@ -76,6 +95,7 @@ function getIconLabel(name: AppIconName): string {
     case "device":
       return "⌚";
     case "doctor":
+    case "provider":
       return "🧑‍⚕️";
     case "calendarPlus":
       return "🗓️";
@@ -88,17 +108,39 @@ function getIconLabel(name: AppIconName): string {
     case "spo2":
       return "🫁";
     case "mobility":
+    case "walking":
+    case "walk-independent":
       return "🚶";
+    case "walk-limited":
+      return "🚶‍➡️";
+    case "mobilityAid":
+    case "walker":
+    case "cane":
+      return "🦯";
+    case "crutches":
+      return "🩼";
+    case "wheelchair":
+    case "wheelchair-manual":
+    case "transport-wheelchair":
+      return "🦽";
+    case "wheelchair-powered":
+      return "🦼";
+    case "assisted-walking":
+      return "🧑‍🤝‍🧑";
+    case "all-surfaces":
+      return "🥾";
     case "note":
       return "📝";
-    case "provider":
-      return "🧑‍⚕️";
     case "bell":
       return "🔔";
     case "check":
       return "✅";
     case "plus":
       return "➕";
+    case "edit":
+      return "✏️";
+    case "delete":
+      return "🗑️";
     case "chevronRight":
       return "›";
     default:

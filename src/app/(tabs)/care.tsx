@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
+import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
 import { AppTheme } from "@/constants/theme";
 import { useCriticalAlert } from "@/contexts/critical-alert-context";
@@ -152,14 +153,11 @@ export default function CareScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
-        <View style={styles.headerRow}>
-          <View style={styles.headerTextBlock}>
-            <Text style={styles.kicker}>Caregiver Concierge ACCESS-DP</Text>
-            <Text style={styles.title}>Care Management</Text>
-          </View>
-
-          <Text style={styles.patientName}>{patientFirstName}</Text>
-        </View>
+        <MainTabHeader
+          title="Care Management"
+          eyebrow="Caregiver Concierge ACCESS-DP"
+          rightContent={<Text style={styles.patientName}>{patientFirstName}</Text>}
+        />
 
         <View style={styles.patientCard}>
           <View style={styles.avatar}>
@@ -178,7 +176,7 @@ export default function CareScreen() {
         <View style={styles.safetyCard}>
           <Text style={styles.safetyKicker}>Safety Considerations</Text>
           <Text style={styles.safetyHint}>
-            Tap any consideration for details and an assistant explanation.
+            Tap any consideration for details and a Concierge explanation.
           </Text>
           {safetyConsiderations.map((consideration, idx) => (
             <Pressable
@@ -366,7 +364,7 @@ export default function CareScreen() {
               }}
             >
               <AppIcon name="care" size={18} color={AppTheme.colors.white} />
-              <Text style={styles.explainSlmText}>Explain with assistant</Text>
+              <Text style={styles.explainSlmText}>Explain with Concierge</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -378,7 +376,7 @@ export default function CareScreen() {
           setSlmOpen(false);
           setSlmPrompt("");
         }}
-        title="Assistant explanation"
+        title="Concierge explanation"
         reason="safety_note_explain"
         prompt={slmPrompt}
       />
@@ -550,27 +548,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 22,
     paddingBottom: 40,
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  headerTextBlock: {
-    flex: 1,
-  },
-  kicker: {
-    color: AppTheme.colors.sectionText,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  title: {
-    color: AppTheme.colors.text,
-    fontSize: 22,
-    fontWeight: "900",
-    marginTop: 2,
   },
   patientName: {
     color: AppTheme.colors.textMuted,

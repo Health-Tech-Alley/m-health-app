@@ -8,10 +8,13 @@ import {
   Text,
   TextInput,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
+import { MainTabHeader } from "@/components/MainTabHeader";
 import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import {
@@ -64,6 +67,7 @@ export default function ScheduleScreen() {
 
   const [editing, setEditing] = useState<Appointment | null>(null);
   const [editForm, setEditForm] = useState(emptyForm(profile));
+  const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
 
   const reload = useCallback(() => {
     if (patientId) setUpcoming(getUpcomingAppointments(patientId));
@@ -186,19 +190,16 @@ export default function ScheduleScreen() {
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.headerRow}>
-            <View>
-              <Text style={styles.kicker}>Caregiver Concierge</Text>
-              <Text style={styles.title}>Schedule</Text>
-              <Text style={styles.subtitle}>
-                Create doctor appointments and caregiver reminders.
-              </Text>
-            </View>
-
-            <View style={styles.headerIconCircle}>
-              <AppIcon name="calendarPlus" size={30} color={AppTheme.colors.brand} />
-            </View>
-          </View>
+          <MainTabHeader
+            title="Schedule"
+            eyebrow="Caregiver Concierge"
+            subtitle="Create doctor appointments and caregiver reminders."
+            rightContent={
+              <View style={styles.headerIconCircle}>
+                <AppIcon name="calendarPlus" size={30} color={AppTheme.colors.brand} />
+              </View>
+            }
+          />
 
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Appointment type</Text>
@@ -229,12 +230,14 @@ export default function ScheduleScreen() {
 
             <View style={styles.twoColumnFields}>
               <Field
+                containerStyle={styles.twoColumnField}
                 label="Date"
                 value={form.date}
                 onChangeText={(v) => setForm({ ...form, date: v })}
                 placeholder="YYYY-MM-DD"
               />
               <Field
+                containerStyle={styles.twoColumnField}
                 label="Time"
                 value={form.time}
                 onChangeText={(v) => setForm({ ...form, time: v })}
@@ -286,36 +289,82 @@ export default function ScheduleScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Upcoming</Text>
+            <Text style={styles.sectionTitle}>APPOINTMENTS</Text>
 
             {upcoming.length === 0 ? (
               <Text style={styles.emptyText}>No upcoming appointments.</Text>
             ) : (
-              upcoming.map((appt) => (
-                <View key={appt.appointmentId} style={styles.appointmentRow}>
-                  <View style={styles.appointmentIconCircle}>
-                    <AppIcon name="doctor" size={22} color={AppTheme.colors.brand} />
-                  </View>
+              upcoming.map((appt) => {
+                const statusLabel = appt.date === todayIso ? "TODAY" : "SCHEDULED";
+                const dateTimeLabel = formatAppointmentDateTime(appt.date, appt.time);
 
-                  <View style={styles.appointmentTextBlock}>
-                    <Text style={styles.appointmentType}>{appt.type}</Text>
-                    <Text style={styles.appointmentProvider}>{appt.provider}</Text>
-                  </View>
+                return (
+                  <View key={appt.appointmentId} style={styles.appointmentCard}>
+                    <View style={styles.appointmentAccent} />
 
-                  <View style={styles.appointmentTimeBlock}>
-                    <Text style={styles.appointmentDate}>{appt.date}</Text>
-                    <Text style={styles.appointmentTime}>{appt.time}</Text>
-                    <View style={styles.appointmentActions}>
-                      <Pressable onPress={() => openEdit(appt)} hitSlop={8}>
-                        <Text style={styles.editLink}>Edit</Text>
-                      </Pressable>
-                      <Pressable onPress={() => handleDelete(appt)} hitSlop={8}>
-                        <Text style={styles.deleteLink}>Delete</Text>
-                      </Pressable>
-                    </View>
+                    <Pressable
+                      style={styles.appointmentMain}
+                      onPress={() => openEdit(appt)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${appt.type} appointment on ${appt.date}`}
+                    >
+                      <View style={styles.appointmentTextBlock}>
+                        <View style={styles.appointmentTitleRow}>
+                          <Text style={styles.appointmentType}>{appt.type}</Text>
+                          <View
+                            style={[
+                              styles.statusBadge,
+                              statusLabel === "TODAY" && styles.statusBadgeToday,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.statusBadgeText,
+                                statusLabel === "TODAY" && styles.statusBadgeTextToday,
+                              ]}
+                            >
+                              {statusLabel}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.appointmentProvider}>{appt.provider}</Text>
+                        <View style={styles.appointmentMetaRow}>
+                          <Text
+                            style={styles.appointmentClockIcon}
+                            accessible={false}
+                            importantForAccessibility="no"
+                          >
+                            🕒
+                          </Text>
+                          <Text style={styles.appointmentDateTime}>{dateTimeLabel}</Text>
+                        </View>
+                        <View style={styles.appointmentActions}>
+                          <Pressable
+                            style={styles.appointmentActionButton}
+                            onPress={() => openEdit(appt)}
+                            hitSlop={8}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Edit ${appt.type} appointment on ${appt.date}`}
+                          >
+                            <AppIcon name="edit" size={13} color={AppTheme.colors.brand} />
+                            <Text style={styles.editLink}>Edit</Text>
+                          </Pressable>
+                          <Pressable
+                            style={styles.appointmentActionButton}
+                            onPress={() => handleDelete(appt)}
+                            hitSlop={8}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Delete ${appt.type} appointment on ${appt.date}`}
+                          >
+                            <AppIcon name="delete" size={13} color={AppTheme.colors.danger} />
+                            <Text style={styles.deleteLink}>Delete</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    </Pressable>
                   </View>
-                </View>
-              ))
+                );
+              })
             )}
           </View>
         </ScrollView>
@@ -336,56 +385,65 @@ export default function ScheduleScreen() {
             <View style={styles.modalSheet}>
               <Text style={styles.modalTitle}>Edit appointment</Text>
 
-              <Text style={styles.modalLabel}>Type</Text>
-              <View style={styles.chipRow}>
-                {appointmentTypes.map((type) => {
-                  const selected = editForm.appointmentType === type;
-                  return (
-                    <Pressable
-                      key={type}
-                      style={[styles.chip, selected && styles.chipSelected]}
-                      onPress={() => setEditForm({ ...editForm, appointmentType: type })}
-                    >
-                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                        {type}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <ScrollView
+                style={styles.modalScroll}
+                contentContainerStyle={styles.modalScrollContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={styles.modalLabel}>Type</Text>
+                <View style={styles.modalChipRow}>
+                  {appointmentTypes.map((type) => {
+                    const selected = editForm.appointmentType === type;
+                    return (
+                      <Pressable
+                        key={type}
+                        style={[styles.chip, selected && styles.chipSelected]}
+                        onPress={() => setEditForm({ ...editForm, appointmentType: type })}
+                      >
+                        <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                          {type}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
 
-              <Field
-                label="Provider"
-                value={editForm.providerName}
-                onChangeText={(v) => setEditForm({ ...editForm, providerName: v })}
-                placeholder="Dr. Smith"
-              />
-              <View style={styles.twoColumnFields}>
                 <Field
-                  label="Date"
-                  value={editForm.date}
-                  onChangeText={(v) => setEditForm({ ...editForm, date: v })}
-                  placeholder="YYYY-MM-DD"
+                  label="Provider"
+                  value={editForm.providerName}
+                  onChangeText={(v) => setEditForm({ ...editForm, providerName: v })}
+                  placeholder="Dr. Smith"
                 />
+                <View style={styles.twoColumnFields}>
+                  <Field
+                    containerStyle={styles.twoColumnField}
+                    label="Date"
+                    value={editForm.date}
+                    onChangeText={(v) => setEditForm({ ...editForm, date: v })}
+                    placeholder="YYYY-MM-DD"
+                  />
+                  <Field
+                    containerStyle={styles.twoColumnField}
+                    label="Time"
+                    value={editForm.time}
+                    onChangeText={(v) => setEditForm({ ...editForm, time: v })}
+                    placeholder="10:30 AM"
+                  />
+                </View>
                 <Field
-                  label="Time"
-                  value={editForm.time}
-                  onChangeText={(v) => setEditForm({ ...editForm, time: v })}
-                  placeholder="10:30 AM"
+                  label="Location"
+                  value={editForm.location}
+                  onChangeText={(v) => setEditForm({ ...editForm, location: v })}
+                  placeholder="Clinic name or address"
                 />
-              </View>
-              <Field
-                label="Location"
-                value={editForm.location}
-                onChangeText={(v) => setEditForm({ ...editForm, location: v })}
-                placeholder="Clinic name or address"
-              />
-              <LargeField
-                label="Reason"
-                value={editForm.reason}
-                onChangeText={(v) => setEditForm({ ...editForm, reason: v })}
-                placeholder="Reason for visit"
-              />
+                <LargeField
+                  label="Reason"
+                  value={editForm.reason}
+                  onChangeText={(v) => setEditForm({ ...editForm, reason: v })}
+                  placeholder="Reason for visit"
+                />
+              </ScrollView>
 
               <View style={styles.modalActions}>
                 <Pressable
@@ -411,14 +469,16 @@ function Field({
   value,
   onChangeText,
   placeholder,
+  containerStyle,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   placeholder: string;
+  containerStyle?: StyleProp<ViewStyle>;
 }) {
   return (
-    <View style={styles.fieldBlock}>
+    <View style={[styles.fieldBlock, containerStyle]}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         style={styles.input}
@@ -436,14 +496,16 @@ function LargeField({
   value,
   onChangeText,
   placeholder,
+  containerStyle,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   placeholder: string;
+  containerStyle?: StyleProp<ViewStyle>;
 }) {
   return (
-    <View style={styles.fieldBlock}>
+    <View style={[styles.fieldBlock, containerStyle]}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         style={[styles.input, styles.largeInput]}
@@ -458,42 +520,27 @@ function LargeField({
   );
 }
 
+function formatAppointmentDateTime(date: string, time?: string): string {
+  const parsed = new Date(`${date}T00:00:00`);
+  const dateLabel = Number.isNaN(parsed.getTime())
+    ? date
+    : parsed.toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      });
+
+  return time ? `${dateLabel} at ${time}` : dateLabel;
+}
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: AppTheme.colors.screen },
   root: { flex: 1, backgroundColor: AppTheme.colors.screen },
   content: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 124 },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: 24,
-    gap: 16,
-  },
-  kicker: {
-    color: AppTheme.colors.brand,
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    marginBottom: 6,
-  },
-  title: {
-    color: AppTheme.colors.text,
-    fontSize: 36,
-    fontWeight: "900",
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: "700",
-    marginTop: 8,
-  },
   headerIconCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: AppTheme.colors.brandSoft,
     alignItems: "center",
     justifyContent: "center",
@@ -537,7 +584,14 @@ const styles = StyleSheet.create({
   },
   chipText: { color: AppTheme.colors.textSoft, fontSize: 13, fontWeight: "900" },
   chipTextSelected: { color: AppTheme.colors.white },
-  fieldBlock: { flex: 1, marginBottom: 14 },
+  fieldBlock: {
+    marginBottom: 16,
+    width: "100%",
+  },
+  twoColumnField: {
+    flex: 1,
+    width: undefined,
+  },
   fieldLabel: {
     color: AppTheme.colors.text,
     fontSize: 13,
@@ -557,7 +611,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   largeInput: { minHeight: 102, textAlignVertical: "top" },
-  twoColumnFields: { flexDirection: "row", gap: 12 },
+  twoColumnFields: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
   scheduleButton: {
     minHeight: 58,
     borderRadius: 20,
@@ -578,48 +636,105 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 16,
   },
-  appointmentRow: {
-    minHeight: 86,
-    borderRadius: 18,
-    backgroundColor: AppTheme.colors.softSurface,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  appointmentIconCircle: {
-    width: 44,
-    height: 44,
+  appointmentCard: {
+    position: "relative",
+    overflow: "hidden",
+    backgroundColor: AppTheme.colors.surface,
     borderRadius: 22,
-    backgroundColor: AppTheme.colors.brandSoft,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 13,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    paddingVertical: 10,
+    paddingLeft: 16,
+    paddingRight: 12,
+    marginBottom: 10,
+    ...AppTheme.shadow,
   },
-  appointmentTextBlock: { flex: 1 },
-  appointmentType: { color: AppTheme.colors.text, fontSize: 15, fontWeight: "900" },
+  appointmentAccent: {
+    position: "absolute",
+    top: 10,
+    bottom: 10,
+    left: 0,
+    width: 4,
+    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
+    backgroundColor: AppTheme.colors.brand,
+  },
+  appointmentMain: {
+    minHeight: 0,
+  },
+  appointmentTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  appointmentType: {
+    flex: 1,
+    color: AppTheme.colors.text,
+    fontSize: 16,
+    fontWeight: "900",
+    lineHeight: 21,
+  },
+  appointmentTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
   appointmentProvider: {
     color: AppTheme.colors.textSoft,
-    fontSize: 13,
-    fontWeight: "700",
-    marginTop: 3,
-  },
-  appointmentTimeBlock: { alignItems: "flex-end" },
-  appointmentDate: {
-    color: AppTheme.colors.brand,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  appointmentTime: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "800",
     marginTop: 3,
   },
+  appointmentMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 7,
+  },
+  appointmentClockIcon: {
+    fontSize: 13,
+    lineHeight: 16,
+  },
+  appointmentDateTime: {
+    flex: 1,
+    color: AppTheme.colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  statusBadge: {
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.colors.brandSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  statusBadgeToday: {
+    backgroundColor: AppTheme.colors.warningSoft,
+  },
+  statusBadgeText: {
+    color: AppTheme.colors.brand,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+  },
+  statusBadgeTextToday: {
+    color: AppTheme.colors.warning,
+  },
   appointmentActions: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 6,
+    justifyContent: "flex-end",
+    gap: 8,
+    marginTop: 7,
+  },
+  appointmentActionButton: {
+    minHeight: 32,
+    minWidth: 64,
+    borderRadius: 12,
+    backgroundColor: AppTheme.colors.softSurface,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
   },
   editLink: {
     color: AppTheme.colors.brand,
@@ -655,19 +770,27 @@ const styles = StyleSheet.create({
     right: 0,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
   },
   modalSheet: {
     backgroundColor: AppTheme.colors.surface,
     borderRadius: AppTheme.radius.card,
     padding: 20,
-    maxHeight: "90%",
+    maxHeight: "100%",
+    overflow: "hidden",
+  },
+  modalScroll: {
+    flexShrink: 1,
+  },
+  modalScrollContent: {
+    paddingBottom: 4,
   },
   modalTitle: {
     color: AppTheme.colors.text,
     fontSize: 17,
     fontWeight: "900",
-    marginBottom: 14,
+    marginBottom: 18,
   },
   modalLabel: {
     color: AppTheme.colors.sectionText,
@@ -675,13 +798,22 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1,
     textTransform: "uppercase",
-    marginBottom: 5,
+    marginBottom: 8,
+  },
+  modalChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 18,
   },
   modalActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 10,
-    marginTop: 14,
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
   },
   modalButton: {
     backgroundColor: AppTheme.colors.brand,

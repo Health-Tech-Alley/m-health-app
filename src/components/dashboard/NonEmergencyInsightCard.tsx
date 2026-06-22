@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 
 import { AppIcon } from "@/components/AppIcon";
@@ -28,18 +28,40 @@ export function NonEmergencyInsightCard() {
   const patientFirstName =
     profile.patient.name.trim().split(/\s+/)[0] || "the patient";
 
-  const [selectedContext, setSelectedContext] = useState<string | null>(null);
+  const [selectedContexts, setSelectedContexts] = useState<string[]>([]);
+  const [reasonSearch, setReasonSearch] = useState("");
+  const [reasonPickerOpen, setReasonPickerOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
-  if (dismissed) return null;
+  const answered = selectedContexts.length > 0;
+  const visibleContextOptions = useMemo(() => {
+    const query = reasonSearch.trim().toLowerCase();
 
-  const answered = selectedContext !== null;
+    return [...contextOptions]
+      .filter((option) => {
+        if (!query) return true;
+        return option.toLowerCase().includes(query);
+      })
+      .sort((a, b) => a.localeCompare(b));
+  }, [reasonSearch]);
 
   const handleDismiss = () => {
     // Only allow dismissal once the prompt has been answered.
     if (!answered) return;
     setDismissed(true);
   };
+
+  const toggleContext = (option: string) => {
+    setSelectedContexts((current) => {
+      if (current.includes(option)) {
+        return current.filter((item) => item !== option);
+      }
+
+      return [...current, option];
+    });
+  };
+
+  if (dismissed) return null;
 
   return (
     <View style={styles.card}>
@@ -60,38 +82,86 @@ export function NonEmergencyInsightCard() {
 
       <Text style={styles.bodyText}>
         {patientFirstName}&apos;s mobility score was lower than expected, but
-        this does not look like an emergency. Add context so the assistant can
+        this does not look like an emergency. Add context so the Concierge can
         avoid unnecessary alerts and learn the pattern.
       </Text>
 
       <Text style={styles.questionText}>Was anything unusual happening?</Text>
 
-      <View style={styles.contextGrid}>
-        {contextOptions.map((option) => {
-          const selected = selectedContext === option;
-
-          return (
-            <Pressable
-              key={option}
-              style={[styles.contextChip, selected && styles.contextChipSelected]}
-              onPress={() => setSelectedContext(option)}
-            >
-              <Text
-                style={[
-                  styles.contextChipText,
-                  selected && styles.contextChipTextSelected,
-                ]}
-              >
-                {option}
-              </Text>
-            </Pressable>
-          );
-        })}
+      <View style={styles.reasonSearchRow}>
+        <TextInput
+          style={styles.reasonSearchInput}
+          value={reasonSearch}
+          onChangeText={setReasonSearch}
+          onFocus={() => setReasonPickerOpen(true)}
+          placeholder="Search reasons"
+          placeholderTextColor={AppTheme.colors.textMuted}
+          returnKeyType="search"
+        />
+        <Pressable
+          style={styles.dropdownButton}
+          onPress={() => setReasonPickerOpen((open) => !open)}
+          accessibilityRole="button"
+          accessibilityLabel={
+            reasonPickerOpen ? "Hide reason options" : "Show reason options"
+          }
+        >
+          <Text style={styles.dropdownButtonText}>
+            {reasonPickerOpen ? "⌃" : "⌄"}
+          </Text>
+        </Pressable>
+        {reasonSearch.length > 0 ? (
+          <Pressable
+            style={styles.clearSearchButton}
+            onPress={() => {
+              setReasonSearch("");
+              setReasonPickerOpen(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Clear reason search"
+          >
+            <Text style={styles.clearSearchText}>Clear</Text>
+          </Pressable>
+        ) : null}
       </View>
+
+      {reasonPickerOpen ? (
+        <>
+          <View style={styles.contextGrid}>
+            {visibleContextOptions.map((option) => {
+              const selected = selectedContexts.includes(option);
+
+              return (
+                <Pressable
+                  key={option}
+                  style={[
+                    styles.contextChip,
+                    selected && styles.contextChipSelected,
+                  ]}
+                  onPress={() => toggleContext(option)}
+                >
+                  <Text
+                    style={[
+                      styles.contextChipText,
+                      selected && styles.contextChipTextSelected,
+                    ]}
+                  >
+                    {option}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {visibleContextOptions.length === 0 ? (
+            <Text style={styles.emptyReasonText}>No matching reasons</Text>
+          ) : null}
+        </>
+      ) : null}
 
       <View style={styles.recommendationBox}>
         <View style={styles.recommendationHeader}>
-          <Text style={styles.recommendationLabel}>Assistant recommendation</Text>
+          <Text style={styles.recommendationLabel}>Concierge recommendation</Text>
           {answered ? (
             <Pressable style={styles.checkmarkButton} onPress={handleDismiss}>
               <AppIcon name="check" size={16} color={AppTheme.colors.white} />
@@ -101,7 +171,7 @@ export function NonEmergencyInsightCard() {
         </View>
         <Text style={styles.recommendationText}>
           {answered
-            ? `${selectedContext} has been added as context. If this repeats at the same time or without explanation, consider asking the provider about the pattern.`
+            ? `${formatSelectedContexts(selectedContexts)} added as context. If this repeats at the same time or without explanation, consider asking the provider about the pattern.`
             : "If there is a clear reason, add context. If this repeats without explanation, the app can suggest a provider check-in."}
         </Text>
 
@@ -118,6 +188,14 @@ export function NonEmergencyInsightCard() {
       </View>
     </View>
   );
+}
+
+function formatSelectedContexts(selectedContexts: string[]): string {
+  if (selectedContexts.length === 1) {
+    return selectedContexts[0];
+  }
+
+  return `${selectedContexts.length} reasons`;
 }
 
 const styles = StyleSheet.create({
@@ -185,6 +263,52 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginBottom: 12,
   },
+  reasonSearchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 12,
+  },
+  reasonSearchInput: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.softSurface,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  clearSearchButton: {
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: AppTheme.colors.brandSoft,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  clearSearchText: {
+    color: AppTheme.colors.brand,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  dropdownButton: {
+    minHeight: 48,
+    minWidth: 48,
+    borderRadius: 16,
+    backgroundColor: AppTheme.colors.brandSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dropdownButtonText: {
+    color: AppTheme.colors.brand,
+    fontSize: 22,
+    fontWeight: "900",
+    lineHeight: 24,
+  },
   contextGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -210,6 +334,13 @@ const styles = StyleSheet.create({
   },
   contextChipTextSelected: {
     color: AppTheme.colors.white,
+  },
+  emptyReasonText: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 13,
+    fontWeight: "900",
+    marginBottom: 18,
+    textAlign: "center",
   },
   recommendationBox: {
     backgroundColor: AppTheme.colors.brandSoft,

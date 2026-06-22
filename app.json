@@ -64,7 +64,8 @@
             "./assets/images/icon.png"
           ]
         }
-      ]
+      ],
+      "./plugins/with-local-only-notifications"
     ],
     "experiments": {
       "typedRoutes": true,

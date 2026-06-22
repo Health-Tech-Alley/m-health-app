@@ -1,4 +1,9 @@
-import { loadTensorflowModel, type TfliteModel } from 'react-native-fast-tflite';
+import {
+  loadTensorflowModel,
+  type TensorflowModelDelegate,
+  type TfliteModel,
+} from 'react-native-fast-tflite';
+import { Platform } from 'react-native';
 import type { AlertMlModel } from './alert-ml-interface';
 import type {
   CoreVitals,
@@ -9,6 +14,9 @@ import type {
   VitalsValidation,
 } from './types';
 import { VITALS_RANGES } from './types';
+
+const nativeMlDelegates: TensorflowModelDelegate[] =
+  Platform.OS === 'ios' ? ['core-ml'] : [];
 
 export class AlertAutoencoder implements AlertMlModel {
   private model: TfliteModel | null = null;
@@ -43,7 +51,7 @@ export class AlertAutoencoder implements AlertMlModel {
       this.model = await loadTensorflowModel(
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         require('./tiny_uc2_autoencoder.tflite'),
-        ['core-ml'],
+        nativeMlDelegates,
       );
 
       this.loaded = true;
