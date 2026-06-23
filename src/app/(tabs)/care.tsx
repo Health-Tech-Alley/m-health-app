@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { ObservationVitalsCard } from "@/app/ObservationVitalsCard";
 import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
@@ -190,6 +191,8 @@ export default function CareScreen() {
             </Pressable>
           ))}
         </View>
+
+        <ObservationVitalsCard />
 
         <Text style={styles.sectionTitle}>Care Plan</Text>
 
