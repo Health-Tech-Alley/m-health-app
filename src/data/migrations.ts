@@ -301,7 +301,27 @@ export const MIGRATIONS: string[] = [
   );
   `,
 
-  // 8: app settings
+  // 8: Secure Messaging and Encryption
+  `
+  CREATE TABLE IF NOT EXISTS secure_messaging_store (
+      message_id TEXT PRIMARY KEY,
+      patient_id TEXT NOT NULL,
+      recipient_provider_id TEXT NOT NULL,
+      encrypted_payload TEXT NOT NULL,
+      iv TEXT NOT NULL,
+      auth_tag TEXT NOT NULL,
+      ephemeral_public_key TEXT NOT NULL,
+      message_type TEXT CHECK(message_type IN ('CLINICAL_ESCALATION', 'STANDARD_CHAT')) NOT NULL,
+      sync_status TEXT CHECK(sync_status IN ('QUEUED', 'SENDING', 'SYNCED')) DEFAULT 'QUEUED',
+      created_at INTEGER NOT NULL,
+      consent_audit_token TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_secure_messaging_sync 
+  ON secure_messaging_store (sync_status, created_at);
+  `,
+
+  // 9: app settings
   `
   CREATE TABLE IF NOT EXISTS app_settings (
     key        TEXT PRIMARY KEY,
@@ -310,13 +330,13 @@ export const MIGRATIONS: string[] = [
   );
   `,
 
-  // 9: add per-turn RAM + token attribution to slm_turns
+  // 10: add per-turn RAM + token attribution to slm_turns
   `
   ALTER TABLE slm_turns ADD COLUMN tokens_generated INTEGER;
   ALTER TABLE slm_turns ADD COLUMN peak_ram_bytes INTEGER;
   `,
 
-  // 10: knowledge_cache — PubMed/MedlinePlus/RxNorm/DailyMed/OpenFDA chunks
+  // 11: knowledge_cache — PubMed/MedlinePlus/RxNorm/DailyMed/OpenFDA chunks
   // (see planning/22_clinical-data-gathering.md §6a)
   `
   CREATE TABLE IF NOT EXISTS knowledge_cache (
@@ -337,7 +357,7 @@ export const MIGRATIONS: string[] = [
     ON knowledge_cache(conditions);
   `,
 
-  // 11: patient_enrichment_log — observable/auditable record of every
+  // 12: patient_enrichment_log — observable/auditable record of every
   // clinical-source enrichment (which field, which source, when, query used)
   `
   CREATE TABLE IF NOT EXISTS patient_enrichment_log (
@@ -360,7 +380,7 @@ export const MIGRATIONS: string[] = [
     ON patient_enrichment_log(source, created_at DESC);
   `,
 
-  // 12: extend patient_conditions + new clinical-detail tables
+  // 13: extend patient_conditions + new clinical-detail tables
   // (structured ICD codes, comorbidities, symptoms, wearable devices, ML events)
   `
   ALTER TABLE patient_conditions ADD COLUMN category TEXT;
@@ -426,7 +446,7 @@ export const MIGRATIONS: string[] = [
     ON ml_events(alert_id);
   `,
 
-  // 13: daily_care_entries — the per-day therapy log (pain before/after,
+  // 14: daily_care_entries — the per-day therapy log (pain before/after,
   // fatigue, sets completed, notes). Editable from the Care screen.
   `
   CREATE TABLE IF NOT EXISTS daily_care_entries (
@@ -456,7 +476,7 @@ export const MIGRATIONS: string[] = [
     ON daily_care_entries(patient_id, entry_date);
   `,
 
-  // 14: medication source (care_plan vs custom) + appointments table
+  // 15: medication source (care_plan vs custom) + appointments table
   `
   ALTER TABLE medications ADD COLUMN source TEXT NOT NULL DEFAULT 'care_plan';
 
@@ -479,7 +499,7 @@ export const MIGRATIONS: string[] = [
     ON appointments(patient_id, date);
   `,
 
-  // 15: UC2 decision-layer columns on alerts + ml_events
+  // 16: UC2 decision-layer columns on alerts + ml_events
   // (see planning/23_uc2_ml_alert_notification_flow_plan.md §6)
   `
   ALTER TABLE alerts ADD COLUMN pipeline_path TEXT;
@@ -497,7 +517,7 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE ml_events ADD COLUMN threshold_recommendation_json TEXT;
   `,
 
-  // 16: threshold_recommendations — queued personalization suggestions
+  // 17: threshold_recommendations — queued personalization suggestions
   // (planning/23 §7.2). Never auto-applied; the caregiver confirms + audits.
   `
   CREATE TABLE IF NOT EXISTS threshold_recommendations (
