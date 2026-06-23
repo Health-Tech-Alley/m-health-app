@@ -32,6 +32,7 @@ import {
 } from "@/services/records/recordsService";
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system/next';
+import { DeviceEventEmitter } from 'react-native';
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light" },
@@ -208,6 +209,9 @@ export default function MoreScreen() {
     const fhirBundle = JSON.parse(contents);
     console.log("Parsed FHIR bundle:", fhirBundle);
     importFHIRBundle(fhirBundle);
+    // Emit
+    console.log('Emitting fhirBundleImported event with data: ');
+    DeviceEventEmitter.emit('fhirBundleImported', { fhirBundle: fhirBundle });
     // 4. Pass to your DB layer
     // return fhirBundle;
   }
