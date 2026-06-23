@@ -22,7 +22,7 @@ type VitalMetric = {
   data: number[];
 };
 
-let metrics: VitalMetric[] = [
+const metrics: VitalMetric[] = [
   {
     key: "spo2",
 
@@ -78,8 +78,6 @@ let metrics: VitalMetric[] = [
   },
 ];
 
-metrics = [] //make it empty
-
 const timeRanges: { key: TimeRange; label: string }[] = [
   { key: "12h", label: "12h" },
   { key: "day", label: "Day" },
@@ -103,133 +101,15 @@ export function WeeklyVitalsCard() {
   useEffect(() => {
     const patient = null;
     setCurrentPatient(patient);
-
-    const sub = DeviceEventEmitter.addListener('fhirBundleImported', (data) => {
-      console.log('fhirBundleImported event listener: ', Object.keys(data.fhirBundle));
-      console.log('fhirBundleImported event listener: ', data.fhirBundle["entry"]?.length, ' entries');
-      setFhirData(data.fhirBundle);
-      const observations =  data.fhirBundle["entry"]?.map(
-          (entry: any) => {
-            return entry && entry.resource && entry.resource.resourceType === "Observation" ? entry : null;
-          }
-      );
-      console.log('Extracted observations from FHIR bundle: ', observations?.length);
-      const heartRateObservations = observations?.map(
-          (entry: any) => { return entry && entry.resource && entry.resource.code && entry.resource.code.coding &&
-              entry.resource.code.coding.some((coding: any) => coding.code === "8867-4") ? entry.resource.valueQuantity?.value : null; }
-      ).filter((value: any) => value != null);
-
-      const heartRateMetric: VitalMetric = {
-        key: "heart_rate",
-        tabIcon: "\u2764\uFE0F",  
-        label: "Heart Rate",
-        value: `${heartRateObservations?.[heartRateObservations.length - 1] ?? "32"}`,
-        unit: "BPM",
-        status: "Up today \u2022 Elevated",
-        statusTone: "critical",
-        subtitle: "Higher than baseline",
-        helperText: "Heart rate shows beats per minute compared with baseline.",
-        data: heartRateObservations ?? [],
-      };
-      
-      console.log('Extracted heart rate observations from FHIR bundle: ', heartRateObservations);
-      const respiratoryRateObservations = observations?.map(
-          (entry: any) => { return entry && entry.resource && entry.resource.code && entry.resource.code.coding &&
-              entry.resource.code.coding.some((coding: any) => coding.code === "9279-1") ? entry.resource.valueQuantity?.value : null; }
-      ).filter((value: any) => value != null);
-
-      console.log('Extracted respiratory rate observations from FHIR bundle: ', respiratoryRateObservations);
-      const respiratoryRateMetric: VitalMetric = {
-        key: "respiratory_rate",
-        tabIcon: "\u{1F32C}\uFE0F",
-        label: "Respiratory Rate",
-        value: `${respiratoryRateObservations?.[respiratoryRateObservations.length - 1] ?? "32"}`,
-        unit: "br/min",
-        status: "Up today \u2022 Elevated",
-        statusTone: "warning",
-        subtitle: "Breathing faster than usual",
-        helperText: "Respiratory rate counts breaths per minute.",
-        data: respiratoryRateObservations ?? [],
-      };
-      const bloodPressureObservations = observations?.map(
-        (entry: any) => { return entry && entry.resource && entry.resource.code && entry.resource.code.coding &&
-            entry.resource.code.coding.some((coding: any) => coding.code === "85354-9")
-            &&  entry.resource.component && entry.resource.component.some((comp: any) => comp.code && comp.code.coding && comp.code.coding.some((coding: any) => coding.code === "8480-6"))
-             ? entry.resource.component.find((comp: any) => comp.code && comp.code.coding && comp.code.coding.some((coding: any) => coding.code === "8480-6"))?.valueQuantity?.value : null; }
-      ).filter((value: any) => value != null);
-
-      console.log('Extracted blood pressure observations from FHIR bundle: ', bloodPressureObservations);
-      const bloodPressureMetric: VitalMetric = {
-        key: "blood_pressure_systolic",
-        tabIcon: "\u{1FAC0}",
-        label: "Blood Pressure",
-        value: `${bloodPressureObservations?.[bloodPressureObservations.length - 1] ?? "32"}`,
-        unit: "mmHg",
-        status: "Up today \u2022 Elevated",
-        statusTone: "warning",
-        subtitle: "Higher than baseline",
-        helperText: "Blood pressure shows systolic pressure in millimeters of mercury.",
-        data: bloodPressureObservations ?? [],
-      };
-
-      const spo2Observations = observations?.map(
-          (entry: any) => { return entry && entry.resource && entry.resource.code && entry.resource.code.coding &&
-              entry.resource.code.coding.some((coding: any) => coding.code === "59408-5") ? entry.resource.valueQuantity?.value : null; }
-      ).filter((value: any) => value != null);
-
-      const spo2Metric: VitalMetric = {
-        key: "spo2",
-        tabIcon: "\u{1FAC1}",
-        label: "Oxygen Saturation",
-        value: `${spo2Observations?.[spo2Observations.length - 1] ?? "32"}`,
-        unit: "%", 
-        status: "Down today \u2022 Critical",
-        statusTone: "critical",
-        subtitle: "Declining trend this week",
-        helperText: "SpO2 estimates how much oxygen is in the blood.",
-        data: spo2Observations ?? [],
-      };
-
-      const bodyTemperatureObservations = observations?.map(
-          (entry: any) => { return entry && entry.resource && entry.resource.code && entry.resource.code.coding &&
-              entry.resource.code.coding.some((coding: any) => coding.code === "8310-5") ? entry.resource.valueQuantity?.value : null; }
-      ).filter((value: any) => value != null);
-      const bodyTemperatureMetric: VitalMetric = {
-        key: "temperature",
-        tabIcon: "\u{1F321}",
-        label: "Body Temperature",
-        value: `${bodyTemperatureObservations?.[bodyTemperatureObservations.length - 1] ?? "32"}`,
-        unit: "°F",
-        status: "Up today \u2022 Elevated",
-        statusTone: "warning",
-        subtitle: "Higher than baseline",
-        helperText: "Body temperature shows the current body temperature in Fahrenheit.",
-        data: bodyTemperatureObservations ?? [],
-      };
-
-      // update the vitals chart
-      setChartMetrics([heartRateMetric, respiratoryRateMetric, bloodPressureMetric, spo2Metric, bodyTemperatureMetric]);
-    });
-
-  return () => {
-    // runs ONCE on unmount (cleanup) ✅
-    sub.remove();
-  };
   }, []);
 
-  // load data when category change
-  useEffect(() => {
-    const vitalsData = getVitalsDataForMonthFromDB(selectedKey, currentPatient);
-    }, [selectedKey, currentPatient]);
-
   const selectedMetric =
-    chartMetrics.find((metric) => metric.key === selectedKey) ?? chartMetrics[0];
+    metrics.find((metric) => metric.key === selectedKey) ?? chartMetrics[0];
   const helperMetric =
-    chartMetrics.find((metric) => metric.key === helperKey) ?? selectedMetric;
+    metrics.find((metric) => metric.key === helperKey) ?? selectedMetric;
 
-  const heartRate = chartMetrics.find((metric) => metric.key === "heart_rate");
-  const respRate = chartMetrics.find((metric) => metric.key === "respiratory_rate");
-  const bloodPressure = chartMetrics.find((metric) => metric.key === "blood_pressure_systolic");
+  const heartRate = metrics.find((metric) => metric.key === "heart_rate");
+  const respRate = metrics.find((metric) => metric.key === "respiratory_rate");
 
   return (
     <View style={styles.card}>
@@ -240,7 +120,7 @@ export function WeeklyVitalsCard() {
         </View>
 
         <View style={styles.tabRow}>
-          {chartMetrics.map((metric) => {
+          {metrics.map((metric) => {
             const active = metric.key === selectedKey;
 
             return (
@@ -320,13 +200,6 @@ export function WeeklyVitalsCard() {
           value={respRate?.value ?? "32"}
           unit={respRate?.unit ?? "br/min"}
           tone="purple"
-        />
-
-        <SmallStat
-          label="Blood Pressure"
-          value={bloodPressure?.value ?? "120"}
-          unit={bloodPressure?.unit ?? "mmHg"}
-          tone="good"
         />
       </View>
     </View>
@@ -450,26 +323,6 @@ function SmallStat({
       </Text>
     </View>
   );
-}
-
-function getVitalsDataForMonthFromDB(selectedKey: HealthSampleType, currentPatient: Patient | null): VitalMetric[] {
-  // Placeholder function to simulate fetching vitals data from a database
-  // In a real application, this would involve making an API call or querying a local database
-  console.log(`Fetching vitals data for patient ${currentPatient?.patientId} and metric ${selectedKey} for the current month...`);
-  const spo2Samples = getHealthSampleForPatientAndCurrentMonth(currentPatient?.patientId ?? '', selectedKey);
-  console.log('Fetched samples:', spo2Samples);
-  return spo2Samples.map(sample => ({
-    key: selectedKey,
-    tabIcon: "\u{1FAC1}",
-    label: "Oxygen Saturation",
-    value: sample.value.toString(),
-    unit: sample.unit,
-    status: "Down today \u2022 Critical",
-    statusTone: "critical",
-    subtitle: "Declining trend this week",
-    helperText: "SpO2 estimates how much oxygen is in the blood.",
-    data: [96, 95, 96, 94, 93, 92, 90], // Replace with actual data processing
-  }));
 }
 
 
