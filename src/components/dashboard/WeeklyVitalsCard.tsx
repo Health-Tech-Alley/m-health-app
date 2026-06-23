@@ -4,7 +4,6 @@ import { DeviceEventEmitter, Pressable, StyleSheet, Text, View } from "react-nat
 
 import { AppTheme } from "@/constants/theme";
 import { getHealthSampleForPatientAndCurrentMonth } from "@/data/repositories/healthSampleRepository";
-import { getCurrentlySelectedPatient } from "@/data/repositories/patientRepository";
 import { HealthSampleType, Patient } from "@/data/types";
 
 type VitalKey = "spo2" | "heartRate" | "respRate" | "mobility";
@@ -102,7 +101,7 @@ export function WeeklyVitalsCard() {
 
   // load current patient on load
   useEffect(() => {
-    const patient = getCurrentlySelectedPatient();
+    const patient = null;
     setCurrentPatient(patient);
 
     const sub = DeviceEventEmitter.addListener('fhirBundleImported', (data) => {
@@ -322,6 +321,13 @@ export function WeeklyVitalsCard() {
           unit={respRate?.unit ?? "br/min"}
           tone="purple"
         />
+
+        <SmallStat
+          label="Blood Pressure"
+          value={bloodPressure?.value ?? "120"}
+          unit={bloodPressure?.unit ?? "mmHg"}
+          tone="good"
+        />
       </View>
     </View>
   );
@@ -425,7 +431,7 @@ function SmallStat({
   label: string;
   value: string;
   unit: string;
-  tone: "critical" | "purple";
+  tone: "critical" | "purple" | "good";
 }) {
   return (
     <View style={styles.smallStat}>
@@ -464,13 +470,6 @@ function getVitalsDataForMonthFromDB(selectedKey: HealthSampleType, currentPatie
     helperText: "SpO2 estimates how much oxygen is in the blood.",
     data: [96, 95, 96, 94, 93, 92, 90], // Replace with actual data processing
   }));
-}
-
-
-function getCurrentPatientIdFromDB(): Patient | null {
-  // Placeholder function to simulate fetching the current patient ID from a database
-  // In a real application, this would involve making an API call or querying a local database
-  return getCurrentlySelectedPatient();
 }
 
 

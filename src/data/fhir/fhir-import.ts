@@ -8,7 +8,7 @@ export function saveFHIRBundleToDB(bundle: any): void {
   for (const entry of bundle.entry ?? []) {
     const resource = entry.resource;
     if (!resource) continue;
-    console.log('[FHIR Import] Processing resource: ', resource.resourceType, ', id: ', resource.id);
+    // console.log('[FHIR Import] Processing resource: ', resource.resourceType, ', id: ', resource.id);
     switch (resource.resourceType) {
       case 'Patient':
         upsertPatient(db, resource);
@@ -30,8 +30,8 @@ export function saveFHIRBundleToDB(bundle: any): void {
   console.log('[FHIR Import] Patients in DB:', JSON.stringify(patients, null, 2));
   //   const caregivers = db.getAllSync('SELECT * FROM caregivers;');
   //   console.log('[FHIR Import] Caregivers in DB:', JSON.stringify(caregivers, null, 2));
-  const healthSamples = db.getAllSync('SELECT * FROM health_samples;');
-  console.log(`[FHIR Import] ${healthSamples.length} Health Samples in DB:`, JSON.stringify(healthSamples, null, 2));
+//   const healthSamples = db.getAllSync('SELECT * FROM health_samples;');
+//   console.log(`[FHIR Import] ${healthSamples.length} Health Samples in DB:`, JSON.stringify(healthSamples, null, 2));
 }
 
 function calculateAge(birthdate: Date): number {
@@ -67,7 +67,7 @@ function upsertPatient(db: any, r: any): void {
 function upsertObservation(db: any, r: any): void {
   // your health_samples table:
   // sample_id, patient_id, source, type, value, value_json, unit, recorded_at, received_at
-  console.log('[FHIR Import] Upserting Observation:', r.id, r.code?.coding?.[0]?.code, r.effectiveDateTime);
+  // console.log('[FHIR Import] Upserting Observation:', r.id, r.code?.coding?.[0]?.code, r.effectiveDateTime);
 
   const patientId = r.subject?.reference?.replace('urn:uuid:', '') ?? '';
   const loincCode = r.code?.coding?.[0]?.code;
