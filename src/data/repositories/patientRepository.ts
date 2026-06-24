@@ -13,8 +13,9 @@ export function upsertPatient(patient: Patient): void {
   db.runSync(
     `INSERT OR REPLACE INTO patients
       (patient_id, name, age, conditions, baseline_daily_routine, current_medications,
-       spo2_cutoff, baseline_heart_rate, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+       spo2_cutoff, baseline_heart_rate, preferred_name, gmfcs, fms, macs, cfcs,
+       edacs, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     patient.patientId,
     patient.name,
     patient.age ?? null,
@@ -23,6 +24,12 @@ export function upsertPatient(patient: Patient): void {
     patient.currentMedications ?? null,
     patient.spo2Cutoff ?? null,
     patient.baselineHeartRate ?? null,
+    patient.preferredName ?? null,
+    patient.gmfcs ?? null,
+    patient.fms ?? null,
+    patient.macs ?? null,
+    patient.cfcs ?? null,
+    patient.edacs ?? null,
     patient.createdAt,
     patient.updatedAt,
   );
@@ -34,7 +41,8 @@ export function getPatient(patientId: string): Patient | null {
     db.getFirstSync<Patient>(
       `SELECT patient_id AS patientId, name, age, conditions, baseline_daily_routine AS baselineDailyRoutine,
               current_medications AS currentMedications, spo2_cutoff AS spo2Cutoff,
-              baseline_heart_rate AS baselineHeartRate, created_at AS createdAt, updated_at AS updatedAt
+              baseline_heart_rate AS baselineHeartRate, preferred_name AS preferredName,
+              gmfcs, fms, macs, cfcs, edacs, created_at AS createdAt, updated_at AS updatedAt
        FROM patients WHERE patient_id = ?;`,
       patientId,
     ) ?? null

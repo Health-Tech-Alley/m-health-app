@@ -73,6 +73,14 @@ export function PatientSummaryCard() {
   const primaryCondition = conditions.find((c) => c.isPrimary) ?? conditions[0];
   const comorbidities = conditions.filter((c) => c !== primaryCondition);
   const pendingReview = snapshot.pendingReviewConditions;
+  const sourceCount = countKnowledgeSources(snapshot.knowledgeStats.bySource);
+  const cacheSummary = formatKnowledgeCacheSummary(
+    snapshot.knowledgeStats.total,
+    sourceCount,
+  );
+  const sourceBreakdown = formatKnowledgeSourceBreakdown(
+    snapshot.knowledgeStats.bySource,
+  );
 
   const handleConfirm = (conditionId: string) => {
     confirmPendingCondition(conditionId);
@@ -180,17 +188,24 @@ export function PatientSummaryCard() {
 
       {snapshot.bundleStatus.state === 'in_flight' ? (
         <View style={styles.bundlePendingPill}>
-          <Text style={styles.bundlePendingText}>Enrichment in progress…</Text>
+          <Text style={styles.bundlePendingText}>Updating clinical knowledge</Text>
+          {cacheSummary ? (
+            <Text style={styles.bundlePendingDetail}>{cacheSummary}</Text>
+          ) : null}
         </View>
       ) : snapshot.bundleStatus.state === 'failed' ? (
         <View style={styles.bundleFailedPill}>
           <Text style={styles.bundleFailedText}>Live fetch unavailable — using offline knowledge</Text>
+          {cacheSummary ? (
+            <Text style={styles.bundleFailedDetail}>{cacheSummary}</Text>
+          ) : null}
         </View>
       ) : snapshot.knowledgeStats.total > 0 ? (
         <View style={styles.knowledgeStatsPill}>
-          <Text style={styles.knowledgeStatsText}>
-            {snapshot.knowledgeStats.total} knowledge chunks cached
-          </Text>
+          <Text style={styles.knowledgeStatsText}>{cacheSummary}</Text>
+          {sourceBreakdown ? (
+            <Text style={styles.knowledgeStatsDetail}>{sourceBreakdown}</Text>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -220,6 +235,32 @@ function InfoBox({ label, value }: { label: string; value: string }) {
       <Text style={styles.infoValue}>{value}</Text>
     </View>
   );
+}
+
+function countKnowledgeSources(bySource: Record<string, number>): number {
+  return Object.values(bySource).filter((count) => count > 0).length;
+}
+
+function formatKnowledgeCacheSummary(
+  total: number,
+  sourceCount: number,
+): string | null {
+  if (total <= 0) return null;
+  const referenceLabel = total === 1 ? 'reference' : 'references';
+  const sourceLabel = sourceCount === 1 ? 'source' : 'sources';
+  return `${total} cached ${referenceLabel} from ${sourceCount} ${sourceLabel}`;
+}
+
+function formatKnowledgeSourceBreakdown(
+  bySource: Record<string, number>,
+): string | null {
+  const entries = Object.entries(bySource)
+    .filter(([, count]) => count > 0)
+    .sort(([sourceA], [sourceB]) => sourceA.localeCompare(sourceB));
+
+  if (entries.length === 0) return null;
+
+  return entries.map(([source, count]) => `${source}: ${count}`).join(', ');
 }
 
 function getInitials(name: string): string {
@@ -487,6 +528,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
   },
+  bundlePendingDetail: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 4,
+  },
   bundleFailedPill: {
     backgroundColor: AppTheme.colors.dangerLight,
     borderRadius: AppTheme.radius.pill,
@@ -499,6 +546,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
   },
+  bundleFailedDetail: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 4,
+  },
   knowledgeStatsPill: {
     backgroundColor: AppTheme.colors.brandSoft,
     borderRadius: AppTheme.radius.pill,
@@ -510,5 +563,11 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.brand,
     fontSize: 12,
     fontWeight: '900',
+  },
+  knowledgeStatsDetail: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 4,
   },
 });

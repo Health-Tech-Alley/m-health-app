@@ -515,4 +515,14 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_threshold_recs_patient
     ON threshold_recommendations(patient_id, status, created_at DESC);
   `,
+
+  // 17: caregiver preferred name + functional classification fields
+  `
+  ALTER TABLE patients ADD COLUMN preferred_name TEXT;
+  ALTER TABLE patients ADD COLUMN gmfcs TEXT;
+  ALTER TABLE patients ADD COLUMN fms TEXT;
+  ALTER TABLE patients ADD COLUMN macs TEXT;
+  ALTER TABLE patients ADD COLUMN cfcs TEXT;
+  ALTER TABLE patients ADD COLUMN edacs TEXT;
+  `,
 ];

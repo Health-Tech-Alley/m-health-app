@@ -13,6 +13,7 @@ export type FhirResourceType =
   | 'Practitioner'
   | 'Condition'
   | 'Observation'
+  | 'MedicationRequest'
   | 'MedicationStatement'
   | 'Goal'
   | 'CarePlan'
@@ -45,6 +46,11 @@ export interface FhirQuantity {
   unit?: string;
   system?: string;
   code?: string;
+}
+
+export interface FhirExtension {
+  url: string;
+  valueString?: string;
 }
 
 export interface FhirPeriod {
@@ -107,6 +113,7 @@ export interface FhirPatient {
   birthDate?: string;
   address?: FhirAddress[];
   telecom?: FhirContactPoint[];
+  extension?: FhirExtension[];
 }
 
 export interface FhirRelatedPerson {
@@ -178,6 +185,15 @@ export interface FhirMedicationStatement {
   effectivePeriod?: FhirPeriod;
   dosage?: FhirDosage[];
   note?: { text: string }[];
+}
+
+export interface FhirMedicationRequest {
+  resourceType: 'MedicationRequest';
+  id: string;
+  status?: 'active' | 'on-hold' | 'cancelled' | 'completed' | 'entered-in-error' | 'stopped' | 'draft' | 'unknown';
+  medicationCodeableConcept?: FhirCodeableConcept;
+  subject?: FhirReference;
+  dosageInstruction?: FhirDosage[];
 }
 
 export interface FhirGoalTarget {

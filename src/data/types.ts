@@ -146,12 +146,18 @@ export interface ConsentToken {
 export interface Patient {
   patientId: string;
   name: string;
+  preferredName?: string;
   age?: string;
   conditions?: string;
   baselineDailyRoutine?: string;
   currentMedications?: string;
   spo2Cutoff?: string;
   baselineHeartRate?: string;
+  gmfcs?: string;
+  fms?: string;
+  macs?: string;
+  cfcs?: string;
+  edacs?: string;
   createdAt: string;
   updatedAt: string;
 }
