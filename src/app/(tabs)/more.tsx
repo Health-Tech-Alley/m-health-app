@@ -32,7 +32,11 @@ import {
 } from "@/services/records/recordsService";
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system/next';
-import { DeviceEventEmitter } from 'react-native';
+
+import { dispatchImmediate } from '@/services/notifications';
+import { useAppDispatch } from '@/store/hooks';
+import { addPatient } from '@/store/reducers/patientSlice';
+
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light" },
@@ -81,6 +85,7 @@ const initialConsentState: Record<RecordConsentScope, boolean> = {
 
 export default function MoreScreen() {
   const router = useRouter();
+  const dispatch = useAppDispatch();
   const profile = getOnboardingProfile();
   const {
     settings,
@@ -209,9 +214,29 @@ export default function MoreScreen() {
     const fhirBundle = JSON.parse(contents);
     console.log("Parsed FHIR bundle:", fhirBundle);
     importFHIRBundle(fhirBundle);
+    // wherever you receive the patient data (API response, EHR import, etc.)
+    dispatch(addPatient(fhirBundle)); // Dispatch the action to save patient data to Redux store
+    await dispatchImmediate({
+      patientId: patientId,
+      scope: 'anomaly',
+      title: "EHR Import",
+      body: 'FHIR bundle imported successfully',
+      severity: 1,
+    });// Schedule a push notification after importing the FHIR bundle
+    // scheduleLocalNotification(
+    //   {
+    //     patientId: 'String(args.patientId)',
+    //     scope: 'care_task',
+    //     triggerRef: 'args.alertId ? String(args.alertId) : undefined',
+    //     title: 'EHR Import',
+    //     body: 'FHIR bundle imported successfully',
+    //     triggerWhen: new Date(Date.now())
+    //   }
+    // ); // Emit the event with the FHIR bundle data
+
     // Emit
-    console.log('Emitting fhirBundleImported event with data: ');
-    DeviceEventEmitter.emit('fhirBundleImported', { fhirBundle: fhirBundle });
+    // console.log('Emitting fhirBundleImported event with data: ');
+    // DeviceEventEmitter.emit('fhirBundleImported', { fhirBundle: fhirBundle });
     // 4. Pass to your DB layer
     // return fhirBundle;
   }

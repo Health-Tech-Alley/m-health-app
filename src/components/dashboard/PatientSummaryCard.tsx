@@ -1,14 +1,42 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { confirmPendingCondition, deleteCondition } from '@/data';
 import type { PatientCondition } from '@/data/types';
+import { useAppSelector } from '@/store/hooks';
+
+function calculateAge(birthdate: Date): number {
+    const today: Date = new Date();
+    const diff: number = today.getTime() - birthdate.getTime();
+    const ageDate: Date = new Date(diff);
+    return Math.abs(ageDate.getUTCFullYear() - 1970);
+}
 
 export function PatientSummaryCard() {
   const { snapshot, ready, error, refresh } = usePatientRecord();
   const [expanded, setExpanded] = useState(false);
+  const { patient, loading, lastSynced } = useAppSelector(state => state.patient);
+  const [patientProfile, setPatientProfile] = useState<any>(null);
+
+  useEffect(() => {
+    if (patient) {
+      setPatientProfile(patient);
+      const patientData =  patient["entry"]?.map(
+            (entry: any) => {
+              return entry && entry.resource && entry.resource.resourceType === "Patient" ? entry : null;
+            }
+        );
+        setPatientProfile(patientData);
+        // console.log("Patient Profile EHR data:", patientData);
+    }
+  }, [patient]);
+
+  const patientFirstName = patientProfile?.[0]?.resource?.name?.[0]?.given?.[0] || "Patient";
+  const patientFamilyName = patientProfile?.[0]?.resource?.name?.[0]?.family || "Name";
+  const patientAge = patientProfile?.[0]?.resource?.birthDate ? calculateAge(new Date(patientProfile[0].resource.birthDate)) : "N/A";
+
 
   if (!ready) {
     return (
@@ -39,7 +67,7 @@ export function PatientSummaryCard() {
     );
   }
 
-  const patient = snapshot.patient;
+  // const patient = snapshot.patient;
   const caregiver = snapshot.caregiver;
   const conditions = snapshot.conditions.filter((c) => !c.needsReview);
   const primaryCondition = conditions.find((c) => c.isPrimary) ?? conditions[0];
@@ -64,12 +92,12 @@ export function PatientSummaryCard() {
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{getInitials(patient?.name ?? '?')}</Text>
+          <Text style={styles.avatarText}>{getInitials(patientFirstName + " " + patientFamilyName)}</Text>
         </View>
 
         <View style={styles.patientTextBlock}>
           <View style={styles.nameRow}>
-            <Text style={styles.patientName}>{patient?.name ?? 'Unknown'}</Text>
+            <Text style={styles.patientName}>{patientFirstName} {patientFamilyName}</Text>
 
             {comorbidities.length > 0 ? (
               <View style={styles.comorbidityBadge}>
@@ -81,7 +109,7 @@ export function PatientSummaryCard() {
           </View>
 
           <Text style={styles.patientMeta}>
-            Age {patient?.age ?? '?'} · {caregiver?.name ?? 'Unknown caregiver'}
+            Age {patientAge} · {caregiver?.name ?? 'Unknown caregiver'}
           </Text>
         </View>
       </View>

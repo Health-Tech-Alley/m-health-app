@@ -20,6 +20,25 @@ import { OrchestratorProvider } from "@/contexts/orchestrator-context";
 import { PatientRecordProvider } from "@/contexts/patient-record-context";
 import { SettingsProvider, useSettings } from "@/contexts/settings-context";
 import { SLMProvider, useSLM } from "@/contexts/slm-context";
+import { Provider } from 'react-redux';
+import { store } from '@/store';
+
+import * as Notifications from 'expo-notifications';
+import { AndroidNotificationPriority } from 'expo-notifications';
+
+// Add this OUTSIDE any component, at the module level
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    /**
+     * @platform ios
+     */
+    shouldSetBadge: true,
+    priority: AndroidNotificationPriority.MAX,
+  }),
+});
 
 function SlmPolicySync() {
   const { mode } = useSettings();
@@ -86,24 +105,26 @@ function NotificationResponseInit() {
 
 export default function RootLayout() {
   return (
-    <ThemeProvider value={DefaultTheme}>
-      <SettingsProvider>
-        <PatientRecordProvider>
-          <SLMProvider>
-            <SlmPolicySync />
-            <NotificationInit />
-            <NotificationResponseInit />
-            <OrchestratorProvider>
-              <CriticalAlertProvider>
-                <AnimatedSplashOverlay />
-                <InAppBanner />
-                <CriticalAlertDialog />
-                <Stack screenOptions={{ headerShown: false }} />
-              </CriticalAlertProvider>
-            </OrchestratorProvider>
-          </SLMProvider>
-        </PatientRecordProvider>
-      </SettingsProvider>
-    </ThemeProvider>
+    <Provider store={store}>
+      <ThemeProvider value={DefaultTheme}>
+        <SettingsProvider>
+          <PatientRecordProvider>
+            <SLMProvider>
+              <SlmPolicySync />
+              <NotificationInit />
+              <NotificationResponseInit />
+              <OrchestratorProvider>
+                <CriticalAlertProvider>
+                  <AnimatedSplashOverlay />
+                  <InAppBanner />
+                  <CriticalAlertDialog />
+                  <Stack screenOptions={{ headerShown: false }} />
+                </CriticalAlertProvider>
+              </OrchestratorProvider>
+            </SLMProvider>
+          </PatientRecordProvider>
+        </SettingsProvider>
+      </ThemeProvider>
+    </Provider>
   );
 }

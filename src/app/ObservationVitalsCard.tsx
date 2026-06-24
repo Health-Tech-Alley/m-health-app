@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { DeviceEventEmitter, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
 import { getHealthSampleForPatientAndCurrentMonth } from "@/data/repositories/healthSampleRepository";
 import { HealthSampleType, Patient } from "@/data/types";
+import { useAppSelector } from '@/store/hooks';
 
 type VitalKey = "spo2" | "heartRate" | "respRate" | "mobility";
 type TimeRange = "12h" | "day" | "week" | "month";
@@ -98,17 +99,20 @@ export function ObservationVitalsCard() {
   const [currentPatient, setCurrentPatient] = useState<Patient | null>(null);
   const [fhirData, setFhirData] = useState<any>(null);
   const [chartMetrics, setChartMetrics] = useState<VitalMetric[]>([]);
+  const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
 
-  // load current patient on load
+  // then just use it
+//   console.log('patient data saved to state: ', patient);
+
   useEffect(() => {
-    const patient = null;
-    setCurrentPatient(patient);
+    // console.log('patient data from redux state: ', patient);
+    if (patient) {
+      setCurrentPatient(patient);
 
-    const sub = DeviceEventEmitter.addListener('fhirBundleImported', (data) => {
-      console.log('fhirBundleImported event listener: ', Object.keys(data.fhirBundle));
-      console.log('fhirBundleImported event listener: ', data.fhirBundle["entry"]?.length, ' entries');
-      setFhirData(data.fhirBundle);
-      const observations =  data.fhirBundle["entry"]?.map(
+      console.log('fhirBundleImported event listener: ', Object.keys(patient));
+      console.log('fhirBundleImported event listener: ', patient["entry"]?.length, ' entries');
+      setFhirData(patient);
+      const observations =  patient["entry"]?.map(
           (entry: any) => {
             return entry && entry.resource && entry.resource.resourceType === "Observation" ? entry : null;
           }
@@ -209,18 +213,14 @@ export function ObservationVitalsCard() {
 
       // update the vitals chart
       setChartMetrics([heartRateMetric, respiratoryRateMetric, bloodPressureMetric, spo2Metric, bodyTemperatureMetric]);
-    });
 
-  return () => {
-    // runs ONCE on unmount (cleanup) ✅
-    sub.remove();
-  };
-  }, []);
+    }   
+    }, [patient]);
 
   // load data when category change
-  useEffect(() => {
-    const vitalsData = getVitalsDataForMonthFromDB(selectedKey, currentPatient);
-    }, [selectedKey, currentPatient]);
+//   useEffect(() => {
+//     const vitalsData = getVitalsDataForMonthFromDB(selectedKey, currentPatient);
+//     }, [selectedKey, currentPatient]);
 
   const selectedMetric =
     chartMetrics.find((metric) => metric.key === selectedKey) ?? chartMetrics[0];
@@ -235,7 +235,7 @@ export function ObservationVitalsCard() {
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <View style={styles.titleBlock}>
-          <Text style={styles.sectionTitle}>Weekly Vitals</Text>
+          <Text style={styles.sectionTitle}>Observation Details</Text>
           <Text style={styles.subtitle}>{selectedMetric?.subtitle}</Text>
         </View>
 
