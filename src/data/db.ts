@@ -27,6 +27,10 @@ export function getDatabase(): SQLiteDatabase {
   return dbInstance;
 }
 
+export function initializeDatabase(): void {
+  getDatabase();
+}
+
 export function closeDatabase(): void {
   if (dbInstance) {
     dbInstance.closeSync();

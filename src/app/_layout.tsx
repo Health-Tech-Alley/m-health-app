@@ -9,8 +9,9 @@
  * the SLM system prompt both consume.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { DefaultTheme, Stack, ThemeProvider, useRouter } from "expo-router";
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { CriticalAlertDialog } from "@/components/critical-alert-dialog";
@@ -22,6 +23,7 @@ import { SettingsProvider, useSettings } from "@/contexts/settings-context";
 import { SLMProvider, useSLM } from "@/contexts/slm-context";
 import { Provider } from 'react-redux';
 import { store } from '@/store';
+import { initializeDatabase } from '@/data';
 
 import * as Notifications from 'expo-notifications';
 import { AndroidNotificationPriority } from 'expo-notifications';
@@ -104,6 +106,37 @@ function NotificationResponseInit() {
 }
 
 export default function RootLayout() {
+  const [databaseInit] = useState<{ ready: boolean; error: Error | null }>(() => {
+    try {
+      initializeDatabase();
+      return { ready: true, error: null };
+    } catch (error) {
+      return {
+        ready: false,
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+  });
+
+  if (databaseInit.error) {
+    return (
+      <ThemeProvider value={DefaultTheme}>
+        <View style={styles.initErrorScreen}>
+          <Text style={styles.initErrorTitle}>Unable to initialize the app database</Text>
+          <Text style={styles.initErrorMessage}>{databaseInit.error.message}</Text>
+        </View>
+      </ThemeProvider>
+    );
+  }
+
+  if (!databaseInit.ready) {
+    return (
+      <ThemeProvider value={DefaultTheme}>
+        <AnimatedSplashOverlay />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <Provider store={store}>
       <ThemeProvider value={DefaultTheme}>
@@ -128,3 +161,26 @@ export default function RootLayout() {
     </Provider>
   );
 }
+
+const styles = StyleSheet.create({
+  initErrorScreen: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: '#FFFFFF',
+  },
+  initErrorTitle: {
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  initErrorMessage: {
+    color: '#4B5563',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+});

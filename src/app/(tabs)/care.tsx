@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -25,6 +25,14 @@ import {
 } from "@/data";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 import { useAppSelector } from "@/store/hooks";
+import {
+  displayClinical,
+  getCaregiverDisplay,
+  getCaregiverRoleDisplay,
+  getPatientAgeDisplay,
+  getPatientDisplayName,
+  getPrimaryDiagnosisDisplay,
+} from "@/store/selectors/patientSelectors";
 
 // Seed defaults used the first time the Care screen is opened for today.
 const DEFAULT_DAILY_ENTRY: Partial<DailyCareEntry> = {
@@ -66,41 +74,20 @@ const providerCarePlan = {
   },
 };
 
-function calculateAge(birthdate: Date): number {
-    const today: Date = new Date();
-    const diff: number = today.getTime() - birthdate.getTime();
-    const ageDate: Date = new Date(diff);
-    return Math.abs(ageDate.getUTCFullYear() - 1970);
-}
-
 export default function CareScreen() {
   const router = useRouter();
   const profile = getOnboardingProfile();
   const { patientId } = usePatientRecord();
   const { reopenOnCareFocus } = useCriticalAlert();
-  const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
-  const [patientProfile, setPatientProfile] = useState<any>(null);
-  
-  useEffect(() => {
-      if (patient) {
-        console.log('fhirBundleImported event listener: ', Object.keys(patient));
-        const patientData =  patient["entry"]?.map(
-            (entry: any) => {
-              return entry && entry.resource && entry.resource.resourceType === "Patient" ? entry : null;
-            }
-        );
-        setPatientProfile(patientData);
-        console.log('Patient Profile: ', patientData[0].resource.name[0].given[0], patientData[0].resource.name[0].family);
-
-      }
-    }, [patient]);
-
-  const patientFirstName = patientProfile?.[0]?.resource?.name?.[0]?.given?.[0] || "Patient";
-  const patientFamilyName = patientProfile?.[0]?.resource?.name?.[0]?.family || "Name";
-  const patientAge = patientProfile?.[0]?.resource?.birthDate ? calculateAge(new Date(patientProfile[0].resource.birthDate)) : "N/A";
+  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const patientName = getPatientDisplayName(activePatient);
+  const patientAge = getPatientAgeDisplay(activePatient);
+  const diagnosis = getPrimaryDiagnosisDisplay(activePatient);
 
   const caregiverFirstName =
-    profile.caregiver.name.trim().split(/\s+/)[0] || "caregiver";
+    getCaregiverDisplay(activePatient).split(/\s+/)[0] ||
+    profile.caregiver.name.trim().split(/\s+/)[0] ||
+    "caregiver";
 
   // Re-surface the severity-3 critical-alert popup whenever the Care tab is
   // (re)opened, until the alert is dismissed or resolved.
@@ -182,20 +169,22 @@ export default function CareScreen() {
         <MainTabHeader
           title="Care Management"
           eyebrow="Caregiver Concierge ACCESS-DP"
-          rightContent={<Text style={styles.patientName}>{patientFirstName } {patientFamilyName}</Text>}
+          rightContent={<Text style={styles.patientName}>{patientName}</Text>}
         />
 
         <View style={styles.patientCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{getInitials(patientFirstName + " " + patientFamilyName)}</Text>
+            <Text style={styles.avatarText}>{getInitials(patientName)}</Text>
           </View>
 
           <View style={styles.patientInfo}>
-            <Text style={styles.patientCardName}>{patientFirstName } {patientFamilyName}</Text>
+            <Text style={styles.patientCardName}>{patientName}</Text>
             <Text style={styles.patientDetail}>
-              {patientAge} yrs · {profile.patient.conditions}
+              Age {patientAge} · {displayClinical(diagnosis)}
             </Text>
-            <Text style={styles.patientMuted}>No movement · 25 min</Text>
+            <Text style={styles.patientMuted}>
+              Caregiver {getCaregiverDisplay(activePatient)} · {getCaregiverRoleDisplay(activePatient)}
+            </Text>
           </View>
         </View>
 
@@ -368,7 +357,7 @@ export default function CareScreen() {
             <View style={styles.explainBlock}>
               <Text style={styles.explainLabel}>Why this matters</Text>
               <Text style={styles.explainBody}>
-                {profile.patient.name}&apos;s vitals are outside the configured
+                {patientName}&apos;s vitals are outside the configured
                 safe range (oxygen below cutoff, elevated respiratory and heart
                 rate). This consideration is part of the configured safety plan
                 to catch deterioration early.
@@ -378,7 +367,7 @@ export default function CareScreen() {
             <View style={styles.explainBlock}>
               <Text style={styles.explainLabel}>Recommendation</Text>
               <Text style={styles.explainBody}>
-                Check on {patientFirstName} immediately. Consider ER or 911 if
+                Check on {patientName} immediately. Consider ER or 911 if
                 symptoms are severe. The app will not act automatically.
               </Text>
             </View>
@@ -386,7 +375,7 @@ export default function CareScreen() {
             <Pressable
               style={styles.explainSlmButton}
               onPress={() => {
-                setSlmPrompt(`Explain this safety consideration for ${profile.patient.name} in plain, calm language a family caregiver can act on: "${openConsideration ?? ""}". Include why it matters, what to watch for, and what to do next.`);
+                setSlmPrompt(`Explain this safety consideration for ${patientName} in plain, calm language a family caregiver can act on: "${openConsideration ?? ""}". Include why it matters, what to watch for, and what to do next.`);
                 setSlmOpen(true);
                 setOpenConsideration(null);
               }}

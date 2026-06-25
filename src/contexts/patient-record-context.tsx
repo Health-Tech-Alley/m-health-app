@@ -37,6 +37,10 @@ import {
 } from '@/data';
 import { saveFHIRBundleToDB } from '@/data/fhir/fhir-import';
 import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
+import {
+  hydrateActivePatientStateFromSnapshot,
+  refreshActivePatientState,
+} from '@/services/patient/activePatientState';
 
 // ---------------------------------------------------------------------------
 // Module-level store — useSyncExternalStore reads from here.
@@ -83,6 +87,7 @@ function setPatientId(patientId: string): void {
   const nextSnapshot = loadSnapshot(patientId);
   currentPatientId = patientId;
   currentSnapshot = nextSnapshot;
+  hydrateActivePatientStateFromSnapshot(nextSnapshot, patientId);
   emitChange();
 }
 
@@ -90,8 +95,10 @@ function setPatientId(patientId: string): void {
 export function refreshPatientRecord(patientId?: string): void {
   console.log('currentPatientId: ', currentPatientId, 'patientId: ', patientId);
   if (!currentPatientId && !patientId) return;
-  
-  currentSnapshot = loadSnapshot(patientId || (currentPatientId ?? ''));
+
+  const nextPatientId = patientId || (currentPatientId ?? '');
+  currentPatientId = nextPatientId;
+  currentSnapshot = refreshActivePatientState(nextPatientId);
   emitChange();
 }
 
@@ -191,10 +198,12 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
   }, [patientId, refresh]);
 
   const importFHIRBundle = useCallback((bundle: any) => {
-    saveFHIRBundleToDB(bundle);   // writes to SQLite
+    const activePatientId = currentPatientId ?? patientId;
+    if (!activePatientId) return;
+    saveFHIRBundleToDB(bundle, { patientId: activePatientId });   // writes to SQLite
     console.log('[PatientRecordProvider] FHIR bundle imported to DB, refreshing snapshot... ', bundle.entry[0]);
-    refreshPatientRecord(bundle.entry[0]?.resource?.id);        // triggers useSyncExternalStore → all screens update
-  }, []);
+    refreshPatientRecord(activePatientId);        // triggers useSyncExternalStore -> all screens update
+  }, [patientId]);
 
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 

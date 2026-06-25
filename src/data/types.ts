@@ -5,7 +5,7 @@
  * these typed objects and the raw database rows.
  */
 
-export type HealthSampleSource = 'apple-health' | 'health-connect' | 'manual' | 'mock';
+export type HealthSampleSource = 'apple-health' | 'health-connect' | 'manual' | 'mock' | 'fhir';
 
 export type HealthSampleType =
   | 'spo2'

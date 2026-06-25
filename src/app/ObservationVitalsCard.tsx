@@ -1,14 +1,46 @@
-import { useEffect, useMemo, useState } from "react";
-
+import { useMemo, useState } from "react";
+import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
-import { getHealthSampleForPatientAndCurrentMonth } from "@/data/repositories/healthSampleRepository";
-import { HealthSampleType, Patient } from "@/data/types";
-import { useAppSelector } from '@/store/hooks';
+import type { HealthSampleType } from "@/data/types";
+import { useAppSelector } from "@/store/hooks";
+import type { NormalizedBloodPressurePair, NormalizedVitalMetric } from "@/store/reducers/patientSlice";
 
-type VitalKey = "spo2" | "heartRate" | "respRate" | "mobility";
-type TimeRange = "12h" | "day" | "week" | "month";
+type RangeKey = "6m" | "1y" | "2y";
+
+type RangeOption = {
+  key: RangeKey;
+  label: string;
+  encounterCount: number;
+};
+
+type ChartPoint = {
+  id: string;
+  value: number;
+  unit: string;
+  recordedAt: string;
+  label: string;
+};
+
+type ChartSeries = {
+  key: string;
+  label: string;
+  color: string;
+  unit: string;
+  points: ChartPoint[];
+};
+
+type ChartModel = {
+  start: Date;
+  end: Date;
+  series: ChartSeries[];
+  points: ChartPoint[];
+  yMin: number;
+  yMax: number;
+  yLabels: number[];
+  xLabels: { text: string; offset: number }[];
+};
 
 type VitalMetric = {
   key: HealthSampleType;
@@ -16,286 +48,150 @@ type VitalMetric = {
   label: string;
   value: string;
   unit: string;
-  status: string;
-  statusTone: "critical" | "warning" | "good";
   subtitle: string;
   helperText: string;
-  data: number[];
+  observedAt?: string;
+  series: ChartSeries[];
 };
 
-let metrics: VitalMetric[] = [
-  {
-    key: "spo2",
+const CHART_HEIGHT = 112;
+const POINT_SIZE = 14;
+const CHART_HORIZONTAL_PADDING = 10;
+const SOURCE_BADGE = "Imported from EHR";
 
-    tabIcon: "\u{1FAC1}",
-    label: "Oxygen Saturation",
-    value: "84",
-    unit: "%",
-    status: "Down today \u2022 Critical",
-    statusTone: "critical",
-    subtitle: "Declining trend this week",
-    helperText: "SpO2 estimates how much oxygen is in the blood.",
+const RANGE_OPTIONS: RangeOption[] = [
+  { key: "6m", label: "6 months", encounterCount: 6 },
+  { key: "1y", label: "1 year", encounterCount: 12 },
+  { key: "2y", label: "2 years", encounterCount: 24 },
+];
 
-    data: [96, 95, 96, 94, 93, 92, 90],
+const VITAL_PRESENTATION: Record<string, Omit<VitalMetric, "value" | "unit" | "series">> = {
+  blood_pressure_systolic: {
+    key: "blood_pressure_systolic",
+    tabIcon: "🩸",
+    label: "Blood Pressure",
+    subtitle: "Paired systolic and diastolic readings from the EHR",
+    helperText: "Blood pressure shows systolic and diastolic pressure in millimeters of mercury.",
+    observedAt: undefined,
   },
-  {
+  heart_rate: {
     key: "heart_rate",
-    tabIcon: "\u2764\uFE0F",
+    tabIcon: "❤️",
     label: "Heart Rate",
-    value: "118",
-    unit: "BPM",
-    status: "Up today \u2022 Elevated",
-
-    statusTone: "critical",
-    subtitle: "Higher than baseline",
+    subtitle: "Heart-rate readings from the EHR",
     helperText: "Heart rate shows beats per minute compared with baseline.",
-    data: [82, 86, 88, 94, 98, 110, 118],
+    observedAt: undefined,
   },
-  {
+  temperature: {
+    key: "temperature",
+    tabIcon: "🌡️",
+    label: "Body Temperature",
+    subtitle: "Temperature readings from the EHR",
+    helperText: "Body temperature shows the latest recorded temperature.",
+    observedAt: undefined,
+  },
+  spo2: {
+    key: "spo2",
+    tabIcon: "🫁",
+    label: "SpO2",
+    subtitle: "Oxygen saturation readings from the EHR",
+    helperText: "SpO2 estimates how much oxygen is in the blood.",
+    observedAt: undefined,
+  },
+  respiratory_rate: {
     key: "respiratory_rate",
-    tabIcon: "\u{1F32C}\uFE0F",
+    tabIcon: "💨",
     label: "Respiratory Rate",
-    value: "32",
-    unit: "br/min",
-    status: "Up today \u2022 Elevated",
-
-    statusTone: "warning",
-    subtitle: "Breathing faster than usual",
+    subtitle: "Respiratory readings from the EHR",
     helperText: "Respiratory rate counts breaths per minute.",
-    data: [20, 21, 23, 24, 26, 29, 32],
+    observedAt: undefined,
   },
-  {
-    key: "steps",
-    tabIcon: "\u{1F6B6}",
-    label: "Mobility Score",
-    value: "55",
-    unit: "/100",
-    status: "Down today \u2022 Lower",
-
-    statusTone: "warning",
-    subtitle: "Movement below expected pattern",
-    helperText: "Mobility reflects movement compared with the usual pattern.",
-    data: [82, 78, 74, 72, 68, 61, 55],
-  },
-];
-
-metrics = [] //make it empty
-
-const timeRanges: { key: TimeRange; label: string }[] = [
-  { key: "12h", label: "12h" },
-  { key: "day", label: "Day" },
-  { key: "week", label: "Week" },
-  { key: "month", label: "Month" },
-];
-
-const days = ["M", "T", "W", "Th", "F", "Sa", "Su"];
-const CHART_HEIGHT = 88;
-const POINT_SIZE = 13;
+};
 
 export function ObservationVitalsCard() {
-  const [selectedKey, setSelectedKey] = useState<HealthSampleType>("spo2");
-  const [selectedRange, setSelectedRange] = useState<TimeRange>("week");
-  const [helperKey, setHelperKey] = useState<HealthSampleType>("spo2");
-  const [currentPatient, setCurrentPatient] = useState<Patient | null>(null);
-  const [fhirData, setFhirData] = useState<any>(null);
-  const [chartMetrics, setChartMetrics] = useState<VitalMetric[]>([]);
-  const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
-
-  // then just use it
-//   console.log('patient data saved to state: ', patient);
-
-  useEffect(() => {
-    // console.log('patient data from redux state: ', patient);
-    if (patient) {
-      setCurrentPatient(patient);
-
-      console.log('fhirBundleImported event listener: ', Object.keys(patient));
-      console.log('fhirBundleImported event listener: ', patient["entry"]?.length, ' entries');
-      setFhirData(patient);
-      const observations =  patient["entry"]?.map(
-          (entry: any) => {
-            return entry && entry.resource && entry.resource.resourceType === "Observation" ? entry : null;
-          }
-      );
-      console.log('Extracted observations from FHIR bundle: ', observations?.length);
-      const heartRateObservations = observations?.map(
-          (entry: any) => { return entry && entry.resource && entry.resource.code && entry.resource.code.coding &&
-              entry.resource.code.coding.some((coding: any) => coding.code === "8867-4") ? entry.resource.valueQuantity?.value : null; }
-      ).filter((value: any) => value != null);
-
-      const heartRateMetric: VitalMetric = {
-        key: "heart_rate",
-        tabIcon: "\u2764\uFE0F",  
-        label: "Heart Rate",
-        value: `${heartRateObservations?.[heartRateObservations.length - 1] ?? "32"}`,
-        unit: "BPM",
-        status: "Up today \u2022 Elevated",
-        statusTone: "critical",
-        subtitle: "Higher than baseline",
-        helperText: "Heart rate shows beats per minute compared with baseline.",
-        data: heartRateObservations ?? [],
-      };
-      
-      console.log('Extracted heart rate observations from FHIR bundle: ', heartRateObservations);
-      const respiratoryRateObservations = observations?.map(
-          (entry: any) => { return entry && entry.resource && entry.resource.code && entry.resource.code.coding &&
-              entry.resource.code.coding.some((coding: any) => coding.code === "9279-1") ? entry.resource.valueQuantity?.value : null; }
-      ).filter((value: any) => value != null);
-
-      console.log('Extracted respiratory rate observations from FHIR bundle: ', respiratoryRateObservations);
-      const respiratoryRateMetric: VitalMetric = {
-        key: "respiratory_rate",
-        tabIcon: "\u{1F32C}\uFE0F",
-        label: "Respiratory Rate",
-        value: `${respiratoryRateObservations?.[respiratoryRateObservations.length - 1] ?? "32"}`,
-        unit: "br/min",
-        status: "Up today \u2022 Elevated",
-        statusTone: "warning",
-        subtitle: "Breathing faster than usual",
-        helperText: "Respiratory rate counts breaths per minute.",
-        data: respiratoryRateObservations ?? [],
-      };
-      const bloodPressureObservations = observations?.map(
-        (entry: any) => { return entry && entry.resource && entry.resource.code && entry.resource.code.coding &&
-            entry.resource.code.coding.some((coding: any) => coding.code === "85354-9")
-            &&  entry.resource.component && entry.resource.component.some((comp: any) => comp.code && comp.code.coding && comp.code.coding.some((coding: any) => coding.code === "8480-6"))
-             ? entry.resource.component.find((comp: any) => comp.code && comp.code.coding && comp.code.coding.some((coding: any) => coding.code === "8480-6"))?.valueQuantity?.value : null; }
-      ).filter((value: any) => value != null);
-
-      console.log('Extracted blood pressure observations from FHIR bundle: ', bloodPressureObservations);
-      const bloodPressureMetric: VitalMetric = {
-        key: "blood_pressure_systolic",
-        tabIcon: "\u{1FAC0}",
-        label: "Blood Pressure",
-        value: `${bloodPressureObservations?.[bloodPressureObservations.length - 1] ?? "32"}`,
-        unit: "mmHg",
-        status: "Up today \u2022 Elevated",
-        statusTone: "warning",
-        subtitle: "Higher than baseline",
-        helperText: "Blood pressure shows systolic pressure in millimeters of mercury.",
-        data: bloodPressureObservations ?? [],
-      };
-
-      const spo2Observations = observations?.map(
-          (entry: any) => { return entry && entry.resource && entry.resource.code && entry.resource.code.coding &&
-              entry.resource.code.coding.some((coding: any) => coding.code === "59408-5") ? entry.resource.valueQuantity?.value : null; }
-      ).filter((value: any) => value != null);
-
-      const spo2Metric: VitalMetric = {
-        key: "spo2",
-        tabIcon: "\u{1FAC1}",
-        label: "Oxygen Saturation",
-        value: `${spo2Observations?.[spo2Observations.length - 1] ?? "32"}`,
-        unit: "%", 
-        status: "Down today \u2022 Critical",
-        statusTone: "critical",
-        subtitle: "Declining trend this week",
-        helperText: "SpO2 estimates how much oxygen is in the blood.",
-        data: spo2Observations ?? [],
-      };
-
-      const bodyTemperatureObservations = observations?.map(
-          (entry: any) => { return entry && entry.resource && entry.resource.code && entry.resource.code.coding &&
-              entry.resource.code.coding.some((coding: any) => coding.code === "8310-5") ? entry.resource.valueQuantity?.value : null; }
-      ).filter((value: any) => value != null);
-      const bodyTemperatureMetric: VitalMetric = {
-        key: "temperature",
-        tabIcon: "\u{1F321}",
-        label: "Body Temperature",
-        value: `${bodyTemperatureObservations?.[bodyTemperatureObservations.length - 1] ?? "32"}`,
-        unit: "°F",
-        status: "Up today \u2022 Elevated",
-        statusTone: "warning",
-        subtitle: "Higher than baseline",
-        helperText: "Body temperature shows the current body temperature in Fahrenheit.",
-        data: bodyTemperatureObservations ?? [],
-      };
-
-      // update the vitals chart
-      setChartMetrics([heartRateMetric, respiratoryRateMetric, bloodPressureMetric, spo2Metric, bodyTemperatureMetric]);
-
-    }   
-    }, [patient]);
-
-  // load data when category change
-//   useEffect(() => {
-//     const vitalsData = getVitalsDataForMonthFromDB(selectedKey, currentPatient);
-//     }, [selectedKey, currentPatient]);
+  const router = useRouter();
+  const clinicalVitals = useAppSelector((state) => state.patient.clinicalVitals);
+  const chartMetrics = useMemo(
+    () => clinicalVitals.map(toVitalMetric).filter(isVitalMetric),
+    [clinicalVitals],
+  );
+  const [selectedKey, setSelectedKey] = useState<HealthSampleType>("blood_pressure_systolic");
+  const [selectedRange, setSelectedRange] = useState<RangeKey>("6m");
 
   const selectedMetric =
     chartMetrics.find((metric) => metric.key === selectedKey) ?? chartMetrics[0];
-  const helperMetric =
-    chartMetrics.find((metric) => metric.key === helperKey) ?? selectedMetric;
+  const selectedRangeOption = RANGE_OPTIONS.find((range) => range.key === selectedRange) ?? RANGE_OPTIONS[0];
+  const chart = useMemo(
+    () => (selectedMetric ? buildChartModel(selectedMetric, selectedRangeOption) : null),
+    [selectedMetric, selectedRangeOption],
+  );
 
-  const heartRate = chartMetrics.find((metric) => metric.key === "heart_rate");
-  const respRate = chartMetrics.find((metric) => metric.key === "respiratory_rate");
-  const bloodPressure = chartMetrics.find((metric) => metric.key === "blood_pressure_systolic");
+  if (chartMetrics.length === 0 || !selectedMetric || !chart) {
+    return (
+      <View style={styles.card}>
+        <View style={styles.titleRow}>
+          <Text style={styles.sectionTitle}>EHR Observation History</Text>
+          <Text style={styles.sourceBadge}>{SOURCE_BADGE}</Text>
+        </View>
+        <Text style={styles.emptyTitle}>No observations available</Text>
+        <Text style={styles.emptyText}>
+          Import the latest EHR from Settings to add observations and vitals.
+        </Text>
+        <Pressable
+          style={styles.importButton}
+          onPress={() => router.push({ pathname: "/(tabs)/more", params: { focus: "ehr-import" } } as never)}
+        >
+          <Text style={styles.importButtonText}>Import from Settings</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <View style={styles.titleBlock}>
-          <Text style={styles.sectionTitle}>Observation Details</Text>
-          <Text style={styles.subtitle}>{selectedMetric?.subtitle}</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.sectionTitle}>EHR Observation History</Text>
+          <Text style={styles.sourceBadge}>{SOURCE_BADGE}</Text>
         </View>
-
-        <View style={styles.tabRow}>
-          {chartMetrics.map((metric) => {
-            const active = metric.key === selectedKey;
-
-            return (
-              <Pressable
-                key={metric.key}
-                style={[styles.tab, active && styles.tabActive]}
-                accessibilityRole="button"
-                accessibilityLabel={metric.label}
-                onPress={() => {
-                  setSelectedKey(metric.key);
-                  setHelperKey(metric.key);
-                }}
-              >
-                <Text style={[styles.tabIcon, active && styles.tabIconActive]}>
-                  {metric.tabIcon}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <Text style={styles.metricHelperText}>{helperMetric?.helperText}</Text>
+        <Text style={styles.subtitle}>{selectedMetric.subtitle}</Text>
       </View>
 
-      <View style={styles.valueRow}>
-        <Text style={styles.mainValue}>{selectedMetric?.value}</Text>
-        <Text style={styles.unit}>{selectedMetric?.unit}</Text>
-        <Text
-          style={[
-            styles.status,
-            selectedMetric?.statusTone === "critical" && styles.statusCritical,
-            selectedMetric?.statusTone === "warning" && styles.statusWarning,
-            selectedMetric?.statusTone === "good" && styles.statusGood,
-          ]}
-        >
-          {selectedMetric?.status}
-        </Text>
+      <View style={styles.tabRow}>
+        {chartMetrics.map((metric) => {
+          const active = metric.key === selectedMetric.key;
+
+          return (
+            <Pressable
+              key={metric.key}
+              style={[styles.tab, active && styles.tabActive]}
+              accessibilityRole="button"
+              accessibilityLabel={metric.label}
+              onPress={() => setSelectedKey(metric.key)}
+            >
+              <Text style={[styles.tabIcon, active && styles.tabIconActive]}>{metric.tabIcon}</Text>
+              <Text style={[styles.tabLabel, active && styles.tabLabelActive]} numberOfLines={2}>
+                {metric.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
+
+      <Text style={styles.metricHelperText}>{selectedMetric.helperText}</Text>
 
       <View style={styles.rangeRow}>
-        {timeRanges.map((range) => {
-          const active = range.key === selectedRange;
-
+        {RANGE_OPTIONS.map((range) => {
+          const active = selectedRange === range.key;
           return (
             <Pressable
               key={range.key}
               style={[styles.rangePill, active && styles.rangePillActive]}
+              accessibilityRole="button"
+              accessibilityLabel={`Show ${range.label}`}
               onPress={() => setSelectedRange(range.key)}
             >
-              <Text
-                style={[
-                  styles.rangePillText,
-                  active && styles.rangePillTextActive,
-                ]}
-              >
+              <Text style={[styles.rangePillText, active && styles.rangePillTextActive]}>
                 {range.label}
               </Text>
             </Pressable>
@@ -303,191 +199,437 @@ export function ObservationVitalsCard() {
         })}
       </View>
 
-      <TrendChart values={selectedMetric?.data} />
+      <TrendChart chart={chart} />
 
-      <View style={styles.divider} />
-
-      <View style={styles.bottomStats}>
-        <SmallStat
-          label="Heart Rate"
-          value={heartRate?.value ?? "118"}
-          unit={heartRate?.unit ?? "BPM"}
-          tone="critical"
-        />
-
-        <SmallStat
-          label="Resp. Rate"
-          value={respRate?.value ?? "32"}
-          unit={respRate?.unit ?? "br/min"}
-          tone="purple"
-        />
-
-        <SmallStat
-          label="Blood Pressure"
-          value={bloodPressure?.value ?? "120"}
-          unit={bloodPressure?.unit ?? "mmHg"}
-          tone="good"
-        />
-      </View>
+      <Text style={styles.summaryText}>{formatAverageSummary(selectedMetric, chart)}</Text>
     </View>
   );
 }
 
-function TrendChart({ values }: { values: number[] }) {
+function toVitalMetric(metric: NormalizedVitalMetric): VitalMetric | null {
+  const presentation = VITAL_PRESENTATION[metric.key];
+  if (!presentation) return null;
+
+  const series =
+    metric.key === "blood_pressure_systolic"
+      ? buildBloodPressureSeries(metric.bloodPressureReadings ?? [])
+      : [buildSingleValueSeries(metric)];
+
+  const hasPoints = series.some((item) => item.points.length > 0);
+  if (!hasPoints) return null;
+
+  return {
+    ...presentation,
+    value: metric.value || "Not available",
+    unit: metric.unit,
+    observedAt: metric.recordedAt,
+    series,
+  };
+}
+
+function buildSingleValueSeries(metric: NormalizedVitalMetric): ChartSeries {
+  return {
+    key: metric.key,
+    label: metric.label,
+    color: "#0F766E",
+    unit: metric.unit,
+    points: metric.readings
+      .map((reading) => ({
+        id: reading.sampleId,
+        value: reading.value,
+        unit: reading.unit || metric.unit,
+        recordedAt: reading.recordedAt,
+        label: metric.label,
+      }))
+      .filter(hasValidPointDate)
+      .sort(sortPointsOldestFirst),
+  };
+}
+
+function buildBloodPressureSeries(readings: NormalizedBloodPressurePair[]): ChartSeries[] {
+  const systolic: ChartPoint[] = [];
+  const diastolic: ChartPoint[] = [];
+
+  for (const reading of readings) {
+    if (!reading.recordedAt) continue;
+    if (reading.systolic != null) {
+      systolic.push({
+        id: reading.systolicSampleId ?? `systolic-${reading.recordedAt}`,
+        value: reading.systolic,
+        unit: reading.unit,
+        recordedAt: reading.recordedAt,
+        label: "Systolic",
+      });
+    }
+    if (reading.diastolic != null) {
+      diastolic.push({
+        id: reading.diastolicSampleId ?? `diastolic-${reading.recordedAt}`,
+        value: reading.diastolic,
+        unit: reading.unit,
+        recordedAt: reading.recordedAt,
+        label: "Diastolic",
+      });
+    }
+  }
+
+  return [
+    {
+      key: "blood_pressure_systolic",
+      label: "Systolic",
+      color: "#0F766E",
+      unit: "mmHg",
+      points: systolic.filter(hasValidPointDate).sort(sortPointsOldestFirst),
+    },
+    {
+      key: "blood_pressure_diastolic",
+      label: "Diastolic",
+      color: "#2563EB",
+      unit: "mmHg",
+      points: diastolic.filter(hasValidPointDate).sort(sortPointsOldestFirst),
+    },
+  ];
+}
+
+function buildChartModel(metric: VitalMetric, range: RangeOption): ChartModel {
+  const allPoints = metric.series.flatMap((series) => series.points);
+  const allTimes = allPoints.map((point) => new Date(point.recordedAt).getTime());
+  const encounterTimes = [...new Set(allTimes)].sort((a, b) => a - b);
+  const selectedEncounterTimes = encounterTimes.slice(-range.encounterCount);
+  const selectedTimeSet = new Set(selectedEncounterTimes);
+  const start = new Date(selectedEncounterTimes[0]);
+  const end = new Date(selectedEncounterTimes[selectedEncounterTimes.length - 1]);
+  const visibleSeries = metric.series
+    .map((series) => ({
+      ...series,
+      points: series.points.filter((point) => {
+        const time = new Date(point.recordedAt).getTime();
+        return selectedTimeSet.has(time);
+      }),
+    }))
+    .filter((series) => series.points.length > 0);
+  const visiblePoints = visibleSeries.flatMap((series) => series.points);
+
+  if (visiblePoints.length === 0) {
+    return {
+      start,
+      end,
+      series: [],
+      points: [],
+      yMin: 0,
+      yMax: 1,
+      yLabels: [],
+      xLabels: [],
+    };
+  }
+
+  const values = visiblePoints.map((point) => point.value);
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const rawRange = Math.max(rawMax - rawMin, 0);
+  const padding = Math.max(rawRange * 0.2, Math.abs(rawMax) * 0.03, 1);
+  const capMax = metric.key === "spo2" ? 100 : Number.POSITIVE_INFINITY;
+  const yMin = Math.max(0, rawMin - padding);
+  let yMax = Math.min(capMax, rawMax + padding);
+  if (yMax <= yMin) yMax = Math.min(capMax, yMin + Math.max(rawRange, 1));
+
+  return {
+    start,
+    end,
+    series: visibleSeries,
+    points: visiblePoints,
+    yMin,
+    yMax,
+    yLabels: [yMax, (yMax + yMin) / 2, yMin],
+    xLabels: getXAxisLabels(start, end, range),
+  };
+}
+
+function TrendChart({ chart }: { chart: ChartModel }) {
   const [chartWidth, setChartWidth] = useState(0);
+  const [selectedPoint, setSelectedPoint] = useState<ChartPoint | null>(null);
 
-  const points = useMemo(() => {
-    if (chartWidth <= 0 || !values || values.length === 0) return [];
+  if (chart.points.length === 0) {
+    return (
+      <View style={styles.noRangeData}>
+        <Text style={styles.noRangeTitle}>No readings in this range</Text>
+        <Text style={styles.noRangeText}>Try a longer range or import a newer EHR record.</Text>
+      </View>
+    );
+  }
 
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const range = Math.max(max - min, 1);
-
-    return values.map((value, index) => {
-      const x =
-        values.length === 1
-          ? chartWidth / 2
-          : (index / (values.length - 1)) * chartWidth;
-
-      const normalized = (value - min) / range;
-      const y = CHART_HEIGHT - normalized * (CHART_HEIGHT - 12) - 6;
-
-      return { x, y };
-    });
-  }, [chartWidth, values]);
+  const valueRange = Math.max(chart.yMax - chart.yMin, 1);
+  const timeRange = Math.max(chart.end.getTime() - chart.start.getTime(), 1);
 
   return (
-    <View style={styles.chartWrap}>
-      <View style={styles.yAxis}>
-        <Text style={styles.axisLabel}>100</Text>
-        <Text style={styles.axisLabel}>50</Text>
-        <Text style={styles.axisLabel}>0</Text>
-      </View>
-
-      <View style={styles.chartArea}>
-        <View
-          style={styles.plotArea}
-          onLayout={(event) => {
-            setChartWidth(event.nativeEvent.layout.width);
-          }}
-        >
-          {points.map((point, index) => {
-            if (index === points.length - 1) return null;
-
-            const next = points[index + 1];
-            const dx = next.x - point.x;
-            const dy = next.y - point.y;
-            const length = Math.sqrt(dx * dx + dy * dy);
-            const angle = Math.atan2(dy, dx);
-
-            return (
-              <View
-                key={`segment-${index}`}
-                style={[
-                  styles.lineSegment,
-                  {
-                    width: length,
-                    left: point.x,
-                    top: point.y,
-                    transform: [{ rotate: `${angle}rad` }],
-                  },
-                ]}
-              />
-            );
-          })}
-
-          {points.map((point, index) => (
-            <View
-              key={`point-${index}`}
-              style={[
-                styles.point,
-                {
-                  left: point.x - POINT_SIZE / 2,
-                  top: point.y - POINT_SIZE / 2,
-                },
-              ]}
-            />
-          ))}
+    <View>
+      {selectedPoint ? (
+        <View style={styles.tooltip}>
+          <Text style={styles.tooltipValue}>
+            {selectedPoint.label}: {formatValue(selectedPoint.value)} {selectedPoint.unit}
+          </Text>
+          <Text style={styles.tooltipDate}>{formatObservationDate(selectedPoint.recordedAt)}</Text>
         </View>
+      ) : null}
 
-        <View style={styles.dayRow}>
-          {days.map((day) => (
-            <Text key={day} style={styles.dayLabel}>
-              {day}
+      <View style={styles.chartWrap}>
+        <View style={styles.yAxis}>
+          {chart.yLabels.map((label) => (
+            <Text key={label} style={styles.axisLabel}>
+              {formatAxisValue(label)}
             </Text>
           ))}
         </View>
+
+        <View style={styles.chartArea}>
+          <View
+            style={styles.plotArea}
+            onLayout={(event) => {
+              setChartWidth(event.nativeEvent.layout.width);
+            }}
+          >
+            {chartWidth > 0
+              ? chart.series.map((series) => (
+                  <ChartSeriesLayer
+                    key={series.key}
+                    series={series}
+                    chartWidth={chartWidth}
+                    yMin={chart.yMin}
+                    valueRange={valueRange}
+                    startTime={chart.start.getTime()}
+                    timeRange={timeRange}
+                    onSelectPoint={setSelectedPoint}
+                  />
+                ))
+              : null}
+          </View>
+
+          <View style={styles.xAxisRow}>
+            {chart.xLabels.map((label) => (
+              <Text key={`${label.text}-${label.offset}`} style={[styles.dayLabel, { left: `${label.offset}%` }]}>
+                {label.text}
+              </Text>
+            ))}
+          </View>
+        </View>
       </View>
+
+      {chart.series.length > 1 ? (
+        <View style={styles.legendRow}>
+          {chart.series.map((series) => (
+            <View key={series.key} style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: series.color }]} />
+              <Text style={styles.legendText}>{series.label}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
 
-function SmallStat({
-  label,
-  value,
-  unit,
-  tone,
+function ChartSeriesLayer({
+  series,
+  chartWidth,
+  yMin,
+  valueRange,
+  startTime,
+  timeRange,
+  onSelectPoint,
 }: {
-  label: string;
-  value: string;
-  unit: string;
-  tone: "critical" | "purple" | "good";
+  series: ChartSeries;
+  chartWidth: number;
+  yMin: number;
+  valueRange: number;
+  startTime: number;
+  timeRange: number;
+  onSelectPoint: (point: ChartPoint) => void;
 }) {
+  const plotWidth = Math.max(chartWidth - CHART_HORIZONTAL_PADDING * 2, 1);
+  const points = series.points.map((point) => {
+    const x =
+      timeRange <= 1
+        ? chartWidth / 2
+        : CHART_HORIZONTAL_PADDING +
+          ((new Date(point.recordedAt).getTime() - startTime) / timeRange) * plotWidth;
+    const normalized = (point.value - yMin) / valueRange;
+    const y = CHART_HEIGHT - normalized * (CHART_HEIGHT - 14) - 7;
+    return { ...point, x, y };
+  });
+
   return (
-    <View style={styles.smallStat}>
-      <Text style={styles.smallStatLabel}>{label}</Text>
-      <Text style={styles.smallStatValueRow}>
-        <Text
+    <>
+      {points.map((point, index) => {
+        if (index === points.length - 1) return null;
+        const next = points[index + 1];
+        const dx = next.x - point.x;
+        const dy = next.y - point.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
+
+        return (
+          <View
+            key={`segment-${series.key}-${point.id}`}
+            style={[
+              styles.lineSegment,
+              {
+                width: length,
+                left: point.x,
+                top: point.y,
+                backgroundColor: series.color,
+                transform: [{ rotate: `${angle}rad` }],
+              },
+            ]}
+          />
+        );
+      })}
+
+      {points.map((point) => (
+        <Pressable
+          key={`point-${series.key}-${point.id}`}
+          accessibilityRole="button"
+          accessibilityLabel={`${point.label} ${formatValue(point.value)} ${point.unit} observed ${formatObservationDate(point.recordedAt)}`}
+          onPress={() => onSelectPoint(point)}
           style={[
-            styles.smallStatValue,
-            tone === "critical" && styles.smallStatCritical,
-            tone === "purple" && styles.smallStatPurple,
+            styles.point,
+            {
+              left: point.x - POINT_SIZE / 2,
+              top: point.y - POINT_SIZE / 2,
+              backgroundColor: series.color,
+            },
           ]}
-        >
-          {value}
-        </Text>
-        <Text style={styles.smallStatUnit}> {unit}</Text>
-      </Text>
-    </View>
+        />
+      ))}
+    </>
   );
 }
 
-function getVitalsDataForMonthFromDB(selectedKey: HealthSampleType, currentPatient: Patient | null): VitalMetric[] {
-  // Placeholder function to simulate fetching vitals data from a database
-  // In a real application, this would involve making an API call or querying a local database
-  console.log(`Fetching vitals data for patient ${currentPatient?.patientId} and metric ${selectedKey} for the current month...`);
-  const spo2Samples = getHealthSampleForPatientAndCurrentMonth(currentPatient?.patientId ?? '', selectedKey);
-  console.log('Fetched samples:', spo2Samples);
-  return spo2Samples.map(sample => ({
-    key: selectedKey,
-    tabIcon: "\u{1FAC1}",
-    label: "Oxygen Saturation",
-    value: sample.value.toString(),
-    unit: sample.unit,
-    status: "Down today \u2022 Critical",
-    statusTone: "critical",
-    subtitle: "Declining trend this week",
-    helperText: "SpO2 estimates how much oxygen is in the blood.",
-    data: [96, 95, 96, 94, 93, 92, 90], // Replace with actual data processing
+function getXAxisLabels(start: Date, end: Date, range: RangeOption) {
+  const spanDays = Math.max((end.getTime() - start.getTime()) / 86400000, 1);
+  const labelDates = getAxisLabelDates(start, end, range);
+  const total = Math.max(end.getTime() - start.getTime(), 1);
+  const labelStart = CHART_HORIZONTAL_PADDING;
+  const labelSpan = Math.max(100 - CHART_HORIZONTAL_PADDING * 2, 1);
+
+  return labelDates.map((date) => ({
+    text: formatAxisDate(date, spanDays),
+    offset: Math.min(
+      Math.max(labelStart + ((date.getTime() - start.getTime()) / total) * labelSpan, 0),
+      92,
+    ),
   }));
 }
 
+function getAxisLabelDates(start: Date, end: Date, range: RangeOption) {
+  if (range.key === "2y") return monthStepDates(start, end, 3);
+  if (range.key === "1y") return monthStepDates(start, end, 3);
+  return evenlySpacedDates(start, end, 3);
+}
+
+function monthStepDates(start: Date, end: Date, monthStep: number) {
+  const labels: Date[] = [new Date(start)];
+  const cursor = new Date(start);
+  cursor.setUTCDate(1);
+  cursor.setUTCMonth(cursor.getUTCMonth() + monthStep);
+
+  while (cursor.getTime() < end.getTime()) {
+    labels.push(new Date(cursor));
+    cursor.setUTCMonth(cursor.getUTCMonth() + monthStep);
+  }
+
+  const last = labels[labels.length - 1];
+  if (!last || last.getTime() !== end.getTime()) labels.push(new Date(end));
+  return labels;
+}
+
+function evenlySpacedDates(start: Date, end: Date, count: number) {
+  const startTime = start.getTime();
+  const step = (end.getTime() - startTime) / Math.max(count - 1, 1);
+  return Array.from({ length: count }, (_, index) => new Date(startTime + step * index));
+}
+
+function formatAxisDate(date: Date, spanDays: number) {
+  if (spanDays > 540) {
+    return date.toLocaleDateString(undefined, { year: "numeric" });
+  }
+  return date.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+}
+
+function formatAverageSummary(metric: VitalMetric, chart: ChartModel) {
+  if (chart.points.length === 0) return "Average: Not available";
+  if (metric.key === "blood_pressure_systolic") {
+    const systolic = chart.series.find((series) => series.key === "blood_pressure_systolic");
+    const diastolic = chart.series.find((series) => series.key === "blood_pressure_diastolic");
+    const systolicAverage = getAverage(systolic?.points ?? []);
+    const diastolicAverage = getAverage(diastolic?.points ?? []);
+    if (systolicAverage == null || diastolicAverage == null) {
+      return "Average: Not available";
+    }
+    return `Average: ${formatValue(systolicAverage)}/${formatValue(diastolicAverage)} mmHg`;
+  }
+
+  const average = getAverage(chart.points);
+  const unit = chart.points[0]?.unit ?? metric.unit;
+  return average == null
+    ? "Average: Not available"
+    : `Average: ${formatValue(average)}${unit === "%" ? "%" : ` ${unit}`}`;
+}
+
+function getAverage(points: ChartPoint[]) {
+  if (points.length === 0) return null;
+  return points.reduce((total, point) => total + point.value, 0) / points.length;
+}
+
+function hasValidPointDate(point: ChartPoint) {
+  return Number.isFinite(new Date(point.recordedAt).getTime());
+}
+
+function sortPointsOldestFirst(a: ChartPoint, b: ChartPoint) {
+  return new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime();
+}
+
+function isVitalMetric(metric: VitalMetric | null): metric is VitalMetric {
+  return metric !== null;
+}
+
+function formatObservationDate(value?: string) {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatValue(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatAxisValue(value: number) {
+  const rounded = Math.abs(value) >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
+  return String(rounded);
+}
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: AppTheme.colors.surface,
-    borderRadius: 30,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 18,
     padding: 20,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    ...AppTheme.shadow,
+    borderColor: "#CBD5E1",
   },
   headerRow: {
-    marginBottom: 22,
-  },
-  titleBlock: {
     marginBottom: 14,
+  },
+  titleRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "space-between",
+    marginBottom: 8,
   },
   sectionTitle: {
     color: AppTheme.colors.sectionText,
@@ -495,39 +637,82 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1.4,
     textTransform: "uppercase",
-    marginBottom: 7,
   },
   subtitle: {
     color: AppTheme.colors.textMuted,
     fontSize: 15,
     fontWeight: "700",
   },
+  sourceBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#E0F2FE",
+    borderRadius: AppTheme.radius.pill,
+    color: "#0369A1",
+    fontSize: 11,
+    fontWeight: "900",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  emptyTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 8,
+  },
+  emptyText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "700",
+    marginTop: 6,
+  },
+  importButton: {
+    alignSelf: "flex-start",
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    marginTop: 14,
+  },
+  importButtonText: {
+    color: AppTheme.colors.white,
+    fontSize: 14,
+    fontWeight: "900",
+  },
   tabRow: {
     flexDirection: "row",
-    gap: 10,
+    gap: 8,
   },
   tab: {
     flex: 1,
-    minHeight: 68,
-    borderRadius: 20,
-    backgroundColor: AppTheme.colors.softSurface,
+    minHeight: 66,
+    borderRadius: 10,
+    backgroundColor: "#E2E8F0",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     paddingVertical: 8,
   },
   tabActive: {
-    backgroundColor: AppTheme.colors.brand,
-    ...AppTheme.shadow,
+    backgroundColor: "#0F766E",
   },
   tabIcon: {
     color: AppTheme.colors.textSoft,
-    fontSize: 36,
-    lineHeight: 42,
+    fontSize: 19,
     fontWeight: "900",
     textAlign: "center",
   },
   tabIconActive: {
+    color: AppTheme.colors.white,
+  },
+  tabLabel: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 10,
+    fontWeight: "900",
+    marginTop: 3,
+    textAlign: "center",
+  },
+  tabLabelActive: {
     color: AppTheme.colors.white,
   },
   metricHelperText: {
@@ -537,72 +722,47 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 10,
   },
-  valueRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    marginBottom: 12,
-    flexWrap: "wrap",
-  },
-  mainValue: {
-    color: AppTheme.colors.brandDark,
-    fontSize: 34,
-    fontWeight: "900",
-  },
-  unit: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 16,
-    fontWeight: "800",
-    marginLeft: 6,
-    marginBottom: 5,
-  },
-  status: {
-    fontSize: 14,
-    fontWeight: "900",
-    marginLeft: 16,
-    marginBottom: 5,
-  },
-  statusCritical: {
-    color: AppTheme.colors.danger,
-  },
-  statusWarning: {
-    color: AppTheme.colors.warning,
-  },
-  statusGood: {
-    color: AppTheme.colors.brand,
-  },
   rangeRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
-    marginBottom: 16,
+    marginTop: 14,
+    marginBottom: 14,
   },
   rangePill: {
     borderRadius: AppTheme.radius.pill,
-    backgroundColor: AppTheme.colors.softSurface,
+    backgroundColor: "#E2E8F0",
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
   rangePillActive: {
-    backgroundColor: AppTheme.colors.brandSoft,
+    backgroundColor: "#CCFBF1",
   },
   rangePillText: {
-    color: AppTheme.colors.textSoft,
+    color: "#475569",
     fontSize: 12,
     fontWeight: "900",
   },
   rangePillTextActive: {
-    color: AppTheme.colors.brand,
+    color: "#0F766E",
   },
-
+  summaryText: {
+    color: "#0F172A",
+    fontSize: 13,
+    fontWeight: "900",
+    marginLeft: 42,
+    marginTop: 10,
+  },
   chartWrap: {
     flexDirection: "row",
-    minHeight: 112,
+    minHeight: 142,
   },
   yAxis: {
-    width: 30,
+    width: 42,
     height: CHART_HEIGHT,
     justifyContent: "space-between",
     alignItems: "flex-end",
-    paddingRight: 7,
+    paddingRight: 8,
   },
   axisLabel: {
     color: AppTheme.colors.textMuted,
@@ -611,7 +771,7 @@ const styles = StyleSheet.create({
   },
   chartArea: {
     flex: 1,
-    height: 112,
+    minHeight: 142,
   },
   plotArea: {
     height: CHART_HEIGHT,
@@ -621,7 +781,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     height: 3,
     borderRadius: 999,
-    backgroundColor: AppTheme.colors.brand,
     transformOrigin: "left center",
   },
   point: {
@@ -629,54 +788,77 @@ const styles = StyleSheet.create({
     width: POINT_SIZE,
     height: POINT_SIZE,
     borderRadius: POINT_SIZE / 2,
-    backgroundColor: AppTheme.colors.brand,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
   },
-  dayRow: {
+  xAxisRow: {
     marginTop: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
+    minHeight: 18,
+    position: "relative",
   },
   dayLabel: {
+    position: "absolute",
     color: AppTheme.colors.textMuted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
   },
-
-  divider: {
-    height: 1,
-    backgroundColor: AppTheme.colors.border,
-    marginTop: 16,
-    marginBottom: 18,
-  },
-  bottomStats: {
+  legendRow: {
     flexDirection: "row",
-    gap: 20,
+    alignItems: "center",
+    gap: 14,
+    marginTop: 8,
+    marginLeft: 42,
   },
-  smallStat: {
-    flex: 1,
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
-  smallStatLabel: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: "900",
-    marginBottom: 7,
+  legendDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
   },
-  smallStatValueRow: {
-    fontSize: 15,
-  },
-  smallStatValue: {
-    fontSize: 17,
-    fontWeight: "900",
-  },
-  smallStatCritical: {
-    color: AppTheme.colors.danger,
-  },
-  smallStatPurple: {
-    color: AppTheme.colors.purple,
-  },
-  smallStatUnit: {
-    color: AppTheme.colors.textMuted,
+  legendText: {
+    color: "#475569",
     fontSize: 12,
     fontWeight: "800",
+  },
+  tooltip: {
+    alignSelf: "flex-start",
+    backgroundColor: "#0F172A",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 10,
+  },
+  tooltipValue: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  tooltipDate: {
+    color: "#CBD5E1",
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  noRangeData: {
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 14,
+  },
+  noRangeTitle: {
+    color: "#0F172A",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  noRangeText: {
+    color: "#64748B",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 4,
   },
 });

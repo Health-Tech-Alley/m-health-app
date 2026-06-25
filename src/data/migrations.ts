@@ -7,7 +7,6 @@
 
 export const MIGRATIONS: string[] = [
   // 0: core identity tables
-  // selected patient column is 1 when get selected, and when not selected it gets 0 since SQL Lite dont have a Boolean type
   `
   CREATE TABLE IF NOT EXISTS patients (
     patient_id TEXT PRIMARY KEY,

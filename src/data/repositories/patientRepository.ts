@@ -11,11 +11,26 @@ import type { Caregiver, Medication, Patient, PatientCondition } from '../types'
 export function upsertPatient(patient: Patient): void {
   const db = getDatabase();
   db.runSync(
-    `INSERT OR REPLACE INTO patients
+    `INSERT INTO patients
       (patient_id, name, age, conditions, baseline_daily_routine, current_medications,
        spo2_cutoff, baseline_heart_rate, preferred_name, gmfcs, fms, macs, cfcs,
        edacs, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(patient_id) DO UPDATE SET
+       name = COALESCE(NULLIF(excluded.name, ''), patients.name),
+       age = COALESCE(NULLIF(excluded.age, ''), patients.age),
+       conditions = COALESCE(NULLIF(excluded.conditions, ''), patients.conditions),
+       baseline_daily_routine = COALESCE(NULLIF(excluded.baseline_daily_routine, ''), patients.baseline_daily_routine),
+       current_medications = COALESCE(NULLIF(excluded.current_medications, ''), patients.current_medications),
+       spo2_cutoff = COALESCE(NULLIF(excluded.spo2_cutoff, ''), patients.spo2_cutoff),
+       baseline_heart_rate = COALESCE(NULLIF(excluded.baseline_heart_rate, ''), patients.baseline_heart_rate),
+       preferred_name = COALESCE(NULLIF(excluded.preferred_name, ''), patients.preferred_name),
+       gmfcs = COALESCE(NULLIF(excluded.gmfcs, ''), patients.gmfcs),
+       fms = COALESCE(NULLIF(excluded.fms, ''), patients.fms),
+       macs = COALESCE(NULLIF(excluded.macs, ''), patients.macs),
+       cfcs = COALESCE(NULLIF(excluded.cfcs, ''), patients.cfcs),
+       edacs = COALESCE(NULLIF(excluded.edacs, ''), patients.edacs),
+       updated_at = excluded.updated_at;`,
     patient.patientId,
     patient.name,
     patient.age ?? null,
@@ -213,8 +228,12 @@ export function deleteCondition(conditionId: string): void {
   db.runSync('DELETE FROM patient_conditions WHERE condition_id = ?;', conditionId);
 }
 
-/** Remove all conditions for a patient (used during re-seed). */
+/** Remove onboarding-seeded conditions for a patient while preserving imported review rows. */
 export function deleteConditionsForPatient(patientId: string): void {
   const db = getDatabase();
-  db.runSync('DELETE FROM patient_conditions WHERE patient_id = ?;', patientId);
+  db.runSync(
+    `DELETE FROM patient_conditions
+     WHERE patient_id = ? AND COALESCE(source, 'onboarding') = 'onboarding';`,
+    patientId,
+  );
 }

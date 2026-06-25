@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
@@ -6,37 +7,21 @@ import { usePatientRecord } from '@/contexts/patient-record-context';
 import { confirmPendingCondition, deleteCondition } from '@/data';
 import type { PatientCondition } from '@/data/types';
 import { useAppSelector } from '@/store/hooks';
-
-function calculateAge(birthdate: Date): number {
-    const today: Date = new Date();
-    const diff: number = today.getTime() - birthdate.getTime();
-    const ageDate: Date = new Date(diff);
-    return Math.abs(ageDate.getUTCFullYear() - 1970);
-}
+import {
+  displayClinical,
+  displayEntered,
+  getCaregiverDisplay,
+  getPatientAgeDisplay,
+  getPatientDisplayName,
+  getPrimaryDiagnosisDisplay,
+  NOT_AVAILABLE,
+} from '@/store/selectors/patientSelectors';
 
 export function PatientSummaryCard() {
+  const router = useRouter();
   const { snapshot, ready, error, refresh } = usePatientRecord();
   const [expanded, setExpanded] = useState(false);
-  const { patient, loading, lastSynced } = useAppSelector(state => state.patient);
-  const [patientProfile, setPatientProfile] = useState<any>(null);
-
-  useEffect(() => {
-    if (patient) {
-      setPatientProfile(patient);
-      const patientData =  patient["entry"]?.map(
-            (entry: any) => {
-              return entry && entry.resource && entry.resource.resourceType === "Patient" ? entry : null;
-            }
-        );
-        setPatientProfile(patientData);
-        // console.log("Patient Profile EHR data:", patientData);
-    }
-  }, [patient]);
-
-  const patientFirstName = patientProfile?.[0]?.resource?.name?.[0]?.given?.[0] || "Patient";
-  const patientFamilyName = patientProfile?.[0]?.resource?.name?.[0]?.family || "Name";
-  const patientAge = patientProfile?.[0]?.resource?.birthDate ? calculateAge(new Date(patientProfile[0].resource.birthDate)) : "N/A";
-
+  const activePatient = useAppSelector((state) => state.patient.activePatient);
 
   if (!ready) {
     return (
@@ -67,12 +52,12 @@ export function PatientSummaryCard() {
     );
   }
 
-  // const patient = snapshot.patient;
-  const caregiver = snapshot.caregiver;
-  const conditions = snapshot.conditions.filter((c) => !c.needsReview);
-  const primaryCondition = conditions.find((c) => c.isPrimary) ?? conditions[0];
-  const comorbidities = conditions.filter((c) => c !== primaryCondition);
-  const pendingReview = snapshot.pendingReviewConditions;
+  const patientName = getPatientDisplayName(activePatient);
+  const patientAge = getPatientAgeDisplay(activePatient);
+  const caregiverName = getCaregiverDisplay(activePatient);
+  const primaryCondition = activePatient?.primaryDiagnosis ?? null;
+  const comorbidities = activePatient?.comorbidities ?? [];
+  const pendingReview = activePatient?.pendingConditions ?? [];
   const sourceCount = countKnowledgeSources(snapshot.knowledgeStats.bySource);
   const cacheSummary = formatKnowledgeCacheSummary(
     snapshot.knowledgeStats.total,
@@ -94,18 +79,20 @@ export function PatientSummaryCard() {
 
   const primaryDisplay = primaryCondition
     ? `${primaryCondition.icd10 ? `${primaryCondition.icd10} · ` : ''}${primaryCondition.name}`
-    : patient?.conditions ?? 'Not documented';
+    : getPrimaryDiagnosisDisplay(activePatient);
+  const needsClinicalImport =
+    primaryDisplay === NOT_AVAILABLE || pendingReview.length > 0;
 
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{getInitials(patientFirstName + " " + patientFamilyName)}</Text>
+          <Text style={styles.avatarText}>{getInitials(patientName)}</Text>
         </View>
 
         <View style={styles.patientTextBlock}>
           <View style={styles.nameRow}>
-            <Text style={styles.patientName}>{patientFirstName} {patientFamilyName}</Text>
+            <Text style={styles.patientName}>{patientName}</Text>
 
             {comorbidities.length > 0 ? (
               <View style={styles.comorbidityBadge}>
@@ -117,7 +104,7 @@ export function PatientSummaryCard() {
           </View>
 
           <Text style={styles.patientMeta}>
-            Age {patientAge} · {caregiver?.name ?? 'Unknown caregiver'}
+            Age {patientAge} · {caregiverName}
           </Text>
         </View>
       </View>
@@ -129,6 +116,18 @@ export function PatientSummaryCard() {
           <Text style={styles.categoryText}>{primaryCondition.category}</Text>
         ) : null}
       </View>
+
+      {needsClinicalImport ? (
+        <Pressable
+          style={styles.importBanner}
+          onPress={() => router.push({ pathname: '/(tabs)/more', params: { focus: 'ehr-import' } } as never)}
+        >
+          <Text style={styles.importBannerTitle}>Latest clinical details not available</Text>
+          <Text style={styles.importBannerText}>
+            Import the latest EHR from Settings to refresh diagnoses and visit data.
+          </Text>
+        </Pressable>
+      ) : null}
 
       {comorbidities.length > 0 ? (
         <Pressable
@@ -182,8 +181,8 @@ export function PatientSummaryCard() {
       ) : null}
 
       <View style={styles.infoGrid}>
-        <InfoBox label="SpO₂ cutoff" value={patient?.spo2Cutoff ?? '88%'} />
-        <InfoBox label="Baseline HR" value={patient?.baselineHeartRate ?? '72–88 BPM'} />
+        <InfoBox label="SpO₂ cutoff" value={displayClinical(activePatient?.spo2Cutoff)} />
+        <InfoBox label="Baseline HR" value={displayEntered(activePatient?.baselineHeartRate)} />
       </View>
 
       {snapshot.bundleStatus.state === 'in_flight' ? (
@@ -391,6 +390,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginTop: 3,
+  },
+  importBanner: {
+    backgroundColor: AppTheme.colors.brandSoft,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#B7FFF1',
+    padding: 14,
+    marginBottom: 14,
+  },
+  importBannerTitle: {
+    color: AppTheme.colors.brand,
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  importBannerText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700',
   },
   comorbidityExpand: {
     marginBottom: 14,

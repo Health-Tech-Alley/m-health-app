@@ -1,5 +1,5 @@
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -31,11 +31,17 @@ import {
   type RecordConsentScope,
 } from "@/services/records/recordsService";
 import * as DocumentPicker from 'expo-document-picker';
-import { File } from 'expo-file-system/next';
+import { File } from 'expo-file-system';
 
 import { dispatchImmediate } from '@/services/notifications';
-import { useAppDispatch } from '@/store/hooks';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { addPatient } from '@/store/reducers/patientSlice';
+import {
+  getCaregiverDisplay,
+  getCaregiverRoleDisplay,
+  getPatientAgeDisplay,
+  getPatientDisplayName,
+} from '@/store/selectors/patientSelectors';
 
 
 const THEME_OPTIONS = [
@@ -85,8 +91,16 @@ const initialConsentState: Record<RecordConsentScope, boolean> = {
 
 export default function MoreScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ focus?: string }>();
   const dispatch = useAppDispatch();
   const profile = getOnboardingProfile();
+  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const patientName = getPatientDisplayName(activePatient);
+  const patientAge = getPatientAgeDisplay(activePatient);
+  const caregiverName = getCaregiverDisplay(activePatient);
+  const caregiverRole = getCaregiverRoleDisplay(activePatient);
+  const scrollRef = useRef<ScrollView | null>(null);
+  const ehrImportYRef = useRef(0);
   const {
     settings,
     isDeveloper,
@@ -108,6 +122,17 @@ export default function MoreScreen() {
   const [recVersion, setRecVersion] = useState(0);
   const { importFHIRBundle } = usePatientRecord();
   const [importing, setImporting] = useState(false);
+
+  useEffect(() => {
+    if (params.focus !== "ehr-import") return;
+    const handle = setTimeout(() => {
+      scrollRef.current?.scrollTo({
+        y: Math.max(ehrImportYRef.current - 18, 0),
+        animated: true,
+      });
+    }, 150);
+    return () => clearTimeout(handle);
+  }, [params.focus]);
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -194,35 +219,39 @@ export default function MoreScreen() {
   }
 
   async function handleOpenEHRImport() {
-    
-    // 1. Let user pick a JSON file
-    const result = await DocumentPicker.getDocumentAsync({
-      type: 'application/json',
-      copyToCacheDirectory: true,
-    });
+    setImporting(true);
+    try {
+      // 1. Let user pick a JSON file
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true,
+      });
 
-    if (result.canceled) return null;
+      if (result.canceled) return null;
 
-    // 2. Read the file contents
-    const fileUri = result.assets[0].uri;
-    // const contents = await FileSystem.readAsStringAsync(fileUri);
-    const file = new File(fileUri);
-    const contents = await file.text();           // ← replaces readAsStringAsync
-    // const bundle = JSON.parse(contents);
+      // 2. Read the file contents
+      const fileUri = result.assets[0].uri;
+      // const contents = await FileSystem.readAsStringAsync(fileUri);
+      const file = new File(fileUri);
+      const contents = await file.text();           // ← replaces readAsStringAsync
+      // const bundle = JSON.parse(contents);
 
-    // 3. Parse FHIR JSON
-    const fhirBundle = JSON.parse(contents);
-    // console.log("Parsed FHIR bundle:", fhirBundle);
-    importFHIRBundle(fhirBundle);
-    // wherever you receive the patient data (API response, EHR import, etc.)
-    dispatch(addPatient(fhirBundle)); // Dispatch the action to save patient data to Redux store
-    await dispatchImmediate({
-      patientId: patientId,
-      scope: 'anomaly',
-      title: "EHR Import",
-      body: 'FHIR bundle imported successfully',
-      severity: 1,
-    });// Schedule a push notification after importing the FHIR bundle
+      // 3. Parse FHIR JSON
+      const fhirBundle = JSON.parse(contents);
+      // console.log("Parsed FHIR bundle:", fhirBundle);
+      importFHIRBundle(fhirBundle);
+      // wherever you receive the patient data (API response, EHR import, etc.)
+      dispatch(addPatient(fhirBundle)); // Dispatch the action to save patient data to Redux store
+      await dispatchImmediate({
+        patientId: patientId,
+        scope: 'anomaly',
+        title: "EHR Import",
+        body: 'FHIR bundle imported successfully',
+        severity: 1,
+      });// Schedule a push notification after importing the FHIR bundle
+    } finally {
+      setImporting(false);
+    }
     // scheduleLocalNotification(
     //   {
     //     patientId: 'String(args.patientId)',
@@ -302,6 +331,7 @@ export default function MoreScreen() {
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <View style={styles.root}>
         <ScrollView
+          ref={scrollRef}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
         >
@@ -315,17 +345,17 @@ export default function MoreScreen() {
           <View style={styles.profileCard}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>
-                {getInitials(profile.caregiver.name)}
+                {getInitials(caregiverName)}
               </Text>
             </View>
 
             <View style={styles.profileTextBlock}>
-              <Text style={styles.profileName}>{profile.caregiver.name}</Text>
+              <Text style={styles.profileName}>{caregiverName}</Text>
               <Text style={styles.profileRole}>
-                Caregiver {"\u2022"} {profile.caregiver.relationship}
+                Caregiver {"\u2022"} {caregiverRole}
               </Text>
               <Text style={styles.profilePatient}>
-                Caring for {profile.patient.name}, {profile.patient.age}
+                Caring for {patientName}, {patientAge}
               </Text>
             </View>
           </View>
@@ -417,8 +447,8 @@ export default function MoreScreen() {
             <SettingsRow
               icon="messages"
               title="Secure Messages"
-              subtitle="Care team messaging coming soon"
-              disabled
+              subtitle="Prototype care-team messaging scaffold"
+              onPress={() => router.push("/secure-messaging" as never)}
             />
           </SettingsSection>
           <SettingsSection title="Consent Manager">
@@ -451,11 +481,16 @@ export default function MoreScreen() {
               </View>
             ))}
           </SettingsSection>
-          <SettingsSection title="Future integrations">
+          <SettingsSection
+            title="Future integrations"
+            onLayout={(event) => {
+              ehrImportYRef.current = event.nativeEvent.layout.y;
+            }}
+          >
             <SettingsRow
               icon="plus"
               title="Populate from EHR"
-              subtitle="C-CDA / FHIR records placeholder"
+              subtitle={importing ? "Importing FHIR bundle..." : "C-CDA / FHIR records placeholder"}
               onPress={handleOpenEHRImport}
             />
 
@@ -650,12 +685,14 @@ function ThemeSettingsRow({
 function SettingsSection({
   title,
   children,
+  onLayout,
 }: {
   title: string;
   children: React.ReactNode;
+  onLayout?: React.ComponentProps<typeof View>["onLayout"];
 }) {
   return (
-    <View style={styles.section}>
+    <View style={styles.section} onLayout={onLayout}>
       <Text style={styles.sectionTitle}>{title}</Text>
       <View style={styles.sectionCard}>{children}</View>
     </View>

@@ -713,8 +713,8 @@ export default function OnboardingScreen() {
       completedAt: new Date().toISOString(),
     };
 
-    await completeOnboardingProfile(profile);
-    refreshPatientRecord();
+    const result = await completeOnboardingProfile(profile);
+    refreshPatientRecord(result.patientId);
     router.replace("/dashboard");
   }
 
