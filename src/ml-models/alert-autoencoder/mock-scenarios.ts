@@ -353,7 +353,7 @@ export const SCENARIOS: VitalsScenario[] = [
     expectedAnomaly: true,
     expectedPipelinePath: 'UC2_SLOW_PATH',
     expectedInitialAnomalyType: 'RESPIRATORY_CONCERN',
-    presetObservationCodes: ['BREATHING_CHANGE'],
+    presetObservationCodes: ['BREATHING_DIFFERENT'],
     presetCaregiverAction: 'confirm_concern',
   },
   {
@@ -378,7 +378,7 @@ export const SCENARIOS: VitalsScenario[] = [
     expectedAnomaly: true,
     expectedPipelinePath: 'UC2_SLOW_PATH',
     expectedInitialAnomalyType: 'GI_AUTONOMIC_RISK',
-    presetObservationCodes: ['VOMITING_DIARRHEA', 'LOW_INTAKE'],
+    presetObservationCodes: ['VOMITING_OR_DIARRHEA', 'REDUCED_INTAKE'],
     presetCaregiverAction: 'confirm_concern',
   },
   {
@@ -404,7 +404,7 @@ export const SCENARIOS: VitalsScenario[] = [
     hour: 7,
     expectedPipelinePath: 'UC2_SLOW_PATH',
     expectedInitialAnomalyType: 'SLEEP_STRESS_RECOVERY',
-    presetObservationCodes: ['POOR_SLEEP', 'STRESS'],
+    presetObservationCodes: ['POOR_SLEEP', 'STRESS_OR_EMOTIONAL_UPSET'],
     presetCaregiverAction: 'continue_monitoring',
   },
   {
@@ -430,7 +430,7 @@ export const SCENARIOS: VitalsScenario[] = [
     hour: 9,
     expectedPipelinePath: 'UC2_SLOW_PATH',
     expectedInitialAnomalyType: 'EXERTION_LIKE_PATTERN',
-    presetObservationCodes: ['EXERCISE_ACTIVITY'],
+    presetObservationCodes: ['EXERCISE_OR_ACTIVITY'],
     presetCaregiverAction: 'dismiss',
   },
   {
