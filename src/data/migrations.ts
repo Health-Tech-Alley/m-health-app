@@ -19,8 +19,7 @@ export const MIGRATIONS: string[] = [
     spo2_cutoff TEXT,
     baseline_heart_rate TEXT,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    selected INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS caregivers (

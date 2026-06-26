@@ -18,9 +18,11 @@ const DB_NAME = 'caregiver-concierge.db';
 let dbInstance: SQLiteDatabase | null = null;
 
 export function getDatabase(): SQLiteDatabase {
+  console.log('getDatabase() called', dbInstance ? 'returning existing instance' : 'creating new instance');
   if (!dbInstance) {
-    dbInstance = openDatabaseSync(DB_NAME);
-    migrate(dbInstance);
+    const db = openDatabaseSync(DB_NAME);
+    migrate(db);          // fully complete before assigning
+    dbInstance = db;      // ← only now is it visible to other callers
   }
   return dbInstance;
 }
@@ -41,6 +43,7 @@ function migrate(db: SQLiteDatabase): void {
   `);
 
   for (let i = 0; i < MIGRATIONS.length; i++) {
+    console.log(`Checking migration ${i}...`);
     const exists = db.getFirstSync<{ count: number }>(
       'SELECT COUNT(*) AS count FROM __migrations WHERE id = ?;',
       i,
