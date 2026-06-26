@@ -212,7 +212,7 @@ export default function MoreScreen() {
 
     // 3. Parse FHIR JSON
     const fhirBundle = JSON.parse(contents);
-    console.log("Parsed FHIR bundle:", fhirBundle);
+    // console.log("Parsed FHIR bundle:", fhirBundle);
     importFHIRBundle(fhirBundle);
     // wherever you receive the patient data (API response, EHR import, etc.)
     dispatch(addPatient(fhirBundle)); // Dispatch the action to save patient data to Redux store
