@@ -143,24 +143,6 @@ export default function ProfileScreen() {
             <DetailRow label="Email" value={provider.email} />
           </ProfileCard>
 
-          <ProfileCard title="Preferences" icon="bell">
-            <DetailRow label="Notifications" value={caregiver.notificationStyle} />
-            <DetailRow
-              label="Medical comfort"
-              value={formatMedicalComfort(caregiver.medicalComfortLevel)}
-            />
-            <DetailRow
-              label="Emergency comfort"
-              value={formatEmergencyComfort(caregiver.emergencyComfortLevel)}
-            />
-            <DetailRow label="Backup caregiver" value={caregiver.backupCaregiver} />
-            <DetailRow
-              label="Support needs"
-              value={caregiver.stressOrSupportNeeds}
-              multiline
-            />
-          </ProfileCard>
-
           <ProfileCard title="Safety" icon="alert">
             <DetailRow label="Emergency contact" value={safety?.emergencyContact} />
             <DetailRow label="Safety notes" value={safety?.safetyNotes} multiline />
@@ -304,24 +286,6 @@ function formatDetailValue(value: DetailValue): string {
 
   const text = String(value).trim();
   return text.length > 0 ? text : "Not provided";
-}
-
-function formatMedicalComfort(value: DetailValue): string {
-  const text = formatDetailValue(value);
-
-  if (text === "Moderate detail") return "Moderate";
-  if (text === "Full clinical detail") return "Clinical detail";
-
-  return text;
-}
-
-function formatEmergencyComfort(value: DetailValue): string {
-  const text = formatDetailValue(value);
-
-  if (text === "Would call 911 if needed") return "Calls 911 if needed";
-  if (text === "Prefer provider first") return "Provider first";
-
-  return text;
 }
 
 const styles = StyleSheet.create({

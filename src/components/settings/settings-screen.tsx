@@ -1,24 +1,27 @@
 /**
- * Full settings screen component — model management, notifications, profiles,
- * consent, data, developer mode, and about. Shared by the settings tab and
- * the standalone settings route.
+ * Caregiver Preferences plus advanced developer settings.
+ *
+ * Preferences keeps caregiver-facing controls compact. Advanced Developer
+ * Settings keeps demo, model, API, diagnostic, and reset tools behind the
+ * existing Developer / Demo Mode switch.
  */
 
-import { useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
+  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  View,
-  Pressable,
   Switch,
+  Text,
   TextInput,
-  Alert,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { AppTheme } from '@/constants/theme';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
@@ -27,37 +30,388 @@ import { MODEL_CATALOG, type ModelEntry } from '@/inference/model-catalog';
 import { isModelInstalled, deleteModel, clearAllModels } from '@/services/model-storage';
 import { downloadModel } from '@/services/model-download';
 import {
-  getActiveConsents,
-  verifyAuditChain,
-  getAuditEntriesForResource,
-  resetDatabase,
   clearKnowledgeCache,
+  getActiveConsents,
   getAllKnowledgeChunks,
+  getAuditEntriesForResource,
+  getPendingThresholdRecommendations,
+  resetDatabase,
+  updateThresholdRecommendationStatus,
+  verifyAuditChain,
   type ConsentToken,
   type KnowledgeChunk,
+  type ThresholdRecommendation,
 } from '@/data';
+import { audit } from '@/services/audit/auditService';
 import { grantConsent, revokeConsentAndAudit } from '@/services/consent/consentGate';
-import { exportCcd } from '@/services/export/ccdaExportService';
 import { setNcbiApiKey, clearNcbiApiKey } from '@/services/ncbi-token-store';
 import { setOpenFdaApiKey, clearOpenFdaApiKey } from '@/services/openfda-token-store';
+import {
+  exportPatientCcda,
+  getRecordConsentStatus,
+  setRecordConsent,
+  type RecordConsentScope,
+} from '@/services/records/recordsService';
 
 const teal = '#0E6F68';
 const darkText = '#123433';
 const mutedText = '#526866';
-const lightBg = '#EEF7F6';
-const cardBg = '#FFFFFF';
 const borderColor = '#D9E7E5';
 const dangerRed = '#B42318';
 
+const RECORD_CONSENT_OPTIONS: {
+  scope: RecordConsentScope;
+  emoji: string;
+  title: string;
+  subtitle: string;
+}[] = [
+  {
+    scope: 'ccda_export',
+    emoji: '📤',
+    title: 'C-CDA export consent',
+    subtitle: 'Allow exporting a C-CDA record for care coordination.',
+  },
+  {
+    scope: 'fhir-share',
+    emoji: '🔗',
+    title: 'FHIR share consent',
+    subtitle: 'Allow sharing structured records with approved care systems.',
+  },
+  {
+    scope: 'pharmacy-communicator',
+    emoji: '💊',
+    title: 'Pharmacy communicator consent',
+    subtitle: 'Allow medication-related communication with pharmacy tools.',
+  },
+  {
+    scope: 'provider-message',
+    emoji: '💬',
+    title: 'Provider message consent',
+    subtitle: 'Allow sending care context to provider messaging tools.',
+  },
+];
+
+const initialRecordConsentState: Record<RecordConsentScope, boolean> = {
+  ccda_export: false,
+  'fhir-share': false,
+  'pharmacy-communicator': false,
+  'provider-message': false,
+};
+
+type ExpandableId =
+  | 'anomaly'
+  | 'medication'
+  | 'appointment'
+  | 'care-task'
+  | 'timing'
+  | 'appearance'
+  | 'accessibility'
+  | 'consent'
+  | 'developer-mode';
+
 export function SettingsScreen() {
+  return <PreferencesScreen />;
+}
+
+export function PreferencesScreen() {
+  const { settings, setTheme, setNotificationPreferences } = useSettings();
+  const patientId = useOrchestratorPatientId();
+  const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
+  const [recordConsentGranted, setRecordConsentGranted] =
+    useState<Record<RecordConsentScope, boolean>>(initialRecordConsentState);
+  const [recordExportStatus, setRecordExportStatus] = useState(
+    'Consent required before export',
+  );
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      const nextConsentState = RECORD_CONSENT_OPTIONS.reduce(
+        (next, option) => ({
+          ...next,
+          [option.scope]: getRecordConsentStatus(option.scope, patientId).granted,
+        }),
+        initialRecordConsentState,
+      );
+
+      setRecordConsentGranted(nextConsentState);
+      setRecordExportStatus(
+        nextConsentState.ccda_export
+          ? 'Consent granted for C-CDA export'
+          : 'Consent required before export',
+      );
+    }, 0);
+
+    return () => clearTimeout(handle);
+  }, [patientId]);
+
+  const toggleExpanded = useCallback((id: ExpandableId) => {
+    setExpandedId((current) => (current === id ? null : id));
+  }, []);
+
+  const handleRecordConsentToggle = useCallback((scope: RecordConsentScope) => {
+    const nextGranted = !recordConsentGranted[scope];
+    const consent = setRecordConsent(scope, nextGranted, patientId);
+    const nextConsentState = {
+      ...recordConsentGranted,
+      [scope]: consent.granted,
+    };
+
+    setRecordConsentGranted(nextConsentState);
+
+    if (scope === 'ccda_export') {
+      setRecordExportStatus(
+        consent.granted
+          ? 'Consent granted for C-CDA export'
+          : 'Consent required before export',
+      );
+    }
+  }, [patientId, recordConsentGranted]);
+
+  const handlePatientCcdaExport = useCallback(() => {
+    const result = exportPatientCcda(patientId);
+
+    if (result.status === 'queued') {
+      setRecordExportStatus('C-CDA export queued for sync');
+      Alert.alert('Export queued', result.message);
+      return;
+    }
+
+    if (result.status === 'denied') {
+      setRecordConsentGranted((current) => ({
+        ...current,
+        ccda_export: false,
+      }));
+      setRecordExportStatus('Consent required before export');
+      Alert.alert(
+        'Consent required',
+        'Please turn on record export consent before exporting a C-CDA record.',
+      );
+      return;
+    }
+
+    setRecordExportStatus('C-CDA export failed');
+    Alert.alert('Export failed', result.message);
+  }, [patientId]);
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <ScreenHeader eyebrow="Caregiver Concierge" title="Preferences" />
+
+        <Section title="🔔 Notifications">
+          <CompactToggleRow
+            id="anomaly"
+            emoji="🚨"
+            label="Anomaly Alerts"
+            value={settings.notifications.anomaly}
+            expanded={expandedId === 'anomaly'}
+            explanation="Alerts can notify you when vitals or behavior need attention. These alerts support caregiver review and do not replace clinical judgment."
+            onToggleExpand={toggleExpanded}
+            onValueChange={(v) => setNotificationPreferences({ anomaly: v })}
+          />
+          <CompactToggleRow
+            id="medication"
+            emoji="💊"
+            label="Medication Reminders"
+            value={settings.notifications.medication}
+            expanded={expandedId === 'medication'}
+            explanation="Medication reminders help keep scheduled doses visible. Timing still follows the care plan and reminder engine."
+            onToggleExpand={toggleExpanded}
+            onValueChange={(v) => setNotificationPreferences({ medication: v })}
+          />
+          <CompactToggleRow
+            id="appointment"
+            emoji="📅"
+            label="Appointment Reminders"
+            value={settings.notifications.appointment}
+            expanded={expandedId === 'appointment'}
+            explanation="Appointment reminders can notify you before scheduled visits. The lead time can be adjusted under Reminder Timing."
+            onToggleExpand={toggleExpanded}
+            onValueChange={(v) => setNotificationPreferences({ appointment: v })}
+          />
+          <CompactToggleRow
+            id="care-task"
+            emoji="🧩"
+            label="Care Task Reminders"
+            value={settings.notifications.careTask}
+            expanded={expandedId === 'care-task'}
+            explanation="Care task reminders support routine non-emergency tasks. They do not change the care plan or schedule clinical actions."
+            onToggleExpand={toggleExpanded}
+            onValueChange={(v) => setNotificationPreferences({ careTask: v })}
+          />
+          <CompactActionRow
+            id="timing"
+            emoji="⏰"
+            label="Reminder Timing"
+            expanded={expandedId === 'timing'}
+            explanation="Set how many minutes before an appointment reminder should appear."
+            onToggleExpand={toggleExpanded}
+          >
+            <View style={styles.inlineControlRow}>
+              <Text style={styles.inlineControlLabel}>Appointment lead time</Text>
+              <TextInput
+                style={styles.numInput}
+                value={String(settings.notifications.appointmentLeadTimeMin)}
+                keyboardType="numeric"
+                accessibilityLabel="Appointment reminder lead time in minutes"
+                onChangeText={(v) => {
+                  const n = parseInt(v, 10);
+                  if (!isNaN(n)) setNotificationPreferences({ appointmentLeadTimeMin: n });
+                }}
+              />
+            </View>
+          </CompactActionRow>
+        </Section>
+
+        <Section title="🎨 Appearance">
+          <CompactActionRow
+            id="appearance"
+            emoji="🎨"
+            label="Appearance"
+            expanded={expandedId === 'appearance'}
+            explanation="Choose whether the app uses light, dark, or system display preference."
+            onToggleExpand={toggleExpanded}
+          >
+            <View style={styles.segmented}>
+              {(['light', 'dark', 'system'] as const).map((t) => (
+                <Pressable
+                  key={t}
+                  style={[styles.segButton, settings.theme === t && styles.segButtonActive]}
+                  onPress={() => setTheme(t)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Use ${t} theme`}
+                  accessibilityState={{ selected: settings.theme === t }}>
+                  <Text style={[styles.segText, settings.theme === t && styles.segTextActive]}>
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </CompactActionRow>
+        </Section>
+
+        <Section title="♿ Accessibility">
+          <CompactActionRow
+            id="accessibility"
+            emoji="♿"
+            label="Accessibility"
+            expanded={expandedId === 'accessibility'}
+            explanation="Rows, controls, and labels are designed for large touch targets and screen-reader clarity. Emoji are decorative and are not the only label."
+            onToggleExpand={toggleExpanded}
+          />
+        </Section>
+
+        <Section title="🛡️ Privacy & Consent">
+          <CompactActionRow
+            id="consent"
+            emoji="🛡️"
+            label="Consent Manager"
+            expanded={expandedId === 'consent'}
+            explanation="Review record-sharing permissions and consent tokens used by care workflows."
+            onToggleExpand={toggleExpanded}
+          >
+            <View style={styles.subsection}>
+              <Text style={styles.subsectionTitle}>Record sharing</Text>
+              {RECORD_CONSENT_OPTIONS.map((option) => (
+                <View key={option.scope}>
+                  <CompactToggleRow
+                    id={`consent-${option.scope}` as ExpandableId}
+                    emoji={option.emoji}
+                    label={option.title}
+                    value={recordConsentGranted[option.scope]}
+                    expanded={false}
+                    onToggleExpand={() => {}}
+                    onValueChange={() => handleRecordConsentToggle(option.scope)}
+                    accessibilityLabel={option.title}
+                    accessibilityHint={option.subtitle}
+                  />
+
+                  {option.scope === 'ccda_export' && recordConsentGranted.ccda_export ? (
+                    <PlainActionRow
+                      emoji="📄"
+                      label="Export C-CDA"
+                      description={recordExportStatus}
+                      onPress={handlePatientCcdaExport}
+                      accessibilityLabel="Export C-CDA record"
+                    />
+                  ) : null}
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.subsection}>
+              <Text style={styles.subsectionTitle}>Consent tokens</Text>
+              <ConsentManagement patientId={patientId} />
+            </View>
+          </CompactActionRow>
+        </Section>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+export function AdvancedDeveloperSettingsScreen() {
   const router = useRouter();
-  const { settings, isDeveloper, toggleMode, setTheme, setNotificationPreferences, setDemoDefaultModelId } = useSettings();
+  const {
+    settings,
+    isDeveloper,
+    toggleMode,
+    setDemoDefaultModelId,
+  } = useSettings();
   const slm = useSLM();
   const patientId = useOrchestratorPatientId();
   const { snapshot, refresh } = usePatientRecord();
+  const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
   const [ncbiKeyInput, setNcbiKeyInput] = useState('');
   const [openfdaKeyInput, setOpenFdaKeyInput] = useState('');
   const [downloads, setDownloads] = useState<Map<string, { progress: number; cancel: () => void }>>(new Map());
+  const [thresholdRecs, setThresholdRecs] = useState<ThresholdRecommendation[]>([]);
+  const [recVersion, setRecVersion] = useState(0);
+
+  const toggleExpanded = useCallback((id: ExpandableId) => {
+    setExpandedId((current) => (current === id ? null : id));
+  }, []);
+
+  useEffect(() => {
+    if (!isDeveloper || !patientId) {
+      const clear = setTimeout(() => setThresholdRecs([]), 0);
+      return () => clearTimeout(clear);
+    }
+
+    const handle = setTimeout(() => {
+      try {
+        setThresholdRecs(getPendingThresholdRecommendations(patientId));
+      } catch {
+        setThresholdRecs([]);
+      }
+    }, 0);
+
+    return () => clearTimeout(handle);
+  }, [isDeveloper, patientId, recVersion]);
+
+  const handleApplyThresholdRec = useCallback((recId: string) => {
+    updateThresholdRecommendationStatus(recId, 'applied');
+    audit({
+      actor: 'caregiver',
+      action: 'apply_threshold_recommendation',
+      resourceType: 'threshold_recommendation',
+      resourceId: recId,
+      patientId,
+    });
+    setRecVersion((version) => version + 1);
+  }, [patientId]);
+
+  const handleDismissThresholdRec = useCallback((recId: string) => {
+    updateThresholdRecommendationStatus(recId, 'dismissed');
+    audit({
+      actor: 'caregiver',
+      action: 'dismiss_threshold_recommendation',
+      resourceType: 'threshold_recommendation',
+      resourceId: recId,
+      patientId,
+    });
+    setRecVersion((version) => version + 1);
+  }, [patientId]);
 
   const handleDownload = useCallback((entry: ModelEntry) => {
     const handle = downloadModel(entry, null, {
@@ -137,116 +491,27 @@ export function SettingsScreen() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.content}>
-        <ScreenHeader eyebrow="Caregiver Concierge" title="Settings" />
+        <ScreenHeader eyebrow="Caregiver Concierge" title="Advanced Developer Settings" />
 
-        {/* Appearance */}
-        <Section title="Appearance">
-          <Row label="Theme">
-            <View style={styles.segmented}>
-              {(['light', 'dark', 'system'] as const).map((t) => (
-                <Pressable
-                  key={t}
-                  style={[styles.segButton, settings.theme === t && styles.segButtonActive]}
-                  onPress={() => setTheme(t)}>
-                  <Text style={[styles.segText, settings.theme === t && styles.segTextActive]}>
-                    {t.charAt(0).toUpperCase() + t.slice(1)}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </Row>
-        </Section>
-
-        {/* Notifications */}
-        <Section title="Notifications">
-          <ToggleRow
-            label="Anomaly alerts"
-            value={settings.notifications.anomaly}
-            onValueChange={(v) => setNotificationPreferences({ anomaly: v })}
-          />
-          <ToggleRow
-            label="Medication reminders"
-            value={settings.notifications.medication}
-            onValueChange={(v) => setNotificationPreferences({ medication: v })}
-          />
-          <ToggleRow
-            label="Appointment reminders"
-            value={settings.notifications.appointment}
-            onValueChange={(v) => setNotificationPreferences({ appointment: v })}
-          />
-          <Row label="Appointment lead time (min)">
-            <TextInput
-              style={styles.numInput}
-              value={String(settings.notifications.appointmentLeadTimeMin)}
-              keyboardType="numeric"
-              onChangeText={(v) => {
-                const n = parseInt(v, 10);
-                if (!isNaN(n)) setNotificationPreferences({ appointmentLeadTimeMin: n });
-              }}
-            />
-          </Row>
-          <ToggleRow
-            label="Care task reminders"
-            value={settings.notifications.careTask}
-            onValueChange={(v) => setNotificationPreferences({ careTask: v })}
-          />
-        </Section>
-
-        {/* Consent Management */}
-        <Section title="Consent Management">
-          <ConsentManagement patientId={patientId} />
-        </Section>
-
-        {/* Data */}
-        <Section title="Data">
-          <Pressable
-            style={styles.actionButton}
-            onPress={() => {
-              try {
-                const result = exportCcd(patientId);
-                Alert.alert('Export', result.queued ? 'C-CDA record exported and queued for sync.' : 'C-CDA record exported.');
-              } catch (err) {
-                Alert.alert('Export Failed', err instanceof Error ? err.message : String(err));
-              }
-            }}>
-            <Text style={styles.actionButtonText}>Export C-CDA Record</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.actionButton, styles.dangerButton]}
-            onPress={() => {
-              Alert.alert(
-                'Reset All Data',
-                'This will erase all patient data, alerts, medications, and settings. Continue?',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Reset',
-                    style: 'destructive',
-                    onPress: () => {
-                      resetDatabase();
-                      Alert.alert('Reset Complete', 'All data has been erased.');
-                    },
-                  },
-                ],
-              );
-            }}>
-            <Text style={styles.actionButtonText}>Reset All Data</Text>
-          </Pressable>
-        </Section>
-
-        {/* Developer Section */}
-        <Section title="Developer">
-          <ToggleRow
-            label="Developer mode"
+        <Section title="🛠️ Developer / Demo">
+          <CompactToggleRow
+            id="developer-mode"
+            emoji="🛠️"
+            label="Developer / Demo Mode"
             value={isDeveloper}
+            expanded={expandedId === 'developer-mode'}
+            explanation="Developer mode reveals diagnostics, model controls, API configuration, and demo routes. Turn it off to return to the caregiver-facing app surface."
+            onToggleExpand={toggleExpanded}
             onValueChange={toggleMode}
+            accessibilityLabel="Developer or demo mode"
           />
-          {isDeveloper && (
+
+          {isDeveloper ? (
             <View style={styles.devSection}>
               <Text style={styles.devLabel}>SLM Management</Text>
               <Text style={styles.devInfo}>
-                Policy: {slm.policy} · Status: {slm.loadStatus}
-                {slm.currentModelId ? ` · Model: ${slm.currentModelId}` : ''}
+                Policy: {slm.policy} - Status: {slm.loadStatus}
+                {slm.currentModelId ? ` - Model: ${slm.currentModelId}` : ''}
               </Text>
               <View style={styles.modelRow}>
                 {MODEL_CATALOG.map((m) => {
@@ -261,11 +526,11 @@ export function SettingsScreen() {
                         {isDownloading
                           ? `Downloading... ${Math.round(download.progress * 100)}%`
                           : installed
-                          ? 'Installed'
-                          : 'Not installed'}
-                        {isActive ? ' · Active' : ''}
+                            ? 'Installed'
+                            : 'Not installed'}
+                        {isActive ? ' - Active' : ''}
                       </Text>
-                      {isDownloading && (
+                      {isDownloading ? (
                         <View style={styles.progressBar}>
                           <View
                             style={[
@@ -274,23 +539,23 @@ export function SettingsScreen() {
                             ]}
                           />
                         </View>
-                      )}
+                      ) : null}
                       <View style={styles.modelActions}>
-                        {!installed && !isDownloading && (
+                        {!installed && !isDownloading ? (
                           <Pressable
                             style={styles.smallButton}
                             onPress={() => handleDownload(m)}>
                             <Text style={styles.smallButtonText}>Download</Text>
                           </Pressable>
-                        )}
-                        {isDownloading && (
+                        ) : null}
+                        {isDownloading ? (
                           <Pressable
                             style={[styles.smallButton, styles.dangerSmallButton]}
                             onPress={() => download.cancel()}>
                             <Text style={styles.smallButtonText}>Cancel</Text>
                           </Pressable>
-                        )}
-                        {installed && (
+                        ) : null}
+                        {installed ? (
                           <>
                             <Pressable
                               style={[styles.smallButton, !installed && styles.disabledButton]}
@@ -304,7 +569,7 @@ export function SettingsScreen() {
                               <Text style={styles.smallButtonText}>Remove</Text>
                             </Pressable>
                           </>
-                        )}
+                        ) : null}
                       </View>
                     </View>
                   );
@@ -313,8 +578,7 @@ export function SettingsScreen() {
 
               <Text style={[styles.devLabel, { marginTop: 8 }]}>Default SLM Model (Demo auto-load)</Text>
               <Text style={styles.devInfo}>
-                The model auto-loaded when a transient task (alert explain,
-                safety-note explain, custom-med check) acquires a lease in Demo
+                The model auto-loaded when a transient task acquires a lease in Demo
                 mode. Currently: {settings.demoDefaultModelId ?? 'healthgpt-pro-4b'}
               </Text>
               <View style={styles.modelActions}>
@@ -362,12 +626,10 @@ export function SettingsScreen() {
                 <Text style={styles.actionButtonText}>Raw SLM Chat</Text>
               </Pressable>
 
-              {/* Clinical Evidence API Keys */}
               <Text style={[styles.devLabel, { marginTop: 16 }]}>Clinical Evidence API Keys</Text>
               <Text style={styles.devInfo}>
-                Optional. PubMed uses an NCBI key (3→10 req/s). OpenFDA uses a key
-                for higher rate limits. MedlinePlus, RxNorm, and DailyMed require
-                no key.
+                Optional. PubMed uses an NCBI key for higher rate limits. OpenFDA
+                uses a key for higher rate limits.
               </Text>
 
               <Text style={[styles.devLabel, { marginTop: 8 }]}>NCBI API Key (PubMed)</Text>
@@ -377,7 +639,7 @@ export function SettingsScreen() {
                     style={styles.ncbiInput}
                     value={ncbiKeyInput}
                     onChangeText={setNcbiKeyInput}
-                    placeholder="Enter NCBI API key…"
+                    placeholder="Enter NCBI API key..."
                     placeholderTextColor={mutedText}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -412,7 +674,7 @@ export function SettingsScreen() {
                     style={styles.ncbiInput}
                     value={openfdaKeyInput}
                     onChangeText={setOpenFdaKeyInput}
-                    placeholder="Enter OpenFDA API key…"
+                    placeholder="Enter OpenFDA API key..."
                     placeholderTextColor={mutedText}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -440,15 +702,14 @@ export function SettingsScreen() {
                 </View>
               </View>
 
-              {/* Knowledge Cache Stats */}
               <Text style={[styles.devLabel, { marginTop: 16 }]}>Knowledge Cache</Text>
               <Text style={styles.devInfo}>
                 Bundle status: {snapshot?.bundleStatus.state ?? 'unknown'}
                 {snapshot?.bundleStatus.state === 'complete'
-                  ? ` · ${snapshot.bundleStatus.chunksAdded} chunks added`
+                  ? ` - ${snapshot.bundleStatus.chunksAdded} chunks added`
                   : ''}
                 {snapshot?.bundleStatus.state === 'failed' && snapshot.bundleStatus.error
-                  ? ` · ${snapshot.bundleStatus.error}`
+                  ? ` - ${snapshot.bundleStatus.error}`
                   : ''}
                 {snapshot?.bundleStatus.updatedAt
                   ? `\nLast updated: ${snapshot.bundleStatus.updatedAt}`
@@ -458,8 +719,8 @@ export function SettingsScreen() {
                 Total chunks: {snapshot?.knowledgeStats.total ?? 0}
                 {snapshot && snapshot.knowledgeStats.total > 0
                   ? Object.entries(snapshot.knowledgeStats.bySource)
-                      .map(([src, count]) => `\n  ${src}: ${count}`)
-                      .join('')
+                    .map(([src, count]) => `\n  ${src}: ${count}`)
+                    .join('')
                   : ''}
               </Text>
               {snapshot && snapshot.knowledgeStats.total > 0 ? (
@@ -476,7 +737,50 @@ export function SettingsScreen() {
 
               <KnowledgeCacheViewer />
 
-              {/* Import Record (stub) */}
+              <View style={styles.thresholdBlock}>
+                <Text style={styles.thresholdTitle}>
+                  Threshold personalization
+                </Text>
+                <Text style={styles.thresholdMuted}>
+                  Queued anomaly-threshold suggestions. Apply or dismiss;
+                  applying audits the change.
+                </Text>
+                {thresholdRecs.length === 0 ? (
+                  <Text style={styles.thresholdMuted}>
+                    No pending recommendations.
+                  </Text>
+                ) : (
+                  thresholdRecs.map((rec) => (
+                    <View key={rec.recommendationId} style={styles.thresholdRow}>
+                      <View style={styles.thresholdTextBlock}>
+                        <Text style={styles.thresholdValue}>
+                          Recommended threshold:{' '}
+                          {rec.recommendedThreshold.toFixed(3)}
+                          {rec.adjustmentPct !== undefined
+                            ? ` (${rec.adjustmentPct > 0 ? '+' : ''}${rec.adjustmentPct.toFixed(1)}%)`
+                            : ''}
+                        </Text>
+                        {rec.reason ? (
+                          <Text style={styles.thresholdMuted}>{rec.reason}</Text>
+                        ) : null}
+                      </View>
+                      <Pressable
+                        style={[styles.thresholdBtn, styles.thresholdApplyBtn]}
+                        onPress={() => handleApplyThresholdRec(rec.recommendationId)}
+                      >
+                        <Text style={styles.thresholdBtnText}>Apply</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.thresholdBtn, styles.thresholdDismissBtn]}
+                        onPress={() => handleDismissThresholdRec(rec.recommendationId)}
+                      >
+                        <Text style={styles.thresholdBtnText}>Dismiss</Text>
+                      </Pressable>
+                    </View>
+                  ))
+                )}
+              </View>
+
               <Text style={[styles.devLabel, { marginTop: 16 }]}>Import Record</Text>
               <Text style={styles.devInfo}>
                 Import a C-CDA or FHIR JSON record from the care team. Coming soon.
@@ -488,18 +792,31 @@ export function SettingsScreen() {
                 <Text style={styles.actionButtonText}>Import Record (Coming Soon)</Text>
               </Pressable>
 
+              <Pressable
+                style={[styles.actionButton, styles.dangerButton]}
+                onPress={() => {
+                  Alert.alert(
+                    'Reset All Data',
+                    'This will erase patient data, alerts, medications, and settings. Continue?',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Reset',
+                        style: 'destructive',
+                        onPress: () => {
+                          resetDatabase();
+                          Alert.alert('Reset Complete', 'All data has been erased.');
+                        },
+                      },
+                    ],
+                  );
+                }}>
+                <Text style={styles.actionButtonText}>Reset All Data</Text>
+              </Pressable>
+
               <AuditViewer patientId={patientId} />
             </View>
-          )}
-        </Section>
-
-        {/* About */}
-        <Section title="About">
-          <Text style={styles.aboutText}>Caregiver Concierge: ACCESS-DP</Text>
-          <Text style={styles.aboutText}>Health Tech Alley · v1.0.0</Text>
-          <Text style={styles.aboutMuted}>
-            This app is a caregiver support prototype and does not replace emergency care or professional medical advice.
-          </Text>
+          ) : null}
         </Section>
       </ScrollView>
     </SafeAreaView>
@@ -508,7 +825,7 @@ export function SettingsScreen() {
 
 function ConsentManagement({ patientId }: { patientId: string }) {
   const [consents, setConsents] = useState<ConsentToken[]>(() => getActiveConsents(patientId));
-  const consentScopes = ['ccda_export', 'location_access', 'fhir-share', 'pharmacy-communicator', 'provider-message'] as const;
+  const consentScopes = ['location_access'] as const;
 
   const handleToggle = useCallback((scope: string, granted: boolean) => {
     if (granted) {
@@ -524,11 +841,16 @@ function ConsentManagement({ patientId }: { patientId: string }) {
       {consentScopes.map((scope) => {
         const active = consents.some((c) => c.scope === scope);
         return (
-          <ToggleRow
+          <CompactToggleRow
             key={scope}
+            id={`consent-${scope}` as ExpandableId}
+            emoji="📍"
             label={scope.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
             value={active}
+            expanded={false}
+            onToggleExpand={() => {}}
             onValueChange={(v) => handleToggle(scope, v)}
+            accessibilityHint="Allow location-aware support when a care workflow requests it."
           />
         );
       })}
@@ -573,30 +895,28 @@ function AuditViewer({ patientId }: { patientId: string }) {
           <Text style={styles.actionButtonText}>Close Audit Log</Text>
         </Pressable>
       )}
-      {chainOk !== null && (
+      {chainOk !== null ? (
         <Text style={[styles.chainStatus, chainOk ? styles.chainOk : styles.chainBroken]}>
-          Hash chain: {chainOk ? 'Intact ✓' : 'BROKEN ✗'}
+          Hash chain: {chainOk ? 'Intact' : 'Broken'}
         </Text>
-      )}
-      {expanded && entries.length > 0 && (
+      ) : null}
+      {expanded && entries.length > 0 ? (
         <View style={styles.auditList}>
           {entries.map((e) => (
             <View key={e.auditId} style={styles.auditEntry}>
               <Text style={styles.auditText}>
-                {e.createdAt.slice(11, 19)} · {e.actor} · {e.action} · {e.resourceType}
+                {e.createdAt.slice(11, 19)} - {e.actor} - {e.action} - {e.resourceType}
               </Text>
             </View>
           ))}
         </View>
-      )}
-      {expanded && entries.length === 0 && (
+      ) : null}
+      {expanded && entries.length === 0 ? (
         <Text style={styles.devInfo}>No audit entries found.</Text>
-      )}
+      ) : null}
     </View>
   );
 }
-
-// --- Reusable components ---
 
 function KnowledgeCacheViewer() {
   const [loaded, setLoaded] = useState(false);
@@ -622,7 +942,6 @@ function KnowledgeCacheViewer() {
     );
   }
 
-  // Group by source for legibility.
   const bySource: Record<string, KnowledgeChunk[]> = {};
   for (const c of chunks) {
     if (!bySource[c.source]) bySource[c.source] = [];
@@ -639,9 +958,8 @@ function KnowledgeCacheViewer() {
       {chunks.length === 0 ? (
         <Text style={styles.devInfo}>
           The knowledge cache is empty. It populates after onboarding when the
-          condition-bundler fetches PubMed + MedlinePlus + RxNorm + DailyMed +
-          OpenFDA chunks for the patient&apos;s conditions and medications.
-          Requires network connectivity.
+          condition-bundler fetches clinical knowledge chunks for the patient&apos;s
+          conditions and medications.
         </Text>
       ) : (
         sources.map((src) => (
@@ -660,7 +978,7 @@ function KnowledgeCacheViewer() {
                   <Text style={styles.cacheChunkId}>{chunk.chunkId}</Text>
                   <Text style={styles.cacheChunkMeta}>
                     {chunk.conditions ? `conditions: ${chunk.conditions}` : 'no conditions'}
-                    {' · '}uses: {chunk.useCount}
+                    {' - '}uses: {chunk.useCount}
                   </Text>
                   {isOpen ? (
                     <Text style={styles.cacheChunkText}>{chunk.text}</Text>
@@ -688,63 +1006,317 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function CompactToggleRow({
+  id,
+  emoji,
+  label,
+  value,
+  expanded,
+  explanation,
+  onToggleExpand,
+  onValueChange,
+  accessibilityLabel,
+  accessibilityHint,
+}: {
+  id: ExpandableId;
+  emoji: string;
+  label: string;
+  value: boolean;
+  expanded: boolean;
+  explanation?: string;
+  onToggleExpand: (id: ExpandableId) => void;
+  onValueChange: (v: boolean) => void;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
+}) {
   return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      {children}
+    <View style={styles.compactWrap}>
+      <View style={styles.compactRow}>
+        <Pressable
+          style={styles.compactPressArea}
+          onPress={() => onToggleExpand(id)}
+          accessibilityRole="button"
+          accessibilityLabel={`${accessibilityLabel ?? label} details`}
+          accessibilityHint={expanded ? 'Collapse explanation' : accessibilityHint ?? 'Expand explanation'}
+          accessibilityState={{ expanded }}
+        >
+          <Text style={styles.rowEmoji} accessibilityElementsHidden importantForAccessibility="no">
+            {emoji}
+          </Text>
+          <Text style={styles.rowLabel}>{label}</Text>
+          <Text style={styles.infoIcon}>{expanded ? '⌃' : 'ⓘ'}</Text>
+        </Pressable>
+        <Switch
+          value={value}
+          onValueChange={onValueChange}
+          trackColor={{ false: AppTheme.colors.border, true: AppTheme.colors.brandSoft }}
+          thumbColor={value ? AppTheme.colors.brand : AppTheme.colors.white}
+          accessibilityRole="switch"
+          accessibilityLabel={accessibilityLabel ?? label}
+          accessibilityHint={accessibilityHint}
+          accessibilityState={{ checked: value }}
+        />
+      </View>
+      {expanded && explanation ? (
+        <View style={styles.explanation}>
+          <Text style={styles.explanationText}>{explanation}</Text>
+          <Pressable
+            style={styles.closeExplanation}
+            onPress={() => onToggleExpand(id)}
+            accessibilityRole="button"
+            accessibilityLabel={`Close ${label} explanation`}
+          >
+            <Text style={styles.closeExplanationText}>Close</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
 
-function ToggleRow({ label, value, onValueChange }: { label: string; value: boolean; onValueChange: (v: boolean) => void }) {
+function CompactActionRow({
+  id,
+  emoji,
+  label,
+  expanded,
+  explanation,
+  onToggleExpand,
+  children,
+}: {
+  id: ExpandableId;
+  emoji: string;
+  label: string;
+  expanded: boolean;
+  explanation?: string;
+  onToggleExpand: (id: ExpandableId) => void;
+  children?: React.ReactNode;
+}) {
   return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Switch value={value} onValueChange={onValueChange} trackColor={{ false: '#D9E7E5', true: teal }} />
+    <View style={styles.compactWrap}>
+      <Pressable
+        style={styles.actionCompactRow}
+        onPress={() => onToggleExpand(id)}
+        accessibilityRole="button"
+        accessibilityLabel={`${label} details`}
+        accessibilityHint={expanded ? 'Collapse details' : 'Expand details'}
+        accessibilityState={{ expanded }}
+      >
+        <Text style={styles.rowEmoji} accessibilityElementsHidden importantForAccessibility="no">
+          {emoji}
+        </Text>
+        <Text style={styles.rowLabel}>{label}</Text>
+        <Text style={styles.chevron}>{expanded ? '⌃' : '›'}</Text>
+      </Pressable>
+      {expanded ? (
+        <View style={styles.explanation}>
+          {explanation ? <Text style={styles.explanationText}>{explanation}</Text> : null}
+          {children}
+          <Pressable
+            style={styles.closeExplanation}
+            onPress={() => onToggleExpand(id)}
+            accessibilityRole="button"
+            accessibilityLabel={`Close ${label} details`}
+          >
+            <Text style={styles.closeExplanationText}>Close</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
+  );
+}
+
+function PlainActionRow({
+  emoji,
+  label,
+  description,
+  onPress,
+  accessibilityLabel,
+}: {
+  emoji: string;
+  label: string;
+  description: string;
+  onPress: () => void;
+  accessibilityLabel?: string;
+}) {
+  return (
+    <Pressable
+      style={styles.actionCompactRow}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityHint={description}
+    >
+      <Text style={styles.rowEmoji} accessibilityElementsHidden importantForAccessibility="no">
+        {emoji}
+      </Text>
+      <View style={styles.rowTextBlock}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        <Text style={styles.rowDescription}>{description}</Text>
+      </View>
+      <Text style={styles.chevron}>›</Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: lightBg },
-  content: { padding: 20, paddingBottom: 40, gap: 16 },
+  safeArea: { flex: 1, backgroundColor: AppTheme.colors.screen },
+  content: { padding: 24, paddingBottom: 40, gap: 18 },
   section: { gap: 8 },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: mutedText,
+    fontSize: 15,
+    fontWeight: '900',
+    color: AppTheme.colors.sectionText,
   },
   card: {
-    backgroundColor: cardBg,
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.card,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    overflow: 'hidden',
+    ...AppTheme.shadow,
+  },
+  compactWrap: {
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.colors.border,
+  },
+  compactRow: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  compactPressArea: {
+    minHeight: 44,
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  actionCompactRow: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  rowEmoji: {
+    width: 28,
+    color: AppTheme.colors.text,
+    fontSize: 20,
+    lineHeight: 24,
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  rowTextBlock: {
+    flex: 1,
+  },
+  rowLabel: {
+    flex: 1,
+    color: AppTheme.colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  rowDescription: {
+    marginTop: 3,
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  infoIcon: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 17,
+    fontWeight: '900',
+    paddingHorizontal: 4,
+  },
+  chevron: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 22,
+    fontWeight: '900',
+    paddingHorizontal: 4,
+  },
+  explanation: {
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    paddingLeft: 54,
+  },
+  explanationText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
+  },
+  closeExplanation: {
+    alignSelf: 'flex-start',
+    minHeight: 32,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    borderRadius: AppTheme.radius.sm,
+    backgroundColor: AppTheme.colors.softSurface,
+  },
+  closeExplanationText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  inlineControlRow: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
   },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    minHeight: 44,
+  inlineControlLabel: {
+    flex: 1,
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    fontWeight: '800',
   },
-  rowLabel: { fontSize: 15, color: darkText, fontWeight: '500', flex: 1 },
-  segmented: { flexDirection: 'row', borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor },
-  segButton: { paddingHorizontal: 12, paddingVertical: 8 },
-  segButtonActive: { backgroundColor: teal },
-  segText: { fontSize: 13, color: darkText, fontWeight: '600' },
-  segTextActive: { color: '#FFFFFF' },
-  numInput: {
-    width: 60,
+  segmented: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    borderRadius: AppTheme.radius.md,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor,
-    borderRadius: 8,
+    borderColor: AppTheme.colors.border,
+  },
+  segButton: {
+    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AppTheme.colors.white,
+  },
+  segButtonActive: { backgroundColor: AppTheme.colors.brand },
+  segText: { fontSize: 13, color: AppTheme.colors.textSoft, fontWeight: '800' },
+  segTextActive: { color: AppTheme.colors.white },
+  numInput: {
+    width: 72,
+    minHeight: 40,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    borderRadius: AppTheme.radius.sm,
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 6,
     fontSize: 15,
-    color: darkText,
+    color: AppTheme.colors.text,
     textAlign: 'center',
+    backgroundColor: AppTheme.colors.softSurface,
+    fontWeight: '800',
+  },
+  subsection: {
+    gap: 8,
+    paddingTop: 2,
+  },
+  subsectionTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    fontWeight: '900',
   },
   actionButton: {
     backgroundColor: teal,
@@ -756,9 +1328,9 @@ const styles = StyleSheet.create({
   dangerButton: { backgroundColor: dangerRed },
   unloadButton: { backgroundColor: '#6B7280' },
   disabledActionButton: { backgroundColor: '#D1D5DB', opacity: 0.7 },
-  devSection: { gap: 12, marginTop: 8 },
+  devSection: { gap: 12, marginTop: 8, paddingHorizontal: 16, paddingBottom: 16 },
   devLabel: { fontSize: 14, fontWeight: '700', color: darkText },
-  devInfo: { fontSize: 12, color: mutedText },
+  devInfo: { fontSize: 12, color: mutedText, lineHeight: 17 },
   modelRow: { gap: 8 },
   modelItem: {
     borderWidth: 1,
@@ -769,7 +1341,7 @@ const styles = StyleSheet.create({
   },
   modelName: { fontSize: 14, fontWeight: '700', color: darkText },
   modelStatus: { fontSize: 12, color: mutedText },
-  modelActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  modelActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
   smallButton: {
     backgroundColor: teal,
     paddingHorizontal: 12,
@@ -789,8 +1361,6 @@ const styles = StyleSheet.create({
   },
   disabledButton: { opacity: 0.4 },
   dangerSmallButton: { backgroundColor: dangerRed },
-  aboutText: { fontSize: 14, color: darkText, fontWeight: '500' },
-  aboutMuted: { fontSize: 12, color: mutedText, lineHeight: 18, marginTop: 4 },
   auditList: { marginTop: 8, gap: 4 },
   auditEntry: { paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: borderColor },
   auditText: { fontSize: 11, color: mutedText, fontFamily: 'monospace' },
@@ -846,5 +1416,56 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: teal,
     borderRadius: 2,
+  },
+  thresholdBlock: {
+    padding: 12,
+    borderRadius: AppTheme.radius.md,
+    backgroundColor: AppTheme.colors.softSurface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    gap: 8,
+  },
+  thresholdTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  thresholdMuted: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  thresholdRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  thresholdTextBlock: {
+    flex: 1,
+    gap: 2,
+  },
+  thresholdValue: {
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  thresholdBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: AppTheme.radius.sm,
+  },
+  thresholdApplyBtn: {
+    backgroundColor: AppTheme.colors.brand,
+  },
+  thresholdDismissBtn: {
+    backgroundColor: AppTheme.colors.chip,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  thresholdBtnText: {
+    color: AppTheme.colors.white,
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

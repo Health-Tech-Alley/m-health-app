@@ -1,7 +1,6 @@
 /**
- * Standalone settings route — renders the full SettingsScreen component with
- * SLM management, model downloads, API keys, knowledge cache, data reset, and
- * audit log viewer. Reached from More → Advanced developer settings.
+ * Standalone preferences route — renders caregiver-facing controls for
+ * notifications, appearance, accessibility, and consent.
  */
 
 export { SettingsScreen as default } from "@/components/settings/settings-screen";
