@@ -65,6 +65,15 @@
       "resource": {
         "resourceType": "Condition",
         "id": "condition-copd",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active",
+              "display": "Active"
+            }
+          ]
+        },
         "subject": {
           "reference": "urn:uuid:patient-elena-garcia"
         },
@@ -86,6 +95,15 @@
       "resource": {
         "resourceType": "Condition",
         "id": "condition-tbi",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active",
+              "display": "Active"
+            }
+          ]
+        },
         "subject": {
           "reference": "urn:uuid:patient-elena-garcia"
         },

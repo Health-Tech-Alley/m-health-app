@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
 import { useRouter } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, useColorScheme, View } from "react-native";
 
-import { AppTheme } from "@/constants/theme";
+import { AppTheme, Colors } from "@/constants/theme";
 import type { HealthSampleType } from "@/data/types";
 import { useAppSelector } from "@/store/hooks";
 import type { NormalizedBloodPressurePair, NormalizedVitalMetric } from "@/store/reducers/patientSlice";
@@ -110,6 +110,8 @@ const VITAL_PRESENTATION: Record<string, Omit<VitalMetric, "value" | "unit" | "s
 
 export function ObservationVitalsCard() {
   const router = useRouter();
+  const scheme = useColorScheme();
+  const isDark = scheme === "dark";
   const clinicalVitals = useAppSelector((state) => state.patient.clinicalVitals);
   const chartMetrics = useMemo(
     () => clinicalVitals.map(toVitalMetric).filter(isVitalMetric),
@@ -128,9 +130,9 @@ export function ObservationVitalsCard() {
 
   if (chartMetrics.length === 0 || !selectedMetric || !chart) {
     return (
-      <View style={styles.card}>
+      <View style={[styles.card, isDark && styles.cardDark]}>
         <View style={styles.titleRow}>
-          <Text style={styles.sectionTitle}>EHR Observation History</Text>
+          <Text style={styles.sectionTitle}>Observation Baseline</Text>
           <Text style={styles.sourceBadge}>{SOURCE_BADGE}</Text>
         </View>
         <Text style={styles.emptyTitle}>No observations available</Text>
@@ -148,10 +150,10 @@ export function ObservationVitalsCard() {
   }
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, isDark && styles.cardDark]}>
       <View style={styles.headerRow}>
         <View style={styles.titleRow}>
-          <Text style={styles.sectionTitle}>EHR Observation History</Text>
+          <Text style={styles.sectionTitle}>Baseline Vitals</Text>
           <Text style={styles.sourceBadge}>{SOURCE_BADGE}</Text>
         </View>
         <Text style={styles.subtitle}>{selectedMetric.subtitle}</Text>
@@ -167,12 +169,11 @@ export function ObservationVitalsCard() {
               style={[styles.tab, active && styles.tabActive]}
               accessibilityRole="button"
               accessibilityLabel={metric.label}
+              accessibilityHint={`Show ${metric.label} observations`}
+              accessibilityState={{ selected: active }}
               onPress={() => setSelectedKey(metric.key)}
             >
               <Text style={[styles.tabIcon, active && styles.tabIconActive]}>{metric.tabIcon}</Text>
-              <Text style={[styles.tabLabel, active && styles.tabLabelActive]} numberOfLines={2}>
-                {metric.label}
-              </Text>
             </Pressable>
           );
         })}
@@ -240,7 +241,9 @@ function buildSingleValueSeries(metric: NormalizedVitalMetric): ChartSeries {
         unit: reading.unit || metric.unit,
         recordedAt: reading.recordedAt,
         label: metric.label,
+        source: reading.source,
       }))
+      .filter(isFhirPoint)
       .filter(hasValidPointDate)
       .sort(sortPointsOldestFirst),
   };
@@ -252,6 +255,7 @@ function buildBloodPressureSeries(readings: NormalizedBloodPressurePair[]): Char
 
   for (const reading of readings) {
     if (!reading.recordedAt) continue;
+    if (!isFhirSource(reading.source)) continue;
     if (reading.systolic != null) {
       systolic.push({
         id: reading.systolicSampleId ?? `systolic-${reading.recordedAt}`,
@@ -583,6 +587,14 @@ function hasValidPointDate(point: ChartPoint) {
   return Number.isFinite(new Date(point.recordedAt).getTime());
 }
 
+function isFhirPoint(point: ChartPoint & { source?: string }) {
+  return isFhirSource(point.source);
+}
+
+function isFhirSource(source?: string) {
+  return source === "fhir";
+}
+
 function sortPointsOldestFirst(a: ChartPoint, b: ChartPoint) {
   return new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime();
 }
@@ -613,12 +625,16 @@ function formatAxisValue(value: number) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#F8FAFC",
+    backgroundColor: AppTheme.colors.brandSoft,
     borderRadius: 18,
     padding: 20,
     marginBottom: 24,
     borderWidth: 1,
     borderColor: "#CBD5E1",
+  },
+  cardDark: {
+    backgroundColor: Colors.dark.backgroundElement,
+    borderColor: Colors.dark.backgroundSelected,
   },
   headerRow: {
     marginBottom: 14,
@@ -685,34 +701,24 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    minHeight: 66,
+    minHeight: 58,
     borderRadius: 10,
     backgroundColor: "#E2E8F0",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 5,
-    paddingVertical: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 10,
   },
   tabActive: {
     backgroundColor: "#0F766E",
   },
   tabIcon: {
     color: AppTheme.colors.textSoft,
-    fontSize: 19,
+    fontSize: 30,
     fontWeight: "900",
     textAlign: "center",
   },
   tabIconActive: {
-    color: AppTheme.colors.white,
-  },
-  tabLabel: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 10,
-    fontWeight: "900",
-    marginTop: 3,
-    textAlign: "center",
-  },
-  tabLabelActive: {
     color: AppTheme.colors.white,
   },
   metricHelperText: {
