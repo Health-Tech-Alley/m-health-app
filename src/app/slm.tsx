@@ -1,9 +1,9 @@
 /**
  * Caregiver SLM chat screen.
  *
- * Combines Sebastian's service-layer context (onboarding profile, safety note,
- * download helper) with Ethan's streaming playground UX (model selector, memory
- * bar, markdown rendering, control-token stripping, stop/new-conversation).
+ * Combines the PatientRecordSnapshot-backed care context with Ethan's streaming
+ * playground UX (model selector, memory bar, markdown rendering,
+ * control-token stripping, stop/new-conversation).
  */
 
 import { router } from 'expo-router';
@@ -51,9 +51,10 @@ import {
   CAREGIVER_SLM_MODEL_ID,
   downloadCaregiverSLMModel,
   isCaregiverSLMModelInstalled,
+  type CaregiverAssistantContext,
 } from '@/services/slm/slmService';
-import { useAppSelector } from "@/store/hooks";
 import { stripControlTokens } from '@/utils/stripControlTokens';
+import type { Medication, PatientCondition } from '@/data/types';
 
 type MessageStatus = 'streaming' | 'done' | 'stopped' | 'error';
 
@@ -202,18 +203,12 @@ export default function SLMScreen({
 } = {}) {
   const slm = useSLM();
   const theme = useTheme();
-  let profile: any = null;
-  const  snapshot = null;
+  const { snapshot, ready, error: patientRecordError } = usePatientRecord();
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [inputText, setInputText] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [inputHeight, setInputHeight] = useState(PROMPT_INPUT_MIN_HEIGHT);
-  const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
-  const [patientProfile, setPatientProfile] = useState<any>(null);
-  const [conditions, setConditions] = useState<any[]>([]);
-  const [medications, setMedications] = useState<any[]>([]);
-  const [observations, setObservations] = useState<any[]>([]);
 
   const handleInputChange = useCallback((text: string) => {
     setInputText(text);
@@ -224,94 +219,28 @@ export default function SLMScreen({
   const memoryInfo = useMemoryInfo(2000);
   const hasNativeMemory = isNativeMemoryAvailable();
 
-  function calculateAge(birthdate: Date): number {
-    const today: Date = new Date();
-    const diff: number = today.getTime() - birthdate.getTime();
-    const ageDate: Date = new Date(diff);
-    return Math.abs(ageDate.getUTCFullYear() - 1970);
-  }
-
-  useEffect(() => {
-    console.log('[slm] patient changed, updating context...');
-      if (patient) {
-        console.log('[slm] fhirBundleImported event listener: ', Object.keys(patient));
-        const entries: any[] = patient['entry'] ?? [];
-
-        // Find the single Patient resource, not map+null
-        const patientEntry = entries.find(
-          (entry: any) => entry?.resource?.resourceType === 'Patient'
-        );
-        console.log('[slm] Found Patient resource:', patientEntry);
-
-        if (!patientEntry) {
-          console.warn('No Patient resource found in FHIR bundle');
-          return;
-        }
-
-        setPatientProfile(patientEntry);
-
-        const name = patientEntry.resource.name?.[0];
-        console.log(
-          '[slm] Patient:',
-          name?.given?.[0],
-          name?.family,
-        );
-
-        // Extract other resource types while you're here
-        const conditionEntries = entries.filter(
-          (e: any) => e?.resource?.resourceType === 'Condition'
-        );
-        setConditions(conditionEntries);
-        const medicationEntries = entries.filter(
-          (e: any) => e?.resource?.resourceType === 'MedicationRequest'
-        );
-        setMedications(medicationEntries);
-        const observationEntries = entries.filter(
-          (e: any) => e?.resource?.resourceType === 'Observation'
-        );
-        setObservations(observationEntries);
-
-        console.log(
-          `[slm] Found ${conditionEntries.length} conditions,`,
-          `${medicationEntries.length} medications,`,
-          `${observationEntries.length} observations`,
-        );
-      }
-    }, [patient]);
-
-  const caregiverContext = useMemo(
+  const medicationNames = useMemo(
     () =>
-      snapshot
-        ? buildCaregiverAssistantContextFromSnapshot(snapshot)
-        : {
-            // Fallback to onboarding profile if snapshot not ready yet.
-            patientName: patientProfile ? patientProfile?.name?.given?.[0] + ' ' + patientProfile?.name?.family : '',
-            patientAge: patientProfile?.resource?.birthDate ? calculateAge(new Date(patientProfile?.resource.birthDate)) : "N/A",
-            patientConditions: conditions.map((c) => c.resource.code?.text).filter(Boolean).join(', ') || 'No conditions provided',
-            patientBaselineDailyRoutine:
-              profile?.patient?.baselineDailyRoutine ?? 'No routine provided',
-            patientCurrentMedications:
-              medications.map((m) => m.resource.medicationCodeableConcept?.text).filter(Boolean).join(', ') || 'No medications provided',
-            patientSpo2Cutoff: profile?.patient?.spo2Cutoff,
-            patientBaselineHeartRate: profile?.patient?.baselineHeartRate,
-            caregiverName: profile?.caregiver?.name,
-            caregiverRelationship: profile?.caregiver?.relationship,
-            caregiverExperience: profile?.caregiver?.experience,
-            caregiverAvailability: profile?.caregiver?.availability,
-            caregiverLanguagePreference: profile?.caregiver?.languagePreference,
-            caregiverMedicalComfortLevel: profile?.caregiver?.medicalComfortLevel,
-            caregiverHobbiesOrRoutines: profile?.caregiver?.hobbiesOrRoutines,
-            caregiverMainConcern:
-              profile?.caregiver?.mainConcern ?? 'No active concern provided',
-            caregiverStressOrSupportNeeds: profile?.caregiver?.stressOrSupportNeeds,
-            caregiverBackup: profile?.caregiver?.backupCaregiver,
-            primaryCareProviderName: profile?.primaryCareProvider?.name,
-            primaryCareProviderPhone: profile?.primaryCareProvider?.phone,
-            primaryCareProviderEmail: profile?.primaryCareProvider?.email,
-            emergencyContact: profile?.safety?.emergencyContact,
-            safetyNotes: profile?.safety?.safetyNotes,
-          },
-    [snapshot, profile, patientProfile, conditions, medications],
+      snapshot?.medications
+        .map((medication: Medication) => medication.name.trim())
+        .filter(Boolean) ?? [],
+    [snapshot?.medications],
+  );
+
+  const caregiverContext = useMemo<CaregiverAssistantContext | null>(
+    () => {
+      if (!snapshot?.patient) return null;
+
+      const context = buildCaregiverAssistantContextFromSnapshot(snapshot);
+      const medicationSummary = medicationNames.join(', ');
+
+      return {
+        ...context,
+        patientAge: context.patientAge ? String(context.patientAge) : undefined,
+        medicationSummary: medicationSummary || context.medicationSummary,
+      };
+    },
+    [snapshot, medicationNames],
   );
 
   const installedModels = useMemo(
@@ -362,6 +291,7 @@ export default function SLMScreen({
   const handleAskAssistant = useCallback(async () => {
     const trimmed = inputText.trim();
     if (!trimmed || state.runStatus === 'streaming') return;
+    const contextForRequest: CaregiverAssistantContext = caregiverContext ?? {};
 
     const userMessage: ChatMessage = {
       id: generateId(),
@@ -391,7 +321,7 @@ export default function SLMScreen({
     // Mock fallback when no model is loaded.
     if (slm.loadStatus !== 'ready') {
       try {
-        const response = await askCaregiverAssistantMock(trimmed, caregiverContext);
+        const response = await askCaregiverAssistantMock(trimmed, contextForRequest);
         dispatch({
           type: 'send-success',
           payload: {
@@ -415,18 +345,18 @@ export default function SLMScreen({
       return;
     }
 
-    const systemContext = buildCaregiverSystemContext(caregiverContext);
+    const systemContext = buildCaregiverSystemContext(contextForRequest);
 
     // Opt-in clinical knowledge retrieval: only when the user's message
     // contains a condition or medication keyword. Avoids latency on
     // non-clinical questions.
     const conditionNames = snapshot
-      ? [snapshot.primaryCondition?.name, ...snapshot.comorbidities.map((c) => c.name)].filter((n): n is string => Boolean(n))
+      ? [
+          snapshot.primaryCondition?.name,
+          ...snapshot.comorbidities.map((condition: PatientCondition) => condition.name),
+        ].filter((name): name is string => Boolean(name))
       : [];
-    const medNames = (profile?.patient?.currentMedications ?? '')
-      .split(',')
-      .map((m) => m.trim())
-      .filter(Boolean);
+    const medNames = medicationNames;
 
     let userContent = trimmed;
     if (messageHasClinicalKeywords(trimmed, conditionNames, medNames)) {
@@ -489,7 +419,7 @@ export default function SLMScreen({
     } finally {
       abortControllerRef.current = null;
     }
-  }, [inputText, state.runStatus, state.messages, slm, caregiverContext, snapshot, profile?.patient?.currentMedications]);
+  }, [inputText, state.runStatus, state.messages, slm, caregiverContext, snapshot, medicationNames]);
 
   const handleStop = useCallback(() => {
     if (abortControllerRef.current) {
@@ -545,6 +475,7 @@ export default function SLMScreen({
     );
   };
 
+  const patientRecordLoading = !ready;
   const isInputDisabled = slm.loadStatus !== 'ready' && slm.loadStatus !== 'idle';
 
   return (
@@ -672,53 +603,64 @@ export default function SLMScreen({
 
           <View style={styles.contextCard}>
             <Text style={styles.cardTitle}>Care Context</Text>
-            <Text style={styles.contextSection}>Patient</Text>
-            <Text style={styles.contextText}>
-              { patientProfile ? patientProfile?.resource?.name?.[0]?.given?.[0] + ' ' + patientProfile?.resource?.name?.[0]?.family : ''} · age {patientProfile?.resource?.birthDate ? calculateAge(new Date(patientProfile?.resource.birthDate)) : "N/A"}
-            </Text>
-            <Text style={styles.contextText}>
-              Conditions: {conditions.map((c) => c.resource.code?.text).filter(Boolean).join(', ') || 'No conditions provided'}
-            </Text>
-            <Text style={styles.contextText}>
-              Medications: {medications.map((m) => m.resource.medicationCodeableConcept?.text).filter(Boolean).join(', ') || 'No medications provided'}
-            </Text>
-            <Text style={styles.contextText}>
-              Baseline routine: {profile?.patient?.baselineDailyRoutine ?? 'Not provided'}
-            </Text>
-            <Text style={styles.contextText}>
-              SpO2 cutoff: {profile?.patient?.spo2Cutoff ?? '—'} · Baseline HR: {profile?.patient?.baselineHeartRate ?? '—'}
-            </Text>
-
-            <Text style={styles.contextSection}>Caregiver</Text>
-            <Text style={styles.contextText}>
-              {profile?.caregiver?.name} ({profile?.caregiver?.relationship}) · {profile?.caregiver?.experience ?? '—'} · {profile?.caregiver?.availability ?? '—'}
-            </Text>
-            <Text style={styles.contextText}>
-              Language: {profile?.caregiver?.languagePreference ?? '—'} · Comfort: {profile?.caregiver?.medicalComfortLevel ?? '—'}
-            </Text>
-            <Text style={styles.contextText}>
-              Active concern: {profile?.caregiver?.mainConcern ?? 'Not provided'}
-            </Text>
-            <Text style={styles.contextText}>
-              Backup: {profile?.caregiver?.backupCaregiver ?? 'Not provided'}
-            </Text>
-
-            <Text style={styles.contextSection}>Care Team</Text>
-            <Text style={styles.contextText}>
-              {profile?.primaryCareProvider?.name} · {profile?.primaryCareProvider?.phone}
-            </Text>
-
-            {profile?.safety ? (
+            {patientRecordLoading ? (
+              <Text style={styles.contextText}>Loading patient record...</Text>
+            ) : patientRecordError ? (
+              <Text style={styles.errorText}>
+                Patient record unavailable: {patientRecordError.message}
+              </Text>
+            ) : !snapshot?.patient ? (
+              <Text style={styles.contextText}>
+                No persisted patient record is available. Import or create a patient record before asking the Concierge.
+              </Text>
+            ) : (
               <>
+                <Text style={styles.contextSection}>Patient</Text>
+                <Text style={styles.contextText}>
+                  {snapshot.patient.name} · age {caregiverContext?.patientAge ?? 'Not provided'}
+                </Text>
+                <Text style={styles.contextText}>
+                  Conditions: {snapshot.conditions.map((condition: PatientCondition) => condition.name).filter(Boolean).join(', ') || 'No conditions provided'}
+                </Text>
+                <Text style={styles.contextText}>
+                  Medications: {medicationNames.join(', ') || 'No medications provided'}
+                </Text>
+                <Text style={styles.contextText}>
+                  Baseline routine: {snapshot.patient.baselineDailyRoutine ?? 'Not provided'}
+                </Text>
+                <Text style={styles.contextText}>
+                  SpO2 cutoff: {snapshot.patient.spo2Cutoff ?? 'Not provided'} · Baseline HR: {snapshot.patient.baselineHeartRate ?? 'Not provided'}
+                </Text>
+
+                <Text style={styles.contextSection}>Caregiver</Text>
+                {snapshot.caregiver ? (
+                  <>
+                    <Text style={styles.contextText}>
+                      {snapshot.caregiver.name} ({snapshot.caregiver.relationship ?? 'relationship not provided'}) · {snapshot.caregiver.experience ?? 'experience not provided'} · {snapshot.caregiver.availability ?? 'availability not provided'}
+                    </Text>
+                    <Text style={styles.contextText}>
+                      Language: {snapshot.caregiver.languagePreference ?? 'Not provided'} · Comfort: {snapshot.caregiver.medicalComfortLevel ?? 'Not provided'}
+                    </Text>
+                    <Text style={styles.contextText}>
+                      Active concern: {snapshot.caregiver.mainConcern ?? 'Not provided'}
+                    </Text>
+                    <Text style={styles.contextText}>
+                      Backup: {snapshot.caregiver.backupCaregiver ?? 'Not provided'}
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={styles.contextText}>No caregiver information was provided.</Text>
+                )}
+
                 <Text style={styles.contextSection}>Safety</Text>
                 <Text style={styles.contextText}>
-                  Emergency contact: {profile?.safety?.emergencyContact ?? 'Not provided'}
+                  Symptoms: {snapshot.symptoms.map((symptom) => symptom.label).filter(Boolean).join(', ') || 'No symptoms provided'}
                 </Text>
                 <Text style={styles.contextText}>
-                  Notes: {profile?.safety?.safetyNotes ?? 'Not provided'}
+                  Active thresholds: {snapshot.thresholds.length}
                 </Text>
               </>
-            ) : null}
+            )}
           </View>
 
           {state.messages.length > 0 ? (
