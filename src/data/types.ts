@@ -187,7 +187,7 @@ export interface Medication {
   route?: string;
   indication?: string;
   active: boolean;
-  source?: 'care_plan' | 'custom';
+  source?: 'care_plan' | 'custom' | 'fhir';
 }
 
 export interface PatientCondition {

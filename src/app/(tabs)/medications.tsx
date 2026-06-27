@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Modal,
@@ -62,7 +62,7 @@ function loadMedRows(patientId: string): MedRow[] {
 
 export default function MedicationsScreen() {
   const profile = getOnboardingProfile();
-  const { patientId } = usePatientRecord();
+  const { patientId, snapshot } = usePatientRecord();
 
   const patientFirstName =
     profile.patient.name.trim().split(/\s+/)[0] || "Patient";
@@ -82,6 +82,18 @@ export default function MedicationsScreen() {
   const reload = useCallback(() => {
     if (patientId) setRows(loadMedRows(patientId));
   }, [patientId]);
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      if (!patientId) {
+        setRows([]);
+        return;
+      }
+      setRows(loadMedRows(patientId));
+    }, 0);
+
+    return () => clearTimeout(handle);
+  }, [patientId, snapshot?.lastRefreshedAt, snapshot?.medications.length]);
 
   const nextDue = rows.find((r) => r.status === "pending") ?? rows[0];
 
