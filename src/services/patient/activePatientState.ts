@@ -3,6 +3,7 @@ import { getRecentHealthSamples } from "@/data/repositories/healthSampleReposito
 import type { HealthSample, HealthSampleType } from "@/data/types";
 import { store, type AppDispatch } from "@/store";
 import {
+  clearPatient,
   setActivePatient,
   setClinicalVitals,
   setPatientError,
@@ -51,6 +52,10 @@ export function hydrateActivePatientStateFromSnapshot(
 ): void {
   dispatch(setActivePatient(normalizeActivePatient(snapshot, patientId)));
   dispatch(setClinicalVitals(loadClinicalVitals(patientId)));
+}
+
+export function clearActivePatientState(dispatch: AppDispatch = store.dispatch): void {
+  dispatch(clearPatient());
 }
 
 function normalizeActivePatient(

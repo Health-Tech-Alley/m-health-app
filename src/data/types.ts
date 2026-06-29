@@ -14,6 +14,7 @@ export type HealthSampleType =
   | 'blood_pressure_systolic'
   | 'blood_pressure_diastolic'
   | 'temperature'
+  | 'weight'
   | 'blood_glucose'
   | 'steps'
   | 'distance'
@@ -34,6 +35,47 @@ export interface HealthSample {
   metadataJson?: string;
 }
 
+export type RehabilitationMeasurementType =
+  | 'rehabilitation_gait_speed'
+  | 'rehabilitation_shoulder_rom'
+  | 'rehabilitation_grip_strength'
+  | 'rehabilitation_berg_balance'
+  | 'rehabilitation_fatigue';
+
+export interface RehabilitationMeasurement {
+  measurementId: string;
+  patientId: string;
+  type: RehabilitationMeasurementType;
+  value: number;
+  unit: string;
+  recordedAt: string;
+  source: 'fhir';
+  createdAt: string;
+}
+
+export type LongitudinalObservationType =
+  | 'vomiting_episodes'
+  | 'urinary_symptom_score'
+  | 'bowel_regimen_score'
+  | 'mobility_score'
+  | 'sleep_quality'
+  | 'pain_score'
+  | 'hydration_status';
+
+export interface PatientLongitudinalObservation {
+  patientId: string;
+  observationId: string;
+  measurementType: LongitudinalObservationType;
+  recordedAt: string;
+  encounterId?: string | null;
+  numericValue?: number | null;
+  textValue?: string | null;
+  unit?: string | null;
+  sourceSystem?: string | null;
+  sourceCode: string;
+  sourceType: 'fhir';
+}
+
 export interface Threshold {
   thresholdId: string;
   patientId: string;
@@ -45,6 +87,32 @@ export interface Threshold {
   citationId?: string;
   createdAt: string;
   supersededAt?: string;
+}
+
+export interface CarePlanActivity {
+  activityId: string;
+  planId: string;
+  status?: string;
+  description?: string;
+  sequence: number;
+}
+
+export interface CarePlan {
+  planId: string;
+  patientId: string;
+  version: number;
+  effectiveDate: string;
+  status?: string;
+  intent?: string;
+  title?: string;
+  description?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  careTeamDisplayJson?: string;
+  safetyNotes?: string;
+  emergencyContact?: string;
+  createdAt: string;
+  activities: CarePlanActivity[];
 }
 
 export interface Alert {
@@ -362,6 +430,44 @@ export interface MlRawVitals {
   body_temperature?: number;
   [key: string]: number | undefined;
 }
+
+export interface MlInputProvenance {
+  source?: HealthSampleSource;
+  sampleId?: string;
+  recordedAt?: string;
+  receivedAt?: string;
+  unit?: string;
+  healthSampleType?: HealthSampleType;
+  metadataJson?: string;
+}
+
+export interface MlRawVitalsInputEnvelope {
+  contract: 'AppleWatchVitalsInput';
+  contractVersion: 1;
+  input: {
+    patient_id: string;
+    caregiver_id?: string;
+    device_id?: string;
+    timestamp: string;
+    heart_rate?: number;
+    blood_oxygen?: number;
+    respiratory_rate?: number;
+    hrv_sdnn?: number;
+    steps_count?: number;
+    calories_burned?: number;
+    sleep_quality?: number;
+    blood_pressure_systolic?: number;
+    blood_pressure_diastolic?: number;
+    glucose_level?: number;
+    body_temperature?: number;
+    stress_level?: number;
+    activity_level?: number;
+  };
+  provenance: Record<string, MlInputProvenance>;
+  evaluatedAt: string;
+}
+
+export type MlRawVitalsPayload = MlRawVitals | MlRawVitalsInputEnvelope;
 
 // ---------------------------------------------------------------------------
 // Medication schedules (structured reminder times)

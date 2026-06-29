@@ -7,6 +7,7 @@ import { getDatabase } from '../db';
 import type { AppSettings, AppMode, ThemePreference, NotificationPreferences } from '../types';
 
 const SETTINGS_KEY = 'app_settings';
+const ACTIVE_PATIENT_KEY = 'active_patient_id';
 
 const DEFAULT_SETTINGS: AppSettings = {
   mode: 'demo',
@@ -80,4 +81,40 @@ export function updateDemoDefaultModelId(modelId: string): AppSettings {
   const updated = { ...current, demoDefaultModelId: modelId };
   saveAppSettings(updated);
   return updated;
+}
+
+export function getActivePatientId(): string | null {
+  const db = getDatabase();
+  const row = db.getFirstSync<{ value_json: string }>(
+    'SELECT value_json FROM app_settings WHERE key = ?;',
+    ACTIVE_PATIENT_KEY,
+  );
+  if (!row?.value_json) return null;
+  try {
+    const parsed = JSON.parse(row.value_json);
+    if (typeof parsed === 'string' && parsed.trim()) {
+      return parsed;
+    }
+    clearActivePatientId();
+    return null;
+  } catch {
+    clearActivePatientId();
+    return null;
+  }
+}
+
+export function setActivePatientId(patientId: string): void {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.runSync(
+    `INSERT OR REPLACE INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?);`,
+    ACTIVE_PATIENT_KEY,
+    JSON.stringify(patientId),
+    now,
+  );
+}
+
+export function clearActivePatientId(): void {
+  const db = getDatabase();
+  db.runSync('DELETE FROM app_settings WHERE key = ?;', ACTIVE_PATIENT_KEY);
 }

@@ -21,6 +21,7 @@ type ChartPoint = {
   unit: string;
   recordedAt: string;
   label: string;
+  clinicalTimeKey: string;
 };
 
 type ChartSeries = {
@@ -36,10 +37,17 @@ type ChartModel = {
   end: Date;
   series: ChartSeries[];
   points: ChartPoint[];
+  timePoints: ChartTimePoint[];
   yMin: number;
   yMax: number;
   yLabels: number[];
-  xLabels: { text: string; offset: number }[];
+  xLabels: { id: string; text: string; offset: number }[];
+};
+
+type ChartTimePoint = {
+  key: string;
+  recordedAt: string;
+  index: number;
 };
 
 type VitalMetric = {
@@ -241,6 +249,7 @@ function buildSingleValueSeries(metric: NormalizedVitalMetric): ChartSeries {
         unit: reading.unit || metric.unit,
         recordedAt: reading.recordedAt,
         label: metric.label,
+        clinicalTimeKey: reading.sampleId,
         source: reading.source,
       }))
       .filter(isFhirPoint)
@@ -253,9 +262,10 @@ function buildBloodPressureSeries(readings: NormalizedBloodPressurePair[]): Char
   const systolic: ChartPoint[] = [];
   const diastolic: ChartPoint[] = [];
 
-  for (const reading of readings) {
+  for (const [index, reading] of readings.entries()) {
     if (!reading.recordedAt) continue;
     if (!isFhirSource(reading.source)) continue;
+    const clinicalTimeKey = getBloodPressureClinicalTimeKey(reading, index);
     if (reading.systolic != null) {
       systolic.push({
         id: reading.systolicSampleId ?? `systolic-${reading.recordedAt}`,
@@ -263,6 +273,7 @@ function buildBloodPressureSeries(readings: NormalizedBloodPressurePair[]): Char
         unit: reading.unit,
         recordedAt: reading.recordedAt,
         label: "Systolic",
+        clinicalTimeKey,
       });
     }
     if (reading.diastolic != null) {
@@ -272,6 +283,7 @@ function buildBloodPressureSeries(readings: NormalizedBloodPressurePair[]): Char
         unit: reading.unit,
         recordedAt: reading.recordedAt,
         label: "Diastolic",
+        clinicalTimeKey,
       });
     }
   }
@@ -296,19 +308,26 @@ function buildBloodPressureSeries(readings: NormalizedBloodPressurePair[]): Char
 
 function buildChartModel(metric: VitalMetric, range: RangeOption): ChartModel {
   const allPoints = metric.series.flatMap((series) => series.points);
-  const allTimes = allPoints.map((point) => new Date(point.recordedAt).getTime());
-  const encounterTimes = [...new Set(allTimes)].sort((a, b) => a - b);
-  const selectedEncounterTimes = encounterTimes.slice(-range.encounterCount);
-  const selectedTimeSet = new Set(selectedEncounterTimes);
-  const start = new Date(selectedEncounterTimes[0]);
-  const end = new Date(selectedEncounterTimes[selectedEncounterTimes.length - 1]);
+  const clinicalTimePoints = buildClinicalTimePoints(allPoints);
+  const selectedTimePoints = clinicalTimePoints
+    .slice(-range.encounterCount)
+    .map((point, index) => ({ ...point, index }));
+  const selectedTimeSet = new Set(selectedTimePoints.map((point) => point.key));
+  const selectedTimeIndex = new Map(
+    selectedTimePoints.map((point) => [point.key, point.index]),
+  );
+  const start = new Date(selectedTimePoints[0]?.recordedAt);
+  const end = new Date(selectedTimePoints[selectedTimePoints.length - 1]?.recordedAt);
   const visibleSeries = metric.series
     .map((series) => ({
       ...series,
-      points: series.points.filter((point) => {
-        const time = new Date(point.recordedAt).getTime();
-        return selectedTimeSet.has(time);
-      }),
+      points: series.points
+        .filter((point) => selectedTimeSet.has(point.clinicalTimeKey))
+        .sort((a, b) => {
+          const aIndex = selectedTimeIndex.get(a.clinicalTimeKey) ?? 0;
+          const bIndex = selectedTimeIndex.get(b.clinicalTimeKey) ?? 0;
+          return aIndex - bIndex || sortPointsOldestFirst(a, b) || a.id.localeCompare(b.id);
+        }),
     }))
     .filter((series) => series.points.length > 0);
   const visiblePoints = visibleSeries.flatMap((series) => series.points);
@@ -319,6 +338,7 @@ function buildChartModel(metric: VitalMetric, range: RangeOption): ChartModel {
       end,
       series: [],
       points: [],
+      timePoints: [],
       yMin: 0,
       yMax: 1,
       yLabels: [],
@@ -341,10 +361,11 @@ function buildChartModel(metric: VitalMetric, range: RangeOption): ChartModel {
     end,
     series: visibleSeries,
     points: visiblePoints,
+    timePoints: selectedTimePoints,
     yMin,
     yMax,
     yLabels: [yMax, (yMax + yMin) / 2, yMin],
-    xLabels: getXAxisLabels(start, end, range),
+    xLabels: getXAxisLabels(selectedTimePoints),
   };
 }
 
@@ -362,7 +383,9 @@ function TrendChart({ chart }: { chart: ChartModel }) {
   }
 
   const valueRange = Math.max(chart.yMax - chart.yMin, 1);
-  const timeRange = Math.max(chart.end.getTime() - chart.start.getTime(), 1);
+  const timePointIndexByKey = new Map(
+    chart.timePoints.map((point) => [point.key, point.index]),
+  );
 
   return (
     <View>
@@ -399,8 +422,8 @@ function TrendChart({ chart }: { chart: ChartModel }) {
                     chartWidth={chartWidth}
                     yMin={chart.yMin}
                     valueRange={valueRange}
-                    startTime={chart.start.getTime()}
-                    timeRange={timeRange}
+                    timePointCount={chart.timePoints.length}
+                    timePointIndexByKey={timePointIndexByKey}
                     onSelectPoint={setSelectedPoint}
                   />
                 ))
@@ -409,7 +432,7 @@ function TrendChart({ chart }: { chart: ChartModel }) {
 
           <View style={styles.xAxisRow}>
             {chart.xLabels.map((label) => (
-              <Text key={`${label.text}-${label.offset}`} style={[styles.dayLabel, { left: `${label.offset}%` }]}>
+              <Text key={label.id} style={[styles.dayLabel, { left: `${label.offset}%` }]}>
                 {label.text}
               </Text>
             ))}
@@ -436,25 +459,21 @@ function ChartSeriesLayer({
   chartWidth,
   yMin,
   valueRange,
-  startTime,
-  timeRange,
+  timePointCount,
+  timePointIndexByKey,
   onSelectPoint,
 }: {
   series: ChartSeries;
   chartWidth: number;
   yMin: number;
   valueRange: number;
-  startTime: number;
-  timeRange: number;
+  timePointCount: number;
+  timePointIndexByKey: Map<string, number>;
   onSelectPoint: (point: ChartPoint) => void;
 }) {
-  const plotWidth = Math.max(chartWidth - CHART_HORIZONTAL_PADDING * 2, 1);
   const points = series.points.map((point) => {
-    const x =
-      timeRange <= 1
-        ? chartWidth / 2
-        : CHART_HORIZONTAL_PADDING +
-          ((new Date(point.recordedAt).getTime() - startTime) / timeRange) * plotWidth;
+    const timePointIndex = timePointIndexByKey.get(point.clinicalTimeKey) ?? 0;
+    const x = getClinicalPointX(timePointIndex, timePointCount, chartWidth);
     const normalized = (point.value - yMin) / valueRange;
     const y = CHART_HEIGHT - normalized * (CHART_HEIGHT - 14) - 7;
     return { ...point, x, y };
@@ -472,7 +491,7 @@ function ChartSeriesLayer({
 
         return (
           <View
-            key={`segment-${series.key}-${point.id}`}
+            key={`segment-${series.key}-${point.clinicalTimeKey}-${point.id}-${next.clinicalTimeKey}-${next.id}-${index}`}
             style={[
               styles.lineSegment,
               {
@@ -489,7 +508,7 @@ function ChartSeriesLayer({
 
       {points.map((point) => (
         <Pressable
-          key={`point-${series.key}-${point.id}`}
+          key={`point-${series.key}-${point.clinicalTimeKey}-${point.id}`}
           accessibilityRole="button"
           accessibilityLabel={`${point.label} ${formatValue(point.value)} ${point.unit} observed ${formatObservationDate(point.recordedAt)}`}
           onPress={() => onSelectPoint(point)}
@@ -507,48 +526,76 @@ function ChartSeriesLayer({
   );
 }
 
-function getXAxisLabels(start: Date, end: Date, range: RangeOption) {
-  const spanDays = Math.max((end.getTime() - start.getTime()) / 86400000, 1);
-  const labelDates = getAxisLabelDates(start, end, range);
-  const total = Math.max(end.getTime() - start.getTime(), 1);
-  const labelStart = CHART_HORIZONTAL_PADDING;
-  const labelSpan = Math.max(100 - CHART_HORIZONTAL_PADDING * 2, 1);
+function getBloodPressureClinicalTimeKey(
+  reading: NormalizedBloodPressurePair,
+  index: number,
+) {
+  const systolicBase = reading.systolicSampleId?.replace(/-systolic$/, "");
+  const diastolicBase = reading.diastolicSampleId?.replace(/-diastolic$/, "");
+  if (systolicBase && diastolicBase && systolicBase === diastolicBase) {
+    return `bp-${systolicBase}`;
+  }
 
-  return labelDates.map((date) => ({
-    text: formatAxisDate(date, spanDays),
-    offset: Math.min(
-      Math.max(labelStart + ((date.getTime() - start.getTime()) / total) * labelSpan, 0),
-      92,
-    ),
+  return [
+    "bp",
+    reading.recordedAt ?? "unknown-time",
+    reading.systolicSampleId ?? "missing-systolic",
+    reading.diastolicSampleId ?? "missing-diastolic",
+    index,
+  ].join("-");
+}
+
+function buildClinicalTimePoints(points: ChartPoint[]): ChartTimePoint[] {
+  const byKey = new Map<string, Omit<ChartTimePoint, "index">>();
+  for (const point of points) {
+    const existing = byKey.get(point.clinicalTimeKey);
+    if (!existing || compareRecordedAt(point.recordedAt, existing.recordedAt) < 0) {
+      byKey.set(point.clinicalTimeKey, {
+        key: point.clinicalTimeKey,
+        recordedAt: point.recordedAt,
+      });
+    }
+  }
+
+  return [...byKey.values()]
+    .sort((a, b) => compareRecordedAt(a.recordedAt, b.recordedAt) || a.key.localeCompare(b.key))
+    .map((point, index) => ({ ...point, index }));
+}
+
+function getClinicalPointX(index: number, total: number, chartWidth: number) {
+  if (total <= 1) return chartWidth / 2;
+  const plotWidth = Math.max(chartWidth - CHART_HORIZONTAL_PADDING * 2, 1);
+  return CHART_HORIZONTAL_PADDING + (index / (total - 1)) * plotWidth;
+}
+
+function getXAxisLabels(timePoints: ChartTimePoint[]) {
+  if (timePoints.length === 0) return [];
+  const start = new Date(timePoints[0].recordedAt);
+  const end = new Date(timePoints[timePoints.length - 1].recordedAt);
+  const spanDays = Math.max((end.getTime() - start.getTime()) / 86400000, 1);
+  const labelPoints = getAxisLabelTimePoints(timePoints, 3);
+
+  return labelPoints.map((point, index) => ({
+    id: `${point.key}-${index}`,
+    text: formatAxisDate(new Date(point.recordedAt), spanDays),
+    offset: getClinicalLabelOffset(point.index, timePoints.length),
   }));
 }
 
-function getAxisLabelDates(start: Date, end: Date, range: RangeOption) {
-  if (range.key === "2y") return monthStepDates(start, end, 3);
-  if (range.key === "1y") return monthStepDates(start, end, 3);
-  return evenlySpacedDates(start, end, 3);
+function getAxisLabelTimePoints(timePoints: ChartTimePoint[], count: number) {
+  if (timePoints.length <= count) return timePoints;
+  const lastIndex = timePoints.length - 1;
+  return Array.from({ length: count }, (_, index) => {
+    const pointIndex = Math.round((index / Math.max(count - 1, 1)) * lastIndex);
+    return timePoints[pointIndex];
+  });
 }
 
-function monthStepDates(start: Date, end: Date, monthStep: number) {
-  const labels: Date[] = [new Date(start)];
-  const cursor = new Date(start);
-  cursor.setUTCDate(1);
-  cursor.setUTCMonth(cursor.getUTCMonth() + monthStep);
-
-  while (cursor.getTime() < end.getTime()) {
-    labels.push(new Date(cursor));
-    cursor.setUTCMonth(cursor.getUTCMonth() + monthStep);
-  }
-
-  const last = labels[labels.length - 1];
-  if (!last || last.getTime() !== end.getTime()) labels.push(new Date(end));
-  return labels;
-}
-
-function evenlySpacedDates(start: Date, end: Date, count: number) {
-  const startTime = start.getTime();
-  const step = (end.getTime() - startTime) / Math.max(count - 1, 1);
-  return Array.from({ length: count }, (_, index) => new Date(startTime + step * index));
+function getClinicalLabelOffset(index: number, total: number) {
+  if (total <= 1) return 50;
+  const labelStart = CHART_HORIZONTAL_PADDING;
+  const labelSpan = Math.max(100 - CHART_HORIZONTAL_PADDING * 2, 1);
+  return Math.min(Math.max(labelStart + (index / (total - 1)) * labelSpan, 0), 92);
 }
 
 function formatAxisDate(date: Date, spanDays: number) {
@@ -596,7 +643,11 @@ function isFhirSource(source?: string) {
 }
 
 function sortPointsOldestFirst(a: ChartPoint, b: ChartPoint) {
-  return new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime();
+  return compareRecordedAt(a.recordedAt, b.recordedAt);
+}
+
+function compareRecordedAt(a: string, b: string) {
+  return new Date(a).getTime() - new Date(b).getTime();
 }
 
 function isVitalMetric(metric: VitalMetric | null): metric is VitalMetric {

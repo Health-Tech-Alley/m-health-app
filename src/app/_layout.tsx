@@ -21,6 +21,7 @@ import { OrchestratorProvider } from "@/contexts/orchestrator-context";
 import { PatientRecordProvider } from "@/contexts/patient-record-context";
 import { SettingsProvider, useSettings } from "@/contexts/settings-context";
 import { SLMProvider, useSLM } from "@/contexts/slm-context";
+import { UC2RuntimeProvider } from "@/contexts/uc2-runtime-context";
 import { Provider } from 'react-redux';
 import { store } from '@/store';
 import { initializeDatabase } from '@/data';
@@ -146,14 +147,16 @@ export default function RootLayout() {
               <SlmPolicySync />
               <NotificationInit />
               <NotificationResponseInit />
-              <OrchestratorProvider>
-                <CriticalAlertProvider>
-                  <AnimatedSplashOverlay />
-                  <InAppBanner />
-                  <CriticalAlertDialog />
-                  <Stack screenOptions={{ headerShown: false }} />
-                </CriticalAlertProvider>
-              </OrchestratorProvider>
+              <UC2RuntimeProvider>
+                <OrchestratorProvider>
+                  <CriticalAlertProvider>
+                    <AnimatedSplashOverlay />
+                    <InAppBanner />
+                    <CriticalAlertDialog />
+                    <Stack screenOptions={{ headerShown: false }} />
+                  </CriticalAlertProvider>
+                </OrchestratorProvider>
+              </UC2RuntimeProvider>
             </SLMProvider>
           </PatientRecordProvider>
         </SettingsProvider>

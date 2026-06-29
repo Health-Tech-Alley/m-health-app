@@ -15,6 +15,7 @@
 import { getDatabase } from '../db';
 import type {
   Caregiver,
+  CarePlan,
   Medication,
   Patient,
   PatientCondition,
@@ -22,6 +23,7 @@ import type {
   Threshold,
   WearableDevice,
 } from '../types';
+import { getActiveCarePlanForPatient } from './carePlanRepository';
 import { getKnowledgeCacheStats } from './knowledgeCacheRepository';
 import { getEnrichmentStats } from './patientEnrichmentLogRepository';
 import {
@@ -63,6 +65,7 @@ export interface PatientRecordSnapshot {
   wearable: WearableDevice | null;
   medications: Medication[];
   thresholds: Threshold[];
+  carePlan: CarePlan | null;
   carePlanGoals: CarePlanGoalSummary[];
   knowledgeStats: { total: number; bySource: Record<string, number> };
   enrichmentStats: {
@@ -145,6 +148,7 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const wearable = getPrimaryWearableForPatient(patientId);
   const medications = getActiveMedications(patientId);
   const thresholds = getActiveThresholds(patientId);
+  const carePlan = getActiveCarePlanForPatient(patientId);
   const carePlanGoals = getCarePlanGoals(patientId);
   const knowledgeStats = getKnowledgeCacheStats();
   const enrichmentStats = getEnrichmentStats(patientId);
@@ -166,6 +170,7 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     wearable,
     medications,
     thresholds,
+    carePlan,
     carePlanGoals,
     knowledgeStats,
     enrichmentStats,

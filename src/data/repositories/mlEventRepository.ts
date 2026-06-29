@@ -13,7 +13,7 @@ import type {
   MlTopFeature,
   MlRuleEngine,
   MlCaregiverBlock,
-  MlRawVitals,
+  MlRawVitalsPayload,
 } from '../types';
 
 export function insertMlEvent(event: MlEvent): void {
@@ -147,10 +147,10 @@ export function parseCaregiverBlock(event: MlEvent): MlCaregiverBlock | null {
   }
 }
 
-export function parseRawVitals(event: MlEvent): MlRawVitals | null {
+export function parseRawVitals(event: MlEvent): MlRawVitalsPayload | null {
   if (!event.rawVitalsJson) return null;
   try {
-    return JSON.parse(event.rawVitalsJson) as MlRawVitals;
+    return JSON.parse(event.rawVitalsJson) as MlRawVitalsPayload;
   } catch {
     return null;
   }

@@ -77,7 +77,7 @@ import {
   NEXT_STEP_TAXONOMY,
   isValidActionId,
 } from './next-steps';
-import type { NextStep, NextStepActionId } from '@/data/types';
+import type { MlRawVitalsPayload, NextStep, NextStepActionId } from '@/data/types';
 
 export type OrchestratorConfig = {
   slm: InferenceProvider;
@@ -782,7 +782,7 @@ export class Orchestrator {
       topFeatures: [string, number][];
       ruleEngine: { is_emergency: boolean; severity: number; reasons: string[] } | null;
       caregiverBlock: { action?: string; confirmed?: boolean; observations?: string[] } | null;
-      rawVitals: Record<string, number | undefined> | null;
+      rawVitals: MlRawVitalsPayload | null;
       confidenceRatio: number | null;
     },
   ): string {
@@ -829,10 +829,7 @@ export class Orchestrator {
         }
       }
       if (mlData.rawVitals) {
-        const vitalsEntries = Object.entries(mlData.rawVitals)
-          .map(([k, v]) => `${k}=${typeof v === 'number' ? v.toFixed(2) : v}`)
-          .join(', ');
-        mlBlock.push(`Raw vitals snapshot: ${vitalsEntries}`);
+        mlBlock.push(`Raw vitals snapshot: ${this.formatRawVitalsSnapshot(mlData.rawVitals)}`);
       }
       if (mlData.confidenceRatio !== null) {
         mlBlock.push(`Anomaly confidence ratio: ${mlData.confidenceRatio.toFixed(2)} (higher = more confident anomaly)`);
@@ -879,6 +876,20 @@ export class Orchestrator {
       '- Blocked outputs: diagnosis, clinical certainty claim, medication change instruction, emergency decision override.',
       '- You contextualize the already-explained anomaly; you do not decide whether an anomaly exists and you do not override the rule engine or anomaly model.',
     ].join('\n');
+  }
+
+  private formatRawVitalsSnapshot(rawVitals: MlRawVitalsPayload): string {
+    const maybeEnvelope = rawVitals as { contract?: unknown; input?: unknown };
+    const vitals =
+      maybeEnvelope.contract === 'AppleWatchVitalsInput' &&
+      maybeEnvelope.input !== null &&
+      typeof maybeEnvelope.input === 'object'
+        ? (maybeEnvelope.input as Record<string, string | number | undefined>)
+        : (rawVitals as Record<string, string | number | undefined>);
+
+    return Object.entries(vitals)
+      .map(([k, v]) => `${k}=${typeof v === 'number' ? v.toFixed(2) : v}`)
+      .join(', ');
   }
 
   /**

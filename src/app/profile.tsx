@@ -8,6 +8,7 @@ import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import { upsertCaregiver } from "@/data";
+import type { Medication } from "@/data/types";
 import { useAppSelector } from "@/store/hooks";
 import {
   displayClinical,
@@ -41,6 +42,7 @@ export default function ProfileScreen() {
   const caregiverRole = getCaregiverRoleDisplay(activePatient);
   const patientName = getPatientDisplayName(activePatient);
   const patientAge = getPatientAgeDisplay(activePatient);
+  const medicationSummary = formatMedicationSummary(snapshot?.medications ?? []);
 
   const [editing, setEditing] = useState<EditableField | null>(null);
   const [draft, setDraft] = useState("");
@@ -127,12 +129,12 @@ export default function ProfileScreen() {
             <DetailRow label="EDACS" value={displayEntered(activePatient?.classifications.edacs)} />
             <DetailRow
               label="Routine"
-              value={displayEntered(activePatient?.baselineDailyRoutine)}
+              value={formatImportedRoutine(activePatient?.baselineDailyRoutine)}
               multiline
             />
             <DetailRow
               label="Medications"
-              value={displayClinical(activePatient?.currentMedications)}
+              value={displayClinical(medicationSummary)}
               multiline
             />
           </ProfileCard>
@@ -273,6 +275,24 @@ function getInitials(name: DetailValue): string {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+}
+
+function formatMedicationSummary(medications: Medication[]): string {
+  return medications
+    .map((medication) => {
+      const details = [medication.dosage, medication.frequency ?? medication.indication]
+        .map((value) => value?.trim())
+        .filter(Boolean);
+      return details.length > 0
+        ? `${medication.name}: ${details.join(" · ")}`
+        : medication.name;
+    })
+    .join("\n");
+}
+
+function formatImportedRoutine(value: string | number | null | undefined): string {
+  const text = value === null || value === undefined ? "" : String(value).trim();
+  return text || "Not provided in imported EHR";
 }
 
 function formatDetailValue(value: DetailValue): string {

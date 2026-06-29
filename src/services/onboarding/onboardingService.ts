@@ -1,4 +1,5 @@
 import type { NormalizedFhirClinicalImportPackage } from '@/data/fhir';
+import { getActivePatientId } from '@/data/repositories/appSettingsRepository';
 import { seedDatabaseFromProfile } from '@/data/seed/seedFromProfile';
 
 /**
@@ -470,7 +471,12 @@ export function getMockEhrPatientRecord(): MockEhrPatientRecord {
 }
 
 export function hasCompletedOnboarding(): boolean {
-  return savedOnboardingProfile !== null;
+  if (savedOnboardingProfile !== null) return true;
+  try {
+    return getActivePatientId() !== null;
+  } catch {
+    return false;
+  }
 }
 
 export function clearOnboardingProfile(): void {

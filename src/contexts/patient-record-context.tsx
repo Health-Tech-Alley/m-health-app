@@ -30,16 +30,18 @@ import {
 } from 'react';
 
 import {
+  clearActivePatientId,
   getPatientRecordSnapshot,
-  seedDatabaseFromProfile,
+  getActivePatientId,
+  getPatient,
+  setActivePatientId,
   setBundlePending,
   type PatientRecordSnapshot,
 } from '@/data';
 import { saveFHIRBundleToDB } from '@/data/fhir/fhir-import';
-import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
 import {
+  clearActivePatientState,
   hydrateActivePatientStateFromSnapshot,
-  refreshActivePatientState,
 } from '@/services/patient/activePatientState';
 
 // ---------------------------------------------------------------------------
@@ -83,8 +85,15 @@ export function getCurrentPatientSnapshot(): PatientRecordSnapshot | null {
 }
 
 /** Internal: set the patientId and load the initial snapshot. */
-function setPatientId(patientId: string): void {
+function setPatientId(patientId: string, persist = true): void {
+  const patient = getPatient(patientId);
+  if (!patient) {
+    throw new Error(`Cannot select missing patient record: ${patientId}`);
+  }
   const nextSnapshot = loadSnapshot(patientId);
+  if (persist) {
+    setActivePatientId(patientId);
+  }
   currentPatientId = patientId;
   currentSnapshot = nextSnapshot;
   hydrateActivePatientStateFromSnapshot(nextSnapshot, patientId);
@@ -97,9 +106,22 @@ export function refreshPatientRecord(patientId?: string): void {
   if (!currentPatientId && !patientId) return;
 
   const nextPatientId = patientId || (currentPatientId ?? '');
-  currentPatientId = nextPatientId;
-  currentSnapshot = refreshActivePatientState(nextPatientId);
-  emitChange();
+  try {
+    setPatientId(nextPatientId, Boolean(patientId));
+  } catch (error) {
+    if (getActivePatientId() === nextPatientId) {
+      clearActivePatientId();
+    }
+    currentPatientId = null;
+    currentSnapshot = null;
+    clearActivePatientState();
+    emitChange();
+    throw error;
+  }
+}
+
+export function selectPatientRecord(patientId: string): void {
+  setPatientId(patientId);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +138,8 @@ interface PatientRecordContextValue {
   refresh: () => void;
   /** Mark the clinical-condition bundle as pending / completed. */
   setBundlePending: (pending: boolean) => void;
-  importFHIRBundle: (bundle: any) => void;
+  selectPatient: (patientId: string) => void;
+  importFHIRBundle: (bundle: any) => string | null;
 }
 
 const PatientRecordContext = createContext<PatientRecordContextValue | null>(null);
@@ -124,6 +147,7 @@ const PatientRecordContext = createContext<PatientRecordContextValue | null>(nul
 interface PatientRecordInitState {
   patientId: string | null;
   error: Error | null;
+  initialized: boolean;
 }
 
 function toError(error: unknown): Error {
@@ -132,42 +156,71 @@ function toError(error: unknown): Error {
 
 function initializePatientRecord(): PatientRecordInitState {
   try {
-    const profile = getOnboardingProfile();
-    const seededId = seedDatabaseFromProfile(profile);
-    setPatientId(seededId);
-    return { patientId: seededId, error: null };
+    const selectedId = getActivePatientId();
+    if (!selectedId) {
+      currentSnapshot = null;
+      currentPatientId = null;
+      clearActivePatientState();
+      emitChange();
+      return { patientId: null, error: null, initialized: true };
+    }
+
+    if (!getPatient(selectedId)) {
+      clearActivePatientId();
+      currentSnapshot = null;
+      currentPatientId = null;
+      clearActivePatientState();
+      emitChange();
+      return { patientId: null, error: null, initialized: true };
+    }
+
+    setPatientId(selectedId, false);
+    return { patientId: selectedId, error: null, initialized: true };
   } catch (error) {
     currentSnapshot = null;
     currentPatientId = null;
+    clearActivePatientState();
     emitChange();
-    return { patientId: null, error: toError(error) };
+    return { patientId: null, error: toError(error), initialized: true };
   }
 }
 
 export function PatientRecordProvider({ children }: { children: ReactNode }) {
   const [providerToken] = useState(() => Symbol('PatientRecordProvider'));
 
-  // Seed the DB from the onboarding profile synchronously on first render so
-  // that OrchestratorProvider (a child) can read the snapshot during its own
-  // render. seedDatabaseFromProfile is fully synchronous (expo-sqlite sync API).
-  const [initState, setInitState] = useState<PatientRecordInitState>(() => {
-    activeProviderToken = providerToken;
-    return initializePatientRecord();
+  const [initState, setInitState] = useState<PatientRecordInitState>({
+    patientId: null,
+    error: null,
+    initialized: false,
   });
-  const { patientId, error } = initState;
+  const { patientId, error, initialized } = initState;
 
   useEffect(() => {
     activeProviderToken = providerToken;
-    if (patientId && (!currentPatientId || currentPatientId !== patientId || !currentSnapshot)) {
+    if (!initialized) {
+      const handle = setTimeout(() => {
+        setInitState(initializePatientRecord());
+      }, 0);
+      return () => clearTimeout(handle);
+    }
+
+    if (patientId) {
       try {
-        setPatientId(patientId);
+        if (!currentPatientId || currentPatientId !== patientId || !currentSnapshot) {
+          setPatientId(patientId);
+        } else {
+          hydrateActivePatientStateFromSnapshot(currentSnapshot, patientId);
+        }
       } catch {
         currentSnapshot = null;
         currentPatientId = null;
+        clearActivePatientState();
         emitChange();
       }
     }
+  }, [initialized, patientId, providerToken]);
 
+  useEffect(() => {
     return () => {
       if (activeProviderToken !== providerToken) return;
       // Reset module store on unmount (mainly for tests / hot reloads).
@@ -176,7 +229,7 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
       activeProviderToken = null;
       listeners.clear();
     };
-  }, [patientId, providerToken]);
+  }, [providerToken]);
 
   const refresh = useCallback(() => {
     try {
@@ -185,9 +238,9 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
         return;
       }
       refreshPatientRecord();
-      setInitState({ patientId, error: null });
+      setInitState({ patientId, error: null, initialized: true });
     } catch (nextError) {
-      setInitState({ patientId, error: toError(nextError) });
+      setInitState({ patientId, error: toError(nextError), initialized: true });
     }
   }, [patientId]);
 
@@ -197,13 +250,19 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [patientId, refresh]);
 
+  const selectPatient = useCallback((nextPatientId: string) => {
+    setPatientId(nextPatientId);
+    setInitState({ patientId: nextPatientId, error: null, initialized: true });
+  }, []);
+
   const importFHIRBundle = useCallback((bundle: any) => {
-    const activePatientId = currentPatientId ?? patientId;
-    if (!activePatientId) return;
-    saveFHIRBundleToDB(bundle, { patientId: activePatientId });   // writes to SQLite
+    const importedPatientId = saveFHIRBundleToDB(bundle);   // writes to SQLite using the Bundle Patient identity
+    if (!importedPatientId) return null;
     console.log('[PatientRecordProvider] FHIR bundle imported to DB, refreshing snapshot... ', bundle.entry[0]);
-    refreshPatientRecord(activePatientId);        // triggers useSyncExternalStore -> all screens update
-  }, [patientId]);
+    setPatientId(importedPatientId);        // selects imported patient and triggers useSyncExternalStore -> all screens update
+    setInitState({ patientId: importedPatientId, error: null, initialized: true });
+    return importedPatientId;
+  }, []);
 
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
@@ -229,13 +288,14 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
     () => ({
       snapshot,
       patientId,
-      ready: true,
+      ready: initialized,
       error,
       refresh,
       setBundlePending: setBundlePendingFlag,
+      selectPatient,
       importFHIRBundle,
     }),
-    [snapshot, patientId, error, refresh, setBundlePendingFlag, importFHIRBundle],
+    [snapshot, patientId, initialized, error, refresh, setBundlePendingFlag, selectPatient, importFHIRBundle],
   );
 
   return (

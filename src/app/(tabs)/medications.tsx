@@ -27,7 +27,6 @@ import {
   type MedicationSchedule,
 } from "@/data";
 import { audit } from "@/services/audit/auditService";
-import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 type MedStatus = "pending" | "confirmed";
 
@@ -61,11 +60,10 @@ function loadMedRows(patientId: string): MedRow[] {
 }
 
 export default function MedicationsScreen() {
-  const profile = getOnboardingProfile();
   const { patientId, snapshot } = usePatientRecord();
 
   const patientFirstName =
-    profile.patient.name.trim().split(/\s+/)[0] || "Patient";
+    snapshot?.patient?.name?.trim().split(/\s+/)[0] || "Patient";
 
   const [rows, setRows] = useState<MedRow[]>(() =>
     patientId ? loadMedRows(patientId) : [],
@@ -361,7 +359,7 @@ export default function MedicationsScreen() {
         reason="custom_med_check"
         prompt={
           slmCheckMed
-            ? `A caregiver is considering adding the medication "${slmCheckMed.name}" (${slmCheckMed.dosage ?? "dose not specified"}, ${slmCheckMed.frequency ?? "frequency not specified"}) for ${profile.patient.name}, who has these conditions: ${profile.patient.conditions ?? "not specified"} and takes these current medications: ${profile.patient.currentMedications ?? "none listed"}. Is this a reasonable choice? In plain, calm language for a family caregiver, summarize the main considerations, potential interactions or red flags to watch for, and whether to keep, modify, or remove it — and always recommend confirming with the prescriber.`
+            ? `A caregiver is considering adding the medication "${slmCheckMed.name}" (${slmCheckMed.dosage ?? "dose not specified"}, ${slmCheckMed.frequency ?? "frequency not specified"}) for ${snapshot?.patient?.name ?? "the selected patient"}, who has these conditions: ${snapshot?.conditions.map((condition) => condition.name).filter(Boolean).join(", ") || "not specified"} and takes these current medications: ${snapshot?.medications.map((medication) => medication.name).filter(Boolean).join(", ") || "none listed"}. Is this a reasonable choice? In plain, calm language for a family caregiver, summarize the main considerations, potential interactions or red flags to watch for, and whether to keep, modify, or remove it — and always recommend confirming with the prescriber.`
             : ""
         }
       />

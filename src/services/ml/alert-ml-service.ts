@@ -9,7 +9,12 @@
  * dispatch notifications + the SLM bridge.
  */
 
-import { getLatestHealthSample, type HealthSampleType } from '@/data';
+import {
+  getLatestHealthSample,
+  type HealthSample,
+  type HealthSampleType,
+  type MlRawVitalsInputEnvelope,
+} from '@/data';
 import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
 import type { CoreVitals, ExtendedVitals } from '@/ml-models/alert-autoencoder/types';
 import type {
@@ -17,7 +22,10 @@ import type {
   UC2DecisionResult,
 } from '@/ml-models/uc2-decision-layer';
 import {
+  buildUC2FeatureVector,
   createAlertAutoencoderRunner,
+  finalDecision,
+  runEmergencyRuleEngine,
   runUC2DecisionLayer,
 } from '@/ml-models/uc2-decision-layer';
 import type { AlertAutoencoder } from '@/ml-models/alert-autoencoder/alert-autoencoder';
@@ -25,6 +33,54 @@ import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
 
 const MIN_SAMPLE_TYPES = 3;
+
+type InputProvenance = MlRawVitalsInputEnvelope['provenance'];
+
+type BuiltMlInput = {
+  input: AppleWatchVitalsInput;
+  provenance: InputProvenance;
+  evaluatedAt: string;
+  deviceId?: string;
+};
+
+type RuntimeInputField =
+  | 'heart_rate'
+  | 'blood_oxygen'
+  | 'blood_pressure_systolic'
+  | 'blood_pressure_diastolic'
+  | 'glucose_level'
+  | 'body_temperature'
+  | 'respiratory_rate'
+  | 'steps_count';
+
+export function buildMlRawVitalsInputEnvelope(params: {
+  input: AppleWatchVitalsInput;
+  provenance: InputProvenance;
+  evaluatedAt: string;
+}): MlRawVitalsInputEnvelope {
+  return {
+    contract: 'AppleWatchVitalsInput',
+    contractVersion: 1,
+    input: params.input,
+    provenance: params.provenance,
+    evaluatedAt: params.evaluatedAt,
+  };
+}
+
+function sampleProvenance(
+  sample: HealthSample,
+  healthSampleType: HealthSampleType,
+): InputProvenance[string] {
+  return {
+    source: sample.source,
+    sampleId: sample.sampleId,
+    recordedAt: sample.recordedAt,
+    receivedAt: sample.receivedAt,
+    unit: sample.unit,
+    healthSampleType,
+    metadataJson: sample.metadataJson,
+  };
+}
 
 export class AlertMlService {
   private model: AlertMlModel;
@@ -63,7 +119,16 @@ export class AlertMlService {
     const result = await this.runDecisionLayer(built.input);
 
     if (result && (result.isAnomaly || result.emergencyResult.emergency)) {
-      this.emitAlert(patientId, result, built.deviceId);
+      this.emitAlert(
+        patientId,
+        result,
+        buildMlRawVitalsInputEnvelope({
+          input: built.input,
+          provenance: built.provenance,
+          evaluatedAt: built.evaluatedAt,
+        }),
+        built.deviceId,
+      );
     }
 
     return result;
@@ -85,7 +150,7 @@ export class AlertMlService {
     const ae = this.model as unknown as AlertAutoencoder;
     const scaler = ae.scalerParams;
     if (!scaler || typeof ae.runReconstruction !== 'function') {
-      return this.runLegacy(input);
+      return this.runLegacyEmergencyFastPath(input) ?? this.runLegacy(input);
     }
 
     const runner = createAlertAutoencoderRunner(ae);
@@ -103,6 +168,40 @@ export class AlertMlService {
   /**
    * Legacy single-shot inference path for the mock provider (no TFLite bridge).
    */
+  private runLegacyEmergencyFastPath(input: AppleWatchVitalsInput): UC2DecisionResult | null {
+    const featureVector = buildUC2FeatureVector(input);
+    const emergencyResult = runEmergencyRuleEngine(featureVector.featureMap);
+    if (!emergencyResult.emergency) {
+      return null;
+    }
+
+    const initialAnomalyType = 'CRITICAL_EMERGENCY_ALERT' as const;
+    const postHitlAnomalyType = 'CRITICAL_EMERGENCY_ALERT' as const;
+    const decision = finalDecision({
+      emergency: true,
+      promptShown: false,
+      caregiverFinalAction: 'no_prompt_shown',
+      postHitlAnomalyType,
+    });
+
+    return {
+      emergencyResult,
+      rawFeatures: featureVector.rawFeatures,
+      scaledFeatures: null,
+      aeScore: null,
+      threshold: this.model.threshold,
+      isAnomaly: false,
+      promptShown: false,
+      initialAnomalyType,
+      postHitlAnomalyType,
+      topFeatureEvidence: [],
+      featureQuality: featureVector.featureQuality,
+      finalDecision: decision,
+      initialMCPPayload: null,
+      finalSLMPayload: null,
+    };
+  }
+
   private async runLegacy(input: AppleWatchVitalsInput): Promise<UC2DecisionResult | null> {
     const core: CoreVitals = {
       heart_rate: input.heart_rate ?? 72,
@@ -173,8 +272,8 @@ export class AlertMlService {
   private buildInputFromRecentSamples(
     patientId: string,
     timestamp: Date,
-  ): { input: AppleWatchVitalsInput; deviceId?: string } | null {
-    const get = (type: HealthSampleType) => getLatestHealthSample(patientId, type)?.value ?? null;
+  ): BuiltMlInput | null {
+    const get = (type: HealthSampleType) => getLatestHealthSample(patientId, type);
 
     const spo2 = get('spo2');
     const heartRate = get('heart_rate');
@@ -186,24 +285,25 @@ export class AlertMlService {
     const steps = get('steps');
 
     const presentTypes = [spo2, heartRate, bpSys, bpDia, temp, glucose, resp].filter(
-      (v) => v !== null,
+      (sample) => sample !== null,
     ).length;
     if (presentTypes < MIN_SAMPLE_TYPES) return null;
 
     // Convert SpO2 fraction to percentage for the UC2 model (trained on 0-100).
-    const spo2Percent = spo2 === null ? undefined : spo2 <= 1.0 ? spo2 * 100 : spo2;
+    const spo2Percent =
+      spo2 === null ? undefined : spo2.value <= 1.0 ? spo2.value * 100 : spo2.value;
 
     const input: AppleWatchVitalsInput = {
       patient_id: patientId,
       timestamp: timestamp.toISOString(),
-      heart_rate: heartRate ?? undefined,
+      heart_rate: heartRate?.value ?? undefined,
       blood_oxygen: spo2Percent,
-      blood_pressure_systolic: bpSys ?? undefined,
-      blood_pressure_diastolic: bpDia ?? undefined,
-      glucose_level: glucose ?? undefined,
-      body_temperature: temp ?? undefined,
-      respiratory_rate: resp ?? undefined,
-      steps_count: steps ?? undefined,
+      blood_pressure_systolic: bpSys?.value ?? undefined,
+      blood_pressure_diastolic: bpDia?.value ?? undefined,
+      glucose_level: glucose?.value ?? undefined,
+      body_temperature: temp?.value ?? undefined,
+      respiratory_rate: resp?.value ?? undefined,
+      steps_count: steps?.value ?? undefined,
       // Extended vitals not yet sourced from HealthKit — left undefined so the
       // UC2 imputation path fills them with patient-profile / fallback defaults
       // and tags them `imputed` in the feature-quality provenance.
@@ -214,12 +314,34 @@ export class AlertMlService {
       calories_burned: undefined,
     };
 
-    return { input };
+    const provenanceEntries: Partial<Record<RuntimeInputField, InputProvenance[string]>> = {
+      heart_rate: heartRate ? sampleProvenance(heartRate, 'heart_rate') : undefined,
+      blood_oxygen: spo2 ? sampleProvenance(spo2, 'spo2') : undefined,
+      blood_pressure_systolic: bpSys
+        ? sampleProvenance(bpSys, 'blood_pressure_systolic')
+        : undefined,
+      blood_pressure_diastolic: bpDia
+        ? sampleProvenance(bpDia, 'blood_pressure_diastolic')
+        : undefined,
+      glucose_level: glucose ? sampleProvenance(glucose, 'blood_glucose') : undefined,
+      body_temperature: temp ? sampleProvenance(temp, 'temperature') : undefined,
+      respiratory_rate: resp ? sampleProvenance(resp, 'respiratory_rate') : undefined,
+      steps_count: steps ? sampleProvenance(steps, 'steps') : undefined,
+    };
+
+    const provenance = Object.fromEntries(
+      Object.entries(provenanceEntries).filter(
+        (entry): entry is [string, InputProvenance[string]] => entry[1] !== undefined,
+      ),
+    );
+
+    return { input, provenance, evaluatedAt: input.timestamp };
   }
 
   private emitAlert(
     patientId: string,
     result: UC2DecisionResult,
+    rawVitals: MlRawVitalsInputEnvelope,
     deviceId?: string,
   ): void {
     const severity = result.finalDecision.final_severity as 1 | 2 | 3;
@@ -252,9 +374,7 @@ export class AlertMlService {
         severity: result.emergencyResult.severity,
         reasons: result.emergencyResult.reason ? [result.emergencyResult.reason] : [],
       },
-      rawVitals: Object.fromEntries(
-        Object.entries(result.featureQuality).map(([k]) => [k, 0]),
-      ),
+      rawVitals,
       pipelinePath: result.emergencyResult.pipelinePath,
       initialAnomalyType: result.initialAnomalyType,
       postHitlAnomalyType: result.postHitlAnomalyType,

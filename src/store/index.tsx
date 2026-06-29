@@ -1,8 +1,11 @@
 import { configureStore } from '@reduxjs/toolkit';
+import nonEmergencyDecisionReducer from './reducers/nonEmergencyDecisionSlice';
 import patientReducer from './reducers/patientSlice';
+
 export const store = configureStore({
   reducer: {
-    patient: patientReducer
+    patient: patientReducer,
+    nonEmergencyDecision: nonEmergencyDecisionReducer,
   },
 });
 
