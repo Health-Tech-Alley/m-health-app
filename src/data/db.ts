@@ -103,6 +103,8 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS appointments;
     DROP TABLE IF EXISTS threshold_recommendations;
     DROP TABLE IF EXISTS __migrations;
+    DROP TABLE IF EXISTS secure_messaging_store;
+    DROP TABLE IF EXISTS health_samples;
   `);
   closeDatabase();
   dbInstance = null;
