@@ -43,12 +43,6 @@ export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions =
     }
   });
 
-  const patients = db.getAllSync('SELECT * FROM patients;');
-  console.log('[FHIR Import] Patients in DB:', JSON.stringify(patients, null, 2));
-  //   const caregivers = db.getAllSync('SELECT * FROM caregivers;');
-  //   console.log('[FHIR Import] Caregivers in DB:', JSON.stringify(caregivers, null, 2));
-//   const healthSamples = db.getAllSync('SELECT * FROM health_samples;');
-//   console.log(`[FHIR Import] ${healthSamples.length} Health Samples in DB:`, JSON.stringify(healthSamples, null, 2));
   return importedPatientId;
 }
 

@@ -102,7 +102,6 @@ function setPatientId(patientId: string, persist = true): void {
 
 /** Re-read the snapshot from SQLite and broadcast. Called after any write. */
 export function refreshPatientRecord(patientId?: string): void {
-  console.log('currentPatientId: ', currentPatientId, 'patientId: ', patientId);
   if (!currentPatientId && !patientId) return;
 
   const nextPatientId = patientId || (currentPatientId ?? '');
@@ -258,7 +257,6 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
   const importFHIRBundle = useCallback((bundle: any) => {
     const importedPatientId = saveFHIRBundleToDB(bundle);   // writes to SQLite using the Bundle Patient identity
     if (!importedPatientId) return null;
-    console.log('[PatientRecordProvider] FHIR bundle imported to DB, refreshing snapshot... ', bundle.entry[0]);
     setPatientId(importedPatientId);        // selects imported patient and triggers useSyncExternalStore -> all screens update
     setInitState({ patientId: importedPatientId, error: null, initialized: true });
     return importedPatientId;
