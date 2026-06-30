@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -23,6 +23,8 @@ import {
   upsertDailyCareEntry,
   type DailyCareEntry,
 } from "@/data";
+import { getRehabilitationMeasurements } from "@/data/repositories/rehabilitationMeasurementRepository";
+import type { RehabilitationMeasurement, RehabilitationMeasurementType } from "@/data/types";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 import { useAppSelector } from "@/store/hooks";
 import {
@@ -67,6 +69,19 @@ export default function CareScreen() {
 
   const [editingField, setEditingField] = useState<null | "setsCompleted" | "painBefore" | "painAfter" | "fatigue" | "notes">(null);
   const [editDraft, setEditDraft] = useState("");
+
+  const rehabMeasurements = useMemo(() => {
+    if (!patientId) return [];
+    return getRehabilitationMeasurements(patientId, "rehabilitation_berg_balance")
+      .concat(getRehabilitationMeasurements(patientId, "rehabilitation_gait_speed"));
+  }, [patientId]);
+
+  const bergBalanceMeasurements = rehabMeasurements.filter(
+    (m) => m.type === "rehabilitation_berg_balance",
+  );
+  const gaitSpeedMeasurements = rehabMeasurements.filter(
+    (m) => m.type === "rehabilitation_gait_speed",
+  );
 
   const openFieldEdit = (field: "setsCompleted" | "painBefore" | "painAfter" | "fatigue" | "notes") => {
     setEditingField(field);
@@ -258,15 +273,21 @@ export default function CareScreen() {
                     />
                   </View>
 
-                  <View style={styles.mlUnavailableCard}>
-                    <Text style={styles.mlUnavailableLabel}>Functional Task Score</Text>
-                    <Text style={styles.mlUnavailableText}>Not available yet.</Text>
-                  </View>
+                  <ProgressMetric
+                    label="Functional Task Score"
+                    measurements={bergBalanceMeasurements}
+                    target={56}
+                    maxVal={56}
+                    unit="pts"
+                  />
 
-                  <View style={styles.mlUnavailableCard}>
-                    <Text style={styles.mlUnavailableLabel}>Guided Movement Score</Text>
-                    <Text style={styles.mlUnavailableText}>Not available yet.</Text>
-                  </View>
+                  <ProgressMetric
+                    label="Guided Movement Score"
+                    measurements={gaitSpeedMeasurements}
+                    target={1.0}
+                    maxVal={1.5}
+                    unit="m/s"
+                  />
 
                   <Pressable style={styles.notesCard} onPress={() => openFieldEdit("notes")}>
                     <Text style={styles.notesLabel}>Caregiver Note · tap to edit</Text>
@@ -560,6 +581,67 @@ function formatCarePlanStatus(value?: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function ProgressMetric({
+  label,
+  measurements,
+  target,
+  maxVal,
+  unit,
+}: {
+  label: string;
+  measurements: RehabilitationMeasurement[];
+  target: number;
+  maxVal: number;
+  unit: string;
+}) {
+  if (measurements.length === 0) {
+    return (
+      <View style={styles.mlUnavailableCard}>
+        <Text style={styles.mlUnavailableLabel}>{label}</Text>
+        <Text style={styles.mlUnavailableText}>No data yet.</Text>
+      </View>
+    );
+  }
+
+  const latest = measurements[measurements.length - 1];
+  const first = measurements[0];
+  const progress = Math.min(latest.value / maxVal, 1);
+  const targetPercent = Math.min(target / maxVal, 1) * 100;
+  const delta = latest.value - first.value;
+  const deltaStr = delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1);
+
+  return (
+    <View style={styles.progressMetric}>
+      <View style={styles.progressMetricHeader}>
+        <Text style={styles.progressMetricLabel}>{label}</Text>
+        <Text style={styles.progressMetricValue}>
+          {latest.value.toFixed(1)} {unit}{"  "}
+          <Text style={{ color: delta >= 0 ? "#16A34A" : "#DC2626", fontSize: 12 }}>
+            {deltaStr} from baseline
+          </Text>
+        </Text>
+      </View>
+      <View style={styles.progressTrack}>
+        <View
+          style={[
+            styles.progressFill,
+            { width: `${progress * 100}%` },
+          ]}
+        />
+        <View
+          style={[
+            styles.progressTargetMarker,
+            { left: `${targetPercent}%` },
+          ]}
+        />
+      </View>
+      <Text style={styles.progressTargetLabel}>
+        Target: {target} {unit}
+      </Text>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -1099,6 +1181,11 @@ const styles = StyleSheet.create({
     width: 3,
     backgroundColor: AppTheme.colors.danger,
     zIndex: 2,
+  },
+  progressTargetLabel: {
+    fontSize: 11,
+    color: AppTheme.colors.muted,
+    marginTop: 4,
   },
   mlUnavailableCard: {
     backgroundColor: AppTheme.colors.softSurface,

@@ -1,69 +1,115 @@
-import * as SQLite from 'expo-sqlite';
+/**
+ * SecureMessagingRepository — SQLite persistence for encrypted messages.
+ *
+ * Uses the main app database (caregiver-concierge.db) and the
+ * `secure_messaging_store` table created by migrations. Messages are
+ * encrypted by SecureMessagingService before being persisted.
+ */
+import { getDatabase } from '../db';
 
-const db = SQLite.openDatabaseSync('secure_messaging_prod.db');
-
-export interface LocalProductionMessage {
-    message_id: string;
-    recipient_id: string;
-    ephemeral_public_key: string;
-    sequence_number: number;
-    ciphertext: string;
-    auth_tag: string;
-    sync_status: 'QUEUED' | 'SYNCED' | 'FAILED';
-    created_at: number;
+export interface SecureMessageRow {
+  message_id: string;
+  patient_id: string;
+  recipient_provider_id: string;
+  encrypted_payload: string;
+  iv: string;
+  auth_tag: string;
+  ephemeral_public_key: string;
+  message_type: 'CLINICAL_ESCALATION' | 'STANDARD_CHAT';
+  sync_status: 'QUEUED' | 'SENDING' | 'SYNCED';
+  created_at: number;
+  consent_audit_token: string;
 }
 
+export type InsertSecureMessageInput = Omit<
+  SecureMessageRow,
+  'sync_status' | 'created_at'
+> & {
+  sync_status?: SecureMessageRow['sync_status'];
+  created_at?: number;
+};
+
 export class SecureMessagingRepository {
-    public static initDatabase(): void {
-        db.execSync(`
-      CREATE TABLE IF NOT EXISTS production_messaging_store (
-        message_id TEXT PRIMARY KEY,
-        recipient_id TEXT NOT NULL,
-        ephemeral_public_key TEXT NOT NULL,
-        sequence_number INTEGER NOT NULL,
-        ciphertext TEXT NOT NULL,
-        auth_tag TEXT NOT NULL,
-        sync_status TEXT DEFAULT 'QUEUED',
-        created_at INTEGER NOT NULL
+  static insertMessage(msg: InsertSecureMessageInput): void {
+    const db = getDatabase();
+    db.runSync(
+      `INSERT INTO secure_messaging_store
+        (message_id, patient_id, recipient_provider_id, encrypted_payload,
+         iv, auth_tag, ephemeral_public_key, message_type, sync_status,
+         created_at, consent_audit_token)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      msg.message_id,
+      msg.patient_id,
+      msg.recipient_provider_id,
+      msg.encrypted_payload,
+      msg.iv,
+      msg.auth_tag,
+      msg.ephemeral_public_key,
+      msg.message_type,
+      msg.sync_status ?? 'QUEUED',
+      msg.created_at ?? Date.now(),
+      msg.consent_audit_token,
+    );
+  }
+
+  static getMessagesForPatient(
+    patientId: string,
+    recipientProviderId?: string,
+  ): SecureMessageRow[] {
+    const db = getDatabase();
+    if (recipientProviderId) {
+      return db.getAllSync<SecureMessageRow>(
+        `SELECT * FROM secure_messaging_store
+         WHERE patient_id = ? AND recipient_provider_id = ?
+         ORDER BY created_at ASC;`,
+        patientId,
+        recipientProviderId,
       );
-      CREATE TABLE IF NOT EXISTS secure_messaging_sequences (
-        recipient_id TEXT PRIMARY KEY,
-        last_sequence_number INTEGER NOT NULL DEFAULT 0
-      );
-    `);
     }
+    return db.getAllSync<SecureMessageRow>(
+      `SELECT * FROM secure_messaging_store
+       WHERE patient_id = ?
+       ORDER BY created_at ASC;`,
+      patientId,
+    );
+  }
 
-    public static queueSecureMessage(msg: Omit<LocalProductionMessage, 'sync_status' | 'created_at'>): void {
-        db.runSync(
-            `INSERT INTO production_messaging_store (message_id, recipient_id, ephemeral_public_key, sequence_number, ciphertext, auth_tag, sync_status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'QUEUED', ?);`,
-            [msg.message_id, msg.recipient_id, msg.ephemeral_public_key, msg.sequence_number, msg.ciphertext, msg.auth_tag, Date.now()]
-        );
-    }
+  static getMessageById(messageId: string): SecureMessageRow | null {
+    const db = getDatabase();
+    return (
+      db.getFirstSync<SecureMessageRow>(
+        `SELECT * FROM secure_messaging_store WHERE message_id = ?;`,
+        messageId,
+      ) ?? null
+    );
+  }
 
-    public static getPendingQueue(): LocalProductionMessage[] {
-        return db.getAllSync<LocalProductionMessage>(
-            `SELECT * FROM production_messaging_store WHERE sync_status = 'QUEUED' ORDER BY sequence_number ASC;`
-        );
-    }
+  static updateSyncStatus(
+    messageId: string,
+    status: SecureMessageRow['sync_status'],
+  ): void {
+    const db = getDatabase();
+    db.runSync(
+      `UPDATE secure_messaging_store SET sync_status = ? WHERE message_id = ?;`,
+      status,
+      messageId,
+    );
+  }
 
-    public static markAsSynced(messageId: string): void {
-        db.runSync(`UPDATE production_messaging_store SET sync_status = 'SYNCED' WHERE message_id = ?;`, [messageId]);
-    }
+  static deleteMessage(messageId: string): void {
+    const db = getDatabase();
+    db.runSync(
+      `DELETE FROM secure_messaging_store WHERE message_id = ?;`,
+      messageId,
+    );
+  }
 
-    public static getNextSequenceNumber(recipientId: string): number {
-        db.runSync(
-            `INSERT OR IGNORE INTO secure_messaging_sequences (recipient_id, last_sequence_number) VALUES (?, 0);`,
-            [recipientId]
-        );
-        db.runSync(
-            `UPDATE secure_messaging_sequences SET last_sequence_number = last_sequence_number + 1 WHERE recipient_id = ?;`,
-            [recipientId]
-        );
-        const result = db.getFirstSync<{ last_sequence_number: number }>(
-            `SELECT last_sequence_number FROM secure_messaging_sequences WHERE recipient_id = ?;`,
-            [recipientId]
-        );
-        return result ? result.last_sequence_number : 1;
-    }
+  static countMessagesForPatient(patientId: string): number {
+    const db = getDatabase();
+    const row = db.getFirstSync<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM secure_messaging_store WHERE patient_id = ?;`,
+      patientId,
+    );
+    return row?.count ?? 0;
+  }
 }

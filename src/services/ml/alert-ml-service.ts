@@ -24,9 +24,11 @@ import type {
 import {
   buildUC2FeatureVector,
   createAlertAutoencoderRunner,
+  createTfliteInterpreterAdapter,
   finalDecision,
   runEmergencyRuleEngine,
   runUC2DecisionLayer,
+  runUC2DecisionLayerV2,
 } from '@/ml-models/uc2-decision-layer';
 import type { AlertAutoencoder } from '@/ml-models/alert-autoencoder/alert-autoencoder';
 import { getEventBus } from '@/orchestration/event-bus';
@@ -135,8 +137,9 @@ export class AlertMlService {
   }
 
   /**
-   * Run the UC2 decision layer directly from an explicit vitals input (used by
-   * the Care Management harness and tests). Returns the full result.
+   * Run the UC2 decision layer v2 directly from an explicit vitals input (used by
+   * the Care Management harness and tests). Returns the full result mapped to
+   * the UC2DecisionResult compat shape.
    */
   async runDecisionLayer(input: AppleWatchVitalsInput): Promise<UC2DecisionResult | null> {
     if (!this.model.isLoaded) {
@@ -145,7 +148,7 @@ export class AlertMlService {
 
     // The runner requires the real AlertAutoencoder (TFLite). If the
     // configured model exposes a scaler + runReconstruction, use the UC2
-    // layer; otherwise the mock provider can't produce a reconstruction
+    // v2 layer; otherwise the mock provider can't produce a reconstruction
     // vector, so fall back to legacy inference.
     const ae = this.model as unknown as AlertAutoencoder;
     const scaler = ae.scalerParams;
@@ -153,16 +156,72 @@ export class AlertMlService {
       return this.runLegacyEmergencyFastPath(input) ?? this.runLegacy(input);
     }
 
-    const runner = createAlertAutoencoderRunner(ae);
-    return runUC2DecisionLayer({
-      eventId: `uc2-${Date.now()}`,
-      input,
+    const raw = {
+      patient_id: input.patient_id,
+      timestamp_iso: input.timestamp,
+      heart_rate: input.heart_rate,
+      blood_oxygen: input.blood_oxygen,
+      blood_pressure_systolic: input.blood_pressure_systolic,
+      blood_pressure_diastolic: input.blood_pressure_diastolic,
+      glucose_level: input.glucose_level,
+      body_temperature: input.body_temperature,
+      respiratory_rate: input.respiratory_rate,
+      steps_count: input.steps_count,
+    };
+
+    const v2Result = await runUC2DecisionLayerV2({
+      raw,
       scaler: { mean: scaler.mean, scale: scaler.scale },
-      threshold: this.model.threshold,
-      runTFLiteAutoencoder: runner,
-      caregiverFinalAction: 'no_prompt_shown',
-      caregiverSelectedCodes: [],
+      interpreter: createTfliteInterpreterAdapter(ae),
+      aeThreshold: this.model.threshold,
     });
+
+    const aeScore = v2Result.ae?.ae_score ?? null;
+    const isAnomaly = v2Result.ae?.is_anomaly ?? false;
+    const finalDec = v2Result.final_decision;
+
+    return {
+      emergencyResult: v2Result.emergency,
+      rawFeatures: v2Result.feature_vector ?? [],
+      scaledFeatures: null,
+      aeScore,
+      threshold: this.model.threshold,
+      isAnomaly,
+      promptShown: false,
+      initialAnomalyType: (v2Result.sensor_classification?.sensor_anomaly_type ?? 'NORMAL_PATTERN') as UC2DecisionResult['initialAnomalyType'],
+      postHitlAnomalyType: (finalDec.post_hitl_anomaly_type ?? 'NORMAL_PATTERN') as UC2DecisionResult['postHitlAnomalyType'],
+      topFeatureEvidence: v2Result.ae?.top_contributors ?? [],
+      featureQuality: {},
+      finalDecision: {
+        ...finalDec,
+        final_severity: finalDec.post_hitl_severity ?? 0,
+        final_notification_title: finalDec.final_notification_title ?? '',
+        final_notification_body: finalDec.final_notification_body ?? '',
+      } as UC2DecisionResult['finalDecision'],
+      initialMCPPayload: v2Result.initial_mcp_payload ?? null,
+      finalSLMPayload: v2Result.final_slm_payload ?? null,
+      ae_score_mse: aeScore,
+      ml_anomaly_flag: isAnomaly,
+      pre_hitl_severity: v2Result.sensor_classification?.pre_hitl_severity ?? 0,
+      post_hitl_severity: finalDec.post_hitl_severity ?? 0,
+      sensor_anomaly_type: v2Result.sensor_classification?.sensor_anomaly_type ?? 'NORMAL_PATTERN',
+      post_hitl_anomaly_type: (finalDec.post_hitl_anomaly_type ?? 'NORMAL_PATTERN') as UC2DecisionResult['post_hitl_anomaly_type'],
+      anomaly_family: v2Result.sensor_classification?.anomaly_family,
+      caregiver_selected_codes: [],
+      max_matrix_delta: 0,
+      critical_route_triggered: false,
+      personalized_threshold_severity_floor: v2Result.personalized_thresholds?.severity_floor ?? 0,
+      recurrence_severity_floor: v2Result.recurrence?.severity_floor ?? 0,
+      final_notification_type: finalDec.final_notification_type,
+      final_notification_level: finalDec.final_notification_level,
+      quality_tags: v2Result.feature_quality_tags ?? [],
+      quality_warnings: v2Result.feature_quality_tags?.filter(t => t.warning).map(t => t.warning!) ?? [],
+      emergency_rule_result: v2Result.emergency,
+      slm_payload: v2Result.final_slm_payload ?? null,
+      provider_payload: v2Result.final_slm_payload ?? null,
+      mcp_payload: v2Result.initial_mcp_payload ?? null,
+      audit_event: v2Result.audit_event,
+    } as UC2DecisionResult;
   }
 
   /**

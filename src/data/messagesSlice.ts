@@ -1,108 +1,161 @@
-import { socketClient } from '@/data/SocketClient';
-import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
+/**
+ * messagesSlice — Redux state for local encrypted secure messaging.
+ *
+ * Local-only: encrypt → persist to SQLite → decrypt for display.
+ * No transport layer, no flush queue, no socket client.
+ */
+import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import { SecureMessagingRepository } from './repositories/SecureMessagingRepository';
 import { SecureMessagingService } from './SecureMessagingService';
 
+export type MessageDirection = 'incoming' | 'outgoing';
+
+export type ChatFeedEntry = {
+  id: string;
+  text: string;
+  direction: MessageDirection;
+  status: 'encrypting' | 'stored' | 'decrypting' | 'displayed' | 'failed';
+  createdAt: number;
+};
+
 interface MessagesState {
-    chatFeed: Array<{ id: string; text: string; status: string }>;
-    isNetworkOnline: boolean;
-    syncInProgress: boolean;
+  chatFeed: ChatFeedEntry[];
+  loading: boolean;
+  error: string | null;
 }
 
 const initialState: MessagesState = {
-    chatFeed: [],
-    isNetworkOnline: true,
-    syncInProgress: false,
+  chatFeed: [],
+  loading: false,
+  error: null,
 };
 
-export const dispatchProductionMessage = createAsyncThunk(
-    'messages/dispatchProduction',
-    async ({ text, recipientId }: { text: string; recipientId: string }, { dispatch, getState }) => {
-        const messageId = Math.random().toString(36).substring(7);
+export const sendEncryptedMessage = createAsyncThunk(
+  'messages/sendEncrypted',
+  async (
+    params: {
+      text: string;
+      patientId: string;
+      recipientProviderId: string;
+      consentAuditToken: string;
+      messageType?: 'CLINICAL_ESCALATION' | 'STANDARD_CHAT';
+    },
+    { dispatch },
+  ) => {
+    const messageId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const sequence = Date.now();
 
-        const nextSequence = SecureMessagingRepository.getNextSequenceNumber(recipientId);
+    dispatch(
+      appendMessageToFeed({
+        id: messageId,
+        text: params.text,
+        direction: 'outgoing',
+        status: 'encrypting',
+        createdAt: Date.now(),
+      }),
+    );
 
-        const signalBundle = await SecureMessagingService.encryptProductionBundle(text, recipientId, nextSequence);
+    try {
+      const encrypted = await SecureMessagingService.encryptMessage(
+        params.text,
+        sequence,
+      );
 
-        SecureMessagingRepository.queueSecureMessage({
-            message_id: messageId,
-            recipient_id: recipientId,
-            ephemeral_public_key: signalBundle.ephemeralPublicKey,
-            sequence_number: signalBundle.sequenceNumber,
-            ciphertext: signalBundle.ciphertext,
-            auth_tag: signalBundle.authTag,
+      SecureMessagingRepository.insertMessage({
+        message_id: messageId,
+        patient_id: params.patientId,
+        recipient_provider_id: params.recipientProviderId,
+        encrypted_payload: encrypted.ciphertext,
+        iv: encrypted.iv,
+        auth_tag: encrypted.authTag,
+        ephemeral_public_key: '',
+        message_type: params.messageType ?? 'STANDARD_CHAT',
+        consent_audit_token: params.consentAuditToken,
+      });
+
+      dispatch(
+        updateMessageStatus({ id: messageId, status: 'stored' }),
+      );
+    } catch (error) {
+      dispatch(
+        updateMessageStatus({ id: messageId, status: 'failed' }),
+      );
+      throw error;
+    }
+  },
+);
+
+export const loadDecryptedMessages = createAsyncThunk(
+  'messages/loadDecrypted',
+  async (
+    params: { patientId: string; recipientProviderId?: string },
+    { dispatch },
+  ) => {
+    dispatch(setLoading(true));
+    try {
+      const rows = SecureMessagingRepository.getMessagesForPatient(
+        params.patientId,
+        params.recipientProviderId,
+      );
+
+      for (const row of rows) {
+        const decrypted = await SecureMessagingService.decryptMessage({
+          ciphertext: row.encrypted_payload,
+          authTag: row.auth_tag,
+          iv: row.iv,
+          sequenceNumber: row.created_at,
         });
 
-        dispatch(appendMessageToFeed({ id: messageId, text, status: 'QUEUED' }));
-
-        const state = getState() as { messages: MessagesState };
-        if (state.messages.isNetworkOnline) {
-            dispatch(processFlushQueue());
-        }
+        dispatch(
+          appendMessageToFeed({
+            id: row.message_id,
+            text: decrypted,
+            direction: 'outgoing',
+            status: 'displayed',
+            createdAt: row.created_at,
+          }),
+        );
+      }
+    } catch (error) {
+      dispatch(setError(error instanceof Error ? error.message : 'Failed to load messages'));
+    } finally {
+      dispatch(setLoading(false));
     }
-);
-
-export const processFlushQueue = createAsyncThunk(
-    'messages/flushQueue',
-    async (_, { dispatch, getState }) => {
-        const state = getState() as { messages: MessagesState };
-        if (state.messages.syncInProgress || !state.messages.isNetworkOnline) return;
-
-        dispatch(setSyncProgress(true));
-
-        try {
-            const pendingQueue = SecureMessagingRepository.getPendingQueue();
-
-            for (const msg of pendingQueue) {
-                const outboundSignalFrame = {
-                    messageId: msg.message_id,
-                    recipientId: msg.recipient_id,
-                    ephemeralPublicKey: msg.ephemeral_public_key,
-                    sequenceNumber: msg.sequence_number,
-                    ciphertext: msg.ciphertext,
-                    authTag: msg.auth_tag
-                };
-
-                const deliveryAck = await socketClient.emitPayload('signal_transmission_channel', outboundSignalFrame);
-
-                if (deliveryAck.success) {
-                    SecureMessagingRepository.markAsSynced(msg.message_id);
-                    dispatch(updateMessageStatus({ id: msg.message_id, status: 'DELIVERED' }));
-                } else {
-                    break;
-                }
-            }
-        } catch (error) {
-            console.error("Critical signaling transmission collapse: ", error);
-        } finally {
-            dispatch(setSyncProgress(false));
-        }
-    }
-);
-
-export const changeNetworkState = createAsyncThunk(
-    'messages/changeNetworkState',
-    async (isOnline: boolean, { dispatch }) => {
-        dispatch(setNetworkState(isOnline));
-        if (isOnline) {
-            dispatch(processFlushQueue());
-        }
-    }
+  },
 );
 
 const messagesSlice = createSlice({
-    name: 'messages',
-    initialState,
-    reducers: {
-        setNetworkState: (state, action: PayloadAction<boolean>) => { state.isNetworkOnline = action.payload; },
-        setSyncProgress: (state, action: PayloadAction<boolean>) => { state.syncInProgress = action.payload; },
-        appendMessageToFeed: (state, action: PayloadAction<{ id: string; text: string; status: string }>) => { state.chatFeed.push(action.payload); },
-        updateMessageStatus: (state, action: PayloadAction<{ id: string; status: string }>) => {
-            const target = state.chatFeed.find(m => m.id === action.payload.id);
-            if (target) target.status = action.payload.status;
-        }
-    }
+  name: 'messages',
+  initialState,
+  reducers: {
+    setLoading: (state, action: PayloadAction<boolean>) => {
+      state.loading = action.payload;
+    },
+    setError: (state, action: PayloadAction<string | null>) => {
+      state.error = action.payload;
+    },
+    appendMessageToFeed: (state, action: PayloadAction<ChatFeedEntry>) => {
+      state.chatFeed.push(action.payload);
+    },
+    updateMessageStatus: (
+      state,
+      action: PayloadAction<{ id: string; status: ChatFeedEntry['status'] }>,
+    ) => {
+      const target = state.chatFeed.find((m) => m.id === action.payload.id);
+      if (target) target.status = action.payload.status;
+    },
+    clearFeed: (state) => {
+      state.chatFeed = [];
+      state.error = null;
+    },
+  },
 });
 
-export const { setNetworkState, setSyncProgress, appendMessageToFeed, updateMessageStatus } = messagesSlice.actions;
+export const {
+  setLoading,
+  setError,
+  appendMessageToFeed,
+  updateMessageStatus,
+  clearFeed,
+} = messagesSlice.actions;
 export default messagesSlice.reducer;

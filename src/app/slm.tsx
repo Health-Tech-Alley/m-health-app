@@ -652,7 +652,26 @@ export default function SLMScreen({
                   <Text style={styles.contextText}>No caregiver information was provided.</Text>
                 )}
 
+                <Text style={styles.contextSection}>Care Team</Text>
+                <Text style={styles.contextText}>
+                  PCP: {caregiverContext?.primaryCareProviderName ?? 'Not provided'}
+                  {caregiverContext?.primaryCareProviderPhone ? ` · ${caregiverContext.primaryCareProviderPhone}` : ''}
+                </Text>
+                {caregiverContext?.primaryCareProviderEmail ? (
+                  <Text style={styles.contextText}>
+                    Email: {caregiverContext.primaryCareProviderEmail}
+                  </Text>
+                ) : null}
+
                 <Text style={styles.contextSection}>Safety</Text>
+                <Text style={styles.contextText}>
+                  Emergency contact: {caregiverContext?.emergencyContact ?? 'Not provided'}
+                </Text>
+                <Text style={styles.contextText}>
+                  Safety notes: {caregiverContext?.safetyNotes ?? 'Not provided'}
+                </Text>
+
+                <Text style={styles.contextSection}>Clinical</Text>
                 <Text style={styles.contextText}>
                   Symptoms: {snapshot.symptoms.map((symptom) => symptom.label).filter(Boolean).join(', ') || 'No symptoms provided'}
                 </Text>
