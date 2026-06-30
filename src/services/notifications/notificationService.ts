@@ -16,13 +16,13 @@
 
 import { Platform } from 'react-native';
 
+import type { NotificationRecord, NotificationScope } from '@/data';
 import {
   getRecentNotificationForTrigger,
   insertNotification,
   updateNotificationAction,
   updateNotificationDelivered,
 } from '@/data';
-import type { NotificationRecord, NotificationScope } from '@/data';
 import { audit } from '@/services/audit/auditService';
 
 import { channelForScope, setupNotificationChannels } from './notificationChannels';
@@ -70,9 +70,12 @@ export async function initNotifications(): Promise<void> {
     try {
       if (typeof mod.requestPermissionsAsync === 'function') {
         await mod.requestPermissionsAsync({
-          alert: true,
-          badge: true,
-          sound: true,
+          ios: {
+              allowAlert: true,
+              allowBadge: true,
+              allowSound: true,
+              allowCriticalAlerts: true,  // needed for your severity-3 path
+            },
         });
       }
       await setupNotificationChannels(mod);
@@ -183,6 +186,7 @@ export async function scheduleLocalNotification(params: ScheduleParams): Promise
 export async function dispatchImmediate(params: DispatchParams): Promise<string | null> {
   const id = makeId('notif');
   const nowIso = new Date().toISOString();
+  console.log('[notificationService] dispatchImmediate', params, 'id:', id);
 
   if (params.triggerRef) {
     const recent = getRecentNotificationForTrigger(params.patientId, params.triggerRef, DEDUPE_WINDOW_MS);
@@ -196,12 +200,15 @@ export async function dispatchImmediate(params: DispatchParams): Promise<string 
 
   const mod = loadNotificationsModule();
   if (!mod) {
+    console.log('[notificationService] dispatchImmediate: fallback to banner');
     emitInAppBanner({ title: params.title, body: params.body, severity: params.severity, notificationId: id });
     auditDispatch(id, params, 'fallback_banner');
     return id;
   }
 
   try {
+
+    console.log('[notificationService] dispatchImmediate: scheduling via expo-notifications');
     await mod.scheduleNotificationAsync({
       content: {
         title: params.title,
@@ -211,6 +218,7 @@ export async function dispatchImmediate(params: DispatchParams): Promise<string 
       },
       trigger: null,
     });
+    console.log('[notificationService] dispatchImmediate: scheduled, updating delivered timestamp', id, nowIso);
     updateNotificationDelivered(id, nowIso);
     auditDispatch(id, params, 'immediate');
     return id;

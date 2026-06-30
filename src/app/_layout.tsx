@@ -9,8 +9,9 @@
  * the SLM system prompt both consume.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { DefaultTheme, Stack, ThemeProvider, useRouter } from "expo-router";
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { CriticalAlertDialog } from "@/components/critical-alert-dialog";
@@ -20,6 +21,27 @@ import { OrchestratorProvider } from "@/contexts/orchestrator-context";
 import { PatientRecordProvider } from "@/contexts/patient-record-context";
 import { SettingsProvider, useSettings } from "@/contexts/settings-context";
 import { SLMProvider, useSLM } from "@/contexts/slm-context";
+import { UC2RuntimeProvider } from "@/contexts/uc2-runtime-context";
+import { Provider } from 'react-redux';
+import { store } from '@/store';
+import { initializeDatabase } from '@/data';
+
+import * as Notifications from 'expo-notifications';
+import { AndroidNotificationPriority } from 'expo-notifications';
+
+// Add this OUTSIDE any component, at the module level
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    /**
+     * @platform ios
+     */
+    shouldSetBadge: true,
+    priority: AndroidNotificationPriority.MAX,
+  }),
+});
 
 function SlmPolicySync() {
   const { mode } = useSettings();
@@ -85,25 +107,83 @@ function NotificationResponseInit() {
 }
 
 export default function RootLayout() {
+  const [databaseInit] = useState<{ ready: boolean; error: Error | null }>(() => {
+    try {
+      initializeDatabase();
+      return { ready: true, error: null };
+    } catch (error) {
+      return {
+        ready: false,
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+  });
+
+  if (databaseInit.error) {
+    return (
+      <ThemeProvider value={DefaultTheme}>
+        <View style={styles.initErrorScreen}>
+          <Text style={styles.initErrorTitle}>Unable to initialize the app database</Text>
+          <Text style={styles.initErrorMessage}>{databaseInit.error.message}</Text>
+        </View>
+      </ThemeProvider>
+    );
+  }
+
+  if (!databaseInit.ready) {
+    return (
+      <ThemeProvider value={DefaultTheme}>
+        <AnimatedSplashOverlay />
+      </ThemeProvider>
+    );
+  }
+
   return (
-    <ThemeProvider value={DefaultTheme}>
-      <SettingsProvider>
-        <PatientRecordProvider>
-          <SLMProvider>
-            <SlmPolicySync />
-            <NotificationInit />
-            <NotificationResponseInit />
-            <OrchestratorProvider>
-              <CriticalAlertProvider>
-                <AnimatedSplashOverlay />
-                <InAppBanner />
-                <CriticalAlertDialog />
-                <Stack screenOptions={{ headerShown: false }} />
-              </CriticalAlertProvider>
-            </OrchestratorProvider>
-          </SLMProvider>
-        </PatientRecordProvider>
-      </SettingsProvider>
-    </ThemeProvider>
+    <Provider store={store}>
+      <ThemeProvider value={DefaultTheme}>
+        <SettingsProvider>
+          <PatientRecordProvider>
+            <SLMProvider>
+              <SlmPolicySync />
+              <NotificationInit />
+              <NotificationResponseInit />
+              <UC2RuntimeProvider>
+                <OrchestratorProvider>
+                  <CriticalAlertProvider>
+                    <AnimatedSplashOverlay />
+                    <InAppBanner />
+                    <CriticalAlertDialog />
+                    <Stack screenOptions={{ headerShown: false }} />
+                  </CriticalAlertProvider>
+                </OrchestratorProvider>
+              </UC2RuntimeProvider>
+            </SLMProvider>
+          </PatientRecordProvider>
+        </SettingsProvider>
+      </ThemeProvider>
+    </Provider>
   );
 }
+
+const styles = StyleSheet.create({
+  initErrorScreen: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: '#FFFFFF',
+  },
+  initErrorTitle: {
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  initErrorMessage: {
+    color: '#4B5563',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+});

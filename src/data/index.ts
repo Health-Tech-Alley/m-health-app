@@ -5,7 +5,7 @@
  * (services, orchestration) imports from here, never from db.ts directly.
  */
 
-export { getDatabase, closeDatabase, resetDatabase } from './db';
+export { getDatabase, initializeDatabase, closeDatabase, resetDatabase } from './db';
 export { MIGRATIONS } from './migrations';
 export * from './types';
 
@@ -54,6 +54,9 @@ export * from './repositories/wearableDeviceRepository';
 export * from './repositories/mlEventRepository';
 export * from './repositories/patientRecordRepository';
 export * from './repositories/dailyCareEntryRepository';
+export * from './repositories/carePlanRepository';
+export * from './repositories/rehabilitationMeasurementRepository';
+export * from './repositories/patientLongitudinalObservationRepository';
 export * from './repositories/appointmentRepository';
 export * from './repositories/thresholdRecommendationRepository';
 export * from './sensors';

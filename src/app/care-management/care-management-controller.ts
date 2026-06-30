@@ -3,12 +3,11 @@ import { AlertAutoencoder } from '@/ml-models/alert-autoencoder';
 import type { CoreVitals, ExtendedVitals } from '@/ml-models/alert-autoencoder/types';
 import { SCENARIOS } from '@/ml-models/alert-autoencoder/mock-scenarios';
 import {
-  createAlertAutoencoderRunner,
-  runUC2DecisionLayer,
   type AppleWatchVitalsInput,
   type CaregiverFinalAction,
   type UC2DecisionResult,
 } from '@/ml-models/uc2-decision-layer';
+import { createUC2ApplicationRuntime } from '@/services/ml/uc2-runtime-service';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 import {
   retrieveClinicalChunks,
@@ -199,23 +198,7 @@ async function publishResultToOrchestrator(
 
 export function createCareManagementController(mlModel: AlertAutoencoder) {
   let abortController: AbortController | null = null;
-
-  function getRunnerAndScaler():
-    | { runner: ReturnType<typeof createAlertAutoencoderRunner>; scaler: { mean: number[]; scale: number[] }; threshold: number }
-    | { error: string } {
-    const scaler = mlModel.scalerParams;
-    if (!scaler) {
-      return { error: 'ML scaler not loaded' };
-    }
-    if (!mlModel.isLoaded) {
-      return { error: 'ML model not loaded' };
-    }
-    return {
-      runner: createAlertAutoencoderRunner(mlModel),
-      scaler: { mean: scaler.mean, scale: scaler.scale },
-      threshold: mlModel.threshold,
-    };
-  }
+  const uc2Runtime = createUC2ApplicationRuntime(mlModel);
 
   return {
     selectScenario(scenarioId: string): CareManagementAction {
@@ -298,11 +281,6 @@ export function createCareManagementController(mlModel: AlertAutoencoder) {
         return { type: 'ml-error', payload: { error: 'No vitals loaded' } };
       }
 
-      const got = getRunnerAndScaler();
-      if ('error' in got) {
-        return { type: 'ml-error', payload: { error: got.error } };
-      }
-
       const input = buildUC2Input(
         state.coreVitals,
         state.extendedVitals,
@@ -311,12 +289,9 @@ export function createCareManagementController(mlModel: AlertAutoencoder) {
       );
 
       try {
-        const result = await runUC2DecisionLayer({
+        const result = await uc2Runtime.evaluateUC2WithExistingRuntime({
           eventId: `uc2-cm-${Date.now()}`,
-          input,
-          scaler: got.scaler,
-          threshold: got.threshold,
-          runTFLiteAutoencoder: got.runner,
+          vitals: input,
           caregiverFinalAction: 'no_prompt_shown',
           caregiverSelectedCodes: [],
         });
@@ -340,11 +315,6 @@ export function createCareManagementController(mlModel: AlertAutoencoder) {
         return { type: 'ml-error', payload: { error: 'No vitals loaded' } };
       }
 
-      const got = getRunnerAndScaler();
-      if ('error' in got) {
-        return { type: 'ml-error', payload: { error: got.error } };
-      }
-
       const input = buildUC2Input(
         state.coreVitals,
         state.extendedVitals,
@@ -353,12 +323,9 @@ export function createCareManagementController(mlModel: AlertAutoencoder) {
       );
 
       try {
-        const result = await runUC2DecisionLayer({
+        const result = await uc2Runtime.evaluateUC2WithExistingRuntime({
           eventId: `uc2-cm-${Date.now()}`,
-          input,
-          scaler: got.scaler,
-          threshold: got.threshold,
-          runTFLiteAutoencoder: got.runner,
+          vitals: input,
           caregiverFinalAction: state.caregiverAction,
           caregiverSelectedCodes: state.observationCodes,
         });
@@ -383,8 +350,7 @@ export function createCareManagementController(mlModel: AlertAutoencoder) {
      * pass/fail row per scenario.
      */
     async executeBatchParity(): Promise<CareManagementAction> {
-      const got = getRunnerAndScaler();
-      if ('error' in got) {
+      if (!uc2Runtime.isReady()) {
         return { type: 'batch-done', payload: { rows: [] } };
       }
 
@@ -408,12 +374,9 @@ export function createCareManagementController(mlModel: AlertAutoencoder) {
         );
 
         try {
-          const result = await runUC2DecisionLayer({
+          const result = await uc2Runtime.evaluateUC2WithExistingRuntime({
             eventId: `uc2-batch-${scenario.id}`,
-            input,
-            scaler: got.scaler,
-            threshold: got.threshold,
-            runTFLiteAutoencoder: got.runner,
+            vitals: input,
             caregiverFinalAction: scenario.presetCaregiverAction ?? 'no_prompt_shown',
             caregiverSelectedCodes: scenario.presetObservationCodes ?? [],
           });

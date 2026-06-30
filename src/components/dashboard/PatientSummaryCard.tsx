@@ -1,14 +1,27 @@
 import { useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { confirmPendingCondition, deleteCondition } from '@/data';
 import type { PatientCondition } from '@/data/types';
+import { useAppSelector } from '@/store/hooks';
+import {
+  displayClinical,
+  displayEntered,
+  getCaregiverDisplay,
+  getPatientAgeDisplay,
+  getPatientDisplayName,
+  getPrimaryDiagnosisDisplay,
+  NOT_AVAILABLE,
+} from '@/store/selectors/patientSelectors';
 
 export function PatientSummaryCard() {
+  const router = useRouter();
   const { snapshot, ready, error, refresh } = usePatientRecord();
   const [expanded, setExpanded] = useState(false);
+  const activePatient = useAppSelector((state) => state.patient.activePatient);
 
   if (!ready) {
     return (
@@ -39,12 +52,20 @@ export function PatientSummaryCard() {
     );
   }
 
-  const patient = snapshot.patient;
-  const caregiver = snapshot.caregiver;
-  const conditions = snapshot.conditions.filter((c) => !c.needsReview);
-  const primaryCondition = conditions.find((c) => c.isPrimary) ?? conditions[0];
-  const comorbidities = conditions.filter((c) => c !== primaryCondition);
-  const pendingReview = snapshot.pendingReviewConditions;
+  const patientName = getPatientDisplayName(activePatient);
+  const patientAge = getPatientAgeDisplay(activePatient);
+  const caregiverName = getCaregiverDisplay(activePatient);
+  const primaryCondition = activePatient?.primaryDiagnosis ?? null;
+  const comorbidities = activePatient?.comorbidities ?? [];
+  const pendingReview = activePatient?.pendingConditions ?? [];
+  const sourceCount = countKnowledgeSources(snapshot.knowledgeStats.bySource);
+  const cacheSummary = formatKnowledgeCacheSummary(
+    snapshot.knowledgeStats.total,
+    sourceCount,
+  );
+  const sourceBreakdown = formatKnowledgeSourceBreakdown(
+    snapshot.knowledgeStats.bySource,
+  );
 
   const handleConfirm = (conditionId: string) => {
     confirmPendingCondition(conditionId);
@@ -58,18 +79,20 @@ export function PatientSummaryCard() {
 
   const primaryDisplay = primaryCondition
     ? `${primaryCondition.icd10 ? `${primaryCondition.icd10} · ` : ''}${primaryCondition.name}`
-    : patient?.conditions ?? 'Not documented';
+    : getPrimaryDiagnosisDisplay(activePatient);
+  const needsClinicalImport =
+    primaryDisplay === NOT_AVAILABLE || pendingReview.length > 0;
 
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{getInitials(patient?.name ?? '?')}</Text>
+          <Text style={styles.avatarText}>{getInitials(patientName)}</Text>
         </View>
 
         <View style={styles.patientTextBlock}>
           <View style={styles.nameRow}>
-            <Text style={styles.patientName}>{patient?.name ?? 'Unknown'}</Text>
+            <Text style={styles.patientName}>{patientName}</Text>
 
             {comorbidities.length > 0 ? (
               <View style={styles.comorbidityBadge}>
@@ -81,7 +104,7 @@ export function PatientSummaryCard() {
           </View>
 
           <Text style={styles.patientMeta}>
-            Age {patient?.age ?? '?'} · {caregiver?.name ?? 'Unknown caregiver'}
+            Age {patientAge} · {caregiverName}
           </Text>
         </View>
       </View>
@@ -93,6 +116,18 @@ export function PatientSummaryCard() {
           <Text style={styles.categoryText}>{primaryCondition.category}</Text>
         ) : null}
       </View>
+
+      {needsClinicalImport ? (
+        <Pressable
+          style={styles.importBanner}
+          onPress={() => router.push({ pathname: '/(tabs)/more', params: { focus: 'ehr-import' } } as never)}
+        >
+          <Text style={styles.importBannerTitle}>Latest clinical details not available</Text>
+          <Text style={styles.importBannerText}>
+            Import the latest EHR from Settings to refresh diagnoses and visit data.
+          </Text>
+        </Pressable>
+      ) : null}
 
       {comorbidities.length > 0 ? (
         <Pressable
@@ -146,23 +181,30 @@ export function PatientSummaryCard() {
       ) : null}
 
       <View style={styles.infoGrid}>
-        <InfoBox label="SpO₂ cutoff" value={patient?.spo2Cutoff ?? '88%'} />
-        <InfoBox label="Baseline HR" value={patient?.baselineHeartRate ?? '72–88 BPM'} />
+        <InfoBox label="SpO₂ cutoff" value={displayClinical(activePatient?.spo2Cutoff)} />
+        <InfoBox label="Baseline HR" value={displayEntered(activePatient?.baselineHeartRate)} />
       </View>
 
       {snapshot.bundleStatus.state === 'in_flight' ? (
         <View style={styles.bundlePendingPill}>
-          <Text style={styles.bundlePendingText}>Enrichment in progress…</Text>
+          <Text style={styles.bundlePendingText}>Updating clinical knowledge</Text>
+          {cacheSummary ? (
+            <Text style={styles.bundlePendingDetail}>{cacheSummary}</Text>
+          ) : null}
         </View>
       ) : snapshot.bundleStatus.state === 'failed' ? (
         <View style={styles.bundleFailedPill}>
           <Text style={styles.bundleFailedText}>Live fetch unavailable — using offline knowledge</Text>
+          {cacheSummary ? (
+            <Text style={styles.bundleFailedDetail}>{cacheSummary}</Text>
+          ) : null}
         </View>
       ) : snapshot.knowledgeStats.total > 0 ? (
         <View style={styles.knowledgeStatsPill}>
-          <Text style={styles.knowledgeStatsText}>
-            {snapshot.knowledgeStats.total} knowledge chunks cached
-          </Text>
+          <Text style={styles.knowledgeStatsText}>{cacheSummary}</Text>
+          {sourceBreakdown ? (
+            <Text style={styles.knowledgeStatsDetail}>{sourceBreakdown}</Text>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -192,6 +234,32 @@ function InfoBox({ label, value }: { label: string; value: string }) {
       <Text style={styles.infoValue}>{value}</Text>
     </View>
   );
+}
+
+function countKnowledgeSources(bySource: Record<string, number>): number {
+  return Object.values(bySource).filter((count) => count > 0).length;
+}
+
+function formatKnowledgeCacheSummary(
+  total: number,
+  sourceCount: number,
+): string | null {
+  if (total <= 0) return null;
+  const referenceLabel = total === 1 ? 'reference' : 'references';
+  const sourceLabel = sourceCount === 1 ? 'source' : 'sources';
+  return `${total} cached ${referenceLabel} from ${sourceCount} ${sourceLabel}`;
+}
+
+function formatKnowledgeSourceBreakdown(
+  bySource: Record<string, number>,
+): string | null {
+  const entries = Object.entries(bySource)
+    .filter(([, count]) => count > 0)
+    .sort(([sourceA], [sourceB]) => sourceA.localeCompare(sourceB));
+
+  if (entries.length === 0) return null;
+
+  return entries.map(([source, count]) => `${source}: ${count}`).join(', ');
 }
 
 function getInitials(name: string): string {
@@ -322,6 +390,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginTop: 3,
+  },
+  importBanner: {
+    backgroundColor: AppTheme.colors.brandSoft,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#B7FFF1',
+    padding: 14,
+    marginBottom: 14,
+  },
+  importBannerTitle: {
+    color: AppTheme.colors.brand,
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  importBannerText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700',
   },
   comorbidityExpand: {
     marginBottom: 14,
@@ -459,6 +547,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
   },
+  bundlePendingDetail: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 4,
+  },
   bundleFailedPill: {
     backgroundColor: AppTheme.colors.dangerLight,
     borderRadius: AppTheme.radius.pill,
@@ -471,6 +565,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
   },
+  bundleFailedDetail: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 4,
+  },
   knowledgeStatsPill: {
     backgroundColor: AppTheme.colors.brandSoft,
     borderRadius: AppTheme.radius.pill,
@@ -482,5 +582,11 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.brand,
     fontSize: 12,
     fontWeight: '900',
+  },
+  knowledgeStatsDetail: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 4,
   },
 });

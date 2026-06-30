@@ -1,13 +1,16 @@
-import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+
+import { DeviceEventEmitter, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
+import { getHealthSampleForPatientAndCurrentMonth } from "@/data/repositories/healthSampleRepository";
+import { HealthSampleType, Patient } from "@/data/types";
 
 type VitalKey = "spo2" | "heartRate" | "respRate" | "mobility";
 type TimeRange = "12h" | "day" | "week" | "month";
 
 type VitalMetric = {
-  key: VitalKey;
+  key: HealthSampleType;
   tabIcon: string;
   label: string;
   value: string;
@@ -35,8 +38,7 @@ const metrics: VitalMetric[] = [
     data: [96, 95, 96, 94, 93, 92, 90],
   },
   {
-    key: "heartRate",
-
+    key: "heart_rate",
     tabIcon: "\u2764\uFE0F",
     label: "Heart Rate",
     value: "118",
@@ -49,8 +51,7 @@ const metrics: VitalMetric[] = [
     data: [82, 86, 88, 94, 98, 110, 118],
   },
   {
-    key: "respRate",
-
+    key: "respiratory_rate",
     tabIcon: "\u{1F32C}\uFE0F",
     label: "Respiratory Rate",
     value: "32",
@@ -63,8 +64,7 @@ const metrics: VitalMetric[] = [
     data: [20, 21, 23, 24, 26, 29, 32],
   },
   {
-    key: "mobility",
-
+    key: "steps",
     tabIcon: "\u{1F6B6}",
     label: "Mobility Score",
     value: "55",
@@ -90,24 +90,33 @@ const CHART_HEIGHT = 88;
 const POINT_SIZE = 13;
 
 export function WeeklyVitalsCard() {
-  const [selectedKey, setSelectedKey] = useState<VitalKey>("spo2");
+  const [selectedKey, setSelectedKey] = useState<HealthSampleType>("spo2");
   const [selectedRange, setSelectedRange] = useState<TimeRange>("week");
-  const [helperKey, setHelperKey] = useState<VitalKey>("spo2");
+  const [helperKey, setHelperKey] = useState<HealthSampleType>("spo2");
+  const [currentPatient, setCurrentPatient] = useState<Patient | null>(null);
+  const [fhirData, setFhirData] = useState<any>(null);
+  const [chartMetrics, setChartMetrics] = useState<VitalMetric[]>([]);
+
+  // load current patient on load
+  useEffect(() => {
+    const patient = null;
+    setCurrentPatient(patient);
+  }, []);
 
   const selectedMetric =
-    metrics.find((metric) => metric.key === selectedKey) ?? metrics[0];
+    metrics.find((metric) => metric.key === selectedKey) ?? chartMetrics[0];
   const helperMetric =
     metrics.find((metric) => metric.key === helperKey) ?? selectedMetric;
 
-  const heartRate = metrics.find((metric) => metric.key === "heartRate");
-  const respRate = metrics.find((metric) => metric.key === "respRate");
+  const heartRate = metrics.find((metric) => metric.key === "heart_rate");
+  const respRate = metrics.find((metric) => metric.key === "respiratory_rate");
 
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <View style={styles.titleBlock}>
           <Text style={styles.sectionTitle}>Weekly Vitals</Text>
-          <Text style={styles.subtitle}>{selectedMetric.subtitle}</Text>
+          <Text style={styles.subtitle}>{selectedMetric?.subtitle}</Text>
         </View>
 
         <View style={styles.tabRow}>
@@ -133,21 +142,21 @@ export function WeeklyVitalsCard() {
           })}
         </View>
 
-        <Text style={styles.metricHelperText}>{helperMetric.helperText}</Text>
+        <Text style={styles.metricHelperText}>{helperMetric?.helperText}</Text>
       </View>
 
       <View style={styles.valueRow}>
-        <Text style={styles.mainValue}>{selectedMetric.value}</Text>
-        <Text style={styles.unit}>{selectedMetric.unit}</Text>
+        <Text style={styles.mainValue}>{selectedMetric?.value}</Text>
+        <Text style={styles.unit}>{selectedMetric?.unit}</Text>
         <Text
           style={[
             styles.status,
-            selectedMetric.statusTone === "critical" && styles.statusCritical,
-            selectedMetric.statusTone === "warning" && styles.statusWarning,
-            selectedMetric.statusTone === "good" && styles.statusGood,
+            selectedMetric?.statusTone === "critical" && styles.statusCritical,
+            selectedMetric?.statusTone === "warning" && styles.statusWarning,
+            selectedMetric?.statusTone === "good" && styles.statusGood,
           ]}
         >
-          {selectedMetric.status}
+          {selectedMetric?.status}
         </Text>
       </View>
 
@@ -174,7 +183,7 @@ export function WeeklyVitalsCard() {
         })}
       </View>
 
-      <TrendChart values={selectedMetric.data} />
+      <TrendChart values={selectedMetric?.data} />
 
       <View style={styles.divider} />
 
@@ -201,7 +210,7 @@ function TrendChart({ values }: { values: number[] }) {
   const [chartWidth, setChartWidth] = useState(0);
 
   const points = useMemo(() => {
-    if (chartWidth <= 0 || values.length === 0) return [];
+    if (chartWidth <= 0 || !values || values.length === 0) return [];
 
     const min = Math.min(...values);
     const max = Math.max(...values);
@@ -295,7 +304,7 @@ function SmallStat({
   label: string;
   value: string;
   unit: string;
-  tone: "critical" | "purple";
+  tone: "critical" | "purple" | "good";
 }) {
   return (
     <View style={styles.smallStat}>
@@ -315,6 +324,7 @@ function SmallStat({
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   card: {

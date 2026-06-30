@@ -514,4 +514,75 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_threshold_recs_patient
     ON threshold_recommendations(patient_id, status, created_at DESC);
   `,
+
+  // 17: caregiver preferred name + functional classification fields
+  `
+  ALTER TABLE patients ADD COLUMN preferred_name TEXT;
+  ALTER TABLE patients ADD COLUMN gmfcs TEXT;
+  ALTER TABLE patients ADD COLUMN fms TEXT;
+  ALTER TABLE patients ADD COLUMN macs TEXT;
+  ALTER TABLE patients ADD COLUMN cfcs TEXT;
+  ALTER TABLE patients ADD COLUMN edacs TEXT;
+  `,
+
+  // 18: normalized FHIR CarePlan fields + activities
+  `
+  ALTER TABLE care_plans ADD COLUMN status TEXT;
+  ALTER TABLE care_plans ADD COLUMN intent TEXT;
+  ALTER TABLE care_plans ADD COLUMN title TEXT;
+  ALTER TABLE care_plans ADD COLUMN description TEXT;
+  ALTER TABLE care_plans ADD COLUMN period_start TEXT;
+  ALTER TABLE care_plans ADD COLUMN period_end TEXT;
+  ALTER TABLE care_plans ADD COLUMN care_team_display_json TEXT;
+
+  CREATE TABLE IF NOT EXISTS care_plan_activities (
+    activity_id TEXT PRIMARY KEY,
+    plan_id     TEXT NOT NULL,
+    status      TEXT,
+    description TEXT,
+    sequence    INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_care_plan_activities_plan
+    ON care_plan_activities(plan_id, sequence);
+  `,
+
+  // 19: normalized longitudinal rehabilitation measurements from provider FHIR
+  `
+  CREATE TABLE IF NOT EXISTS rehabilitation_measurements (
+    measurement_id TEXT NOT NULL,
+    patient_id      TEXT NOT NULL,
+    type            TEXT NOT NULL,
+    value           REAL NOT NULL,
+    unit            TEXT NOT NULL,
+    recorded_at     TEXT NOT NULL,
+    source          TEXT NOT NULL DEFAULT 'fhir',
+    created_at      TEXT NOT NULL,
+    PRIMARY KEY (patient_id, measurement_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_rehab_measurements_patient_type_time
+    ON rehabilitation_measurements(patient_id, type, recorded_at);
+  `,
+
+  // 20: generalized patient-scoped longitudinal observations from FHIR
+  `
+  CREATE TABLE IF NOT EXISTS patient_longitudinal_observations (
+    patient_id        TEXT NOT NULL,
+    observation_id   TEXT NOT NULL,
+    measurement_type TEXT NOT NULL,
+    recorded_at      TEXT NOT NULL,
+    encounter_id     TEXT,
+    numeric_value    REAL,
+    text_value       TEXT,
+    unit             TEXT,
+    source_system    TEXT,
+    source_code      TEXT NOT NULL,
+    source_type      TEXT NOT NULL DEFAULT 'fhir',
+    PRIMARY KEY (patient_id, observation_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_longitudinal_observations_patient_type_time
+    ON patient_longitudinal_observations(patient_id, measurement_type, recorded_at);
+  `,
 ];

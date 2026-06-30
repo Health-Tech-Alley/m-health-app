@@ -70,3 +70,24 @@ export function deleteHealthSamplesOlderThan(cutoff: string): void {
   const db = getDatabase();
   db.runSync('DELETE FROM health_samples WHERE recorded_at < ?;', cutoff);
 }
+
+
+export function getHealthSampleForPatientAndCurrentMonth(patientId: string, type: HealthSampleType): HealthSample[] {
+  const db = getDatabase();
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+  const startOfMonthISO = startOfMonth.toISOString();
+
+  return db.getAllSync<HealthSample>(
+    `SELECT sample_id AS sampleId, patient_id AS patientId, source, type, value,
+            value_json AS valueJson, unit, recorded_at AS recordedAt, received_at AS receivedAt,
+            metadata_json AS metadataJson
+     FROM health_samples
+     WHERE patient_id = ? AND type = ? AND recorded_at >= ?
+     ORDER BY recorded_at DESC;`,
+    patientId,
+    type,
+    startOfMonthISO,
+  );
+}

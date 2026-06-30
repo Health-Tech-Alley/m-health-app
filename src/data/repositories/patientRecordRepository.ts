@@ -13,26 +13,28 @@
  */
 
 import { getDatabase } from '../db';
-import {
-  getPatient,
-  getCaregiverForPatient,
-  getConditionsForPatient,
-  getActiveMedications,
-} from './patientRepository';
-import { getActiveThresholds } from './thresholdRepository';
-import { getSymptomsForPatient } from './symptomRepository';
-import { getPrimaryWearableForPatient } from './wearableDeviceRepository';
-import { getKnowledgeCacheStats } from './knowledgeCacheRepository';
-import { getEnrichmentStats } from './patientEnrichmentLogRepository';
 import type {
-  Patient,
   Caregiver,
-  PatientCondition,
+  CarePlan,
   Medication,
-  Threshold,
+  Patient,
+  PatientCondition,
   Symptom,
+  Threshold,
   WearableDevice,
 } from '../types';
+import { getActiveCarePlanForPatient } from './carePlanRepository';
+import { getKnowledgeCacheStats } from './knowledgeCacheRepository';
+import { getEnrichmentStats } from './patientEnrichmentLogRepository';
+import {
+  getActiveMedications,
+  getCaregiverForPatient,
+  getConditionsForPatient,
+  getPatient,
+} from './patientRepository';
+import { getSymptomsForPatient } from './symptomRepository';
+import { getActiveThresholds } from './thresholdRepository';
+import { getPrimaryWearableForPatient } from './wearableDeviceRepository';
 
 export interface CarePlanGoalSummary {
   goalId: string;
@@ -63,6 +65,7 @@ export interface PatientRecordSnapshot {
   wearable: WearableDevice | null;
   medications: Medication[];
   thresholds: Threshold[];
+  carePlan: CarePlan | null;
   carePlanGoals: CarePlanGoalSummary[];
   knowledgeStats: { total: number; bySource: Record<string, number> };
   enrichmentStats: {
@@ -137,6 +140,7 @@ export function setBundleStatus(patientId: string, status: BundleStatus): void {
  * this is fast enough and keeps the snapshot consistent.
  */
 export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapshot {
+  console.log(`[DB] Loading patient record snapshot for patientId=${patientId}...`);
   const patient = getPatient(patientId);
   const caregiver = getCaregiverForPatient(patientId);
   const conditions = getConditionsForPatient(patientId);
@@ -144,6 +148,7 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const wearable = getPrimaryWearableForPatient(patientId);
   const medications = getActiveMedications(patientId);
   const thresholds = getActiveThresholds(patientId);
+  const carePlan = getActiveCarePlanForPatient(patientId);
   const carePlanGoals = getCarePlanGoals(patientId);
   const knowledgeStats = getKnowledgeCacheStats();
   const enrichmentStats = getEnrichmentStats(patientId);
@@ -165,6 +170,7 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     wearable,
     medications,
     thresholds,
+    carePlan,
     carePlanGoals,
     knowledgeStats,
     enrichmentStats,

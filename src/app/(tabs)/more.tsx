@@ -1,272 +1,139 @@
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { AppTheme } from "@/constants/theme";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
-import { useSettings } from "@/contexts/settings-context";
-import {
-  getPendingThresholdRecommendations,
-  updateThresholdRecommendationStatus,
-  type ThresholdRecommendation,
-} from "@/data";
-import {
-  audit,
-  getAuditLogEntriesForResource,
-  verifyAuditLogChain,
-  type AuditLogEntrySummary,
-} from "@/services/audit/auditService";
+import { usePatientRecord } from '@/contexts/patient-record-context';
 import {
   getOnboardingProfile,
-  getWearableDeviceDisplay,
 } from "@/services/onboarding/onboardingService";
+import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system';
+
+import { dispatchImmediate } from '@/services/notifications';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { addPatient } from '@/store/reducers/patientSlice';
 import {
-  exportPatientCcda,
-  getRecordConsentStatus,
-  setRecordConsent,
-  type RecordConsentScope,
-} from "@/services/records/recordsService";
+  getCaregiverDisplay,
+  getCaregiverRoleDisplay,
+  getPatientAgeDisplay,
+  getPatientDisplayName,
+} from '@/store/selectors/patientSelectors';
 
-const THEME_OPTIONS = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "system", label: "System" },
-] as const;
 
-const CONSENT_OPTIONS: {
-  scope: RecordConsentScope;
-  emoji: string;
-  title: string;
-  subtitle: string;
-}[] = [
-  {
-    scope: "ccda_export",
-    emoji: "📤",
-    title: "C-CDA export consent",
-    subtitle: "Allow exporting a C-CDA record for care coordination",
-  },
-  {
-    scope: "fhir-share",
-    emoji: "🔗",
-    title: "FHIR share consent",
-    subtitle: "Allow sharing structured records with approved care systems",
-  },
-  {
-    scope: "pharmacy-communicator",
-    emoji: "💊",
-    title: "Pharmacy communicator consent",
-    subtitle: "Allow medication-related communication with pharmacy tools",
-  },
-  {
-    scope: "provider-message",
-    emoji: "💬",
-    title: "Provider message consent",
-    subtitle: "Allow sending care context to provider messaging tools",
-  },
-];
-
-const initialConsentState: Record<RecordConsentScope, boolean> = {
-  ccda_export: false,
-  "fhir-share": false,
-  "pharmacy-communicator": false,
-  "provider-message": false,
-};
 
 export default function MoreScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ focus?: string }>();
+  const dispatch = useAppDispatch();
   const profile = getOnboardingProfile();
-  const {
-    settings,
-    isDeveloper,
-    setTheme,
-    toggleMode,
-    setNotificationPreferences,
-  } = useSettings();
+  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const patientName = getPatientDisplayName(activePatient);
+  const patientAge = getPatientAgeDisplay(activePatient);
+  const caregiverName = getCaregiverDisplay(activePatient);
+  const caregiverRole = getCaregiverRoleDisplay(activePatient);
+  const scrollRef = useRef<ScrollView | null>(null);
+  const ehrImportYRef = useRef(0);
   const patientId = useOrchestratorPatientId();
-  const [consentGranted, setConsentGranted] =
-    useState<Record<RecordConsentScope, boolean>>(initialConsentState);
-  const [recordExportStatus, setRecordExportStatus] = useState(
-    "Consent required before export",
-  );
-  const [auditLogExpanded, setAuditLogExpanded] = useState(false);
-  const [auditEntries, setAuditEntries] = useState<AuditLogEntrySummary[]>([]);
-  const [auditChainOk, setAuditChainOk] = useState<boolean | null>(null);
-  const [auditError, setAuditError] = useState<string | null>(null);
-  const [thresholdRecs, setThresholdRecs] = useState<ThresholdRecommendation[]>([]);
-  const [recVersion, setRecVersion] = useState(0);
+  const { importFHIRBundle } = usePatientRecord();
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
+    if (params.focus !== "ehr-import") return;
     const handle = setTimeout(() => {
-      const nextConsentState = CONSENT_OPTIONS.reduce(
-        (next, option) => ({
-          ...next,
-          [option.scope]: getRecordConsentStatus(option.scope, patientId)
-            .granted,
-        }),
-        initialConsentState,
-      );
-      setConsentGranted(nextConsentState);
-      setRecordExportStatus(
-        nextConsentState.ccda_export
-          ? "Consent granted for C-CDA export"
-          : "Consent required before export",
-      );
-    }, 0);
+      scrollRef.current?.scrollTo({
+        y: Math.max(ehrImportYRef.current - 18, 0),
+        animated: true,
+      });
+    }, 150);
     return () => clearTimeout(handle);
-  }, [patientId]);
+  }, [params.focus]);
 
-  // Load pending threshold personalization recommendations (Developer only).
-  useEffect(() => {
-    if (!isDeveloper || !patientId) {
-      // Defer so setState happens outside the effect body.
-      const clear = setTimeout(() => setThresholdRecs([]), 0);
-      return () => clearTimeout(clear);
-    }
-
-    const handle = setTimeout(() => {
-      try {
-        setThresholdRecs(getPendingThresholdRecommendations(patientId));
-      } catch {
-        setThresholdRecs([]);
-      }
-    }, 0);
-
-    return () => clearTimeout(handle);
-  }, [isDeveloper, patientId, recVersion]);
-
-  function handleApplyThresholdRec(recId: string) {
-    updateThresholdRecommendationStatus(recId, "applied");
-    audit({
-      actor: "caregiver",
-      action: "apply_threshold_recommendation",
-      resourceType: "threshold_recommendation",
-      resourceId: recId,
-      patientId,
-    });
-    setRecVersion((version) => version + 1);
-  }
-
-  function handleDismissThresholdRec(recId: string) {
-    updateThresholdRecommendationStatus(recId, "dismissed");
-    audit({
-      actor: "caregiver",
-      action: "dismiss_threshold_recommendation",
-      resourceType: "threshold_recommendation",
-      resourceId: recId,
-      patientId,
-    });
-    setRecVersion((version) => version + 1);
-  }
-
-  function handleConsentToggle(scope: RecordConsentScope) {
-    const nextGranted = !consentGranted[scope];
-    const consent = setRecordConsent(scope, nextGranted, patientId);
-    const nextConsentState = {
-      ...consentGranted,
-      [scope]: consent.granted,
-    };
-
-    setConsentGranted(nextConsentState);
-
-    if (scope !== "ccda_export") {
-      return;
-    }
-
-    setRecordExportStatus(
-      consent.granted
-        ? "Consent granted for C-CDA export"
-        : "Consent required before export",
-    );
-  }
-
-  function handleCcdaExport() {
-    const result = exportPatientCcda(patientId);
-
-    if (result.status === "queued") {
-      setRecordExportStatus("C-CDA export queued for sync");
-      Alert.alert("Export queued", result.message);
-      return;
-    }
-
-    if (result.status === "denied") {
-      setConsentGranted((current) => ({
-        ...current,
-        ccda_export: false,
-      }));
-      setRecordExportStatus("Consent required before export");
-      Alert.alert(
-        "Consent required",
-        "Please turn on record export consent before exporting a C-CDA record.",
-      );
-      return;
-    }
-
-    setRecordExportStatus("C-CDA export failed");
-    Alert.alert("Export failed", result.message);
-  }
-
-  function handleToggleAuditLog() {
-    if (auditLogExpanded) {
-      setAuditLogExpanded(false);
-      return;
-    }
-
+  async function handleOpenEHRImport() {
+    setImporting(true);
     try {
-      const chain = verifyAuditLogChain();
-      const entries = getAuditLogEntriesForResource(undefined, undefined, 8);
-      setAuditChainOk(chain.ok);
-      setAuditEntries(entries);
-      setAuditError(null);
-    } catch (error) {
-      setAuditChainOk(null);
-      setAuditEntries([]);
-      setAuditError(
-        error instanceof Error
-          ? error.message
-          : "Unable to read the audit log right now",
-      );
+      // 1. Let user pick a JSON file
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) return null;
+
+      // 2. Read the file contents
+      const fileUri = result.assets[0].uri;
+      // const contents = await FileSystem.readAsStringAsync(fileUri);
+      const file = new File(fileUri);
+      const contents = await file.text();           // replaces readAsStringAsync
+      // const bundle = JSON.parse(contents);
+
+      // 3. Parse FHIR JSON
+      const fhirBundle = JSON.parse(contents);
+      // console.log("Parsed FHIR bundle:", fhirBundle);
+      importFHIRBundle(fhirBundle);
+      // wherever you receive the patient data (API response, EHR import, etc.)
+      dispatch(addPatient(fhirBundle)); // Dispatch the action to save patient data to Redux store
+      await dispatchImmediate({
+        patientId: patientId,
+        scope: 'anomaly',
+        title: "EHR Import",
+        body: 'FHIR bundle imported successfully',
+        severity: 1,
+      });// Schedule a push notification after importing the FHIR bundle
+    } finally {
+      setImporting(false);
     }
+    // scheduleLocalNotification(
+    //   {
+    //     patientId: 'String(args.patientId)',
+    //     scope: 'care_task',
+    //     triggerRef: 'args.alertId ? String(args.alertId) : undefined',
+    //     title: 'EHR Import',
+    //     body: 'FHIR bundle imported successfully',
+    //     triggerWhen: new Date(Date.now())
+    //   }
+    // ); // Emit the event with the FHIR bundle data
 
-    setAuditLogExpanded(true);
-  }
-
-  function updateAppointmentLeadTime(delta: number) {
-    const current = settings.notifications.appointmentLeadTimeMin ?? 0;
-    const next = Math.max(0, current + delta);
-    setNotificationPreferences({ appointmentLeadTimeMin: next });
+    // Emit
+    // console.log('Emitting fhirBundleImported event with data: ');
+    // DeviceEventEmitter.emit('fhirBundleImported', { fhirBundle: fhirBundle });
+    // 4. Pass to your DB layer
+    // return fhirBundle;
   }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <View style={styles.root}>
         <ScrollView
+          ref={scrollRef}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
         >
           <MainTabHeader
             title="More"
             eyebrow="Caregiver Concierge"
-            subtitle="Profile, device, notification, and data-source settings."
+            subtitle="Profile, preferences, and data-source settings."
             icon="settings"
           />
 
           <View style={styles.profileCard}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>
-                {getInitials(profile.caregiver.name)}
+                {getInitials(caregiverName)}
               </Text>
             </View>
 
             <View style={styles.profileTextBlock}>
-              <Text style={styles.profileName}>{profile.caregiver.name}</Text>
+              <Text style={styles.profileName}>{caregiverName}</Text>
               <Text style={styles.profileRole}>
-                Caregiver {"\u2022"} {profile.caregiver.relationship}
+                Caregiver {"\u2022"} {caregiverRole}
               </Text>
               <Text style={styles.profilePatient}>
-                Caring for {profile.patient.name}, {profile.patient.age}
+                Caring for {patientName}, {patientAge}
               </Text>
             </View>
           </View>
@@ -277,80 +144,25 @@ export default function MoreScreen() {
               title="Profiles"
               subtitle="Caregiver and patient details"
               onPress={() => router.push("/profile" as never)}
+              accessibilityLabel="Open patient and caregiver profiles"
             />
           </SettingsSection>
 
-          <SettingsSection title="Appearance">
-            <ThemeSettingsRow
-              selectedTheme={settings.theme}
-              onSelectTheme={setTheme}
-            />
-          </SettingsSection>
-
-          <SettingsSection title="Notification & Preferences">
-            <SettingsToggleRow
-              icon="alert"
-              title="Anomaly alerts"
-              subtitle="Notify when vitals or behavior need attention"
-              value={settings.notifications.anomaly}
-              onValueChange={() =>
-                setNotificationPreferences({
-                  anomaly: !settings.notifications.anomaly,
-                })
-              }
-            />
-
-            <SettingsToggleRow
-              icon="pill"
-              title="Medication reminders"
-              subtitle="Remind caregivers about medication timing"
-              value={settings.notifications.medication}
-              onValueChange={() =>
-                setNotificationPreferences({
-                  medication: !settings.notifications.medication,
-                })
-              }
-            />
-
-            <SettingsToggleRow
-              icon="schedule"
-              title="Appointment reminders"
-              subtitle="Remind caregivers before scheduled visits"
-              value={settings.notifications.appointment}
-              onValueChange={() =>
-                setNotificationPreferences({
-                  appointment: !settings.notifications.appointment,
-                })
-              }
-            />
-
-            {settings.notifications.appointment ? (
-              <SettingsStepperRow
-                emoji="⏱️"
-                title="Appointment lead time"
-                subtitle="Minutes before appointment reminders"
-                value={`${settings.notifications.appointmentLeadTimeMin ?? 0} min`}
-                onDecrease={() => updateAppointmentLeadTime(-5)}
-                onIncrease={() => updateAppointmentLeadTime(5)}
-              />
-            ) : null}
-
-            <SettingsToggleRow
-              icon="care"
-              title="Care task reminders"
-              subtitle="Remind caregivers about routine care tasks"
-              value={settings.notifications.careTask}
-              onValueChange={() =>
-                setNotificationPreferences({
-                  careTask: !settings.notifications.careTask,
-                })
-              }
-            />
+          <SettingsSection title="Preferences">
             <SettingsRow
-              icon="device"
-              title="Device and baseline"
-              subtitle={getWearableDeviceDisplay(profile.patient)}
-              disabled
+              icon="settings"
+              title="Preferences"
+              subtitle="Alerts, reminders, appearance, accessibility, and consent"
+              onPress={() => router.push("/settings" as never)}
+              accessibilityLabel="Open Preferences"
+            />
+
+            <SettingsRow
+              emoji={"\u{1F6E0}\u{FE0F}"}
+              title="Advanced Developer Settings"
+              subtitle="Developer mode, demos, models, API keys, and diagnostics"
+              onPress={() => router.push("/advanced-developer-settings" as never)}
+              accessibilityLabel="Open Advanced Developer Settings"
             />
           </SettingsSection>
 
@@ -358,46 +170,22 @@ export default function MoreScreen() {
             <SettingsRow
               icon="messages"
               title="Secure Messages"
-              subtitle="Care team messaging coming soon"
-              disabled
+              subtitle="Prototype care-team messaging scaffold"
+              onPress={() => router.push("/secure-messaging" as never)}
+              accessibilityLabel="Open secure messaging"
             />
           </SettingsSection>
-          <SettingsSection title="Consent Manager">
-            <SettingsRow
-              emoji="🗂️"
-              title="Data source status"
-              subtitle="Onboarding data - EHR import coming soon"
-              disabled
-            />
-
-            {CONSENT_OPTIONS.map((option) => (
-              <View key={option.scope}>
-                <SettingsToggleRow
-                  emoji={option.emoji}
-                  title={option.title}
-                  subtitle={option.subtitle}
-                  value={consentGranted[option.scope]}
-                  onValueChange={() => handleConsentToggle(option.scope)}
-                />
-
-                {option.scope === "ccda_export" &&
-                consentGranted.ccda_export ? (
-                  <SettingsRow
-                    emoji="📤"
-                    title="Export C-CDA"
-                    subtitle={recordExportStatus}
-                    onPress={handleCcdaExport}
-                  />
-                ) : null}
-              </View>
-            ))}
-          </SettingsSection>
-          <SettingsSection title="Future integrations">
+          <SettingsSection
+            title="Future integrations"
+            onLayout={(event) => {
+              ehrImportYRef.current = event.nativeEvent.layout.y;
+            }}
+          >
             <SettingsRow
               icon="plus"
               title="Populate from EHR"
-              subtitle="C-CDA / FHIR records placeholder"
-              disabled
+              subtitle={importing ? "Importing FHIR bundle..." : "C-CDA / FHIR records placeholder"}
+              onPress={handleOpenEHRImport}
             />
 
             <SettingsRow
@@ -406,123 +194,6 @@ export default function MoreScreen() {
               subtitle={profile.primaryCareProvider.name}
               disabled
             />
-          </SettingsSection>
-
-          <SettingsSection title="Developer / Demo">
-            <SettingsToggleRow
-              icon="developer"
-              title="Developer mode"
-              subtitle={
-                isDeveloper
-                  ? "Demo tools and diagnostics are visible"
-                  : "Demo tools and diagnostics are hidden"
-              }
-              value={isDeveloper}
-              onValueChange={toggleMode}
-            />
-
-            {isDeveloper ? (
-              <>
-                <SettingsRow
-                  icon="alert"
-                  title="Acute anomaly demo"
-                  subtitle="End-to-end orchestration flow"
-                  onPress={() => router.push("/acute-anomaly")}
-                />
-
-                <SettingsRow
-                  icon="device"
-                  title="Models"
-                  subtitle="On-device SLM model management"
-                  onPress={() => router.push("/models")}
-                />
-
-                <SettingsRow
-                  icon="performance"
-                  title="Performance"
-                  subtitle="Device memory and SLM attribution"
-                  onPress={() => router.push("/performance")}
-                />
-
-                <SettingsRow
-                  icon="assistant"
-                  title="Raw SLM chat"
-                  subtitle="Direct model prompt testing"
-                  onPress={() => router.push("/slm")}
-                />
-
-                <SettingsRow
-                  icon="settings"
-                  title="Advanced developer settings"
-                  subtitle="SLM management, API keys, knowledge cache, data reset"
-                  onPress={() => router.push("/settings" as never)}
-                />
-
-                <SettingsRow
-                  emoji="🧾"
-                  title="View audit log"
-                  subtitle={
-                    auditLogExpanded
-                      ? "Hide recent audited events"
-                      : "Verify chain and view recent events"
-                  }
-                  onPress={handleToggleAuditLog}
-                />
-
-                {auditLogExpanded ? (
-                  <AuditLogPanel
-                    chainOk={auditChainOk}
-                    entries={auditEntries}
-                    error={auditError}
-                  />
-                ) : null}
-
-                {/* Threshold personalization queue (read-only suggestions) */}
-                <View style={styles.thresholdBlock}>
-                  <Text style={styles.thresholdTitle}>
-                    Threshold personalization
-                  </Text>
-                  <Text style={styles.thresholdMuted}>
-                    Queued anomaly-threshold suggestions. Apply or dismiss —
-                    never auto-applied. Applying audits the change.
-                  </Text>
-                  {thresholdRecs.length === 0 ? (
-                    <Text style={styles.thresholdMuted}>
-                      No pending recommendations.
-                    </Text>
-                  ) : (
-                    thresholdRecs.map((rec) => (
-                      <View key={rec.recommendationId} style={styles.thresholdRow}>
-                        <View style={styles.thresholdTextBlock}>
-                          <Text style={styles.thresholdValue}>
-                            Recommended threshold:{" "}
-                            {rec.recommendedThreshold.toFixed(3)}
-                            {rec.adjustmentPct !== undefined
-                              ? ` (${rec.adjustmentPct > 0 ? "+" : ""}${rec.adjustmentPct.toFixed(1)}%)`
-                              : ""}
-                          </Text>
-                          {rec.reason ? (
-                            <Text style={styles.thresholdMuted}>{rec.reason}</Text>
-                          ) : null}
-                        </View>
-                        <Pressable
-                          style={[styles.thresholdBtn, styles.thresholdApplyBtn]}
-                          onPress={() => handleApplyThresholdRec(rec.recommendationId)}
-                        >
-                          <Text style={styles.thresholdBtnText}>Apply</Text>
-                        </Pressable>
-                        <Pressable
-                          style={[styles.thresholdBtn, styles.thresholdDismissBtn]}
-                          onPress={() => handleDismissThresholdRec(rec.recommendationId)}
-                        >
-                          <Text style={styles.thresholdBtnText}>Dismiss</Text>
-                        </Pressable>
-                      </View>
-                    ))
-                  )}
-                </View>
-              </>
-            ) : null}
           </SettingsSection>
 
           <SettingsSection title="About">
@@ -543,150 +214,19 @@ export default function MoreScreen() {
   );
 }
 
-function ThemeSettingsRow({
-  selectedTheme,
-  onSelectTheme,
-}: {
-  selectedTheme: (typeof THEME_OPTIONS)[number]["value"];
-  onSelectTheme: (theme: (typeof THEME_OPTIONS)[number]["value"]) => void;
-}) {
-  return (
-    <View style={styles.settingsRow}>
-      <View style={styles.settingsIconCircle}>
-        <AppIcon name="appearance" size={22} color={AppTheme.colors.brand} />
-      </View>
-
-      <View style={styles.settingsTextBlock}>
-        <Text style={styles.settingsTitle}>Theme</Text>
-        <View style={styles.segmentedControl}>
-          {THEME_OPTIONS.map((option) => {
-            const selected = option.value === selectedTheme;
-
-            return (
-              <Pressable
-                key={option.value}
-                style={[
-                  styles.segmentButton,
-                  selected && styles.segmentButtonActive,
-                ]}
-                onPress={() => onSelectTheme(option.value)}
-              >
-                <Text
-                  style={[
-                    styles.segmentLabel,
-                    selected && styles.segmentLabelActive,
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-    </View>
-  );
-}
-
 function SettingsSection({
   title,
   children,
+  onLayout,
 }: {
   title: string;
   children: React.ReactNode;
+  onLayout?: React.ComponentProps<typeof View>["onLayout"];
 }) {
   return (
-    <View style={styles.section}>
+    <View style={styles.section} onLayout={onLayout}>
       <Text style={styles.sectionTitle}>{title}</Text>
       <View style={styles.sectionCard}>{children}</View>
-    </View>
-  );
-}
-
-function SettingsToggleRow({
-  icon,
-  emoji,
-  title,
-  subtitle,
-  value,
-  onValueChange,
-}: {
-  icon?: AppIconName;
-  emoji?: string;
-  title: string;
-  subtitle: string;
-  value: boolean;
-  onValueChange: () => void;
-}) {
-  return (
-    <View style={styles.settingsRow}>
-      <View style={styles.settingsIconCircle}>
-        {emoji ? (
-          <Text style={styles.settingsEmojiIcon}>{emoji}</Text>
-        ) : icon ? (
-          <AppIcon name={icon} size={22} color={AppTheme.colors.brand} />
-        ) : null}
-      </View>
-
-      <View style={styles.settingsTextBlock}>
-        <Text style={styles.settingsTitle}>{title}</Text>
-        <Text style={styles.settingsSubtitle}>{subtitle}</Text>
-      </View>
-
-      <Switch
-        value={value}
-        onValueChange={onValueChange}
-        trackColor={{
-          false: AppTheme.colors.border,
-          true: AppTheme.colors.brandSoft,
-        }}
-        thumbColor={value ? AppTheme.colors.brand : AppTheme.colors.white}
-      />
-    </View>
-  );
-}
-
-function SettingsStepperRow({
-  icon,
-  emoji,
-  title,
-  subtitle,
-  value,
-  onDecrease,
-  onIncrease,
-}: {
-  icon?: AppIconName;
-  emoji?: string;
-  title: string;
-  subtitle: string;
-  value: string;
-  onDecrease: () => void;
-  onIncrease: () => void;
-}) {
-  return (
-    <View style={styles.settingsRow}>
-      <View style={styles.settingsIconCircle}>
-        {emoji ? (
-          <Text style={styles.settingsEmojiIcon}>{emoji}</Text>
-        ) : icon ? (
-          <AppIcon name={icon} size={22} color={AppTheme.colors.brand} />
-        ) : null}
-      </View>
-
-      <View style={styles.settingsTextBlock}>
-        <Text style={styles.settingsTitle}>{title}</Text>
-        <Text style={styles.settingsSubtitle}>{subtitle}</Text>
-      </View>
-
-      <View style={styles.stepperControl}>
-        <Pressable style={styles.stepperButton} onPress={onDecrease}>
-          <Text style={styles.stepperButtonText}>-</Text>
-        </Pressable>
-        <Text style={styles.stepperValue}>{value}</Text>
-        <Pressable style={styles.stepperButton} onPress={onIncrease}>
-          <Text style={styles.stepperButtonText}>+</Text>
-        </Pressable>
-      </View>
     </View>
   );
 }
@@ -698,6 +238,7 @@ function SettingsRow({
   subtitle,
   onPress,
   disabled,
+  accessibilityLabel,
 }: {
   icon?: AppIconName;
   emoji?: string;
@@ -705,12 +246,17 @@ function SettingsRow({
   subtitle: string;
   onPress?: () => void;
   disabled?: boolean;
+  accessibilityLabel?: string;
 }) {
   return (
     <Pressable
       style={[styles.settingsRow, disabled && styles.settingsRowDisabled]}
       onPress={onPress}
       disabled={disabled}
+      accessibilityRole={onPress ? "button" : undefined}
+      accessibilityLabel={accessibilityLabel ?? title}
+      accessibilityHint={onPress ? subtitle : undefined}
+      accessibilityState={{ disabled: Boolean(disabled) }}
     >
       <View style={styles.settingsIconCircle}>
         {emoji ? (
@@ -725,64 +271,9 @@ function SettingsRow({
         <Text style={styles.settingsSubtitle}>{subtitle}</Text>
       </View>
 
-      <Text style={styles.chevron}>{disabled ? "Soon" : "›"}</Text>
+      <Text style={styles.chevron}>{disabled ? "Soon" : ">"}</Text>
     </Pressable>
   );
-}
-
-function AuditLogPanel({
-  chainOk,
-  entries,
-  error,
-}: {
-  chainOk: boolean | null;
-  entries: AuditLogEntrySummary[];
-  error: string | null;
-}) {
-  return (
-    <View style={styles.auditPanel}>
-      <View style={styles.auditStatusRow}>
-        <Text style={styles.auditPanelTitle}>Audit status</Text>
-        <Text
-          style={[
-            styles.auditStatusPill,
-            chainOk === false && styles.auditStatusPillWarning,
-          ]}
-        >
-          {chainOk === null
-            ? "Unavailable"
-            : chainOk
-              ? "Verified"
-              : "Issue detected"}
-        </Text>
-      </View>
-
-      {error ? (
-        <Text style={styles.auditError}>{error}</Text>
-      ) : entries.length === 0 ? (
-        <Text style={styles.auditEmpty}>No recent audit entries yet.</Text>
-      ) : (
-        <View style={styles.auditEntryList}>
-          {entries.map((entry) => (
-            <View key={entry.auditId} style={styles.auditEntry}>
-              <Text style={styles.auditEntryTitle}>
-                {entry.actor} {"\u2022"} {entry.action} {"\u2022"}{" "}
-                {entry.resourceType}
-              </Text>
-              <Text style={styles.auditEntryMeta}>
-                {formatAuditTimestamp(entry.createdAt)}
-                {entry.resourceId ? ` \u2022 ${entry.resourceId}` : ""}
-              </Text>
-            </View>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
-
-function formatAuditTimestamp(value: string): string {
-  return value.replace("T", " ").slice(0, 16);
 }
 
 function getInitials(name: string): string {
@@ -914,69 +405,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 3,
   },
-  stepperControl: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    borderRadius: 14,
-    backgroundColor: AppTheme.colors.softSurface,
-    overflow: "hidden",
-    marginLeft: 12,
-  },
-  stepperButton: {
-    minWidth: 34,
-    minHeight: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: AppTheme.colors.white,
-  },
-  stepperButtonText: {
-    color: AppTheme.colors.brand,
-    fontSize: 18,
-    fontWeight: "900",
-  },
-  stepperValue: {
-    minWidth: 58,
-    color: AppTheme.colors.text,
-    fontSize: 13,
-    fontWeight: "900",
-    textAlign: "center",
-    paddingHorizontal: 10,
-  },
   chevron: {
     color: AppTheme.colors.textMuted,
     fontSize: 13,
     fontWeight: "900",
     marginLeft: 12,
-  },
-  segmentedControl: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    borderRadius: 12,
-    overflow: "hidden",
-    marginTop: 10,
-  },
-  segmentButton: {
-    minWidth: 70,
-    minHeight: 34,
-    paddingHorizontal: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: AppTheme.colors.white,
-  },
-  segmentButtonActive: {
-    backgroundColor: AppTheme.colors.brand,
-  },
-  segmentLabel: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  segmentLabelActive: {
-    color: AppTheme.colors.white,
   },
   auditPanel: {
     paddingHorizontal: 18,

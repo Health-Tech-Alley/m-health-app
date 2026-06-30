@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { ObservationVitalsCard } from "@/app/ObservationVitalsCard";
 import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
@@ -23,58 +24,32 @@ import {
   type DailyCareEntry,
 } from "@/data";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
-
-// Seed defaults used the first time the Care screen is opened for today.
-const DEFAULT_DAILY_ENTRY: Partial<DailyCareEntry> = {
-  therapyDay: 21,
-  carePlanId: "careplan_abc123",
-  therapyCompleted: true,
-  setsCompleted: 3,
-  recommendedSets: 3,
-  painBefore: 3,
-  painAfter: 4,
-  fatigue: 5,
-  assistanceRequired: "some",
-  caregiverConcern: false,
-  functionalTaskScore: 2.6,
-  guidedMovementScore: 55,
-  notes: "Completed all exercises but shoulder movement looked about the same as last week.",
-};
-
-const providerCarePlan = {
-  condition: "post_stroke_rehabilitation",
-  therapy_focus: "upper_extremity_shoulder_rom",
-  therapy_start_date: "2026-05-26",
-  current_therapy_week: 3,
-  affected_side: "left",
-  assigned_therapist: {
-    name: "Dr. Patel",
-    role: "physical_therapist",
-  },
-  recommended_daily_sets: 3,
-  milestones: {
-    week_3: {
-      functional_task_score_target: 3.8,
-      guided_movement_score_target: 85,
-    },
-  },
-  consent: {
-    share_record: true,
-    consent_valid_until: "2026-12-31T23:59:59-05:00",
-  },
-};
+import { useAppSelector } from "@/store/hooks";
+import {
+  displayClinical,
+  getCaregiverDisplay,
+  getCaregiverRoleDisplay,
+  getPatientAgeDisplay,
+  getPatientDisplayName,
+  getPrimaryDiagnosisDisplay,
+} from "@/store/selectors/patientSelectors";
 
 export default function CareScreen() {
   const router = useRouter();
   const profile = getOnboardingProfile();
-  const { patientId } = usePatientRecord();
+  const { patientId, snapshot } = usePatientRecord();
   const { reopenOnCareFocus } = useCriticalAlert();
+  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const patientName = getPatientDisplayName(activePatient);
+  const patientAge = getPatientAgeDisplay(activePatient);
+  const diagnosis = getPrimaryDiagnosisDisplay(activePatient);
+  const carePlan = snapshot?.carePlan ?? null;
 
-  const patientFirstName =
-    profile.patient.name.trim().split(/\s+/)[0] || "patient";
-
-  const caregiverFirstName =
-    profile.caregiver.name.trim().split(/\s+/)[0] || "caregiver";
+  const caregiverDisplay = getCaregiverDisplay(activePatient);
+  const caregiverFirstName = isProvided(caregiverDisplay)
+    ? caregiverDisplay.trim().split(/\s+/)[0]
+    : "";
+  const caregiverRole = getCaregiverRoleDisplay(activePatient);
 
   // Re-surface the severity-3 critical-alert popup whenever the Care tab is
   // (re)opened, until the alert is dismissed or resolved.
@@ -84,36 +59,18 @@ export default function CareScreen() {
     }, [reopenOnCareFocus]),
   );
 
-  // Daily care entry — sourced from SQLite (or seeded defaults), editable,
-  // persisted via upsertDailyCareEntry on each edit.
-  const [entry, setEntry] = useState<DailyCareEntry>(() => {
-    if (!patientId) {
-      return {
-        entryId: "temp",
-        patientId: "temp",
-        ...DEFAULT_DAILY_ENTRY,
-        therapyCompleted: true,
-        setsCompleted: 3,
-        recommendedSets: 3,
-        caregiverConcern: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      } as DailyCareEntry;
-    }
-    const existing = getDailyCareEntry(patientId);
-    if (existing) return existing;
-    return upsertDailyCareEntry({
-      patientId: patientId ?? undefined,
-      ...DEFAULT_DAILY_ENTRY,
-    } as DailyCareEntry & { patientId: string });
-  });
+  // Daily care entry is sourced from SQLite only. Opening the screen must not
+  // seed demo values for a patient that has not recorded care today.
+  const [, setEntryVersion] = useState(0);
+  const entry = patientId ? getDailyCareEntry(patientId) : null;
+  const dailyEntry = entry && !isSeededDemoDailyEntry(entry) ? entry : null;
 
-  const [editingField, setEditingField] = useState<null | "painBefore" | "painAfter" | "fatigue" | "notes">(null);
+  const [editingField, setEditingField] = useState<null | "setsCompleted" | "painBefore" | "painAfter" | "fatigue" | "notes">(null);
   const [editDraft, setEditDraft] = useState("");
 
-  const openFieldEdit = (field: "painBefore" | "painAfter" | "fatigue" | "notes") => {
+  const openFieldEdit = (field: "setsCompleted" | "painBefore" | "painAfter" | "fatigue" | "notes") => {
     setEditingField(field);
-    setEditDraft(String(entry[field] ?? ""));
+    setEditDraft(String(dailyEntry?.[field] ?? ""));
   };
 
   const saveFieldEdit = () => {
@@ -122,30 +79,28 @@ export default function CareScreen() {
       return;
     }
     const isNumeric = editingField !== "notes";
-    const newValue = isNumeric ? Number(editDraft) : editDraft;
-    const updated = upsertDailyCareEntry({
-      ...entry,
-      [editingField]: isNumeric ? Number(newValue) || 0 : newValue,
+    const trimmedDraft = editDraft.trim();
+    const newValue = isNumeric
+      ? trimmedDraft.length > 0
+        ? Number(trimmedDraft)
+        : undefined
+      : editDraft;
+    upsertDailyCareEntry({
+      ...(dailyEntry ?? {}),
+      patientId,
+      carePlanId: dailyEntry?.carePlanId ?? carePlan?.planId,
+      [editingField]: newValue,
     });
-    setEntry(updated);
+    setEntryVersion((version) => version + 1);
     setEditingField(null);
     setEditDraft("");
   };
-
-  // Safety considerations: split the safety-notes string into individual,
-  // period-less, tappable lines. Clicking one opens a combined explanation.
   const safetyConsiderations = parseSafetyConsiderations(
     profile.safety?.safetyNotes ?? "No safety notes provided.",
   );
   const [openConsideration, setOpenConsideration] = useState<string | null>(null);
   const [slmOpen, setSlmOpen] = useState(false);
   const [slmPrompt, setSlmPrompt] = useState("");
-
-  const functionalTarget =
-    providerCarePlan.milestones.week_3.functional_task_score_target;
-
-  const movementTarget =
-    providerCarePlan.milestones.week_3.guided_movement_score_target;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -156,167 +111,222 @@ export default function CareScreen() {
         <MainTabHeader
           title="Care Management"
           eyebrow="Caregiver Concierge ACCESS-DP"
-          rightContent={<Text style={styles.patientName}>{patientFirstName}</Text>}
+          rightContent={<Text style={styles.patientName}>{patientName}</Text>}
         />
 
         <View style={styles.patientCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{getInitials(profile.patient.name)}</Text>
+            <Text style={styles.avatarText}>{getInitials(patientName)}</Text>
           </View>
 
           <View style={styles.patientInfo}>
-            <Text style={styles.patientCardName}>{profile.patient.name}</Text>
+            <Text style={styles.patientCardName}>{patientName}</Text>
             <Text style={styles.patientDetail}>
-              {profile.patient.age} yrs · {profile.patient.conditions}
+              Age {patientAge} · {displayClinical(diagnosis)}
             </Text>
-            <Text style={styles.patientMuted}>No movement · 25 min</Text>
+            <Text style={styles.patientMuted}>
+              Caregiver {getCaregiverDisplay(activePatient)} · {getCaregiverRoleDisplay(activePatient)}
+            </Text>
           </View>
         </View>
 
-        <View style={styles.safetyCard}>
-          <Text style={styles.safetyKicker}>Safety Considerations</Text>
-          <Text style={styles.safetyHint}>
-            Tap any consideration for details and a Concierge explanation.
-          </Text>
-          {safetyConsiderations.map((consideration, idx) => (
+        <ObservationVitalsCard />
+
+        {carePlan ? (
+          <>
+            <View style={styles.safetyCard}>
+              <Text style={styles.safetyKicker}>Safety Considerations</Text>
+              <Text style={styles.safetyHint}>
+                Tap any consideration for details and a Concierge explanation.
+              </Text>
+              {safetyConsiderations.map((consideration, idx) => (
+                <Pressable
+                  key={idx}
+                  style={styles.safetyRow}
+                  onPress={() => setOpenConsideration(consideration)}
+                >
+                  <Text style={styles.safetyBullet}>•</Text>
+                  <Text style={styles.safetyLine}>{consideration}</Text>
+                  <Text style={styles.safetyChevron}>›</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={styles.sectionTitle}>Care Plan</Text>
+
+            <View style={styles.carePlanCard}>
+              <View style={styles.carePlanHeader}>
+                <View style={styles.carePlanHeaderText}>
+                  <Text style={styles.carePlanKicker}>Provider Care Plan</Text>
+                  <Text style={styles.carePlanTitle}>
+                    {carePlan.title || "Care plan"}
+                  </Text>
+                  {carePlan.description ? (
+                    <Text style={styles.carePlanSubtitle}>
+                      {carePlan.description}
+                    </Text>
+                  ) : null}
+                </View>
+
+                <View style={styles.completedPill}>
+                  <Text style={styles.completedPillText}>
+                    {formatCarePlanStatus(carePlan.status)}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.carePlanMetaGrid}>
+                <CarePlanMeta
+                  label="Start date"
+                  value={formatCarePlanDate(carePlan.periodStart ?? carePlan.effectiveDate)}
+                />
+                <CarePlanMeta
+                  label="Intent"
+                  value={formatCarePlanStatus(carePlan.intent)}
+                />
+                <CarePlanMeta
+                  label="Care team"
+                  value={formatCareTeam(carePlan.careTeamDisplayJson)}
+                />
+                <CarePlanMeta
+                  label="Logged by"
+                  value={formatLoggedBy(caregiverFirstName, caregiverRole)}
+                />
+              </View>
+
+              <View style={styles.activityList}>
+                <Text style={styles.activityTitle}>Activities</Text>
+                {carePlan.activities.map((activity) => (
+                  <View key={activity.activityId} style={styles.activityRow}>
+                    <View style={styles.activityDot} />
+                    <View style={styles.activityTextBlock}>
+                      <Text style={styles.activityDescription}>
+                        {activity.description || "Activity"}
+                      </Text>
+                      <Text style={styles.activityStatus}>
+                        {formatCarePlanStatus(activity.status)}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              {dailyEntry ? (
+                <>
+                  <Pressable style={styles.setsRow} onPress={() => openFieldEdit("setsCompleted")}>
+                    <View>
+                      <Text style={styles.setsLabel}>Daily Sets</Text>
+                      <Text style={styles.setsValue}>
+                        {formatSets(dailyEntry)}
+                      </Text>
+                    </View>
+
+                    {dailyEntry.recommendedSets > 0 ? (
+                      <View style={styles.setsProgressTrack}>
+                        <View
+                          style={[
+                            styles.setsProgressFill,
+                            {
+                              width: `${Math.min(
+                                100,
+                                (dailyEntry.setsCompleted /
+                                  Math.max(dailyEntry.recommendedSets, 1)) *
+                                  100,
+                              )}%`,
+                            },
+                          ]}
+                        />
+                      </View>
+                    ) : null}
+                  </Pressable>
+
+                  <View style={styles.symptomRow}>
+                    <EditableSymptomBox
+                      label="Pain Before"
+                      value={dailyEntry.painBefore}
+                      onPress={() => openFieldEdit("painBefore")}
+                    />
+                    <EditableSymptomBox
+                      label="Pain After"
+                      value={dailyEntry.painAfter}
+                      onPress={() => openFieldEdit("painAfter")}
+                    />
+                    <EditableSymptomBox
+                      label="Fatigue"
+                      value={dailyEntry.fatigue}
+                      onPress={() => openFieldEdit("fatigue")}
+                    />
+                  </View>
+
+                  <View style={styles.mlUnavailableCard}>
+                    <Text style={styles.mlUnavailableLabel}>Functional Task Score</Text>
+                    <Text style={styles.mlUnavailableText}>Not available yet.</Text>
+                  </View>
+
+                  <View style={styles.mlUnavailableCard}>
+                    <Text style={styles.mlUnavailableLabel}>Guided Movement Score</Text>
+                    <Text style={styles.mlUnavailableText}>Not available yet.</Text>
+                  </View>
+
+                  <Pressable style={styles.notesCard} onPress={() => openFieldEdit("notes")}>
+                    <Text style={styles.notesLabel}>Caregiver Note · tap to edit</Text>
+                    <Text style={styles.notesText}>{dailyEntry.notes || "Add caregiver note"}</Text>
+                  </Pressable>
+
+                  <View style={styles.consentRow}>
+                    <View style={styles.consentDot} />
+                    <Text style={styles.consentText}>
+                      Sharing with provider enabled
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <View style={styles.noDailyEntryCard}>
+                  <Text style={styles.noDailyEntryTitle}>No daily care entry recorded yet.</Text>
+                  <Text style={styles.noDailyEntryText}>
+                    Add today&apos;s completed sets, pain, fatigue, or caregiver note.
+                  </Text>
+                  <View style={styles.noDailyEntryActions}>
+                    <Pressable style={styles.addEntryButton} onPress={() => openFieldEdit("setsCompleted")}>
+                      <Text style={styles.addEntryButtonText}>Add sets</Text>
+                    </Pressable>
+                    <Pressable style={styles.addEntryButton} onPress={() => openFieldEdit("painBefore")}>
+                      <Text style={styles.addEntryButtonText}>Add pain</Text>
+                    </Pressable>
+                    <Pressable style={styles.addEntryButton} onPress={() => openFieldEdit("fatigue")}>
+                      <Text style={styles.addEntryButtonText}>Add fatigue</Text>
+                    </Pressable>
+                    <Pressable style={styles.addEntryButton} onPress={() => openFieldEdit("notes")}>
+                      <Text style={styles.addEntryButtonText}>Add note</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            <Text style={styles.sectionTitle}>Care Analysis</Text>
+
             <Pressable
-              key={idx}
-              style={styles.safetyRow}
-              onPress={() => setOpenConsideration(consideration)}
+              style={styles.mlButton}
+              onPress={() => router.push("/care-management")}
             >
-              <Text style={styles.safetyBullet}>•</Text>
-              <Text style={styles.safetyLine}>{consideration}</Text>
-              <Text style={styles.safetyChevron}>›</Text>
+              <Text style={styles.mlButtonKicker}>ML Care Analysis</Text>
+              <Text style={styles.mlButtonText}>
+                Review anomaly detection, wearable scenario details, and generated
+                care explanation.
+              </Text>
+              <Text style={styles.mlButtonLink}>Open care analysis →</Text>
             </Pressable>
-          ))}
-        </View>
-
-        <Text style={styles.sectionTitle}>Care Plan</Text>
-
-        <View style={styles.carePlanCard}>
-          <View style={styles.carePlanHeader}>
-            <View>
-              <Text style={styles.carePlanKicker}>Therapy Progress</Text>
-              <Text style={styles.carePlanTitle}>
-                Week {providerCarePlan.current_therapy_week} · Day{" "}
-                {entry.therapyDay}
-              </Text>
-              <Text style={styles.carePlanSubtitle}>
-                {formatCarePlanText(providerCarePlan.therapy_focus)}
-              </Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.sectionTitle}>Care Plan</Text>
+            <View style={styles.carePlanCard}>
+              <Text style={styles.carePlanKicker}>Provider Care Plan</Text>
+              <Text style={styles.emptyCarePlanText}>No current care plans.</Text>
             </View>
-
-            <View style={styles.completedPill}>
-              <Text style={styles.completedPillText}>
-                {entry.therapyCompleted ? "Completed" : "Pending"}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.carePlanMetaGrid}>
-            <CarePlanMeta
-              label="Therapist"
-              value={providerCarePlan.assigned_therapist.name}
-            />
-            <CarePlanMeta
-              label="Affected side"
-              value={capitalize(providerCarePlan.affected_side)}
-            />
-            <CarePlanMeta
-              label="Logged by"
-              value={`${caregiverFirstName} · ${profile.caregiver.relationship}`}
-            />
-            <CarePlanMeta
-              label="Assistance"
-              value={capitalize(entry.assistanceRequired ?? "some")}
-            />
-          </View>
-
-          <View style={styles.setsRow}>
-            <View>
-              <Text style={styles.setsLabel}>Daily Sets</Text>
-              <Text style={styles.setsValue}>
-                {entry.setsCompleted}/
-                {entry.recommendedSets}
-              </Text>
-            </View>
-
-            <View style={styles.setsProgressTrack}>
-              <View
-                style={[
-                  styles.setsProgressFill,
-                  {
-                    width: `${Math.min(
-                      100,
-                      (entry.setsCompleted /
-                        Math.max(entry.recommendedSets, 1)) *
-                        100,
-                    )}%`,
-                  },
-                ]}
-              />
-            </View>
-          </View>
-
-          <View style={styles.symptomRow}>
-            <EditableSymptomBox
-              label="Pain Before"
-              value={entry.painBefore}
-              onPress={() => openFieldEdit("painBefore")}
-            />
-            <EditableSymptomBox
-              label="Pain After"
-              value={entry.painAfter}
-              onPress={() => openFieldEdit("painAfter")}
-            />
-            <EditableSymptomBox
-              label="Fatigue"
-              value={entry.fatigue}
-              onPress={() => openFieldEdit("fatigue")}
-            />
-          </View>
-
-          <ProgressMetric
-            label="Functional Task Score"
-            value={entry.functionalTaskScore ?? 0}
-            target={functionalTarget}
-            max={5}
-          />
-
-          <ProgressMetric
-            label="Guided Movement Score"
-            value={entry.guidedMovementScore ?? 0}
-            target={movementTarget}
-            max={100}
-          />
-
-          <Pressable style={styles.notesCard} onPress={() => openFieldEdit("notes")}>
-            <Text style={styles.notesLabel}>Caregiver Note · tap to edit</Text>
-            <Text style={styles.notesText}>{entry.notes}</Text>
-          </Pressable>
-
-          <View style={styles.consentRow}>
-            <View style={styles.consentDot} />
-            <Text style={styles.consentText}>
-              Sharing with provider{" "}
-              {providerCarePlan.consent.share_record ? "enabled" : "disabled"}
-            </Text>
-          </View>
-        </View>
-
-        <Text style={styles.sectionTitle}>Care Analysis</Text>
-
-        <Pressable
-          style={styles.mlButton}
-          onPress={() => router.push("/care-management")}
-        >
-          <Text style={styles.mlButtonKicker}>ML Care Analysis</Text>
-          <Text style={styles.mlButtonText}>
-            Review anomaly detection, wearable scenario details, and generated
-            care explanation.
-          </Text>
-          <Text style={styles.mlButtonLink}>Open care analysis →</Text>
-        </Pressable>
+          </>
+        )}
       </ScrollView>
 
       {/* Combined safety explanation dialog (safety note + reason + recommendation) */}
@@ -340,7 +350,7 @@ export default function CareScreen() {
             <View style={styles.explainBlock}>
               <Text style={styles.explainLabel}>Why this matters</Text>
               <Text style={styles.explainBody}>
-                {profile.patient.name}&apos;s vitals are outside the configured
+                {patientName}&apos;s vitals are outside the configured
                 safe range (oxygen below cutoff, elevated respiratory and heart
                 rate). This consideration is part of the configured safety plan
                 to catch deterioration early.
@@ -350,7 +360,7 @@ export default function CareScreen() {
             <View style={styles.explainBlock}>
               <Text style={styles.explainLabel}>Recommendation</Text>
               <Text style={styles.explainBody}>
-                Check on {patientFirstName} immediately. Consider ER or 911 if
+                Check on {patientName} immediately. Consider ER or 911 if
                 symptoms are severe. The app will not act automatically.
               </Text>
             </View>
@@ -358,7 +368,7 @@ export default function CareScreen() {
             <Pressable
               style={styles.explainSlmButton}
               onPress={() => {
-                setSlmPrompt(`Explain this safety consideration for ${profile.patient.name} in plain, calm language a family caregiver can act on: "${openConsideration ?? ""}". Include why it matters, what to watch for, and what to do next.`);
+                setSlmPrompt(`Explain this safety consideration for ${patientName} in plain, calm language a family caregiver can act on: "${openConsideration ?? ""}". Include why it matters, what to watch for, and what to do next.`);
                 setSlmOpen(true);
                 setOpenConsideration(null);
               }}
@@ -470,52 +480,6 @@ function EditableSymptomBox({
   );
 }
 
-function ProgressMetric({
-  label,
-  value,
-  target,
-  max,
-}: {
-  label: string;
-  value: number;
-  target: number;
-  max: number;
-}) {
-  const valuePercent = Math.min(100, (value / max) * 100);
-  const targetPercent = Math.min(100, (target / max) * 100);
-
-  return (
-    <View style={styles.progressMetric}>
-      <View style={styles.progressMetricHeader}>
-        <Text style={styles.progressMetricLabel}>{label}</Text>
-        <Text style={styles.progressMetricValue}>
-          {value} / target {target}
-        </Text>
-      </View>
-
-      <View style={styles.progressTrack}>
-        <View
-          style={[
-            styles.progressTargetMarker,
-            {
-              left: `${targetPercent}%`,
-            },
-          ]}
-        />
-
-        <View
-          style={[
-            styles.progressFill,
-            {
-              width: `${valuePercent}%`,
-            },
-          ]}
-        />
-      </View>
-    </View>
-  );
-}
-
 function getInitials(name: string): string {
   return name
     .split(" ")
@@ -526,17 +490,76 @@ function getInitials(name: string): string {
     .toUpperCase();
 }
 
-function formatCarePlanText(value: string): string {
-  return value
-    .split("_")
-    .filter(Boolean)
-    .map(capitalize)
-    .join(" ");
+function formatSets(entry: DailyCareEntry): string {
+  const completed = entry.setsCompleted > 0 && Number.isFinite(entry.setsCompleted)
+    ? String(entry.setsCompleted)
+    : "Not provided";
+  if (entry.recommendedSets > 0) {
+    return `${completed}/${entry.recommendedSets}`;
+  }
+  return completed;
 }
 
-function capitalize(value: string): string {
-  if (!value) return value;
-  return value.charAt(0).toUpperCase() + value.slice(1);
+function isSeededDemoDailyEntry(entry: DailyCareEntry): boolean {
+  return (
+    entry.therapyDay === 21 &&
+    entry.carePlanId === "careplan_abc123" &&
+    entry.therapyCompleted === true &&
+    entry.setsCompleted === 3 &&
+    entry.recommendedSets === 3 &&
+    entry.painBefore === 3 &&
+    entry.painAfter === 4 &&
+    entry.fatigue === 5 &&
+    entry.assistanceRequired === "some" &&
+    entry.caregiverConcern === false &&
+    entry.functionalTaskScore === 2.6 &&
+    entry.guidedMovementScore === 55 &&
+    entry.notes === "Completed all exercises but shoulder movement looked about the same as last week."
+  );
+}
+
+function formatLoggedBy(name: string, role: string): string {
+  if (!isProvided(name) || !isProvided(role)) {
+    return "Not provided";
+  }
+  return `${name} · ${role}`;
+}
+
+function isProvided(value?: string): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 && normalized !== "not provided";
+}
+
+function formatCareTeam(value?: string): string {
+  if (!value) return "Not provided";
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return "Not provided";
+    const names = parsed
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return names.length > 0 ? names.join(", ") : "Not provided";
+  } catch {
+    return "Not provided";
+  }
+}
+
+function formatCarePlanDate(value?: string): string {
+  if (!value) return "Not provided";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString();
+}
+
+function formatCarePlanStatus(value?: string): string {
+  if (!value) return "Not provided";
+  return value
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 const styles = StyleSheet.create({
@@ -844,6 +867,9 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 20,
   },
+  carePlanHeaderText: {
+    flex: 1,
+  },
   carePlanKicker: {
     color: AppTheme.colors.brand,
     fontSize: 12,
@@ -863,6 +889,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 21,
     marginTop: 4,
+  },
+  emptyCarePlanText: {
+    color: AppTheme.colors.text,
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: "800",
   },
   completedPill: {
     backgroundColor: AppTheme.colors.brandSoft,
@@ -897,6 +929,80 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.text,
     fontSize: 15,
     lineHeight: 20,
+    fontWeight: "900",
+  },
+  activityList: {
+    backgroundColor: AppTheme.colors.softSurface,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  activityTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  activityRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  activityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: AppTheme.colors.brand,
+    marginTop: 6,
+  },
+  activityTextBlock: {
+    flex: 1,
+  },
+  activityDescription: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  activityStatus: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  noDailyEntryCard: {
+    backgroundColor: AppTheme.colors.softSurface,
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 2,
+  },
+  noDailyEntryTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 6,
+  },
+  noDailyEntryText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: "700",
+  },
+  noDailyEntryActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 14,
+  },
+  addEntryButton: {
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  addEntryButtonText: {
+    color: AppTheme.colors.white,
+    fontSize: 13,
     fontWeight: "900",
   },
   setsRow: {
@@ -993,6 +1099,23 @@ const styles = StyleSheet.create({
     width: 3,
     backgroundColor: AppTheme.colors.danger,
     zIndex: 2,
+  },
+  mlUnavailableCard: {
+    backgroundColor: AppTheme.colors.softSurface,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+  },
+  mlUnavailableLabel: {
+    color: AppTheme.colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+    marginBottom: 4,
+  },
+  mlUnavailableText: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 13,
+    fontWeight: "800",
   },
   notesCard: {
     backgroundColor: "#FFF9E8",

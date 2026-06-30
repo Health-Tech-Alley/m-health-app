@@ -8,6 +8,18 @@ import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import { upsertCaregiver } from "@/data";
+import type { Medication } from "@/data/types";
+import { useAppSelector } from "@/store/hooks";
+import {
+  displayClinical,
+  displayEntered,
+  getCaregiverDisplay,
+  getCaregiverRoleDisplay,
+  getComorbiditiesDisplay,
+  getPatientAgeDisplay,
+  getPatientDisplayName,
+  getPrimaryDiagnosisDisplay,
+} from "@/store/selectors/patientSelectors";
 import {
   getOnboardingProfile,
   saveOnboardingProfile,
@@ -21,11 +33,16 @@ export default function ProfileScreen() {
   const router = useRouter();
   const [profile, setProfile] = useState(() => getOnboardingProfile());
   const { snapshot, refresh } = usePatientRecord();
+  const activePatient = useAppSelector((state) => state.patient.activePatient);
 
   const caregiver = profile.caregiver;
-  const patient = profile.patient;
   const provider = profile.primaryCareProvider;
   const safety = profile.safety;
+  const caregiverName = getCaregiverDisplay(activePatient);
+  const caregiverRole = getCaregiverRoleDisplay(activePatient);
+  const patientName = getPatientDisplayName(activePatient);
+  const patientAge = getPatientAgeDisplay(activePatient);
+  const medicationSummary = formatMedicationSummary(snapshot?.medications ?? []);
 
   const [editing, setEditing] = useState<EditableField | null>(null);
   const [draft, setDraft] = useState("");
@@ -69,21 +86,21 @@ export default function ProfileScreen() {
         >
           <View style={styles.profileHeader}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{getInitials(caregiver.name)}</Text>
+              <Text style={styles.avatarText}>{getInitials(caregiverName)}</Text>
             </View>
 
             <View style={styles.headerTextBlock}>
               <Text style={styles.caregiverName}>
-                {formatDetailValue(caregiver.name)}
+                {formatDetailValue(caregiverName)}
               </Text>
 
               <Text style={styles.roleText}>
-                Caregiver · {formatDetailValue(caregiver.relationship)}
+                Caregiver · {formatDetailValue(caregiverRole)}
               </Text>
 
               <Text style={styles.patientLink}>
-                Caring for {formatDetailValue(patient.name)},{" "}
-                {formatDetailValue(patient.age)}
+                Caring for {formatDetailValue(patientName)},{" "}
+                {formatDetailValue(patientAge)}
               </Text>
             </View>
           </View>
@@ -99,19 +116,25 @@ export default function ProfileScreen() {
           </ProfileCard>
 
           <ProfileCard title="Patient" icon="care">
-            <DetailRow label="Name" value={patient.name} />
-            <DetailRow label="Age" value={patient.age} />
-            <DetailRow label="Conditions" value={patient.conditions} />
-            <DetailRow label="SpO₂ cutoff" value={patient.spo2Cutoff} />
-            <DetailRow label="Baseline HR" value={patient.baselineHeartRate} />
+            <DetailRow label="Name" value={patientName} />
+            <DetailRow label="Age" value={patientAge} />
+            <DetailRow label="Primary diagnosis" value={getPrimaryDiagnosisDisplay(activePatient)} />
+            <DetailRow label="Comorbidities" value={getComorbiditiesDisplay(activePatient)} />
+            <DetailRow label="SpO₂ cutoff" value={displayClinical(activePatient?.spo2Cutoff)} />
+            <DetailRow label="Baseline HR" value={displayEntered(activePatient?.baselineHeartRate)} />
+            <DetailRow label="GMFCS" value={displayEntered(activePatient?.classifications.gmfcs)} />
+            <DetailRow label="FMS" value={displayEntered(activePatient?.classifications.fms)} />
+            <DetailRow label="MACS" value={displayEntered(activePatient?.classifications.macs)} />
+            <DetailRow label="CFCS" value={displayEntered(activePatient?.classifications.cfcs)} />
+            <DetailRow label="EDACS" value={displayEntered(activePatient?.classifications.edacs)} />
             <DetailRow
               label="Routine"
-              value={patient.baselineDailyRoutine}
+              value={formatImportedRoutine(activePatient?.baselineDailyRoutine)}
               multiline
             />
             <DetailRow
               label="Medications"
-              value={patient.currentMedications}
+              value={displayClinical(medicationSummary)}
               multiline
             />
           </ProfileCard>
@@ -120,24 +143,6 @@ export default function ProfileScreen() {
             <DetailRow label="Name" value={provider.name} />
             <DetailRow label="Phone" value={provider.phone} />
             <DetailRow label="Email" value={provider.email} />
-          </ProfileCard>
-
-          <ProfileCard title="Preferences" icon="bell">
-            <DetailRow label="Notifications" value={caregiver.notificationStyle} />
-            <DetailRow
-              label="Medical comfort"
-              value={formatMedicalComfort(caregiver.medicalComfortLevel)}
-            />
-            <DetailRow
-              label="Emergency comfort"
-              value={formatEmergencyComfort(caregiver.emergencyComfortLevel)}
-            />
-            <DetailRow label="Backup caregiver" value={caregiver.backupCaregiver} />
-            <DetailRow
-              label="Support needs"
-              value={caregiver.stressOrSupportNeeds}
-              multiline
-            />
           </ProfileCard>
 
           <ProfileCard title="Safety" icon="alert">
@@ -272,6 +277,24 @@ function getInitials(name: DetailValue): string {
     .toUpperCase();
 }
 
+function formatMedicationSummary(medications: Medication[]): string {
+  return medications
+    .map((medication) => {
+      const details = [medication.dosage, medication.frequency ?? medication.indication]
+        .map((value) => value?.trim())
+        .filter(Boolean);
+      return details.length > 0
+        ? `${medication.name}: ${details.join(" · ")}`
+        : medication.name;
+    })
+    .join("\n");
+}
+
+function formatImportedRoutine(value: string | number | null | undefined): string {
+  const text = value === null || value === undefined ? "" : String(value).trim();
+  return text || "Not provided in imported EHR";
+}
+
 function formatDetailValue(value: DetailValue): string {
   if (value === null || value === undefined) {
     return "Not provided";
@@ -283,24 +306,6 @@ function formatDetailValue(value: DetailValue): string {
 
   const text = String(value).trim();
   return text.length > 0 ? text : "Not provided";
-}
-
-function formatMedicalComfort(value: DetailValue): string {
-  const text = formatDetailValue(value);
-
-  if (text === "Moderate detail") return "Moderate";
-  if (text === "Full clinical detail") return "Clinical detail";
-
-  return text;
-}
-
-function formatEmergencyComfort(value: DetailValue): string {
-  const text = formatDetailValue(value);
-
-  if (text === "Would call 911 if needed") return "Calls 911 if needed";
-  if (text === "Prefer provider first") return "Provider first";
-
-  return text;
 }
 
 const styles = StyleSheet.create({

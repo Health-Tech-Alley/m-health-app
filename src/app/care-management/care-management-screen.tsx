@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { useCallback, useMemo, useReducer } from 'react';
 
 import { useSLM } from '@/contexts/slm-context';
-import { AlertAutoencoder } from '@/ml-models/alert-autoencoder';
+import { useUC2Runtime } from '@/contexts/uc2-runtime-context';
 import { createCareManagementController } from './care-management-controller';
 import type { CareManagementAction, CareManagementState } from './types';
 import { CareManagementView } from './care-management-view';
@@ -228,20 +228,8 @@ function resetResult(state: CareManagementState): CareManagementState {
 
 export function CareManagementScreen() {
   const slm = useSLM();
+  const { model: mlModel, ready: mlModelLoaded, error: mlModelError } = useUC2Runtime();
   const [state, dispatch] = useReducer(reducer, initialState);
-  const [mlModel] = useState(() => new AlertAutoencoder());
-  const [mlModelLoaded, setMlModelLoaded] = useState(false);
-
-  useEffect(() => {
-    mlModel.load().then(() => {
-      setMlModelLoaded(mlModel.isLoaded);
-    }).catch((err) => {
-      console.error('[CareManagement] Failed to auto-load ML model:', err);
-    });
-    return () => {
-      mlModel.release().catch(() => {});
-    };
-  }, [mlModel]);
 
   const controller = useMemo(
     () => createCareManagementController(mlModel),
@@ -252,6 +240,10 @@ export function CareManagementScreen() {
     (action: CareManagementAction) => {
       if (action.type === 'ml-start') {
         dispatch(action);
+        if (mlModelError) {
+          dispatch({ type: 'ml-error', payload: { error: mlModelError } });
+          return;
+        }
         controller
           .executeUC2Decision(state)
           .then((resultAction) => dispatch(resultAction));
@@ -260,6 +252,10 @@ export function CareManagementScreen() {
 
       if (action.type === 'hitl-apply') {
         dispatch(action);
+        if (mlModelError) {
+          dispatch({ type: 'ml-error', payload: { error: mlModelError } });
+          return;
+        }
         controller
           .executeApplyHITL(state)
           .then((resultAction) => dispatch(resultAction));
@@ -290,7 +286,7 @@ export function CareManagementScreen() {
 
       dispatch(action);
     },
-    [controller, state, slm.chat],
+    [controller, mlModelError, state, slm.chat],
   );
 
   return (

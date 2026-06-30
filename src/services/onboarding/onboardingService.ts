@@ -1,3 +1,7 @@
+import type { NormalizedFhirClinicalImportPackage } from '@/data/fhir';
+import { getActivePatientId } from '@/data/repositories/appSettingsRepository';
+import { seedDatabaseFromProfile } from '@/data/seed/seedFromProfile';
+
 /**
  * Service layer for first-time caregiver onboarding.
  *
@@ -121,6 +125,10 @@ export type CaregiverProfile = {
 
 export type PatientProfile = {
   name: string;
+  preferredName?: string;
+  officialFirstName?: string;
+  officialLastName?: string;
+  officialDisplayName?: string;
   age: string;
 
   /**
@@ -154,6 +162,9 @@ export type PatientProfile = {
   baselineHeartRate?: string;
   gmfcsLevel?: string;
   fmsScore?: string;
+  macsLevel?: string;
+  cfcsLevel?: string;
+  edacsLevel?: string;
 
   /**
    * Device and baseline setup.
@@ -180,6 +191,7 @@ export type OnboardingProfile = {
   patient: PatientProfile;
   primaryCareProvider: ProviderProfile;
   safety?: SafetyProfile;
+  clinicalImport?: NormalizedFhirClinicalImportPackage;
   completedAt?: string;
 };
 
@@ -368,33 +380,29 @@ export const defaultOnboardingProfile: OnboardingProfile = {
     backupCaregiver: "Maria Garcia · (555) 020-3040",
   },
   patient: {
-    name: "Elena Garcia",
-    age: "72",
-    conditions: "COPD, Traumatic Brain Injury",
+    name: "",
+    preferredName: "",
+    officialFirstName: "",
+    officialLastName: "",
+    officialDisplayName: "",
+    age: "",
+    conditions: "",
     addressSameAsCaregiver: true,
     address: defaultCaregiverAddress,
-    primaryIcdCode: "J44.9",
-    primaryIcdLabel: "Chronic obstructive pulmonary disease, unspecified",
-    comorbidities: [
-      {
-        code: "S06.9X0S",
-        label: "Traumatic brain injury, sequela",
-        category: "Neurologic",
-      },
-    ],
-    symptoms: [
-      "shortness-of-breath",
-      "low-oxygen",
-      "fatigue",
-      "reduced-mobility",
-    ],
+    primaryIcdCode: undefined,
+    primaryIcdLabel: undefined,
+    comorbidities: [],
+    symptoms: [],
     otherSymptoms: "",
-    baselineDailyRoutine: "Wakes at 8am, naps at 2pm, quiet evenings",
-    currentMedications: "Albuterol PRN, Tiotropium daily, Prednisone",
-    spo2Cutoff: "88%",
-    baselineHeartRate: "72–88 BPM",
+    baselineDailyRoutine: "",
+    currentMedications: "",
+    spo2Cutoff: "",
+    baselineHeartRate: "",
     gmfcsLevel: "",
     fmsScore: "",
+    macsLevel: "",
+    cfcsLevel: "",
+    edacsLevel: "",
     wearableDevice: {
       deviceType: "Apple Watch",
       deviceLabel: "Elena's Apple Watch",
@@ -427,23 +435,21 @@ export function saveOnboardingProfile(profile: OnboardingProfile): void {
 }
 
 /**
- * UI-branch version.
+ * Final onboarding completion path.
  *
- * Ethan's database seed file is not available in this branch yet, so this keeps
- * onboarding independent and compile-safe. Once Ethan's data scaffold is merged,
- * this function can call seedDatabaseFromProfile(profile) through the agreed
- * service/repository boundary.
+ * Saves the reviewed profile in memory, then seeds the local repository layer
+ * from the same normalized profile.
  */
 export async function completeOnboardingProfile(
   profile: OnboardingProfile,
 ): Promise<OnboardingSeedResult> {
   saveOnboardingProfile(profile);
+  const patientId = seedDatabaseFromProfile(getOnboardingProfile());
 
   return {
     savedInMemory: true,
-    seededDatabase: false,
-    error:
-      "Database seed is not connected in this UI branch yet. Onboarding profile was saved in memory.",
+    seededDatabase: true,
+    patientId,
   };
 }
 
@@ -465,7 +471,12 @@ export function getMockEhrPatientRecord(): MockEhrPatientRecord {
 }
 
 export function hasCompletedOnboarding(): boolean {
-  return savedOnboardingProfile !== null;
+  if (savedOnboardingProfile !== null) return true;
+  try {
+    return getActivePatientId() !== null;
+  } catch {
+    return false;
+  }
 }
 
 export function clearOnboardingProfile(): void {
@@ -551,11 +562,15 @@ function normalizeOnboardingProfile(
 
   const primaryIcdLabel =
     profile.patient.primaryIcdLabel ?? primaryIcdOption?.label;
+  const comorbidities = dedupeIcdConditions(
+    profile.patient.comorbidities ?? [],
+    profile.patient.primaryIcdCode,
+    primaryIcdLabel,
+  );
 
   const conditions = buildLegacyConditionSummary({
-    existingConditions: profile.patient.conditions,
     primaryIcdLabel,
-    comorbidities: profile.patient.comorbidities,
+    comorbidities,
   });
 
   return {
@@ -566,25 +581,32 @@ function normalizeOnboardingProfile(
     },
     patient: {
       ...profile.patient,
+      preferredName: profile.patient.preferredName ?? profile.patient.name,
+      name:
+        profile.patient.preferredName?.trim() ||
+        profile.patient.name.trim() ||
+        profile.patient.officialDisplayName?.trim() ||
+        "",
       addressSameAsCaregiver: useCaregiverAddress,
       address: patientAddress,
       primaryIcdLabel,
       conditions,
-      comorbidities: profile.patient.comorbidities ?? [],
+      comorbidities,
       symptoms: profile.patient.symptoms ?? [],
       otherSymptoms: profile.patient.otherSymptoms ?? "",
       gmfcsLevel: profile.patient.gmfcsLevel ?? "",
       fmsScore: profile.patient.fmsScore ?? "",
+      macsLevel: profile.patient.macsLevel ?? "",
+      cfcsLevel: profile.patient.cfcsLevel ?? "",
+      edacsLevel: profile.patient.edacsLevel ?? "",
     },
   };
 }
 
 function buildLegacyConditionSummary({
-  existingConditions,
   primaryIcdLabel,
   comorbidities,
 }: {
-  existingConditions: string;
   primaryIcdLabel?: string;
   comorbidities?: IcdConditionProfile[];
 }): string {
@@ -599,5 +621,42 @@ function buildLegacyConditionSummary({
     return labels.join(", ");
   }
 
-  return existingConditions;
+  return "";
+}
+
+function dedupeIcdConditions(
+  conditions: IcdConditionProfile[],
+  primaryCode?: string,
+  primaryLabel?: string,
+): IcdConditionProfile[] {
+  const seenCodes = new Set<string>();
+  const seenLabels = new Set<string>();
+  const primaryCodeKey = normalizeIcdCodeForComparison(primaryCode);
+  const primaryLabelKey = normalizeConditionLabelForComparison(primaryLabel);
+
+  if (primaryCodeKey) seenCodes.add(primaryCodeKey);
+  if (primaryLabelKey) seenLabels.add(primaryLabelKey);
+
+  return conditions.filter((condition) => {
+    const codeKey = normalizeIcdCodeForComparison(condition.code);
+    const labelKey = normalizeConditionLabelForComparison(condition.label);
+    const duplicate =
+      (codeKey && seenCodes.has(codeKey)) ||
+      (!codeKey && labelKey && seenLabels.has(labelKey));
+
+    if (duplicate) return false;
+    if (codeKey) seenCodes.add(codeKey);
+    if (labelKey) seenLabels.add(labelKey);
+    return true;
+  });
+}
+
+function normalizeIcdCodeForComparison(value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return "";
+  return trimmed.match(/[A-Z][0-9][A-Z0-9.]*/i)?.[0].toUpperCase() ?? "";
+}
+
+function normalizeConditionLabelForComparison(value: string | undefined): string {
+  return value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
 }

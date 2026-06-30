@@ -41,7 +41,7 @@ export type OrchestrationEvent =
       topFeatures?: [string, number][]; // [["stress_level",23.19], ...]
       ruleEngine?: { is_emergency: boolean; severity: number; reasons: string[] };
       caregiverBlock?: { action?: string; confirmed?: boolean; observations?: string[] };
-      rawVitals?: Record<string, number>;
+      rawVitals?: unknown;
       trainingLabelProxy?: { health_event: number; event_label: number };
       // ── UC2 decision-layer fields (planning/23 §4) ──
       pipelinePath?: string;
