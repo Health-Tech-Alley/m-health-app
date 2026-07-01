@@ -13,9 +13,12 @@ export function upsertPatient(patient: Patient): void {
   db.runSync(
     `INSERT INTO patients
       (patient_id, name, age, conditions, baseline_daily_routine, current_medications,
-       spo2_cutoff, baseline_heart_rate, preferred_name, gmfcs, fms, macs, cfcs,
+       spo2_cutoff, baseline_heart_rate, baseline_blood_oxygen,
+       baseline_respiratory_rate, baseline_blood_pressure_systolic,
+       baseline_blood_pressure_diastolic, baseline_glucose_level,
+       baseline_body_temperature, preferred_name, gmfcs, fms, macs, cfcs,
        edacs, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(patient_id) DO UPDATE SET
        name = COALESCE(NULLIF(excluded.name, ''), patients.name),
        age = COALESCE(NULLIF(excluded.age, ''), patients.age),
@@ -24,6 +27,12 @@ export function upsertPatient(patient: Patient): void {
        current_medications = COALESCE(NULLIF(excluded.current_medications, ''), patients.current_medications),
        spo2_cutoff = COALESCE(NULLIF(excluded.spo2_cutoff, ''), patients.spo2_cutoff),
        baseline_heart_rate = COALESCE(NULLIF(excluded.baseline_heart_rate, ''), patients.baseline_heart_rate),
+       baseline_blood_oxygen = COALESCE(NULLIF(excluded.baseline_blood_oxygen, ''), patients.baseline_blood_oxygen),
+       baseline_respiratory_rate = COALESCE(NULLIF(excluded.baseline_respiratory_rate, ''), patients.baseline_respiratory_rate),
+       baseline_blood_pressure_systolic = COALESCE(NULLIF(excluded.baseline_blood_pressure_systolic, ''), patients.baseline_blood_pressure_systolic),
+       baseline_blood_pressure_diastolic = COALESCE(NULLIF(excluded.baseline_blood_pressure_diastolic, ''), patients.baseline_blood_pressure_diastolic),
+       baseline_glucose_level = COALESCE(NULLIF(excluded.baseline_glucose_level, ''), patients.baseline_glucose_level),
+       baseline_body_temperature = COALESCE(NULLIF(excluded.baseline_body_temperature, ''), patients.baseline_body_temperature),
        preferred_name = COALESCE(NULLIF(excluded.preferred_name, ''), patients.preferred_name),
        gmfcs = COALESCE(NULLIF(excluded.gmfcs, ''), patients.gmfcs),
        fms = COALESCE(NULLIF(excluded.fms, ''), patients.fms),
@@ -39,6 +48,12 @@ export function upsertPatient(patient: Patient): void {
     patient.currentMedications ?? null,
     patient.spo2Cutoff ?? null,
     patient.baselineHeartRate ?? null,
+    patient.baselineBloodOxygen ?? null,
+    patient.baselineRespiratoryRate ?? null,
+    patient.baselineBloodPressureSystolic ?? null,
+    patient.baselineBloodPressureDiastolic ?? null,
+    patient.baselineGlucoseLevel ?? null,
+    patient.baselineBodyTemperature ?? null,
     patient.preferredName ?? null,
     patient.gmfcs ?? null,
     patient.fms ?? null,
@@ -57,6 +72,12 @@ export function getPatient(patientId: string): Patient | null {
       `SELECT patient_id AS patientId, name, age, conditions, baseline_daily_routine AS baselineDailyRoutine,
               current_medications AS currentMedications, spo2_cutoff AS spo2Cutoff,
               baseline_heart_rate AS baselineHeartRate, preferred_name AS preferredName,
+              baseline_blood_oxygen AS baselineBloodOxygen,
+              baseline_respiratory_rate AS baselineRespiratoryRate,
+              baseline_blood_pressure_systolic AS baselineBloodPressureSystolic,
+              baseline_blood_pressure_diastolic AS baselineBloodPressureDiastolic,
+              baseline_glucose_level AS baselineGlucoseLevel,
+              baseline_body_temperature AS baselineBodyTemperature,
               gmfcs, fms, macs, cfcs, edacs, created_at AS createdAt, updated_at AS updatedAt
        FROM patients WHERE patient_id = ?;`,
       patientId,

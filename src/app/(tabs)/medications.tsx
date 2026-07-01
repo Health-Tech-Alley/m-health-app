@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
@@ -21,9 +22,13 @@ import {
   getActiveMedications,
   getActiveMedicationSchedules,
   getMedicationById,
+  getMedicationConfirmationPreference,
+  getMedicationConfirmationRequirementsForPatient,
   upsertMedication,
   upsertMedicationSchedule,
   type Medication,
+  type MedicationConfirmationPreference,
+  type MedicationConfirmationRequirement,
   type MedicationSchedule,
 } from "@/data";
 import { audit } from "@/services/audit/auditService";
@@ -35,6 +40,7 @@ interface MedRow {
   schedule?: MedicationSchedule;
   status: MedStatus;
   accent: string;
+  confirmationLabel?: "Required by care team" | "Confirmation selected" | "Confirmation preference saved";
 }
 
 const CARE_PLAN_ACCENT = "#F5B800";
@@ -48,18 +54,45 @@ function makeId(prefix: string): string {
 function loadMedRows(patientId: string): MedRow[] {
   const meds = getActiveMedications(patientId);
   const schedules = getActiveMedicationSchedules(patientId);
+  let preference: Pick<
+    MedicationConfirmationPreference,
+    "confirmationMode" | "selectedMedicationIds"
+  >;
+  let requirements: Record<string, MedicationConfirmationRequirement>;
+  try {
+    preference = getMedicationConfirmationPreference(patientId);
+    requirements = getMedicationConfirmationRequirementsForPatient(patientId);
+  } catch {
+    preference = { confirmationMode: "all", selectedMedicationIds: [] };
+    requirements = {};
+  }
   return meds.map((med) => {
     const schedule = schedules.find((s) => s.medicationId === med.medicationId);
+    const requirement = requirements[med.medicationId];
+    const required = requirement?.confirmationRequirement === "required";
+    const confirmationSelected =
+      preference.confirmationMode === "all" ||
+      required ||
+      (preference.confirmationMode === "personalized" &&
+        preference.selectedMedicationIds.includes(med.medicationId));
     return {
       med,
       schedule,
       status: "pending" as MedStatus,
       accent: med.source === "custom" ? CUSTOM_ACCENT : CARE_PLAN_ACCENT,
+      confirmationLabel: confirmationSelected
+        ? required
+          ? "Required by care team"
+          : schedule
+            ? "Confirmation selected"
+            : "Confirmation preference saved"
+        : undefined,
     };
   });
 }
 
 export default function MedicationsScreen() {
+  const router = useRouter();
   const { patientId, snapshot } = usePatientRecord();
 
   const patientFirstName =
@@ -225,7 +258,7 @@ export default function MedicationsScreen() {
   };
 
   const formatTimeLabel = (row: MedRow): string => {
-    if (!row.schedule) return "No schedule";
+    if (!row.schedule) return "Schedule not provided";
     return row.schedule.timeOfDay;
   };
 
@@ -260,6 +293,16 @@ export default function MedicationsScreen() {
               <StatusPill status={nextDue.status} compact />
             </View>
           ) : null}
+
+          <Pressable
+            style={styles.reminderPreferencesButton}
+            onPress={() => router.push("/notifications-reminders")}
+            accessibilityRole="button"
+            accessibilityLabel="Open reminder preferences"
+          >
+            <AppIcon name="bell" size={18} color={AppTheme.colors.brand} />
+            <Text style={styles.reminderPreferencesText}>Reminder preferences</Text>
+          </Pressable>
 
           <Text style={styles.sectionLabel}>Current Medications</Text>
 
@@ -396,6 +439,11 @@ function MedicationCard({
             {isCustom ? (
               <View style={styles.customBadge}>
                 <Text style={styles.customBadgeText}>Custom</Text>
+              </View>
+            ) : null}
+            {row.confirmationLabel ? (
+              <View style={styles.confirmationBadge}>
+                <Text style={styles.confirmationBadgeText}>{row.confirmationLabel}</Text>
               </View>
             ) : null}
           </View>
@@ -544,6 +592,23 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 5,
   },
+  reminderPreferencesButton: {
+    minHeight: 44,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.surface,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 18,
+  },
+  reminderPreferencesText: {
+    color: AppTheme.colors.brand,
+    fontSize: 13,
+    fontWeight: "900",
+  },
   sectionLabel: {
     color: AppTheme.colors.sectionText,
     fontSize: 11,
@@ -603,6 +668,19 @@ const styles = StyleSheet.create({
   },
   customBadgeText: {
     color: AppTheme.colors.white,
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  confirmationBadge: {
+    backgroundColor: AppTheme.colors.brandSoft,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginBottom: 4,
+  },
+  confirmationBadgeText: {
+    color: AppTheme.colors.brand,
     fontSize: 9,
     fontWeight: "900",
     textTransform: "uppercase",

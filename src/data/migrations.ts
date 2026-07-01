@@ -1,3 +1,5 @@
+import type { SQLiteDatabase } from 'expo-sqlite';
+
 /**
  * SQLite migrations.
  *
@@ -5,7 +7,9 @@
  * where possible (CREATE TABLE IF NOT EXISTS, etc.).
  */
 
-export const MIGRATIONS: string[] = [
+export type Migration = string | ((db: SQLiteDatabase) => void);
+
+export const MIGRATIONS: Migration[] = [
   // 0: core identity tables
   `
   CREATE TABLE IF NOT EXISTS patients (
@@ -605,4 +609,60 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_longitudinal_observations_patient_type_time
     ON patient_longitudinal_observations(patient_id, measurement_type, recorded_at);
   `,
+
+  // 21: optional baseline health readings captured during onboarding
+  `
+  ALTER TABLE patients ADD COLUMN baseline_blood_oxygen TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_respiratory_rate TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_blood_pressure_systolic TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_blood_pressure_diastolic TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_glucose_level TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_body_temperature TEXT;
+  `,
+
+  // 22: demo medication confirmation requirement overrides
+  `
+  CREATE TABLE IF NOT EXISTS medication_confirmation_requirements (
+    patient_id TEXT NOT NULL,
+    medication_id TEXT NOT NULL,
+    confirmation_requirement TEXT NOT NULL CHECK (
+      confirmation_requirement IN ('required', 'not_required', 'not_provided')
+    ),
+    requirement_source TEXT NOT NULL CHECK (
+      requirement_source IN ('demo_override', 'demo_fixture', 'fhir_extension', 'provider_configuration')
+    ),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (patient_id, medication_id, requirement_source)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_med_confirmation_requirements_patient
+    ON medication_confirmation_requirements(patient_id, medication_id);
+  `,
+
+  // 23: caregiver medication-confirmation preferences + notification delivery channel flags
+  (db: SQLiteDatabase) => {
+    db.execSync(`
+    CREATE TABLE IF NOT EXISTS medication_confirmation_preferences (
+      patient_id TEXT PRIMARY KEY,
+      confirmation_mode TEXT NOT NULL DEFAULT 'all' CHECK (
+        confirmation_mode IN ('all', 'required_only', 'personalized')
+      ),
+      selected_medication_ids_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    `);
+
+    const columns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(notification_preferences);`,
+    );
+    const hasDeviceEnabled = columns.some((column) => column.name === 'device_enabled');
+    if (!hasDeviceEnabled) {
+      db.execSync(`
+      ALTER TABLE notification_preferences
+        ADD COLUMN device_enabled INTEGER NOT NULL DEFAULT 1;
+      `);
+    }
+  },
 ];

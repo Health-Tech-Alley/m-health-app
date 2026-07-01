@@ -54,7 +54,12 @@ function migrate(db: SQLiteDatabase): void {
     );
     if (exists && exists.count > 0) continue;
 
-    db.execSync(MIGRATIONS[i]);
+    const migration = MIGRATIONS[i];
+    if (typeof migration === 'function') {
+      migration(db);
+    } else {
+      db.execSync(migration);
+    }
     db.runSync(
       'INSERT INTO __migrations (id, applied_at) VALUES (?, ?);',
       i,

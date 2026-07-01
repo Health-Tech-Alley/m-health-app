@@ -14,7 +14,7 @@ import {
   formatCitationsForPrompt,
   buildRetrievalQuery,
 } from '@/clinical-evidence/retrieval-helper';
-import { getConditionsForPatient } from '@/data';
+import { getConditionsForPatient, type MlRawVitalsInputEnvelope } from '@/data';
 import type { VitalsScenario } from '@/ml-models/alert-autoencoder/mock-scenarios';
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
@@ -157,40 +157,74 @@ function matchesScenario(scenario: VitalsScenario, result: UC2DecisionResult): b
 }
 
 /**
- * Publish the UC2 result to the orchestrator event bus as a synthetic
- * vitals_sample, so the orchestrator's ML path creates a real alert + (when
- * severity warrants) a notification, and the Dashboard live-refreshes. This
- * lets the Care Management harness test the full graphic flow end-to-end.
+ * Publish the computed UC2 result through the orchestrator's existing
+ * ml_alert_created event, so alert + ml_event persistence stays centralized.
  */
 async function publishResultToOrchestrator(
   state: CareManagementState,
   result: UC2DecisionResult,
+  input: AppleWatchVitalsInput,
+  patientId: string,
 ): Promise<void> {
   if (!state.coreVitals || !state.extendedVitals) return;
+  const severity = result.finalDecision.final_severity;
+  if (
+    (severity !== 1 && severity !== 2 && severity !== 3) ||
+    (!result.isAnomaly && !result.emergencyResult.emergency)
+  ) {
+    return;
+  }
+
   try {
     const bus = getEventBus();
     const now = new Date().toISOString();
-    // Publish the core vitals as individual samples so the orchestrator
-    // persists them and the AlertMlService can read them back. Use the most
-    // severe signal first so the threshold fast path can fire immediately.
-    const samples: { type: string; value: number; unit: string }[] = [
-      { type: 'spo2', value: state.coreVitals.blood_oxygen, unit: '%' },
-      { type: 'heart_rate', value: state.coreVitals.heart_rate, unit: 'bpm' },
-      { type: 'respiratory_rate', value: state.extendedVitals.respiratory_rate, unit: '/min' },
-      { type: 'temperature', value: state.coreVitals.body_temperature, unit: 'F' },
-    ];
-    for (const s of samples) {
-      const event: Extract<OrchestrationEvent, { type: 'vitals_sample' }> = {
-        type: 'vitals_sample',
-        patientId: state.selectedScenarioId ? `cm-${state.selectedScenarioId}` : 'care-management-test',
-        sampleId: `cm-sample-${Date.now()}-${s.type}`,
-        sampleType: s.type,
-        value: s.value,
-        unit: s.unit,
-        recordedAt: now,
-      };
-      bus.publish(event);
-    }
+    const scenarioId = state.selectedScenarioId ?? 'custom';
+    const safeAlertId = `cm-alert-${patientId}-${scenarioId}`.replace(/[^A-Za-z0-9_.:-]/g, '-');
+    const scoreRatio =
+      result.aeScore !== null && result.threshold > 0
+        ? result.aeScore / result.threshold
+        : undefined;
+    const rawVitals: MlRawVitalsInputEnvelope = {
+      contract: 'AppleWatchVitalsInput',
+      contractVersion: 1,
+      input: {
+        ...input,
+        patient_id: patientId,
+      },
+      provenance: {},
+      evaluatedAt: input.timestamp,
+    };
+    const event: Extract<OrchestrationEvent, { type: 'ml_alert_created' }> = {
+      type: 'ml_alert_created',
+      alertId: safeAlertId,
+      patientId,
+      severity,
+      score: result.aeScore ?? 0,
+      features: result.rawFeatures,
+      at: now,
+      eventType: 'TRIGGER_WORKFLOW_ANOMALY_TYPE_04',
+      modelVersion: 'tiny_ae_uc2_v0.1.0',
+      threshold: result.threshold,
+      reconstructionError: result.aeScore ?? undefined,
+      topFeatures: result.topFeatureEvidence.map((feature) => [
+        feature.feature,
+        feature.importance,
+      ]),
+      ruleEngine: {
+        is_emergency: result.emergencyResult.emergency,
+        severity: result.emergencyResult.severity,
+        reasons: result.emergencyResult.reason ? [result.emergencyResult.reason] : [],
+      },
+      rawVitals,
+      pipelinePath: result.emergencyResult.pipelinePath,
+      initialAnomalyType: result.initialAnomalyType,
+      postHitlAnomalyType: result.postHitlAnomalyType,
+      featureQuality: result.featureQuality,
+      scoreRatio,
+      notificationTitle: result.finalDecision.final_notification_title || undefined,
+      notificationBody: result.finalDecision.final_notification_body || undefined,
+    };
+    bus.publish(event);
   } catch (err) {
     console.warn('[CareManagement] publish to orchestrator failed:', err);
   }
@@ -276,9 +310,20 @@ export function createCareManagementController(mlModel: AlertAutoencoder) {
      * uses default HITL (`no_prompt_shown`, no codes) and is saved as the
      * initial result for later diffing.
      */
-    async executeUC2Decision(state: CareManagementState): Promise<CareManagementAction> {
+    async executeUC2Decision(
+      state: CareManagementState,
+      activePatientId?: string | null,
+    ): Promise<CareManagementAction> {
       if (!state.coreVitals || !state.extendedVitals) {
         return { type: 'ml-error', payload: { error: 'No vitals loaded' } };
+      }
+      let publishPatientId: string | null = null;
+      if (state.publishToOrchestrator) {
+        const activeId = activePatientId?.trim();
+        if (!activeId) {
+          return { type: 'ml-error', payload: { error: 'No active patient selected for publishing' } };
+        }
+        publishPatientId = activeId;
       }
 
       const input = buildUC2Input(
@@ -296,8 +341,8 @@ export function createCareManagementController(mlModel: AlertAutoencoder) {
           caregiverSelectedCodes: [],
         });
 
-        if (state.publishToOrchestrator) {
-          await publishResultToOrchestrator(state, result);
+        if (publishPatientId) {
+          await publishResultToOrchestrator(state, result, input, publishPatientId);
         }
 
         return { type: 'uc2-success', payload: { result, saveAsInitial: true } };
@@ -310,9 +355,20 @@ export function createCareManagementController(mlModel: AlertAutoencoder) {
      * Re-run the UC2 decision layer with the caregiver's observation codes and
      * final action, producing the post-HITL classification + final decision.
      */
-    async executeApplyHITL(state: CareManagementState): Promise<CareManagementAction> {
+    async executeApplyHITL(
+      state: CareManagementState,
+      activePatientId?: string | null,
+    ): Promise<CareManagementAction> {
       if (!state.coreVitals || !state.extendedVitals) {
         return { type: 'ml-error', payload: { error: 'No vitals loaded' } };
+      }
+      let publishPatientId: string | null = null;
+      if (state.publishToOrchestrator) {
+        const activeId = activePatientId?.trim();
+        if (!activeId) {
+          return { type: 'ml-error', payload: { error: 'No active patient selected for publishing' } };
+        }
+        publishPatientId = activeId;
       }
 
       const input = buildUC2Input(
@@ -330,8 +386,8 @@ export function createCareManagementController(mlModel: AlertAutoencoder) {
           caregiverSelectedCodes: state.observationCodes,
         });
 
-        if (state.publishToOrchestrator) {
-          await publishResultToOrchestrator(state, result);
+        if (publishPatientId) {
+          await publishResultToOrchestrator(state, result, input, publishPatientId);
         }
 
         return { type: 'uc2-success', payload: { result, saveAsInitial: false } };

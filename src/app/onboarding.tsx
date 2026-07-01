@@ -466,6 +466,22 @@ export default function OnboardingScreen() {
   const [baselineHeartRate, setBaselineHeartRate] = useState(
     existingProfile.patient.baselineHeartRate ?? "",
   );
+  const [baselineBloodOxygen, setBaselineBloodOxygen] = useState(
+    existingProfile.patient.baselineBloodOxygen ?? "",
+  );
+  const [baselineRespiratoryRate, setBaselineRespiratoryRate] = useState(
+    existingProfile.patient.baselineRespiratoryRate ?? "",
+  );
+  const [baselineBloodPressureSystolic, setBaselineBloodPressureSystolic] =
+    useState(existingProfile.patient.baselineBloodPressureSystolic ?? "");
+  const [baselineBloodPressureDiastolic, setBaselineBloodPressureDiastolic] =
+    useState(existingProfile.patient.baselineBloodPressureDiastolic ?? "");
+  const [baselineGlucoseLevel, setBaselineGlucoseLevel] = useState(
+    existingProfile.patient.baselineGlucoseLevel ?? "",
+  );
+  const [baselineBodyTemperature, setBaselineBodyTemperature] = useState(
+    existingProfile.patient.baselineBodyTemperature ?? "",
+  );
 
   const [gmfcsLevel, setGmfcsLevel] = useState(
     normalizeClassificationValue(existingProfile.patient.gmfcsLevel),
@@ -685,6 +701,12 @@ export default function OnboardingScreen() {
         currentMedications,
         spo2Cutoff,
         baselineHeartRate,
+        baselineBloodOxygen,
+        baselineRespiratoryRate,
+        baselineBloodPressureSystolic,
+        baselineBloodPressureDiastolic,
+        baselineGlucoseLevel,
+        baselineBodyTemperature,
         gmfcsLevel,
         fmsScore,
         macsLevel,
@@ -1196,38 +1218,84 @@ export default function OnboardingScreen() {
                     </Text>
                   </View>
 
-                  <View style={styles.guidanceMetricRow}>
-                    <View style={styles.guidanceMetric}>
-                      <Text style={styles.guidanceMetricLabel}>
-                        Baseline SpO₂
-                      </Text>
-                      <Text style={styles.guidanceMetricValue}>
-                        Confirm from care plan
-                      </Text>
-                    </View>
-                    <View style={styles.guidanceMetric}>
-                      <Text style={styles.guidanceMetricLabel}>
-                        Mobility classification
-                      </Text>
-                      <Text style={styles.guidanceMetricValue}>
-                        GMFCS / FMS
-                      </Text>
-                    </View>
-                  </View>
+                  <SectionLabel title="CARE-PLAN THRESHOLDS" />
 
-                <View style={styles.twoColumnFields}>
                   <Field
-                    label="SpO₂ cutoff"
+                    label="SpO2 cutoff"
                     value={spo2Cutoff}
                     onChangeText={setSpo2Cutoff}
                     placeholder="Care-plan cutoff"
                   />
 
+                  <SectionLabel title="USUAL HEALTH READINGS" />
+
                   <Field
                     label="Baseline HR"
                     value={baselineHeartRate}
                     onChangeText={setBaselineHeartRate}
-                    placeholder="Baseline range"
+                    placeholder="bpm"
+                    keyboardType="number-pad"
+                  />
+
+                  <Field
+                    label="Baseline blood oxygen (SpO2)"
+                    value={baselineBloodOxygen}
+                    onChangeText={setBaselineBloodOxygen}
+                    placeholder="%"
+                    keyboardType="decimal-pad"
+                  />
+
+                  <Field
+                    label="Baseline breathing rate"
+                    value={baselineRespiratoryRate}
+                    onChangeText={setBaselineRespiratoryRate}
+                    placeholder="breaths/min"
+                    keyboardType="number-pad"
+                  />
+
+                  <View style={styles.fieldBlock}>
+                    <Text style={styles.fieldLabel}>Baseline blood pressure</Text>
+                    <View style={styles.bloodPressureFields}>
+                      <View style={styles.bloodPressureField}>
+                        <TextInput
+                          style={styles.input}
+                          value={baselineBloodPressureSystolic}
+                          onChangeText={setBaselineBloodPressureSystolic}
+                          placeholder="Top number"
+                          placeholderTextColor={AppTheme.colors.textMuted}
+                          keyboardType="number-pad"
+                        />
+                        <Text style={styles.fieldUnitText}>mmHg</Text>
+                      </View>
+
+                      <View style={styles.bloodPressureField}>
+                        <TextInput
+                          style={styles.input}
+                          value={baselineBloodPressureDiastolic}
+                          onChangeText={setBaselineBloodPressureDiastolic}
+                          placeholder="Bottom number"
+                          placeholderTextColor={AppTheme.colors.textMuted}
+                          keyboardType="number-pad"
+                        />
+                        <Text style={styles.fieldUnitText}>mmHg</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <Field
+                    label="Baseline blood glucose"
+                    value={baselineGlucoseLevel}
+                    onChangeText={setBaselineGlucoseLevel}
+                    placeholder="mg/dL"
+                    keyboardType="decimal-pad"
+                  />
+
+                  <Field
+                    label="Baseline body temperature"
+                    value={baselineBodyTemperature}
+                    onChangeText={setBaselineBodyTemperature}
+                    placeholder="deg F"
+                    keyboardType="decimal-pad"
                   />
                 </View>
 
@@ -1297,7 +1365,6 @@ export default function OnboardingScreen() {
                   setExpandedSelect={setExpandedSelect}
                   onSelect={setEdacsLevel}
                 />
-                </View>
               </StepShell>
             ) : null}
 
@@ -1589,7 +1656,12 @@ function Field({
   value: string;
   onChangeText: (value: string) => void;
   placeholder: string;
-  keyboardType?: "default" | "phone-pad" | "number-pad" | "email-address";
+  keyboardType?:
+    | "default"
+    | "phone-pad"
+    | "number-pad"
+    | "decimal-pad"
+    | "email-address";
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
 }) {
   return (
@@ -2232,6 +2304,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
+  },
+  bloodPressureFields: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  bloodPressureField: {
+    flex: 1,
+    minWidth: 120,
+  },
+  fieldUnitText: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 6,
   },
 
   diagnosisHelper: {

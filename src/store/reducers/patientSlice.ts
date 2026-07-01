@@ -1,5 +1,5 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import type { Caregiver, PatientCondition } from "@/data/types";
+import type { Caregiver, MedicationConfirmationRequirement, PatientCondition } from "@/data/types";
 
 export type NormalizedVitalReading = {
   sampleId: string;
@@ -57,6 +57,13 @@ export type NormalizedActivePatient = {
   currentMedications: string;
   spo2Cutoff: string;
   baselineHeartRate: string;
+  baselineBloodOxygen: string;
+  baselineRespiratoryRate: string;
+  baselineBloodPressureSystolic: string;
+  baselineBloodPressureDiastolic: string;
+  baselineGlucoseLevel: string;
+  baselineBodyTemperature: string;
+  medicationConfirmationRequirements: Record<string, MedicationConfirmationRequirement>;
   status: "available" | "unknown";
   lastRefreshedAt: string;
 };

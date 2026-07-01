@@ -121,8 +121,7 @@ export default function DashboardRoute() {
           {visibleNonEmergencyAlert ? (
             <NonEmergencyInsightCard
               key={`${visibleNonEmergencyAlert.patientId}:${visibleNonEmergencyAlert.alertId}`}
-              alertId={visibleNonEmergencyAlert.alertId}
-              patientId={visibleNonEmergencyAlert.patientId}
+              alert={visibleNonEmergencyAlert}
             />
           ) : null}
 

@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-import { DeviceEventEmitter, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
-import { getHealthSampleForPatientAndCurrentMonth } from "@/data/repositories/healthSampleRepository";
-import { HealthSampleType, Patient } from "@/data/types";
+import { HealthSampleType } from "@/data/types";
 
-type VitalKey = "spo2" | "heartRate" | "respRate" | "mobility";
 type TimeRange = "12h" | "day" | "week" | "month";
 
 type VitalMetric = {
@@ -93,18 +91,9 @@ export function WeeklyVitalsCard() {
   const [selectedKey, setSelectedKey] = useState<HealthSampleType>("spo2");
   const [selectedRange, setSelectedRange] = useState<TimeRange>("week");
   const [helperKey, setHelperKey] = useState<HealthSampleType>("spo2");
-  const [currentPatient, setCurrentPatient] = useState<Patient | null>(null);
-  const [fhirData, setFhirData] = useState<any>(null);
-  const [chartMetrics, setChartMetrics] = useState<VitalMetric[]>([]);
-
-  // load current patient on load
-  useEffect(() => {
-    const patient = null;
-    setCurrentPatient(patient);
-  }, []);
 
   const selectedMetric =
-    metrics.find((metric) => metric.key === selectedKey) ?? chartMetrics[0];
+    metrics.find((metric) => metric.key === selectedKey) ?? metrics[0];
   const helperMetric =
     metrics.find((metric) => metric.key === helperKey) ?? selectedMetric;
 

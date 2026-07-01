@@ -5,10 +5,10 @@ import { useRouter } from "expo-router";
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
 import { getCaregiverForPatient, insertCaregiverAction } from "@/data";
+import type { CareAlert } from "@/services/care/careService";
 import { useNonEmergencyDecisionWorkflow } from "@/services/care/useNonEmergencyDecisionWorkflow";
 import { useAppSelector } from "@/store/hooks";
 import { selectNonEmergencyDecisionForAlert } from "@/store/reducers/nonEmergencyDecisionSlice";
-import { getPatientDisplayName } from "@/store/selectors/patientSelectors";
 
 const contextOptions = [
   { code: "increased_activity", label: "Exercising / increased activity" },
@@ -30,33 +30,45 @@ const contextOptions = [
 ];
 
 type NonEmergencyInsightCardProps = {
-  alertId: string;
-  patientId: string;
+  alert: CareAlert;
 };
 
 export function NonEmergencyInsightCard({
-  alertId,
-  patientId,
+  alert,
 }: NonEmergencyInsightCardProps) {
   const router = useRouter();
-  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const { alertId, patientId } = alert;
   const decisionWorkflow = useAppSelector((state) =>
     selectNonEmergencyDecisionForAlert(state, patientId, alertId),
   );
   const { evaluateSavedResponse, resetDecisionWorkflow } =
     useNonEmergencyDecisionWorkflow();
-  const patientFirstName =
-    getPatientDisplayName(activePatient).trim().split(/\s+/)[0] || "the patient";
+  const alertTitle = alert.title.trim() || "Alert title not provided";
+  const alertBody =
+    alert.body.trim() ||
+    "Alert details not provided";
 
   const [selectedContexts, setSelectedContexts] = useState<string[]>([]);
   const [reasonSearch, setReasonSearch] = useState("");
   const [reasonPickerOpen, setReasonPickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [savedCaregiverActionId, setSavedCaregiverActionId] = useState<string | null>(null);
+  const [submittedSelectionKey, setSubmittedSelectionKey] = useState<string | null>(null);
   const submittingRef = useRef(false);
 
   const answered = selectedContexts.length > 0;
-  const responseSaved = savedCaregiverActionId !== null;
+  const selectedContextKey = getSelectionKey(selectedContexts);
+  const updating = submitting || decisionWorkflow.status === "evaluating";
+  const selectionUpdated =
+    answered &&
+    submittedSelectionKey !== null &&
+    selectedContextKey === submittedSelectionKey &&
+    decisionWorkflow.status === "ready";
+  const canUpdateRecommendation = answered && !updating && !selectionUpdated;
+  const updateButtonText = updating
+    ? "Updating..."
+    : selectionUpdated
+      ? "Updated"
+      : "Update recommendation";
 
   useEffect(() => {
     resetDecisionWorkflow(patientId, alertId);
@@ -73,13 +85,14 @@ export function NonEmergencyInsightCard({
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [reasonSearch]);
 
-  const handleDismiss = () => {
-    // Only allow dismissal once the prompt has been answered.
-    if (!answered || submittingRef.current || responseSaved) return;
+  const handleUpdateRecommendation = () => {
+    // Only allow recalculation once the prompt has been answered.
+    if (!canUpdateRecommendation || submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
 
     try {
+      const submittedSelectionKey = selectedContextKey;
       const selectedOptions = contextOptions.filter((option) =>
         selectedContexts.includes(option.code),
       );
@@ -103,7 +116,7 @@ export function NonEmergencyInsightCard({
         }),
         createdAt,
       });
-      setSavedCaregiverActionId(actionId);
+      setSubmittedSelectionKey(submittedSelectionKey);
       void evaluateSavedResponse({
         alertId,
         patientId,
@@ -149,7 +162,7 @@ export function NonEmergencyInsightCard({
 
         <View style={styles.headerTextBlock}>
           <Text style={styles.kicker}>Non-emergency pattern</Text>
-          <Text style={styles.title}>Movement looked different today</Text>
+          <Text style={styles.title}>{alertTitle}</Text>
         </View>
 
         <View style={styles.softBadge}>
@@ -158,9 +171,7 @@ export function NonEmergencyInsightCard({
       </View>
 
       <Text style={styles.bodyText}>
-        {patientFirstName}&apos;s mobility score was lower than expected, but
-        this does not look like an emergency. Add context so the Concierge can
-        avoid unnecessary alerts and learn the pattern.
+        {alertBody} Add caregiver context to recalculate the recommendation.
       </Text>
 
       <Text style={styles.questionText}>Was anything unusual happening?</Text>
@@ -242,17 +253,22 @@ export function NonEmergencyInsightCard({
           {answered ? (
             <Pressable
               style={styles.checkmarkButton}
-              onPress={handleDismiss}
-              disabled={submitting || responseSaved}
+              onPress={handleUpdateRecommendation}
+              disabled={!canUpdateRecommendation}
             >
               <AppIcon name="check" size={16} color={AppTheme.colors.white} />
-              <Text style={styles.checkmarkText}>Dismiss</Text>
+              <Text style={styles.checkmarkText}>{updateButtonText}</Text>
             </Pressable>
           ) : null}
         </View>
         <Text style={styles.recommendationText}>
           {recommendationText}
         </Text>
+        {selectionUpdated ? (
+          <Text style={styles.recommendationHelperText}>
+            Recommendation updated. Add or change context to update it again.
+          </Text>
+        ) : null}
 
         {answered ? (
           <Pressable
@@ -279,6 +295,10 @@ function formatSelectedContexts(selectedContexts: string[]): string {
   }
 
   return `${selectedLabels.length} reasons`;
+}
+
+function getSelectionKey(selectedContexts: string[]): string {
+  return [...selectedContexts].sort().join("|");
 }
 
 function getRecommendationText({
@@ -311,8 +331,8 @@ function getRecommendationText({
   }
 
   return answered
-    ? `${formatSelectedContexts(selectedContexts)} added as context. If this repeats at the same time or without explanation, consider asking the provider about the pattern.`
-    : "If there is a clear reason, add context. If this repeats without explanation, the app can suggest a provider check-in.";
+    ? `${formatSelectedContexts(selectedContexts)} added as context. Update the recommendation to include this alert context.`
+    : "If there is useful context, add it so the app can recalculate the recommendation for this alert.";
 }
 
 const styles = StyleSheet.create({
@@ -497,6 +517,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     fontWeight: "800",
+  },
+  recommendationHelperText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "800",
+    marginTop: 8,
   },
   suggestedFeatureButton: {
     marginTop: 10,

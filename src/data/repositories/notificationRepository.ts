@@ -8,9 +8,12 @@ import type { NotificationRecord, NotificationScope, NotificationPreferences } f
 const DEFAULT_PREFERENCES: NotificationPreferences = {
   anomaly: true,
   medication: true,
+  medicationDevice: true,
   appointment: true,
+  appointmentDevice: true,
   appointmentLeadTimeMin: 30,
   careTask: true,
+  careTaskDevice: true,
 };
 
 export function insertNotification(record: NotificationRecord): void {
@@ -106,8 +109,15 @@ export function getRecentNotificationForTrigger(
 
 export function getNotificationPreferences(): NotificationPreferences {
   const db = getDatabase();
-  const rows = db.getAllSync<{ scope: string; enabled: number; lead_time_minutes: number | null; quiet_hours_start: string | null; quiet_hours_end: string | null }>(
-    `SELECT scope, enabled, lead_time_minutes, quiet_hours_start, quiet_hours_end
+  const rows = db.getAllSync<{
+    scope: string;
+    enabled: number;
+    device_enabled: number | null;
+    lead_time_minutes: number | null;
+    quiet_hours_start: string | null;
+    quiet_hours_end: string | null;
+  }>(
+    `SELECT scope, enabled, device_enabled, lead_time_minutes, quiet_hours_start, quiet_hours_end
      FROM notification_preferences;`,
   );
 
@@ -117,14 +127,21 @@ export function getNotificationPreferences(): NotificationPreferences {
   const anomalyRow = byScope.get('anomaly');
   if (anomalyRow) prefs.anomaly = anomalyRow.enabled === 1;
   const medRow = byScope.get('medication');
-  if (medRow) prefs.medication = medRow.enabled === 1;
+  if (medRow) {
+    prefs.medication = medRow.enabled === 1;
+    prefs.medicationDevice = medRow.device_enabled !== 0;
+  }
   const apptRow = byScope.get('appointment');
   if (apptRow) {
     prefs.appointment = apptRow.enabled === 1;
+    prefs.appointmentDevice = apptRow.device_enabled !== 0;
     if (apptRow.lead_time_minutes != null) prefs.appointmentLeadTimeMin = apptRow.lead_time_minutes;
   }
   const careRow = byScope.get('care_task');
-  if (careRow) prefs.careTask = careRow.enabled === 1;
+  if (careRow) {
+    prefs.careTask = careRow.enabled === 1;
+    prefs.careTaskDevice = careRow.device_enabled !== 0;
+  }
 
   // Quiet hours stored on the medication scope row.
   if (medRow) {
@@ -138,16 +155,31 @@ export function getNotificationPreferences(): NotificationPreferences {
 export function setNotificationScopePreference(
   scope: NotificationScope,
   enabled: boolean,
-  extra?: { leadTimeMinutes?: number; quietHoursStart?: string; quietHoursEnd?: string },
+  extra?: {
+    deviceEnabled?: boolean;
+    leadTimeMinutes?: number;
+    quietHoursStart?: string;
+    quietHoursEnd?: string;
+  },
 ): void {
   const db = getDatabase();
   const now = new Date().toISOString();
+  const current = getNotificationPreferences();
+  const currentDevice =
+    scope === 'medication'
+      ? current.medicationDevice
+      : scope === 'appointment'
+        ? current.appointmentDevice
+        : scope === 'care_task'
+          ? current.careTaskDevice
+          : true;
   db.runSync(
     `INSERT OR REPLACE INTO notification_preferences
-      (scope, enabled, lead_time_minutes, quiet_hours_start, quiet_hours_end)
-     VALUES (?, ?, ?, ?, ?);`,
+      (scope, enabled, device_enabled, lead_time_minutes, quiet_hours_start, quiet_hours_end)
+     VALUES (?, ?, ?, ?, ?, ?);`,
     scope,
     enabled ? 1 : 0,
+    (extra?.deviceEnabled ?? currentDevice) ? 1 : 0,
     extra?.leadTimeMinutes ?? null,
     extra?.quietHoursStart ?? null,
     extra?.quietHoursEnd ?? null,
@@ -171,7 +203,9 @@ export function ensureDefaultNotificationPreferences(): void {
   ];
   for (const d of defaults) {
     db.runSync(
-      `INSERT OR IGNORE INTO notification_preferences (scope, enabled, lead_time_minutes) VALUES (?, ?, ?);`,
+      `INSERT OR IGNORE INTO notification_preferences
+        (scope, enabled, device_enabled, lead_time_minutes)
+       VALUES (?, ?, 1, ?);`,
       d.scope,
       d.enabled,
       d.lead,

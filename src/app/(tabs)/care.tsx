@@ -1184,7 +1184,7 @@ const styles = StyleSheet.create({
   },
   progressTargetLabel: {
     fontSize: 11,
-    color: AppTheme.colors.muted,
+    color: AppTheme.colors.textMuted,
     marginTop: 4,
   },
   mlUnavailableCard: {

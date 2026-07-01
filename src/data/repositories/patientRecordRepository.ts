@@ -17,6 +17,7 @@ import type {
   Caregiver,
   CarePlan,
   Medication,
+  MedicationConfirmationRequirement,
   Patient,
   PatientCondition,
   Symptom,
@@ -25,6 +26,7 @@ import type {
 } from '../types';
 import { getActiveCarePlanForPatient } from './carePlanRepository';
 import { getKnowledgeCacheStats } from './knowledgeCacheRepository';
+import { getMedicationConfirmationRequirementsForPatient } from './medicationConfirmationRequirementRepository';
 import { getEnrichmentStats } from './patientEnrichmentLogRepository';
 import {
   getActiveMedications,
@@ -64,6 +66,7 @@ export interface PatientRecordSnapshot {
   symptoms: Symptom[];
   wearable: WearableDevice | null;
   medications: Medication[];
+  medicationConfirmationRequirements: Record<string, MedicationConfirmationRequirement>;
   thresholds: Threshold[];
   carePlan: CarePlan | null;
   carePlanGoals: CarePlanGoalSummary[];
@@ -147,6 +150,8 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const symptoms = getSymptomsForPatient(patientId);
   const wearable = getPrimaryWearableForPatient(patientId);
   const medications = getActiveMedications(patientId);
+  const medicationConfirmationRequirements =
+    getMedicationConfirmationRequirementsForPatient(patientId);
   const thresholds = getActiveThresholds(patientId);
   const carePlan = getActiveCarePlanForPatient(patientId);
   const carePlanGoals = getCarePlanGoals(patientId);
@@ -169,6 +174,7 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     symptoms,
     wearable,
     medications,
+    medicationConfirmationRequirements,
     thresholds,
     carePlan,
     carePlanGoals,

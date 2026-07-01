@@ -64,37 +64,37 @@ export type UC2DecisionResult = {
     threshold: number;
     /** @alias ml_anomaly_flag */ isAnomaly: boolean;
     promptShown: boolean;
-    /** @alias sensor_anomaly_type (mapped to old UC2ContextualType) */ initialAnomalyType: UC2ContextualType;
-    /** @alias post_hitl_anomaly_type (mapped to old UC2ContextualType) */ postHitlAnomalyType: UC2ContextualType;
+    /** @alias sensor_anomaly_type */ initialAnomalyType: UC2ContextualType | SensorAnomalyType;
+    /** @alias post_hitl_anomaly_type */ postHitlAnomalyType: UC2ContextualType | PostHitlAnomalyType;
     /** @alias top_reconstruction_contributors */ topFeatureEvidence: ReturnType<typeof getTopReconstructionContributions>;
     featureQuality: Record<string, import("./uc2Types").FeatureQuality>;
     finalDecision: ReturnType<typeof finalDecision>;
-    initialMCPPayload: ReturnType<typeof buildInitialMCPPayload> | null;
-    finalSLMPayload: ReturnType<typeof buildFinalSLMPayload> | null;
+    initialMCPPayload: ReturnType<typeof buildInitialMCPPayload> | InitialMcpPayload | null;
+    finalSLMPayload: ReturnType<typeof buildFinalSLMPayload> | FinalSlmPayload | null;
 
     // ── NEW EXPLICIT V2 FIELDS ─────────────────────────────────────────────────
     // (These mirror the new DecisionLayerResult shape so both call sites work)
-    ae_score_mse: number | null;                            // alias: aeScore
-    ml_anomaly_flag: boolean;                               // alias: isAnomaly
-    pre_hitl_severity: Severity;
-    post_hitl_severity: Severity;
-    sensor_anomaly_type: SensorAnomalyType;                 // richer label than initialAnomalyType
-    post_hitl_anomaly_type: PostHitlAnomalyType;            // richer label than postHitlAnomalyType
-    anomaly_family: AnomalyFamily | undefined;
-    caregiver_selected_codes: CaregiverObservationCode[];
-    max_matrix_delta: 0 | 1 | 2 | 3;
-    critical_route_triggered: boolean;
-    personalized_threshold_severity_floor: Severity;
-    recurrence_severity_floor: Severity;
-    final_notification_type: FinalNotificationType;
-    final_notification_level: FinalNotificationLevel;
-    quality_tags: FeatureQualityTag[];                      // empty [] on legacy path (no quality tagging)
-    quality_warnings: string[];
-    emergency_rule_result: ReturnType<typeof runEmergencyRuleEngine>;  // alias: emergencyResult
-    slm_payload: FinalSlmPayload | null;                    // alias: finalSLMPayload (new shape)
-    provider_payload: FinalSlmPayload | null;               // alias: slm_payload
-    mcp_payload: InitialMcpPayload | null;                  // alias: initialMCPPayload (new shape)
-    audit_event: AuditEvent;
+    ae_score_mse?: number | null;                           // alias: aeScore
+    ml_anomaly_flag?: boolean;                              // alias: isAnomaly
+    pre_hitl_severity?: Severity;
+    post_hitl_severity?: Severity;
+    sensor_anomaly_type?: SensorAnomalyType;                // richer label than initialAnomalyType
+    post_hitl_anomaly_type?: PostHitlAnomalyType;           // richer label than postHitlAnomalyType
+    anomaly_family?: AnomalyFamily | undefined;
+    caregiver_selected_codes?: CaregiverObservationCode[];
+    max_matrix_delta?: 0 | 1 | 2 | 3;
+    critical_route_triggered?: boolean;
+    personalized_threshold_severity_floor?: Severity;
+    recurrence_severity_floor?: Severity;
+    final_notification_type?: FinalNotificationType;
+    final_notification_level?: FinalNotificationLevel;
+    quality_tags?: FeatureQualityTag[];                     // empty [] on legacy path (no quality tagging)
+    quality_warnings?: string[];
+    emergency_rule_result?: ReturnType<typeof runEmergencyRuleEngine>;  // alias: emergencyResult
+    slm_payload?: FinalSlmPayload | null;                   // alias: finalSLMPayload (new shape)
+    provider_payload?: FinalSlmPayload | null;              // alias: slm_payload
+    mcp_payload?: InitialMcpPayload | null;                 // alias: initialMCPPayload (new shape)
+    audit_event?: AuditEvent;
 };
 
 // @compat Old function preserved

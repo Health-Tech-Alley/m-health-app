@@ -221,6 +221,12 @@ export interface Patient {
   currentMedications?: string;
   spo2Cutoff?: string;
   baselineHeartRate?: string;
+  baselineBloodOxygen?: string;
+  baselineRespiratoryRate?: string;
+  baselineBloodPressureSystolic?: string;
+  baselineBloodPressureDiastolic?: string;
+  baselineGlucoseLevel?: string;
+  baselineBodyTemperature?: string;
   gmfcs?: string;
   fms?: string;
   macs?: string;
@@ -256,6 +262,39 @@ export interface Medication {
   indication?: string;
   active: boolean;
   source?: 'care_plan' | 'custom' | 'fhir';
+}
+
+export type MedicationConfirmationRequirementStatus =
+  | 'required'
+  | 'not_required'
+  | 'not_provided';
+
+export type MedicationConfirmationRequirementSource =
+  | 'demo_override'
+  | 'demo_fixture'
+  | 'fhir_extension'
+  | 'provider_configuration';
+
+export interface MedicationConfirmationRequirement {
+  patientId: string;
+  medicationId: string;
+  confirmationRequirement: MedicationConfirmationRequirementStatus;
+  requirementSource?: MedicationConfirmationRequirementSource;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type MedicationConfirmationPreferenceMode =
+  | 'all'
+  | 'required_only'
+  | 'personalized';
+
+export interface MedicationConfirmationPreference {
+  patientId: string;
+  confirmationMode: MedicationConfirmationPreferenceMode;
+  selectedMedicationIds: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface PatientCondition {
@@ -508,9 +547,12 @@ export interface NotificationRecord {
 export interface NotificationPreferences {
   anomaly: boolean;
   medication: boolean;
+  medicationDevice: boolean;
   appointment: boolean;
+  appointmentDevice: boolean;
   appointmentLeadTimeMin: number;
   careTask: boolean;
+  careTaskDevice: boolean;
   quietHoursStart?: string; // 'HH:mm'
   quietHoursEnd?: string;
 }

@@ -101,6 +101,13 @@ function normalizeActivePatient(
     currentMedications: clean(patient?.currentMedications),
     spo2Cutoff: clean(patient?.spo2Cutoff),
     baselineHeartRate: clean(patient?.baselineHeartRate),
+    baselineBloodOxygen: clean(patient?.baselineBloodOxygen),
+    baselineRespiratoryRate: clean(patient?.baselineRespiratoryRate),
+    baselineBloodPressureSystolic: clean(patient?.baselineBloodPressureSystolic),
+    baselineBloodPressureDiastolic: clean(patient?.baselineBloodPressureDiastolic),
+    baselineGlucoseLevel: clean(patient?.baselineGlucoseLevel),
+    baselineBodyTemperature: clean(patient?.baselineBodyTemperature),
+    medicationConfirmationRequirements: snapshot.medicationConfirmationRequirements,
     status: patient ? "available" : "unknown",
     lastRefreshedAt: snapshot.lastRefreshedAt,
   };

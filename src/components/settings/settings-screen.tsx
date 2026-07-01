@@ -35,7 +35,9 @@ import {
   getAllKnowledgeChunks,
   getAuditEntriesForResource,
   getPendingThresholdRecommendations,
+  removeDemoMedicationConfirmationRequirement,
   resetDatabase,
+  setDemoMedicationConfirmationRequired,
   updateThresholdRecommendationStatus,
   verifyAuditChain,
   type ConsentToken,
@@ -114,7 +116,8 @@ export function SettingsScreen() {
 }
 
 export function PreferencesScreen() {
-  const { settings, setTheme, setNotificationPreferences } = useSettings();
+  const router = useRouter();
+  const { settings, setTheme } = useSettings();
   const patientId = useOrchestratorPatientId();
   const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
   const [recordConsentGranted, setRecordConsentGranted] =
@@ -199,67 +202,21 @@ export function PreferencesScreen() {
         <ScreenHeader eyebrow="Caregiver Concierge" title="Preferences" />
 
         <Section title="🔔 Notifications">
-          <CompactToggleRow
-            id="anomaly"
-            emoji="🚨"
-            label="Anomaly Alerts"
-            value={settings.notifications.anomaly}
-            expanded={expandedId === 'anomaly'}
-            explanation="Alerts can notify you when vitals or behavior need attention. These alerts support caregiver review and do not replace clinical judgment."
-            onToggleExpand={toggleExpanded}
-            onValueChange={(v) => setNotificationPreferences({ anomaly: v })}
-          />
-          <CompactToggleRow
-            id="medication"
-            emoji="💊"
-            label="Medication Reminders"
-            value={settings.notifications.medication}
-            expanded={expandedId === 'medication'}
-            explanation="Medication reminders help keep scheduled doses visible. Timing still follows the care plan and reminder engine."
-            onToggleExpand={toggleExpanded}
-            onValueChange={(v) => setNotificationPreferences({ medication: v })}
-          />
-          <CompactToggleRow
-            id="appointment"
-            emoji="📅"
-            label="Appointment Reminders"
-            value={settings.notifications.appointment}
-            expanded={expandedId === 'appointment'}
-            explanation="Appointment reminders can notify you before scheduled visits. The lead time can be adjusted under Reminder Timing."
-            onToggleExpand={toggleExpanded}
-            onValueChange={(v) => setNotificationPreferences({ appointment: v })}
-          />
-          <CompactToggleRow
-            id="care-task"
-            emoji="🧩"
-            label="Care Task Reminders"
-            value={settings.notifications.careTask}
-            expanded={expandedId === 'care-task'}
-            explanation="Care task reminders support routine non-emergency tasks. They do not change the care plan or schedule clinical actions."
-            onToggleExpand={toggleExpanded}
-            onValueChange={(v) => setNotificationPreferences({ careTask: v })}
-          />
           <CompactActionRow
             id="timing"
             emoji="⏰"
-            label="Reminder Timing"
+            label="Notifications & reminders"
             expanded={expandedId === 'timing'}
-            explanation="Set how many minutes before an appointment reminder should appear."
+            explanation="Manage alert, medication, appointment, and care-task reminder delivery preferences."
             onToggleExpand={toggleExpanded}
           >
-            <View style={styles.inlineControlRow}>
-              <Text style={styles.inlineControlLabel}>Appointment lead time</Text>
-              <TextInput
-                style={styles.numInput}
-                value={String(settings.notifications.appointmentLeadTimeMin)}
-                keyboardType="numeric"
-                accessibilityLabel="Appointment reminder lead time in minutes"
-                onChangeText={(v) => {
-                  const n = parseInt(v, 10);
-                  if (!isNaN(n)) setNotificationPreferences({ appointmentLeadTimeMin: n });
-                }}
-              />
-            </View>
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => router.push('/notifications-reminders')}
+              accessibilityRole="button"
+              accessibilityLabel="Open Notifications and reminders">
+              <Text style={styles.actionButtonText}>Open Notifications & reminders</Text>
+            </Pressable>
           </CompactActionRow>
         </Section>
 
@@ -493,7 +450,7 @@ export function AdvancedDeveloperSettingsScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <ScreenHeader eyebrow="Caregiver Concierge" title="Advanced Developer Settings" />
 
-        <Section title="🛠️ Developer / Demo">
+        <Section title="Existing demo controls">
           <CompactToggleRow
             id="developer-mode"
             emoji="🛠️"
@@ -818,8 +775,102 @@ export function AdvancedDeveloperSettingsScreen() {
             </View>
           ) : null}
         </Section>
+
+        {isDeveloper ? (
+          <Section title="Simulate care-team-required confirmation">
+            <DemoMedicationConfirmationSettings
+              patientId={patientId}
+              snapshot={snapshot}
+              refresh={refresh}
+            />
+          </Section>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function DemoMedicationConfirmationSettings({
+  patientId,
+  snapshot,
+  refresh,
+}: {
+  patientId: string;
+  snapshot: ReturnType<typeof usePatientRecord>['snapshot'];
+  refresh: () => void;
+}) {
+  if (!patientId || !snapshot?.patient) {
+    return (
+      <View style={styles.devSection}>
+        <Text style={styles.thresholdMuted}>
+          For demonstration only. Select medications that should behave as if confirmation was required by the patient&apos;s care team.
+        </Text>
+        <Text style={styles.thresholdMuted}>No active patient selected</Text>
+      </View>
+    );
+  }
+
+  const requirements = snapshot.medicationConfirmationRequirements;
+  if (!requirements) {
+    return (
+      <View style={styles.devSection}>
+        <Text style={styles.thresholdMuted}>
+          For demonstration only. Select medications that should behave as if confirmation was required by the patient&apos;s care team.
+        </Text>
+        <Text style={styles.thresholdMuted}>Medication confirmation requirements unavailable</Text>
+      </View>
+    );
+  }
+
+  const importedMedications = snapshot.medications.filter((medication) => medication.source === 'fhir');
+
+  const handleToggle = (medicationId: string, enabled: boolean) => {
+    if (enabled) {
+      setDemoMedicationConfirmationRequired(patientId, medicationId);
+    } else {
+      removeDemoMedicationConfirmationRequirement(patientId, medicationId);
+    }
+    refresh();
+  };
+
+  return (
+    <View style={styles.devSection}>
+      <Text style={styles.thresholdMuted}>
+        For demonstration only. Select medications that should behave as if confirmation was required by the patient&apos;s care team.
+      </Text>
+      {importedMedications.length === 0 ? (
+        <Text style={styles.thresholdMuted}>No medications provided</Text>
+      ) : (
+        importedMedications.map((medication) => {
+          const requirement = requirements[medication.medicationId];
+          const isRequired = requirement?.confirmationRequirement === 'required';
+          const isDemoOverride = requirement?.requirementSource === 'demo_override';
+          const lockedByNonDemoSource = Boolean(requirement?.requirementSource && !isDemoOverride);
+          const detail = [medication.dosage, medication.frequency].filter(Boolean).join(' - ');
+
+          return (
+            <View key={medication.medicationId} style={styles.medRequirementRow}>
+              <View style={styles.thresholdTextBlock}>
+                <Text style={styles.thresholdValue}>{medication.name}</Text>
+                <Text style={styles.thresholdMuted}>
+                  {detail || 'Medication details not provided'}
+                </Text>
+              </View>
+              <Switch
+                value={isRequired}
+                disabled={lockedByNonDemoSource}
+                onValueChange={(enabled) => handleToggle(medication.medicationId, enabled)}
+                trackColor={{ false: AppTheme.colors.border, true: AppTheme.colors.brandSoft }}
+                thumbColor={isRequired ? AppTheme.colors.brand : AppTheme.colors.white}
+                accessibilityRole="switch"
+                accessibilityLabel={`Simulate care-team-required confirmation for ${medication.name}`}
+                accessibilityState={{ checked: isRequired, disabled: lockedByNonDemoSource }}
+              />
+            </View>
+          );
+        })
+      )}
+    </View>
   );
 }
 
@@ -1440,6 +1491,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: 4,
+  },
+  medRequirementRow: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 4,
   },
   thresholdTextBlock: {
     flex: 1,
