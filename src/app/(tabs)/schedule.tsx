@@ -19,13 +19,160 @@ import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import {
   deleteAppointment,
-  getUpcomingAppointments,
   insertAppointment,
   updateAppointment,
-  type Appointment,
+  type Appointment
 } from "@/data";
 import { audit } from "@/services/audit/auditService";
+import { dispatchImmediate } from "@/services/notifications/notificationService";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
+import { useAppSelector } from '@/store/hooks';
+
+/* ---------------------------------------------------------------------- */
+/* athenahealth — inline, minimal setup                                    */
+/* ---------------------------------------------------------------------- */
+// TODO: fill these in with your sandbox app credentials.
+// NOTE: embedding a client secret in a shipped mobile app is not safe for
+// production — fine for local sandbox testing only. For a real app, get
+// the token from your own backend instead.
+const ATHENA_BASE_URL = "https://api.preview.platform.athenahealth.com/v1";
+const ATHENA_PRACTICE_ID = "195900";
+const ATHENA_DEPARTMENT_ID = "1";
+const ATHENA_PROVIDER_ID = "71"; // confirmed working provider in sandbox
+const ATHENA_REASON_ID = "1285"; // "Follow-Up" — confirmed valid for provider 71 / department 1
+const ATHENA_CLIENT_ID = "0oa105tul7l4hR4d5298";
+const ATHENA_CLIENT_SECRET = "LkwklKnYAgw8-nBxfvhq38_RcLdUpPZwrojd3AbwCldnPPpM3qGEgrgAKhTmX6Mv";
+
+let cachedToken: { value: string; expiresAt: number } | null = null;
+
+/** Fetches (and caches) an OAuth2 client_credentials token. */
+async function getAthenaToken(): Promise<string> {
+  if (cachedToken && cachedToken.expiresAt > Date.now()) {
+    return cachedToken.value;
+  }
+  const response = await fetch("https://api.preview.platform.athenahealth.com/oauth2/v1/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: "Basic " + btoa(`${ATHENA_CLIENT_ID}:${ATHENA_CLIENT_SECRET}`),
+    },
+    body: "grant_type=client_credentials&scope=athena/service/Athenanet.MDP.*",
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error_description ?? "Failed to get athenahealth token");
+  }
+  cachedToken = { value: data.access_token, expiresAt: Date.now() + (data.expires_in - 60) * 1000 };
+  return cachedToken.value;
+}
+
+/** Simple authenticated request helper against the practice-scoped API. */
+async function athenaRequest<T>(
+  path: string,
+  method: "GET" | "POST" | "PUT",
+  params?: Record<string, string>,
+  body?: Record<string, string>,
+): Promise<T> {
+  const token = await getAthenaToken();
+  const url = new URL(`${ATHENA_BASE_URL}/${ATHENA_PRACTICE_ID}${path}`);
+  if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+
+  const response = await fetch(url.toString(), {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      ...(body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+    },
+    body: body ? new URLSearchParams(body).toString() : undefined,
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) {
+    throw new Error(data?.error ?? `athenahealth error ${response.status} on ${method} ${path}`);
+  }
+  return data as T;
+}
+
+/** MM/DD/YYYY, the format athenahealth's scheduling API expects. */
+function toAthenaDate(isoDate: string): string {
+  const [year, month, day] = isoDate.split("-");
+  return `${month}/${day}/${year}`;
+}
+
+interface OpenSlot {
+  appointmentid: string;
+  date: string; // MM/DD/YYYY
+  starttime: string; // HH:MM
+  [key: string]: unknown;
+}
+
+/** Searches for open slots for the confirmed working provider/department/reason. */
+async function searchOpenSlots(startDate: string, endDate: string): Promise<OpenSlot[]> {
+  const result = await athenaRequest<{ appointments?: OpenSlot[] } | OpenSlot[]>(
+    "/appointments/open",
+    "GET",
+    {
+      departmentid: ATHENA_DEPARTMENT_ID,
+      providerid: ATHENA_PROVIDER_ID,
+      reasonid: ATHENA_REASON_ID,
+      startdate: toAthenaDate(startDate),
+      enddate: toAthenaDate(endDate),
+    },
+  );
+  const slots = Array.isArray(result) ? result : result.appointments ?? [];
+  // Sort chronologically so the list reads naturally.
+  return slots.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return a.starttime.localeCompare(b.starttime);
+  });
+}
+
+async function searchUpcomingAppointments(patientId: string, startDate: string, endDate: string): Promise<Appointment[]> {
+  const result = await athenaRequest<{ appointments?: Appointment[] } | Appointment[]>(
+    "/appointments/booked",
+    "GET",
+    {
+      departmentid: ATHENA_DEPARTMENT_ID,
+      providerid: ATHENA_PROVIDER_ID,
+      reasonid: ATHENA_REASON_ID,
+      startdate: toAthenaDate(startDate),
+      enddate: toAthenaDate(endDate),
+      patientid: patientId,
+    },
+  );
+  console.log("Fetched upcoming appointments:", result);
+  const slots = Array.isArray(result) ? result : result.appointments ?? [];
+  // Sort chronologically so the list reads naturally.
+  return slots.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return (a.date + a.time).localeCompare(b.date + b.time);
+  });
+}
+
+/** Books a specific slot for a patient. */
+async function bookSlot(appointmentId: string, patientId: string): Promise<any| null> {
+  console.log(`Booking slot ${appointmentId} for patient ${patientId}...`);
+  const response = await athenaRequest(`/appointments/${appointmentId}`, "PUT", undefined, {
+    patientid: patientId,
+    departmentid: ATHENA_DEPARTMENT_ID,
+    providerid: ATHENA_PROVIDER_ID,
+    reasonid: ATHENA_REASON_ID,
+  });
+  console.log("Booking response:", response);
+  return response ? (Array.isArray(response) ? response[0] : response) : null;
+}
+
+function formatSlotLabel(slot: OpenSlot): string {
+  const [month, day, year] = slot.date.split("/");
+  const parsed = new Date(`${year}-${month}-${day}T00:00:00`);
+  const dateLabel = Number.isNaN(parsed.getTime())
+    ? slot.date
+    : parsed.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return `${dateLabel} · ${slot.starttime}`;
+}
+
+/* ---------------------------------------------------------------------- */
 
 const appointmentTypes = [
   "Primary care",
@@ -42,14 +189,20 @@ const reminderOptions = [
   "1 week before",
 ];
 
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDaysIso(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 function emptyForm(profile: ReturnType<typeof getOnboardingProfile>) {
-  const today = new Date();
-  today.setDate(today.getDate() + 1);
   return {
     appointmentType: "Primary care",
     providerName: profile.primaryCareProvider.name,
-    date: today.toISOString().slice(0, 10),
-    time: "10:30 AM",
     location: "Main clinic",
     reason: "Follow up on breathing episodes",
     reminder: "1 day before",
@@ -59,18 +212,30 @@ function emptyForm(profile: ReturnType<typeof getOnboardingProfile>) {
 export default function ScheduleScreen() {
   const profile = getOnboardingProfile();
   const { patientId } = usePatientRecord();
+  const athenaPatientId = '14167'
+  const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
+
 
   const [form, setForm] = useState(() => emptyForm(profile));
   const [upcoming, setUpcoming] = useState<Appointment[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [toastOpacity] = useState(new Animated.Value(0));
+  const [booking, setBooking] = useState(false);
+
+  // Slot search state
+  const [rangeStart, setRangeStart] = useState(() => todayIsoDate());
+  const [rangeEnd, setRangeEnd] = useState(() => addDaysIso(todayIsoDate(), 13));
+  const [slots, setSlots] = useState<OpenSlot[]>([]);
+  const [searchingSlots, setSearchingSlots] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<OpenSlot | null>(null);
 
   const [editing, setEditing] = useState<Appointment | null>(null);
   const [editForm, setEditForm] = useState(emptyForm(profile));
-  const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
+  const [todayIso] = useState(() => todayIsoDate());
 
-  const reload = useCallback(() => {
-    if (patientId) setUpcoming(getUpcomingAppointments(patientId));
+  const reload = useCallback(async () => {
+    setUpcoming([]); // clear while loading
+    if (patientId) setUpcoming(await searchUpcomingAppointments(athenaPatientId, todayIsoDate(), addDaysIso(todayIsoDate(), 90)));
   }, [patientId]);
 
   useEffect(() => {
@@ -94,30 +259,70 @@ export default function ScheduleScreen() {
     });
   };
 
-  const handleSchedule = () => {
-    if (!patientId) return;
-    const appt = insertAppointment({
-      patientId,
-      type: form.appointmentType,
-      provider: form.providerName,
-      date: form.date,
-      time: form.time,
-      location: form.location,
-      reason: form.reason,
-      reminder: form.reminder,
-      status: "scheduled",
-    });
-    audit({
-      actor: "caregiver",
-      action: "schedule_appointment",
-      resourceType: "appointment",
-      resourceId: appt.appointmentId,
-      patientId,
-      payload: { type: appt.type, date: appt.date },
-    });
-    reload();
-    showToast("Appointment added — you'll be notified");
-    setForm(emptyForm(profile));
+  const handleFindTimes = async () => {
+    setSearchingSlots(true);
+    setSelectedSlot(null);
+    try {
+      const results = await searchOpenSlots(rangeStart, rangeEnd);
+      setSlots(results);
+      if (results.length === 0) {
+        Alert.alert("No open times", "No available slots in that date range. Try a wider range.");
+      }
+    } catch (err) {
+      Alert.alert("Couldn't load times", err instanceof Error ? err.message : String(err));
+      setSlots([]);
+    } finally {
+      setSearchingSlots(false);
+    }
+  };
+
+  const handleSchedule = async () => {
+    if (!patientId || !selectedSlot) return;
+    setBooking(true);
+
+    try {
+      const response = await bookSlot(selectedSlot.appointmentid, athenaPatientId);
+      if (response) {
+        await dispatchImmediate({
+              patientId: patientId,
+              scope: 'anomaly',
+              title: "Appointment booked",
+              body: 'Appointment booked with athenahealth',
+              severity: 1,
+            });
+      }
+      const appt = insertAppointment({
+        patientId,
+        type: form.appointmentType,
+        provider: form.providerName,
+        date: selectedSlot.date,
+        time: selectedSlot.starttime,
+        location: form.location,
+        reason: form.reason,
+        reminder: form.reminder,
+        status: "scheduled",
+        appointmentid: selectedSlot.date + " " + selectedSlot.starttime + Math.floor(Math.random() * 100), // generate a unique ID for local storage
+      });
+
+      audit({
+        actor: "caregiver",
+        action: "schedule_appointment",
+        resourceType: "appointment",
+        resourceId: appt.appointmentid,
+        patientId,
+        payload: { type: appt.type, date: appt.date, athenaAppointmentId: selectedSlot.appointmentid },
+      });
+
+      reload();
+      // showToast("Appointment booked with athenahealth");
+      setForm(emptyForm(profile));
+      setSlots([]);
+      setSelectedSlot(null);
+    } catch (err) {
+      Alert.alert("Couldn't book appointment", err instanceof Error ? err.message : String(err));
+    } finally {
+      setBooking(false);
+    }
   };
 
   const openEdit = (appt: Appointment) => {
@@ -125,8 +330,6 @@ export default function ScheduleScreen() {
     setEditForm({
       appointmentType: appt.type,
       providerName: appt.provider ?? profile.primaryCareProvider.name,
-      date: appt.date,
-      time: appt.time ?? "10:00 AM",
       location: appt.location ?? "",
       reason: appt.reason ?? "",
       reminder: appt.reminder ?? "1 day before",
@@ -135,23 +338,26 @@ export default function ScheduleScreen() {
 
   const saveEdit = () => {
     if (!patientId || !editing) return;
+    // Editing here only updates local details (location/reason/reminder/type).
+    // Changing the actual date/time would require re-picking a slot — use
+    // Delete + re-schedule for that, to keep this simple.
     updateAppointment({
       ...editing,
       type: editForm.appointmentType,
       provider: editForm.providerName,
-      date: editForm.date,
-      time: editForm.time,
       location: editForm.location,
       reason: editForm.reason,
       reminder: editForm.reminder,
     });
+
     audit({
       actor: "caregiver",
       action: "edit_appointment",
       resourceType: "appointment",
-      resourceId: editing.appointmentId,
+      resourceId: editing.appointmentid,
       patientId,
     });
+
     setEditing(null);
     reload();
   };
@@ -167,12 +373,12 @@ export default function ScheduleScreen() {
           text: "Delete",
           style: "destructive",
           onPress: () => {
-            deleteAppointment(appt.appointmentId);
+            deleteAppointment(appt.appointmentid);
             audit({
               actor: "caregiver",
               action: "delete_appointment",
               resourceType: "appointment",
-              resourceId: appt.appointmentId,
+              resourceId: appt.appointmentid,
               patientId,
             });
             reload();
@@ -225,25 +431,8 @@ export default function ScheduleScreen() {
               label="Provider"
               value={form.providerName}
               onChangeText={(v) => setForm({ ...form, providerName: v })}
-              placeholder="Dr. Smith"
+              placeholder="Dr. Adam Bricker"
             />
-
-            <View style={styles.twoColumnFields}>
-              <Field
-                containerStyle={styles.twoColumnField}
-                label="Date"
-                value={form.date}
-                onChangeText={(v) => setForm({ ...form, date: v })}
-                placeholder="YYYY-MM-DD"
-              />
-              <Field
-                containerStyle={styles.twoColumnField}
-                label="Time"
-                value={form.time}
-                onChangeText={(v) => setForm({ ...form, time: v })}
-                placeholder="10:30 AM"
-              />
-            </View>
 
             <Field
               label="Location"
@@ -261,10 +450,59 @@ export default function ScheduleScreen() {
           </View>
 
           <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Find a time</Text>
+            <Text style={styles.helperText}>Search open slots within a date range, then pick one.</Text>
+
+            <View style={styles.twoColumnFields}>
+              <Field
+                containerStyle={styles.twoColumnField}
+                label="From"
+                value={rangeStart}
+                onChangeText={setRangeStart}
+                placeholder="YYYY-MM-DD"
+              />
+              <Field
+                containerStyle={styles.twoColumnField}
+                label="To"
+                value={rangeEnd}
+                onChangeText={setRangeEnd}
+                placeholder="YYYY-MM-DD"
+              />
+            </View>
+
+            <Pressable
+              style={[styles.scheduleButton, searchingSlots && styles.scheduleButtonDisabled]}
+              onPress={handleFindTimes}
+              disabled={searchingSlots}
+            >
+              <Text style={styles.scheduleButtonText}>
+                {searchingSlots ? "Searching…" : "Find available times"}
+              </Text>
+            </Pressable>
+
+            {slots.length > 0 ? (
+              <View style={styles.slotList}>
+                {slots.map((slot) => {
+                  const selected = selectedSlot?.appointmentid === slot.appointmentid;
+                  return (
+                    <Pressable
+                      key={slot.appointmentid}
+                      style={[styles.slotRow, selected && styles.slotRowSelected]}
+                      onPress={() => setSelectedSlot(slot)}
+                    >
+                      <Text style={[styles.slotRowText, selected && styles.slotRowTextSelected]}>
+                        {formatSlotLabel(slot)}
+                      </Text>
+                      {selected ? <AppIcon name="edit" size={14} color={AppTheme.colors.white} /> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.card}>
             <Text style={styles.sectionTitle}>Reminder</Text>
-            <Text style={styles.helperText}>
-              Choose when the caregiver should be reminded before the appointment.
-            </Text>
 
             <View style={styles.chipRow}>
               {reminderOptions.map((option) => {
@@ -283,8 +521,21 @@ export default function ScheduleScreen() {
               })}
             </View>
 
-            <Pressable style={styles.scheduleButton} onPress={handleSchedule}>
-              <Text style={styles.scheduleButtonText}>Schedule appointment</Text>
+            <Pressable
+              style={[
+                styles.scheduleButton,
+                (!selectedSlot || booking) && styles.scheduleButtonDisabled,
+              ]}
+              onPress={handleSchedule}
+              disabled={!selectedSlot || booking}
+            >
+              <Text style={styles.scheduleButtonText}>
+                {booking
+                  ? "Booking…"
+                  : selectedSlot
+                    ? `Book ${formatSlotLabel(selectedSlot)}`
+                    : "Pick a time above first"}
+              </Text>
             </Pressable>
           </View>
 
@@ -299,9 +550,9 @@ export default function ScheduleScreen() {
                 const dateTimeLabel = formatAppointmentDateTime(appt.date, appt.time);
 
                 return (
-                  <View key={appt.appointmentId} style={styles.appointmentCard}>
+                  <View key={appt.appointmentid} style={styles.appointmentCard}>
                     <View style={styles.appointmentAccent} />
-
+                    {/* <Text>Appointment ID: {appt ? appt.appointmentid : "N/A"}</Text> */}
                     <Pressable
                       style={styles.appointmentMain}
                       onPress={() => openEdit(appt)}
@@ -415,22 +666,6 @@ export default function ScheduleScreen() {
                   onChangeText={(v) => setEditForm({ ...editForm, providerName: v })}
                   placeholder="Dr. Smith"
                 />
-                <View style={styles.twoColumnFields}>
-                  <Field
-                    containerStyle={styles.twoColumnField}
-                    label="Date"
-                    value={editForm.date}
-                    onChangeText={(v) => setEditForm({ ...editForm, date: v })}
-                    placeholder="YYYY-MM-DD"
-                  />
-                  <Field
-                    containerStyle={styles.twoColumnField}
-                    label="Time"
-                    value={editForm.time}
-                    onChangeText={(v) => setEditForm({ ...editForm, time: v })}
-                    placeholder="10:30 AM"
-                  />
-                </View>
                 <Field
                   label="Location"
                   value={editForm.location}
@@ -443,6 +678,9 @@ export default function ScheduleScreen() {
                   onChangeText={(v) => setEditForm({ ...editForm, reason: v })}
                   placeholder="Reason for visit"
                 />
+                <Text style={styles.helperText}>
+                  To change the date/time, delete this appointment and book a new slot instead.
+                </Text>
               </ScrollView>
 
               <View style={styles.modalActions}>
@@ -521,7 +759,10 @@ function LargeField({
 }
 
 function formatAppointmentDateTime(date: string, time?: string): string {
-  const parsed = new Date(`${date}T00:00:00`);
+  // athenahealth-returned dates are MM/DD/YYYY; locally-created ones may be
+  // YYYY-MM-DD, so handle both.
+  const isoLike = date.includes("/") ? date.split("/").reverse().join("-").replace(/^(\d{2})-(\d{2})-(\d{4})$/, "$3-$1-$2") : date;
+  const parsed = new Date(`${isoLike}T00:00:00`);
   const dateLabel = Number.isNaN(parsed.getTime())
     ? date
     : parsed.toLocaleDateString(undefined, {
@@ -624,10 +865,40 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 6,
   },
+  scheduleButtonDisabled: {
+    opacity: 0.6,
+  },
   scheduleButtonText: {
     color: AppTheme.colors.white,
     fontSize: 16,
     fontWeight: "900",
+  },
+  slotList: {
+    marginTop: 16,
+    gap: 8,
+  },
+  slotRow: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.softSurface,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  slotRowSelected: {
+    backgroundColor: AppTheme.colors.brand,
+    borderColor: AppTheme.colors.brand,
+  },
+  slotRowText: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  slotRowTextSelected: {
+    color: AppTheme.colors.white,
   },
   emptyText: {
     color: AppTheme.colors.textSoft,
