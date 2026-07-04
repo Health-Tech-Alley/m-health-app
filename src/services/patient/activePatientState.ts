@@ -10,6 +10,12 @@ import {
   type NormalizedActivePatient,
   type NormalizedVitalMetric,
 } from "@/store/reducers/patientSlice";
+import {
+  clearVitalsForPatient,
+  hydrationFailed,
+  hydrationStarted,
+  hydrationSucceeded,
+} from "@/store/reducers/vitalsSlice";
 
 const CLINICAL_VITALS: {
   key: HealthSampleType;
@@ -29,6 +35,19 @@ const CLINICAL_VITALS: {
   { key: "temperature", label: "Body Temperature", unitFallback: "deg F" },
 ];
 
+const LIVE_MONITORING_TYPES: HealthSampleType[] = [
+  "spo2",
+  "heart_rate",
+  "respiratory_rate",
+  "blood_pressure_systolic",
+  "blood_pressure_diastolic",
+  "temperature",
+  "blood_glucose",
+  "steps",
+];
+
+const RECENT_MONITORING_WINDOW_DAYS = 7;
+
 export function refreshActivePatientState(
   patientId: string,
   dispatch: AppDispatch = store.dispatch,
@@ -37,6 +56,7 @@ export function refreshActivePatientState(
     const snapshot = getPatientRecordSnapshot(patientId);
     dispatch(setActivePatient(normalizeActivePatient(snapshot, patientId)));
     dispatch(setClinicalVitals(loadClinicalVitals(patientId)));
+    hydrateLiveVitals(patientId, dispatch);
     return snapshot;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -52,10 +72,12 @@ export function hydrateActivePatientStateFromSnapshot(
 ): void {
   dispatch(setActivePatient(normalizeActivePatient(snapshot, patientId)));
   dispatch(setClinicalVitals(loadClinicalVitals(patientId)));
+  hydrateLiveVitals(patientId, dispatch);
 }
 
 export function clearActivePatientState(dispatch: AppDispatch = store.dispatch): void {
   dispatch(clearPatient());
+  dispatch(clearVitalsForPatient(undefined));
 }
 
 function normalizeActivePatient(
@@ -124,7 +146,30 @@ function loadClinicalVitals(patientId: string): NormalizedVitalMetric[] {
 }
 
 function getImportedHealthSamples(patientId: string, type: HealthSampleType): HealthSample[] {
-  return getRecentHealthSamples(patientId, type, "1970-01-01T00:00:00.000Z", 500);
+  return getRecentHealthSamples(patientId, type, "1970-01-01T00:00:00.000Z", 500)
+    .filter((sample) => sample.source === "fhir");
+}
+
+function hydrateLiveVitals(patientId: string, dispatch: AppDispatch): void {
+  dispatch(hydrationStarted({ patientId }));
+
+  try {
+    const since = new Date(
+      Date.now() - RECENT_MONITORING_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const samples = LIVE_MONITORING_TYPES.flatMap((type) =>
+      getRecentHealthSamples(patientId, type, since, 100),
+    ).filter((sample) => sample.source !== "fhir");
+
+    dispatch(hydrationSucceeded({ patientId, samples }));
+  } catch (error) {
+    dispatch(
+      hydrationFailed({
+        patientId,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
 }
 
 function normalizeVitalMetric(

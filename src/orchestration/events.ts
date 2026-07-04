@@ -17,6 +17,8 @@ export type OrchestrationEvent =
       value: number;
       unit: string;
       recordedAt: string;
+      source?: import('@/data/types').HealthSampleSource;
+      receivedAt?: string;
     }
   | {
       type: 'ml_alert_created';
