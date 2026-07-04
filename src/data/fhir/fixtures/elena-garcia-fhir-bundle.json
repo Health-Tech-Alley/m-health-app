@@ -20,6 +20,12 @@
         ],
         "gender": "female",
         "birthDate": "1953-07-22",
+        "generalPractitioner": [
+          {
+            "reference": "Practitioner/practitioner-athena-71",
+            "display": "Adam Bricker MD"
+          }
+        ],
         "extension": [
           {
             "url": "http://example.org/fhir/age",
@@ -56,6 +62,63 @@
           {
             "url": "http://example.org/fhir/edacs",
             "valueString": "Not assessed"
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:practitioner-athena-71",
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "practitioner-athena-71",
+        "extension": [
+          {
+            "url": "https://access-dp.local/fhir/StructureDefinition/athena-provider-payload",
+            "valueString": "{\"acceptingnewpatients\":false,\"providerusername\":\"abricker1\",\"specialty\":\"Family Medicine\",\"createencounterprovideridlist\":[\"2104\"],\"sex\":\"M\",\"entitytype\":\"Person\",\"ansinamecode\":\"Allopathic & Osteopathic Physicians : Dermatology (207N00000X)\",\"hideinportal\":false,\"providergrouplist\":[\"1\",\"22\"],\"npi\":1023010394,\"providertypeid\":\"MD\",\"providerid\":71,\"firstname\":\"Adam\",\"lastname\":\"Bricker\",\"otherprovideridlist\":[\"2104\"],\"schedulingname\":\"ABRICKER\",\"specialtyid\":\"008\",\"providertype\":\"MD\",\"billable\":true,\"ansispecialtycode\":\"207N00000X\",\"createencounteroncheckin\":false}"
+          }
+        ],
+        "active": true,
+        "identifier": [
+          {
+            "system": "http://hl7.org/fhir/sid/us-npi",
+            "value": "1023010394"
+          },
+          {
+            "system": "https://access-dp.local/fhir/identifier/athena-provider-id",
+            "value": "71"
+          },
+          {
+            "system": "https://access-dp.local/fhir/identifier/athena-provider-username",
+            "value": "abricker1"
+          },
+          {
+            "system": "https://access-dp.local/fhir/identifier/athena-provider-type",
+            "value": "MD"
+          },
+          {
+            "system": "https://access-dp.local/fhir/identifier/athena-scheduling-name",
+            "value": "ABRICKER"
+          }
+        ],
+        "name": [
+          {
+            "use": "official",
+            "text": "Adam Bricker MD",
+            "family": "Bricker",
+            "given": [
+              "Adam"
+            ],
+            "suffix": [
+              "MD"
+            ]
+          }
+        ],
+        "gender": "male",
+        "qualification": [
+          {
+            "code": {
+              "text": "MD"
+            }
           }
         ]
       }
