@@ -100,6 +100,18 @@ function toAthenaDate(isoDate: string): string {
   return `${month}/${day}/${year}`;
 }
 
+/** Converts a 24-hour "HH:MM" (or "H:MM") time string to "h:mm AM/PM". */
+function to12Hour(time24: string): string {
+  const match = time24.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return time24;
+  let hours = parseInt(match[1], 10);
+  const minutes = match[2];
+  const period = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  return `${hours}:${minutes} ${period}`;
+}
+
 interface OpenSlot {
   appointmentid: string;
   date: string; // MM/DD/YYYY
@@ -121,7 +133,6 @@ async function searchOpenSlots(startDate: string, endDate: string): Promise<Open
     },
   );
   const slots = Array.isArray(result) ? result : result.appointments ?? [];
-  // Sort chronologically so the list reads naturally.
   return slots.sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date);
     return a.starttime.localeCompare(b.starttime);
@@ -141,9 +152,7 @@ async function searchUpcomingAppointments(patientId: string, startDate: string, 
       patientid: patientId,
     },
   );
-  console.log("Fetched upcoming appointments:", result);
   const slots = Array.isArray(result) ? result : result.appointments ?? [];
-  // Sort chronologically so the list reads naturally.
   return slots.sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date);
     return (a.date + a.time).localeCompare(b.date + b.time);
@@ -151,16 +160,22 @@ async function searchUpcomingAppointments(patientId: string, startDate: string, 
 }
 
 /** Books a specific slot for a patient. */
-async function bookSlot(appointmentId: string, patientId: string): Promise<any| null> {
-  console.log(`Booking slot ${appointmentId} for patient ${patientId}...`);
+async function bookSlot(appointmentId: string, patientId: string): Promise<any | null> {
   const response = await athenaRequest(`/appointments/${appointmentId}`, "PUT", undefined, {
     patientid: patientId,
     departmentid: ATHENA_DEPARTMENT_ID,
     providerid: ATHENA_PROVIDER_ID,
     reasonid: ATHENA_REASON_ID,
   });
-  console.log("Booking response:", response);
   return response ? (Array.isArray(response) ? response[0] : response) : null;
+}
+
+/** Cancels a booked appointment on athenahealth. */
+async function cancelAthenaAppointment(appointmentId: string, reason?: string): Promise<void> {
+  await athenaRequest(`/appointments/${appointmentId}/cancel`, "PUT", undefined, {
+    departmentid: ATHENA_DEPARTMENT_ID,
+    cancellationreason: reason ?? "Canceled by caregiver app",
+  });
 }
 
 function formatSlotLabel(slot: OpenSlot): string {
@@ -169,7 +184,7 @@ function formatSlotLabel(slot: OpenSlot): string {
   const dateLabel = Number.isNaN(parsed.getTime())
     ? slot.date
     : parsed.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-  return `${dateLabel} · ${slot.starttime}`;
+  return `${dateLabel} · ${to12Hour(slot.starttime)}`;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -212,15 +227,15 @@ function emptyForm(profile: ReturnType<typeof getOnboardingProfile>) {
 export default function ScheduleScreen() {
   const profile = getOnboardingProfile();
   const { patientId } = usePatientRecord();
-  const athenaPatientId = '14167'
+  const athenaPatientId = '14167';
   const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
-
 
   const [form, setForm] = useState(() => emptyForm(profile));
   const [upcoming, setUpcoming] = useState<Appointment[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [toastOpacity] = useState(new Animated.Value(0));
   const [booking, setBooking] = useState(false);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
 
   // Slot search state
   const [rangeStart, setRangeStart] = useState(() => todayIsoDate());
@@ -284,12 +299,12 @@ export default function ScheduleScreen() {
       const response = await bookSlot(selectedSlot.appointmentid, athenaPatientId);
       if (response) {
         await dispatchImmediate({
-              patientId: patientId,
-              scope: 'anomaly',
-              title: "Appointment booked",
-              body: 'Appointment booked with athenahealth',
-              severity: 1,
-            });
+          patientId: patientId,
+          scope: 'anomaly',
+          title: "Appointment booked",
+          body: 'Appointment booked with athenahealth',
+          severity: 1,
+        });
       }
       const appt = insertAppointment({
         patientId,
@@ -301,7 +316,7 @@ export default function ScheduleScreen() {
         reason: form.reason,
         reminder: form.reminder,
         status: "scheduled",
-        appointmentid: selectedSlot.date + " " + selectedSlot.starttime + Math.floor(Math.random() * 100), // generate a unique ID for local storage
+        appointmentid: selectedSlot.date + " " + selectedSlot.starttime + Math.floor(Math.random() * 100),
       });
 
       audit({
@@ -314,7 +329,6 @@ export default function ScheduleScreen() {
       });
 
       reload();
-      // showToast("Appointment booked with athenahealth");
       setForm(emptyForm(profile));
       setSlots([]);
       setSelectedSlot(null);
@@ -338,9 +352,6 @@ export default function ScheduleScreen() {
 
   const saveEdit = () => {
     if (!patientId || !editing) return;
-    // Editing here only updates local details (location/reason/reminder/type).
-    // Changing the actual date/time would require re-picking a slot — use
-    // Delete + re-schedule for that, to keep this simple.
     updateAppointment({
       ...editing,
       type: editForm.appointmentType,
@@ -366,13 +377,22 @@ export default function ScheduleScreen() {
     if (!patientId) return;
     Alert.alert(
       "Delete appointment",
-      `Delete the ${appt.type} appointment on ${appt.date}?`,
+      `Delete the ${appt.patientappointmenttypename} appointment on ${appt.date}?`,
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
+          onPress: async () => {
+            setCancelingId(appt.appointmentid);
+            try {
+              await cancelAthenaAppointment(appt.appointmentid);
+            } catch (err) {
+              Alert.alert(
+                "Couldn't cancel with athenahealth",
+                `${err instanceof Error ? err.message : String(err)}\n\nRemoving it locally anyway.`,
+              );
+            }
             deleteAppointment(appt.appointmentid);
             audit({
               actor: "caregiver",
@@ -381,6 +401,7 @@ export default function ScheduleScreen() {
               resourceId: appt.appointmentid,
               patientId,
             });
+            setCancelingId(null);
             reload();
           },
         },
@@ -547,12 +568,13 @@ export default function ScheduleScreen() {
             ) : (
               upcoming.map((appt) => {
                 const statusLabel = appt.date === todayIso ? "TODAY" : "SCHEDULED";
-                const dateTimeLabel = formatAppointmentDateTime(appt.date, appt.time);
+                const dateTimeLabel = formatAppointmentDateTime(appt.date, appt.starttime);
+                const isCanceling = cancelingId === appt.appointmentid;
 
                 return (
                   <View key={appt.appointmentid} style={styles.appointmentCard}>
                     <View style={styles.appointmentAccent} />
-                    {/* <Text>Appointment ID: {appt ? appt.appointmentid : "N/A"}</Text> */}
+
                     <Pressable
                       style={styles.appointmentMain}
                       onPress={() => openEdit(appt)}
@@ -561,7 +583,9 @@ export default function ScheduleScreen() {
                     >
                       <View style={styles.appointmentTextBlock}>
                         <View style={styles.appointmentTitleRow}>
-                          <Text style={styles.appointmentType}>{appt.type}</Text>
+                          <Text style={styles.appointmentType} numberOfLines={1}>
+                            {appt.type}
+                          </Text>
                           <View
                             style={[
                               styles.statusBadge,
@@ -577,8 +601,15 @@ export default function ScheduleScreen() {
                               {statusLabel}
                             </Text>
                           </View>
+                          <View>
+                            <Text style={styles.appointmentType}>
+                              {appt.patientappointmenttypename ? ` ${appt.patientappointmenttypename}` : ""}
+                            </Text>
+                          </View>
                         </View>
-                        <Text style={styles.appointmentProvider}>{appt.provider}</Text>
+                        <Text style={styles.appointmentProvider} numberOfLines={1}>
+                          {appt.provider}
+                        </Text>
                         <View style={styles.appointmentMetaRow}>
                           <Text
                             style={styles.appointmentClockIcon}
@@ -587,7 +618,9 @@ export default function ScheduleScreen() {
                           >
                             🕒
                           </Text>
-                          <Text style={styles.appointmentDateTime}>{dateTimeLabel}</Text>
+                          <Text style={styles.appointmentDateTime} numberOfLines={1}>
+                            {dateTimeLabel}
+                          </Text>
                         </View>
                         <View style={styles.appointmentActions}>
                           <Pressable
@@ -601,14 +634,20 @@ export default function ScheduleScreen() {
                             <Text style={styles.editLink}>Edit</Text>
                           </Pressable>
                           <Pressable
-                            style={styles.appointmentActionButton}
+                            style={[
+                              styles.appointmentActionButton,
+                              isCanceling && styles.appointmentActionButtonDisabled,
+                            ]}
                             onPress={() => handleDelete(appt)}
                             hitSlop={8}
+                            disabled={isCanceling}
                             accessibilityRole="button"
                             accessibilityLabel={`Delete ${appt.type} appointment on ${appt.date}`}
                           >
                             <AppIcon name="delete" size={13} color={AppTheme.colors.danger} />
-                            <Text style={styles.deleteLink}>Delete</Text>
+                            <Text style={styles.deleteLink}>
+                              {isCanceling ? "Canceling…" : "Delete"}
+                            </Text>
                           </Pressable>
                         </View>
                       </View>
@@ -771,7 +810,7 @@ function formatAppointmentDateTime(date: string, time?: string): string {
         day: "numeric",
       });
 
-  return time ? `${dateLabel} at ${time}` : dateLabel;
+  return time ? `${dateLabel} at ${to12Hour(time)}` : dateLabel;
 }
 
 const styles = StyleSheet.create({
@@ -909,45 +948,46 @@ const styles = StyleSheet.create({
   },
   appointmentCard: {
     position: "relative",
+    flexDirection: "row",
+    alignItems: "stretch",
     overflow: "hidden",
     backgroundColor: AppTheme.colors.surface,
     borderRadius: 22,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
-    paddingVertical: 10,
-    paddingLeft: 16,
-    paddingRight: 12,
+    paddingVertical: 14,
+    paddingLeft: 12,
+    paddingRight: 14,
     marginBottom: 10,
     ...AppTheme.shadow,
   },
   appointmentAccent: {
-    position: "absolute",
-    top: 10,
-    bottom: 10,
-    left: 0,
     width: 4,
-    borderTopRightRadius: 4,
-    borderBottomRightRadius: 4,
+    borderRadius: 4,
     backgroundColor: AppTheme.colors.brand,
+    marginRight: 12,
+    alignSelf: "stretch",
   },
   appointmentMain: {
-    minHeight: 0,
+    flex: 1,
+    minWidth: 0,
   },
   appointmentTextBlock: {
     flex: 1,
     minWidth: 0,
   },
   appointmentType: {
-    flex: 1,
+    flexShrink: 1,
     color: AppTheme.colors.text,
     fontSize: 16,
     fontWeight: "900",
     lineHeight: 21,
+    marginRight: 8,
   },
   appointmentTitleRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   appointmentProvider: {
     color: AppTheme.colors.textSoft,
@@ -973,6 +1013,8 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   statusBadge: {
+    flexShrink: 0,
+    alignSelf: "flex-start",
     borderRadius: AppTheme.radius.pill,
     backgroundColor: AppTheme.colors.brandSoft,
     paddingHorizontal: 10,
@@ -992,13 +1034,12 @@ const styles = StyleSheet.create({
   },
   appointmentActions: {
     flexDirection: "row",
-    justifyContent: "flex-end",
     gap: 8,
-    marginTop: 7,
+    marginTop: 10,
   },
   appointmentActionButton: {
-    minHeight: 32,
-    minWidth: 64,
+    flex: 1,
+    minHeight: 34,
     borderRadius: 12,
     backgroundColor: AppTheme.colors.softSurface,
     paddingHorizontal: 10,
@@ -1006,6 +1047,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
+  },
+  appointmentActionButtonDisabled: {
+    opacity: 0.5,
   },
   editLink: {
     color: AppTheme.colors.brand,

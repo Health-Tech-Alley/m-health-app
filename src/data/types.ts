@@ -721,12 +721,13 @@ export interface ThresholdRecommendation {
 }
 
 export interface Appointment {
-  appointmentId: string;
+  appointmentid: string;
   patientId: string;
   type: string;
   provider?: string;
   date: string; // ISO date yyyy-mm-dd
-  time?: string;
+  starttime?: string;
+  patientappointmenttypename?: string;
   location?: string;
   reason?: string;
   reminder?: string;
