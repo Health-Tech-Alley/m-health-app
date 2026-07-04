@@ -29,7 +29,7 @@ export type UC2ApplicationRuntime = {
   ): Promise<UC2DecisionResult>;
 };
 
-function appleWatchToRawObservation(input: AppleWatchVitalsInput): RawObservationInput {
+export function toRawObservationInput(input: AppleWatchVitalsInput): RawObservationInput {
   return {
     patient_id: input.patient_id,
     timestamp_iso: input.timestamp,
@@ -132,7 +132,7 @@ export function createUC2ApplicationRuntime(
         throw new Error('ML model not loaded');
       }
 
-      const raw = appleWatchToRawObservation(vitals);
+      const raw = toRawObservationInput(vitals);
 
       const caregiverInput: CaregiverHitlInput | undefined =
         caregiverSelectedCodes.length > 0

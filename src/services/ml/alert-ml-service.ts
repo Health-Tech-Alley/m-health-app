@@ -36,6 +36,7 @@ import {
 import type { AlertAutoencoder } from '@/ml-models/alert-autoencoder/alert-autoencoder';
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
+import { toRawObservationInput } from './uc2-runtime-service';
 
 const MIN_SAMPLE_TYPES = 3;
 
@@ -176,21 +177,8 @@ export class AlertMlService {
       return this.runLegacyEmergencyFastPath(input) ?? this.runLegacy(input);
     }
 
-    const raw = {
-      patient_id: input.patient_id,
-      timestamp_iso: input.timestamp,
-      heart_rate: input.heart_rate,
-      blood_oxygen: input.blood_oxygen,
-      blood_pressure_systolic: input.blood_pressure_systolic,
-      blood_pressure_diastolic: input.blood_pressure_diastolic,
-      glucose_level: input.glucose_level,
-      body_temperature: input.body_temperature,
-      respiratory_rate: input.respiratory_rate,
-      steps_count: input.steps_count,
-    };
-
     const v2Result = await runUC2DecisionLayerV2({
-      raw,
+      raw: toRawObservationInput(input),
       scaler: { mean: scaler.mean, scale: scaler.scale },
       interpreter: createTfliteInterpreterAdapter(ae),
       aeThreshold: this.model.threshold,
