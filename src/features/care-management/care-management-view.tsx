@@ -116,6 +116,13 @@ export function CareManagementView({
   const uc2 = state.uc2Result;
   const hitlApplicable =
     !!uc2 && !uc2.emergencyResult.emergency && uc2.promptShown;
+  const hitlUnavailableMessage = !uc2
+    ? ''
+    : uc2.emergencyResult.emergency
+      ? 'HITL not applicable — emergency fast path bypassed the prompt.'
+      : !uc2.isAnomaly
+        ? 'No caregiver prompt was shown for this result (not anomalous).'
+        : 'Anomaly detected, but no caregiver prompt was shown for this run.';
 
   return (
     <View style={styles.container}>
@@ -428,11 +435,7 @@ export function CareManagementView({
                     </Pressable>
                   </>
                 ) : (
-                  <Text style={styles.muted}>
-                    {uc2.emergencyResult.emergency
-                      ? 'Caregiver Review not applicable — emergency fast path bypassed the prompt.'
-                      : 'No caregiver prompt was shown for this result (not anomalous).'}
-                  </Text>
+                  <Text style={styles.muted}>{hitlUnavailableMessage}</Text>
                 )}
               </View>
             )}

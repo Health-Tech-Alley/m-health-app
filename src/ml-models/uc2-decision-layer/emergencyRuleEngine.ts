@@ -9,7 +9,7 @@ export function runEmergencyRuleEngine(
     features: CompletedFeatureVector | Record<string, number>
 ): EmergencyRuleResult {
     const reasons: string[] = [];
-    
+
     const spo2 = features.blood_oxygen;
     if (spo2 !== undefined && spo2 <= HARD_EMERGENCY_THRESHOLDS.blood_oxygen_lte) {
         reasons.push(`SpO2 ${spo2} <= ${HARD_EMERGENCY_THRESHOLDS.blood_oxygen_lte}`);
@@ -36,7 +36,7 @@ export function runEmergencyRuleEngine(
         is_emergency,
         severity: is_emergency ? 3 : 0,
         reasons,
-        
+
         // @compat fields for old callers
         emergency: is_emergency,
         reason: is_emergency ? reasons[0] : null,

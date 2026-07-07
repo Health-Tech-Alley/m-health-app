@@ -17,9 +17,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   notifications: {
     anomaly: true,
     medication: true,
+    medicationDevice: true,
     appointment: true,
+    appointmentDevice: true,
     appointmentLeadTimeMin: 30,
     careTask: true,
+    careTaskDevice: true,
   },
 };
 

@@ -264,8 +264,8 @@ export type UC2FeatureVectorResult = {
 export type TopFeatureEvidence = {
     feature: string;
     importance: number;
-    score: number;
-    abs_z: number;
+    score?: number;
+    abs_z?: number;
     direction: "unknown";
     source: "ae_reconstruction_contribution";
 };

@@ -45,6 +45,7 @@ export const VITAL_LOINC_MAP: Record<HealthSampleType, LoincVitalBinding | null>
   temperature: { loinc: '8310-5', display: 'Body temperature', unit: 'Cel', ucumCode: 'Cel' },
   weight: { loinc: '29463-7', display: 'Body weight', unit: 'kg', ucumCode: 'kg' },
   height: { loinc: '8302-2', display: 'Body height', unit: 'cm', ucumCode: 'cm' },
+  bmi: { loinc: '39156-5', display: 'Body mass index (BMI)', unit: 'kg/m2', ucumCode: 'kg/m2' },
   blood_glucose: { loinc: '2339-0', display: 'Glucose in Blood', unit: 'mg/dL', ucumCode: 'mg/dL' },
   steps: { loinc: '55423-8', display: 'Step count', unit: '1', ucumCode: '1' },
   distance: null,

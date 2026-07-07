@@ -5,7 +5,14 @@
  * these typed objects and the raw database rows.
  */
 
-export type HealthSampleSource = 'apple-health' | 'health-connect' | 'manual' | 'mock' | 'fhir';
+export type HealthSampleSource =
+  | 'apple-health'
+  | 'health-connect'
+  | 'manual'
+  | 'mock'
+  | 'fhir'
+  | 'wearable'
+  | 'simulated';
 
 export type HealthSampleType =
   | 'spo2'
@@ -16,6 +23,7 @@ export type HealthSampleType =
   | 'temperature'
   | 'weight'
   | 'height'
+  | 'bmi'
   | 'blood_glucose'
   | 'steps'
   | 'distance'
@@ -233,6 +241,12 @@ export interface Patient {
   currentMedications?: string;
   spo2Cutoff?: string;
   baselineHeartRate?: string;
+  baselineBloodOxygen?: string;
+  baselineRespiratoryRate?: string;
+  baselineBloodPressureSystolic?: string;
+  baselineBloodPressureDiastolic?: string;
+  baselineGlucoseLevel?: string;
+  baselineBodyTemperature?: string;
   gmfcs?: string;
   fms?: string;
   macs?: string;
@@ -270,6 +284,77 @@ export interface Medication {
   indication?: string;
   active: boolean;
   source?: 'care_plan' | 'custom' | 'fhir' | 'ccda_import';
+}
+
+export interface MedicationCandidate {
+  candidateId: string;
+  patientId: string;
+  name: string;
+  category: string;
+  currentHomeUseStatus: 'unknown' | 'not_confirmed';
+  confirmationRequired: boolean;
+  sourceFile?: string;
+  visitIndex?: number;
+  daysFromFirstVisit?: number;
+  summary?: string;
+  fhirResourceId: string;
+}
+
+export type MedicationConfirmationRequirementStatus =
+  | 'required'
+  | 'not_required'
+  | 'not_provided';
+
+export type MedicationConfirmationRequirementSource =
+  | 'demo_override'
+  | 'demo_fixture'
+  | 'fhir_extension'
+  | 'provider_configuration';
+
+export interface MedicationConfirmationRequirement {
+  patientId: string;
+  medicationId: string;
+  confirmationRequirement: MedicationConfirmationRequirementStatus;
+  requirementSource?: MedicationConfirmationRequirementSource;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type MedicationConfirmationPreferenceMode =
+  | 'all'
+  | 'required_only'
+  | 'personalized';
+
+export interface MedicationConfirmationPreference {
+  patientId: string;
+  confirmationMode: MedicationConfirmationPreferenceMode;
+  selectedMedicationIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PatientTimelineEventType =
+  | 'pre_op_planning'
+  | 'operative_event'
+  | 'discharge_restrictions'
+  | 'post_op_follow_up'
+  | 'ot_orthosis_plan'
+  | 'equipment_orthotics_support';
+
+export interface PatientTimelineEvent {
+  eventId: string;
+  patientId: string;
+  eventType: PatientTimelineEventType;
+  title: string;
+  summary: string;
+  visitIndex: number;
+  daysFromFirstVisit: number;
+  daysBeforeLatestVisit: number;
+  sourceFile: string;
+  sourceSection: string;
+  confidence: 'high' | 'medium' | 'low';
+  clinicalRelevance: string;
+  createdAt: string;
 }
 
 export interface PatientCondition {
@@ -555,9 +640,12 @@ export interface NotificationRecord {
 export interface NotificationPreferences {
   anomaly: boolean;
   medication: boolean;
+  medicationDevice: boolean;
   appointment: boolean;
+  appointmentDevice: boolean;
   appointmentLeadTimeMin: number;
   careTask: boolean;
+  careTaskDevice: boolean;
   quietHoursStart?: string; // 'HH:mm'
   quietHoursEnd?: string;
 }
@@ -580,7 +668,7 @@ export interface AppSettings {
 // FHIR resource cache + export queue
 // ---------------------------------------------------------------------------
 
-export type FhirResourceKind = 'care_plan' | 'export_queue' | 'consent_snapshot';
+export type FhirResourceKind = 'care_plan' | 'export_queue' | 'consent_snapshot' | 'imported';
 
 export interface FhirResource {
   resourceType: string; // 'CarePlan' | 'Composition' | 'Consent' | 'Provenance' ...
@@ -727,6 +815,13 @@ export type NormalizedActivePatient = {
   currentMedications: string;
   spo2Cutoff: string;
   baselineHeartRate: string;
+  baselineBloodOxygen: string;
+  baselineRespiratoryRate: string;
+  baselineBloodPressureSystolic: string;
+  baselineBloodPressureDiastolic: string;
+  baselineGlucoseLevel: string;
+  baselineBodyTemperature: string;
+  medicationConfirmationRequirements: Record<string, MedicationConfirmationRequirement>;
   status: "available" | "unknown";
   lastRefreshedAt: string;
 };

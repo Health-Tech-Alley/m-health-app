@@ -1,3 +1,5 @@
+import type { SQLiteDatabase } from 'expo-sqlite';
+
 /**
  * SQLite migrations.
  *
@@ -5,7 +7,9 @@
  * where possible (CREATE TABLE IF NOT EXISTS, etc.).
  */
 
-export const MIGRATIONS: string[] = [
+export type Migration = string | ((db: SQLiteDatabase) => void);
+
+export const MIGRATIONS: Migration[] = [
   // 0: core identity tables
   `
   CREATE TABLE IF NOT EXISTS patients (
@@ -668,5 +672,83 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE knowledge_cache ADD COLUMN document_type TEXT;
   ALTER TABLE knowledge_cache ADD COLUMN length_tier TEXT;
   ALTER TABLE knowledge_cache ADD COLUMN section_heading TEXT;
+  `,
+
+  // 25: optional baseline health readings captured during onboarding
+  `
+  ALTER TABLE patients ADD COLUMN baseline_blood_oxygen TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_respiratory_rate TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_blood_pressure_systolic TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_blood_pressure_diastolic TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_glucose_level TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_body_temperature TEXT;
+  `,
+
+  // 26: demo medication confirmation requirement overrides
+  `
+  CREATE TABLE IF NOT EXISTS medication_confirmation_requirements (
+    patient_id TEXT NOT NULL,
+    medication_id TEXT NOT NULL,
+    confirmation_requirement TEXT NOT NULL CHECK (
+      confirmation_requirement IN ('required', 'not_required', 'not_provided')
+    ),
+    requirement_source TEXT NOT NULL CHECK (
+      requirement_source IN ('demo_override', 'demo_fixture', 'fhir_extension', 'provider_configuration')
+    ),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (patient_id, medication_id, requirement_source)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_med_confirmation_requirements_patient
+    ON medication_confirmation_requirements(patient_id, medication_id);
+  `,
+
+  // 27: caregiver medication-confirmation preferences + notification delivery channel flags
+  (db: SQLiteDatabase) => {
+    db.execSync(`
+    CREATE TABLE IF NOT EXISTS medication_confirmation_preferences (
+      patient_id TEXT PRIMARY KEY,
+      confirmation_mode TEXT NOT NULL DEFAULT 'all' CHECK (
+        confirmation_mode IN ('all', 'required_only', 'personalized')
+      ),
+      selected_medication_ids_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    `);
+
+    const columns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(notification_preferences);`,
+    );
+    const hasDeviceEnabled = columns.some((column) => column.name === 'device_enabled');
+    if (!hasDeviceEnabled) {
+      db.execSync(`
+      ALTER TABLE notification_preferences
+        ADD COLUMN device_enabled INTEGER NOT NULL DEFAULT 1;
+      `);
+    }
+  },
+
+  // 28: source-traced patient timeline/context events curated from imported FHIR
+  `
+  CREATE TABLE IF NOT EXISTS patient_timeline_events (
+    event_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    visit_index INTEGER NOT NULL,
+    days_from_first_visit INTEGER NOT NULL,
+    days_before_latest_visit INTEGER NOT NULL,
+    source_file TEXT NOT NULL,
+    source_section TEXT NOT NULL,
+    confidence TEXT NOT NULL CHECK (confidence IN ('high', 'medium', 'low')),
+    transition_planning_relevance TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_patient_timeline_events_patient
+    ON patient_timeline_events(patient_id, days_from_first_visit DESC, visit_index DESC);
   `,
 ];

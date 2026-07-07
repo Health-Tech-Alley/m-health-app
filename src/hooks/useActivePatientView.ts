@@ -10,6 +10,13 @@ import type {
   NormalizedVitalMetric,
   NormalizedVitalReading,
 } from '@/data/types';
+import { store, type AppDispatch } from '@/store';
+import {
+  clearVitalsForPatient,
+  hydrationFailed,
+  hydrationStarted,
+  hydrationSucceeded,
+} from '@/store/reducers/vitalsSlice';
 
 const CLINICAL_VITALS: {
   key: HealthSampleType;
@@ -31,6 +38,52 @@ const CLINICAL_VITALS: {
 
 function clean(value: string | number | null | undefined): string {
   return value === null || value === undefined ? '' : String(value).trim();
+}
+
+const LIVE_MONITORING_TYPES: HealthSampleType[] = [
+  'spo2',
+  'heart_rate',
+  'respiratory_rate',
+  'blood_pressure_systolic',
+  'blood_pressure_diastolic',
+  'temperature',
+  'blood_glucose',
+  'steps',
+];
+
+const RECENT_MONITORING_WINDOW_DAYS = 7;
+
+/**
+ * Hydrate the vitalsSlice (Redux) with recent non-FHIR live vitals for the
+ * given patient. Called when the patient record refreshes so the
+ * WeeklyVitalsCard can render live monitoring readings alongside the
+ * imported FHIR clinical vitals.
+ */
+export function hydrateLiveVitals(
+  patientId: string,
+  dispatch: AppDispatch = store.dispatch,
+): void {
+  dispatch(hydrationStarted({ patientId }));
+  try {
+    const since = new Date(
+      Date.now() - RECENT_MONITORING_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const samples = LIVE_MONITORING_TYPES.flatMap((type) =>
+      getRecentHealthSamples(patientId, type, since, 100),
+    ).filter((sample) => sample.source !== 'fhir');
+    dispatch(hydrationSucceeded({ patientId, samples }));
+  } catch (error) {
+    dispatch(
+      hydrationFailed({
+        patientId,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
+}
+
+export function clearLiveVitals(dispatch: AppDispatch = store.dispatch): void {
+  dispatch(clearVitalsForPatient(undefined));
 }
 
 function normalizeActivePatient(
@@ -76,13 +129,21 @@ function normalizeActivePatient(
     currentMedications: clean(patient?.currentMedications),
     spo2Cutoff: clean(patient?.spo2Cutoff),
     baselineHeartRate: clean(patient?.baselineHeartRate),
+    baselineBloodOxygen: clean(patient?.baselineBloodOxygen),
+    baselineRespiratoryRate: clean(patient?.baselineRespiratoryRate),
+    baselineBloodPressureSystolic: clean(patient?.baselineBloodPressureSystolic),
+    baselineBloodPressureDiastolic: clean(patient?.baselineBloodPressureDiastolic),
+    baselineGlucoseLevel: clean(patient?.baselineGlucoseLevel),
+    baselineBodyTemperature: clean(patient?.baselineBodyTemperature),
+    medicationConfirmationRequirements: snapshot.medicationConfirmationRequirements ?? {},
     status: patient ? 'available' : 'unknown',
     lastRefreshedAt: snapshot.lastRefreshedAt,
   };
 }
 
 function getImportedHealthSamples(patientId: string, type: HealthSampleType): HealthSample[] {
-  return getRecentHealthSamples(patientId, type, '1970-01-01T00:00:00.000Z', 500);
+  return getRecentHealthSamples(patientId, type, '1970-01-01T00:00:00.000Z', 500)
+    .filter((sample) => sample.source === 'fhir');
 }
 
 function findPairedSample(

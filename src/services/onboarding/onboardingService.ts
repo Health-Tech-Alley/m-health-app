@@ -160,6 +160,12 @@ export type PatientProfile = {
   currentMedications?: string;
   spo2Cutoff?: string;
   baselineHeartRate?: string;
+  baselineBloodOxygen?: string;
+  baselineRespiratoryRate?: string;
+  baselineBloodPressureSystolic?: string;
+  baselineBloodPressureDiastolic?: string;
+  baselineGlucoseLevel?: string;
+  baselineBodyTemperature?: string;
   gmfcsLevel?: string;
   fmsScore?: string;
   macsLevel?: string;
@@ -406,6 +412,12 @@ export const defaultOnboardingProfile: OnboardingProfile = {
     currentMedications: "",
     spo2Cutoff: "",
     baselineHeartRate: "",
+    baselineBloodOxygen: "",
+    baselineRespiratoryRate: "",
+    baselineBloodPressureSystolic: "",
+    baselineBloodPressureDiastolic: "",
+    baselineGlucoseLevel: "",
+    baselineBodyTemperature: "",
     gmfcsLevel: "",
     fmsScore: "",
     macsLevel: "",
@@ -602,6 +614,18 @@ function normalizeOnboardingProfile(
       comorbidities,
       symptoms: profile.patient.symptoms ?? [],
       otherSymptoms: profile.patient.otherSymptoms ?? "",
+      baselineBloodOxygen: cleanOptionalText(profile.patient.baselineBloodOxygen),
+      baselineRespiratoryRate: cleanOptionalText(
+        profile.patient.baselineRespiratoryRate,
+      ),
+      baselineBloodPressureSystolic:
+        cleanOptionalText(profile.patient.baselineBloodPressureSystolic),
+      baselineBloodPressureDiastolic:
+        cleanOptionalText(profile.patient.baselineBloodPressureDiastolic),
+      baselineGlucoseLevel: cleanOptionalText(profile.patient.baselineGlucoseLevel),
+      baselineBodyTemperature: cleanOptionalText(
+        profile.patient.baselineBodyTemperature,
+      ),
       gmfcsLevel: profile.patient.gmfcsLevel ?? "",
       fmsScore: profile.patient.fmsScore ?? "",
       macsLevel: profile.patient.macsLevel ?? "",
@@ -667,4 +691,8 @@ function normalizeIcdCodeForComparison(value: string | undefined): string {
 
 function normalizeConditionLabelForComparison(value: string | undefined): string {
   return value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+}
+
+function cleanOptionalText(value: string | undefined): string {
+  return value?.trim() ?? "";
 }

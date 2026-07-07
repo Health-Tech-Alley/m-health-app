@@ -44,6 +44,8 @@ import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
 import { AlertMlService } from '@/services/ml/alert-ml-service';
 import type { AppleWatchVitalsInput, UC2DecisionResult } from '@/ml-models/uc2-decision-layer';
 import type { SlmTaskQueue } from '@/services/slm/slm-task-queue';
+import { store } from '@/store';
+import { projectHealthSample } from '@/store/reducers/vitalsSlice';
 
 import {
   CaregiverAgent,
@@ -230,14 +232,15 @@ export class Orchestrator {
     const sample: HealthSample = {
       sampleId: event.sampleId,
       patientId: event.patientId,
-      source: 'mock',
+      source: event.source ?? 'mock',
       type: event.sampleType as HealthSample['type'],
       value: event.value,
       unit: event.unit,
       recordedAt: event.recordedAt,
-      receivedAt: new Date().toISOString(),
+      receivedAt: event.receivedAt ?? new Date().toISOString(),
     };
     insertHealthSample(sample);
+    store.dispatch(projectHealthSample(sample));
     writeSampleEdges(event.patientId, event.sampleId, event.sampleType as HealthSample['type']);
     auditSampleRead(event.patientId, event.sampleId, 'system');
 

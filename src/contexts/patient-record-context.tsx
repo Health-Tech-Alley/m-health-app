@@ -39,6 +39,7 @@ import {
   type PatientRecordSnapshot,
 } from '@/data';
 import { saveFHIRBundleToDB } from '@/data/fhir/fhir-import';
+import { hydrateLiveVitals, clearLiveVitals } from '@/hooks/useActivePatientView';
 
 // ---------------------------------------------------------------------------
 // Module-level store — useSyncExternalStore reads from here.
@@ -102,6 +103,7 @@ export function refreshPatientRecord(patientId?: string): void {
   const nextPatientId = patientId || (currentPatientId ?? '');
   try {
     setPatientId(nextPatientId, Boolean(patientId));
+    hydrateLiveVitals(nextPatientId);
   } catch (error) {
     if (getActivePatientId() === nextPatientId) {
       clearActivePatientId();

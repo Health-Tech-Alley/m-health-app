@@ -9,9 +9,9 @@ import {
   type HistoricalAnomalyEvent,
   type PatientProfile,
   type RawObservationInput,
+  type TopFeatureEvidence,
   type UC2DecisionResult,
 } from '@/ml-models/uc2-decision-layer';
-import { patientProfileFromPlainObject } from '@/ml-models/uc2-decision-layer/ehrProfileAdapter';
 
 export type EvaluateUC2WithExistingRuntimeParams = {
   vitals: AppleWatchVitalsInput;
@@ -29,7 +29,7 @@ export type UC2ApplicationRuntime = {
   ): Promise<UC2DecisionResult>;
 };
 
-function appleWatchToRawObservation(input: AppleWatchVitalsInput): RawObservationInput {
+export function toRawObservationInput(input: AppleWatchVitalsInput): RawObservationInput {
   return {
     patient_id: input.patient_id,
     timestamp_iso: input.timestamp,
@@ -53,8 +53,15 @@ function mapV2ToCompatResult(
   const isAnomaly = v2.ae?.is_anomaly ?? false;
   const emergencyResult = v2.emergency;
   const finalDecision = v2.final_decision;
-  const initialAnomalyType = (v2.sensor_classification?.sensor_anomaly_type ?? 'NORMAL_PATTERN') as UC2DecisionResult['initialAnomalyType'];
-  const postHitlAnomalyType = (finalDecision.post_hitl_anomaly_type ?? 'NORMAL_PATTERN') as UC2DecisionResult['postHitlAnomalyType'];
+  const topFeatureEvidence: TopFeatureEvidence[] =
+    v2.ae?.top_contributors.map((contributor) => ({
+      feature: contributor.feature,
+      importance: contributor.contribution,
+      direction: 'unknown',
+      source: 'ae_reconstruction_contribution',
+    })) ?? [];
+  const initialAnomalyType = v2.sensor_classification?.sensor_anomaly_type ?? 'NORMAL_PATTERN';
+  const postHitlAnomalyType = finalDecision.post_hitl_anomaly_type ?? 'NORMAL_PATTERN';
 
   return {
     emergencyResult,
@@ -66,7 +73,7 @@ function mapV2ToCompatResult(
     promptShown,
     initialAnomalyType,
     postHitlAnomalyType,
-    topFeatureEvidence: v2.ae?.top_contributors ?? [],
+    topFeatureEvidence,
     featureQuality: {},
     finalDecision: {
       ...finalDecision,
@@ -83,7 +90,7 @@ function mapV2ToCompatResult(
     post_hitl_severity: finalDecision.post_hitl_severity ?? 0,
     sensor_anomaly_type: v2.sensor_classification?.sensor_anomaly_type ?? 'NORMAL_PATTERN',
     post_hitl_anomaly_type: postHitlAnomalyType,
-    anomaly_family: v2.sensor_classification?.anomaly_family,
+    anomaly_family: v2.caregiver_hitl?.anomaly_family,
     caregiver_selected_codes: v2.caregiver_hitl?.caregiver_selected_codes ?? [],
     max_matrix_delta: v2.caregiver_hitl?.max_matrix_delta ?? 0,
     critical_route_triggered: v2.caregiver_hitl?.critical_route_triggered ?? false,
@@ -99,7 +106,7 @@ function mapV2ToCompatResult(
     provider_payload: v2.final_slm_payload ?? null,
     mcp_payload: v2.initial_mcp_payload ?? null,
     audit_event: v2.audit_event,
-  } as UC2DecisionResult;
+  };
 }
 
 export function createUC2ApplicationRuntime(
@@ -125,7 +132,7 @@ export function createUC2ApplicationRuntime(
         throw new Error('ML model not loaded');
       }
 
-      const raw = appleWatchToRawObservation(vitals);
+      const raw = toRawObservationInput(vitals);
 
       const caregiverInput: CaregiverHitlInput | undefined =
         caregiverSelectedCodes.length > 0

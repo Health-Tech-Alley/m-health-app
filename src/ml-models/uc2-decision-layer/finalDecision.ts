@@ -35,7 +35,7 @@ export function finalDecision(params: {
             slm_refinement_queued: false,
             refinement_reason:
                 "Emergency rule triggered; ML/SLM bypassed initially.",
-            
+
             // @compat Fallback defaults for new v2 fields:
             post_hitl_anomaly_type: "CRITICAL_EMERGENCY_ALERT",
             post_hitl_severity: 3,

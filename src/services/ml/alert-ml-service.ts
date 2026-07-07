@@ -16,26 +16,30 @@ import {
   type MlRawVitalsInputEnvelope,
 } from '@/data';
 import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
-import type { CoreVitals, ExtendedVitals } from '@/ml-models/alert-autoencoder/types';
+import type {
+  CoreVitals,
+  ExtendedVitals,
+  StandardScalerParams,
+} from '@/ml-models/alert-autoencoder/types';
 import type {
   AppleWatchVitalsInput,
   PatientProfile,
+  TopFeatureEvidence,
   UC2DecisionResult,
 } from '@/ml-models/uc2-decision-layer';
 import {
   buildUC2FeatureVector,
-  createAlertAutoencoderRunner,
   createTfliteInterpreterAdapter,
   finalDecision,
   patientProfileFromPlainObject,
   runEmergencyRuleEngine,
-  runUC2DecisionLayer,
   runUC2DecisionLayerV2,
 } from '@/ml-models/uc2-decision-layer';
 import type { AlertAutoencoder } from '@/ml-models/alert-autoencoder/alert-autoencoder';
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
 import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
+import { toRawObservationInput } from './uc2-runtime-service';
 
 const MIN_SAMPLE_TYPES = 3;
 
@@ -57,6 +61,19 @@ type RuntimeInputField =
   | 'body_temperature'
   | 'respiratory_rate'
   | 'steps_count';
+
+type TfliteCapableAlertModel = AlertMlModel & {
+  readonly scalerParams: StandardScalerParams | null;
+  runReconstruction(scaledInput: number[]): Promise<number[]>;
+};
+
+function hasTfliteRuntime(model: AlertMlModel): model is TfliteCapableAlertModel {
+  return (
+    'scalerParams' in model &&
+    'runReconstruction' in model &&
+    typeof model.runReconstruction === 'function'
+  );
+}
 
 export function buildMlRawVitalsInputEnvelope(params: {
   input: AppleWatchVitalsInput;
@@ -203,27 +220,18 @@ export class AlertMlService {
     // configured model exposes a scaler + runReconstruction, use the UC2
     // v2 layer; otherwise the mock provider can't produce a reconstruction
     // vector, so fall back to legacy inference.
-    const ae = this.model as unknown as AlertAutoencoder;
-    const scaler = ae.scalerParams;
-    if (!scaler || typeof ae.runReconstruction !== 'function') {
+    if (!hasTfliteRuntime(this.model)) {
       return this.runLegacyEmergencyFastPath(input) ?? this.runLegacy(input);
     }
 
-    const raw = {
-      patient_id: input.patient_id,
-      timestamp_iso: input.timestamp,
-      heart_rate: input.heart_rate,
-      blood_oxygen: input.blood_oxygen,
-      blood_pressure_systolic: input.blood_pressure_systolic,
-      blood_pressure_diastolic: input.blood_pressure_diastolic,
-      glucose_level: input.glucose_level,
-      body_temperature: input.body_temperature,
-      respiratory_rate: input.respiratory_rate,
-      steps_count: input.steps_count,
-    };
+    const ae = this.model as AlertAutoencoder;
+    const scaler = ae.scalerParams;
+    if (!scaler) {
+      return this.runLegacyEmergencyFastPath(input) ?? this.runLegacy(input);
+    }
 
     const v2Result = await runUC2DecisionLayerV2({
-      raw,
+      raw: toRawObservationInput(input),
       profile,
       scaler: { mean: scaler.mean, scale: scaler.scale },
       interpreter: createTfliteInterpreterAdapter(ae),
@@ -233,6 +241,13 @@ export class AlertMlService {
     const aeScore = v2Result.ae?.ae_score ?? null;
     const isAnomaly = v2Result.ae?.is_anomaly ?? false;
     const finalDec = v2Result.final_decision;
+    const topFeatureEvidence: TopFeatureEvidence[] =
+      v2Result.ae?.top_contributors.map((contributor) => ({
+        feature: contributor.feature,
+        importance: contributor.contribution,
+        direction: 'unknown',
+        source: 'ae_reconstruction_contribution',
+      })) ?? [];
 
     return {
       emergencyResult: v2Result.emergency,
@@ -242,9 +257,9 @@ export class AlertMlService {
       threshold: this.model.threshold,
       isAnomaly,
       promptShown: false,
-      initialAnomalyType: (v2Result.sensor_classification?.sensor_anomaly_type ?? 'NORMAL_PATTERN') as UC2DecisionResult['initialAnomalyType'],
-      postHitlAnomalyType: (finalDec.post_hitl_anomaly_type ?? 'NORMAL_PATTERN') as UC2DecisionResult['postHitlAnomalyType'],
-      topFeatureEvidence: v2Result.ae?.top_contributors ?? [],
+      initialAnomalyType: v2Result.sensor_classification?.sensor_anomaly_type ?? 'NORMAL_PATTERN',
+      postHitlAnomalyType: finalDec.post_hitl_anomaly_type ?? 'NORMAL_PATTERN',
+      topFeatureEvidence,
       featureQuality: {},
       finalDecision: {
         ...finalDec,
@@ -260,7 +275,7 @@ export class AlertMlService {
       post_hitl_severity: finalDec.post_hitl_severity ?? 0,
       sensor_anomaly_type: v2Result.sensor_classification?.sensor_anomaly_type ?? 'NORMAL_PATTERN',
       post_hitl_anomaly_type: (finalDec.post_hitl_anomaly_type ?? 'NORMAL_PATTERN') as UC2DecisionResult['post_hitl_anomaly_type'],
-      anomaly_family: v2Result.sensor_classification?.anomaly_family,
+      anomaly_family: v2Result.caregiver_hitl?.anomaly_family,
       caregiver_selected_codes: [],
       max_matrix_delta: 0,
       critical_route_triggered: false,
@@ -276,7 +291,7 @@ export class AlertMlService {
       provider_payload: v2Result.final_slm_payload ?? null,
       mcp_payload: v2Result.initial_mcp_payload ?? null,
       audit_event: v2Result.audit_event,
-    } as UC2DecisionResult;
+    };
   }
 
   /**

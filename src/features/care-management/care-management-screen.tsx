@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useReducer } from 'react';
 
+import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useUC2Runtime } from '@/contexts/uc2-runtime-context';
 import { useOrchestratorRetriever } from '@/contexts/orchestrator-context';
@@ -231,6 +232,7 @@ export function CareManagementScreen() {
   const slm = useSLM();
   const { model: mlModel, ready: mlModelLoaded, error: mlModelError } = useUC2Runtime();
   const retriever = useOrchestratorRetriever();
+  const { patientId } = usePatientRecord();
   const [state, dispatch] = useReducer(reducer, initialState);
 
   const controller = useMemo(
@@ -247,7 +249,7 @@ export function CareManagementScreen() {
           return;
         }
         controller
-          .executeUC2Decision(state)
+          .executeUC2Decision(state, patientId)
           .then((resultAction) => dispatch(resultAction));
         return;
       }
@@ -259,7 +261,7 @@ export function CareManagementScreen() {
           return;
         }
         controller
-          .executeApplyHITL(state)
+          .executeApplyHITL(state, patientId)
           .then((resultAction) => dispatch(resultAction));
         return;
       }
@@ -289,7 +291,7 @@ export function CareManagementScreen() {
 
       dispatch(action);
     },
-    [controller, mlModelError, state, slm.chat, retriever],
+    [controller, mlModelError, patientId, state, slm.chat, retriever],
   );
 
   return (

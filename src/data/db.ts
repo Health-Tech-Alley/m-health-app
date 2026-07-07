@@ -54,7 +54,12 @@ function migrate(db: SQLiteDatabase): void {
     );
     if (exists && exists.count > 0) continue;
 
-    db.execSync(MIGRATIONS[i]);
+    const migration = MIGRATIONS[i];
+    if (typeof migration === 'function') {
+      migration(db);
+    } else {
+      db.execSync(migration);
+    }
     db.runSync(
       'INSERT INTO __migrations (id, applied_at) VALUES (?, ?);',
       i,
@@ -116,6 +121,7 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS daily_care_entries;
     DROP TABLE IF EXISTS rehabilitation_measurements;
     DROP TABLE IF EXISTS patient_longitudinal_observations;
+    DROP TABLE IF EXISTS patient_timeline_events;
     DROP TABLE IF EXISTS appointments;
     DROP TABLE IF EXISTS threshold_recommendations;
     DROP TABLE IF EXISTS __migrations;

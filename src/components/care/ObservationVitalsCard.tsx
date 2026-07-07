@@ -577,7 +577,7 @@ function getXAxisLabels(timePoints: ChartTimePoint[]) {
 
   return labelPoints.map((point, index) => ({
     id: `${point.key}-${index}`,
-    text: formatAxisDate(new Date(point.recordedAt), spanDays),
+    text: formatAxisDate(point.recordedAt, spanDays),
     offset: getClinicalLabelOffset(point.index, timePoints.length),
   }));
 }
@@ -598,7 +598,10 @@ function getClinicalLabelOffset(index: number, total: number) {
   return Math.min(Math.max(labelStart + (index / (total - 1)) * labelSpan, 0), 92);
 }
 
-function formatAxisDate(date: Date, spanDays: number) {
+function formatAxisDate(value: string, spanDays: number) {
+  if (/^\d{4}$/.test(value)) return value;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
   if (spanDays > 540) {
     return date.toLocaleDateString(undefined, { year: "numeric" });
   }
@@ -656,6 +659,7 @@ function isVitalMetric(metric: VitalMetric | null): metric is VitalMetric {
 
 function formatObservationDate(value?: string) {
   if (!value) return "Not available";
+  if (/^\d{4}$/.test(value)) return value;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString(undefined, {
