@@ -21,10 +21,12 @@ import { usePatientRecord } from "@/contexts/patient-record-context";
 import {
   getDailyCareEntry,
   upsertDailyCareEntry,
+  type CarePlan,
   type DailyCareEntry,
+  type PatientTimelineEvent,
 } from "@/data";
 import { getRehabilitationMeasurements } from "@/data/repositories/rehabilitationMeasurementRepository";
-import type { RehabilitationMeasurement, RehabilitationMeasurementType } from "@/data/types";
+import type { RehabilitationMeasurement } from "@/data/types";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 import { useAppSelector } from "@/store/hooks";
 import {
@@ -46,6 +48,21 @@ export default function CareScreen() {
   const patientAge = getPatientAgeDisplay(activePatient);
   const diagnosis = getPrimaryDiagnosisDisplay(activePatient);
   const carePlan = snapshot?.carePlan ?? null;
+  const carePlanHistory = snapshot?.carePlans ?? [];
+  const timelineEvents = snapshot?.timelineEvents ?? [];
+  const mostActionableCarePlan =
+    carePlan ?? carePlanHistory.find(isMostActionableCarePlan) ?? null;
+  const secondaryCarePlanHistory = carePlanHistory.filter(
+    (plan) => plan.planId !== mostActionableCarePlan?.planId,
+  );
+  const importantClinicalEvents = timelineEvents.filter(
+    (event) =>
+      !(
+        event.eventType === "ot_orthosis_plan" &&
+        mostActionableCarePlan &&
+        isMostActionableCarePlan(mostActionableCarePlan)
+      ),
+  );
 
   const caregiverDisplay = getCaregiverDisplay(activePatient);
   const caregiverFirstName = isProvided(caregiverDisplay)
@@ -147,6 +164,86 @@ export default function CareScreen() {
 
         <ObservationVitalsCard />
 
+        {mostActionableCarePlan && !carePlan ? (
+          <>
+            <Text style={styles.sectionTitle}>Current Care Focus</Text>
+            <View style={styles.carePlanCard}>
+              <Text style={styles.carePlanKicker}>What to focus on now</Text>
+              <Text style={styles.carePlanTitle}>
+                {mostActionableCarePlan.title || "Documented care guidance"}
+              </Text>
+              {mostActionableCarePlan.description ? (
+                <Text style={styles.carePlanSubtitle}>
+                  {mostActionableCarePlan.description}
+                </Text>
+              ) : null}
+              <Text style={styles.emptyCarePlanText}>
+                Guidance documented in care records. This section does not
+                create tasks or reminders.
+              </Text>
+            </View>
+          </>
+        ) : null}
+
+        {secondaryCarePlanHistory.length > 0 ? (
+          <>
+            <Text style={styles.sectionTitle}>Other Care Guidance</Text>
+            <View style={styles.carePlanCard}>
+              <Text style={styles.carePlanKicker}>Additional care notes from the record</Text>
+              <Text style={styles.emptyCarePlanText}>
+                These notes are documented in care records. Items with unknown status are not
+                treated as current and do not create tasks or reminders.
+              </Text>
+              <View style={styles.activityList}>
+                <Text style={styles.activityTitle}>Documented guidance</Text>
+                {secondaryCarePlanHistory.map((plan) => (
+                  <View key={plan.planId} style={styles.activityRow}>
+                    <View style={styles.activityDot} />
+                    <View style={styles.activityTextBlock}>
+                      <Text style={styles.activityDescription}>
+                        {plan.title || "Documented care guidance"}
+                      </Text>
+                      {plan.description ? (
+                        <Text style={styles.activityStatus}>{plan.description}</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </>
+        ) : null}
+
+        {importantClinicalEvents.length > 0 ? (
+          <>
+            <Text style={styles.sectionTitle}>Important Health Events</Text>
+            <View style={styles.carePlanCard}>
+              <Text style={styles.carePlanKicker}>Documented events from care records</Text>
+              <Text style={styles.emptyCarePlanText}>
+                Important events documented in the record. These facts do
+                not create tasks, reminders, diagnoses, or plans.
+              </Text>
+              <View style={styles.activityList}>
+                {importantClinicalEvents.map((event) => (
+                  <View key={event.eventId} style={styles.activityRow}>
+                    <View style={styles.activityDot} />
+                    <View style={styles.activityTextBlock}>
+                      <Text style={styles.activityDescription}>{event.title}</Text>
+                      <Text style={styles.activityStatus}>{event.summary}</Text>
+                      <Text style={styles.timelineSource}>
+                        {formatTimelineSource(event)}
+                      </Text>
+                      <Text style={styles.timelineWhy}>
+                        {event.clinicalRelevance}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </>
+        ) : null}
+
         {carePlan ? (
           <>
             <View style={styles.safetyCard}>
@@ -167,12 +264,12 @@ export default function CareScreen() {
               ))}
             </View>
 
-            <Text style={styles.sectionTitle}>Care Plan</Text>
+            <Text style={styles.sectionTitle}>Current Care Focus</Text>
 
             <View style={styles.carePlanCard}>
               <View style={styles.carePlanHeader}>
                 <View style={styles.carePlanHeaderText}>
-                  <Text style={styles.carePlanKicker}>Provider Care Plan</Text>
+                  <Text style={styles.carePlanKicker}>What to focus on now</Text>
                   <Text style={styles.carePlanTitle}>
                     {carePlan.title || "Care plan"}
                   </Text>
@@ -339,15 +436,15 @@ export default function CareScreen() {
               <Text style={styles.mlButtonLink}>Open care analysis →</Text>
             </Pressable>
           </>
-        ) : (
+        ) : !mostActionableCarePlan && secondaryCarePlanHistory.length === 0 ? (
           <>
             <Text style={styles.sectionTitle}>Care Plan</Text>
             <View style={styles.carePlanCard}>
-              <Text style={styles.carePlanKicker}>Provider Care Plan</Text>
+              <Text style={styles.carePlanKicker}>Care plan status</Text>
               <Text style={styles.emptyCarePlanText}>No current care plans.</Text>
             </View>
           </>
-        )}
+        ) : null}
       </ScrollView>
 
       {/* Combined safety explanation dialog (safety note + reason + recommendation) */}
@@ -581,6 +678,21 @@ function formatCarePlanStatus(value?: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function isMostActionableCarePlan(plan: CarePlan): boolean {
+  const title = plan.title?.toLowerCase() ?? "";
+  const description = plan.description?.toLowerCase() ?? "";
+  return (
+    title.includes("orthosis") ||
+    title.includes("splint") ||
+    description.includes("orthosis") ||
+    description.includes("splint")
+  );
+}
+
+function formatTimelineSource(event: PatientTimelineEvent): string {
+  return `${event.sourceFile} · visit ${event.visitIndex} · ${event.sourceSection} · ${event.confidence} confidence`;
 }
 
 function ProgressMetric({
@@ -1051,6 +1163,20 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "800",
     marginTop: 2,
+  },
+  timelineSource: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  timelineWhy: {
+    color: AppTheme.colors.sectionText,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "800",
+    marginTop: 4,
   },
   noDailyEntryCard: {
     backgroundColor: AppTheme.colors.softSurface,

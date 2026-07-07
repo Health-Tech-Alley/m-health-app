@@ -76,6 +76,16 @@ const METRIC_META: Record<
     label: "Weight",
     helperText: "Weight uses the unit stored with the reading.",
   },
+  height: {
+    tabIcon: "HT",
+    label: "Height",
+    helperText: "Height uses the unit stored with the reading.",
+  },
+  bmi: {
+    tabIcon: "BMI",
+    label: "BMI",
+    helperText: "BMI uses the unit stored with the reading.",
+  },
   distance: {
     tabIcon: "DS",
     label: "Distance",

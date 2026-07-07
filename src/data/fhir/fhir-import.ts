@@ -3,8 +3,13 @@
 import { getDatabase } from '../db';
 import { upsertCarePlan } from '../repositories/carePlanRepository';
 import { upsertPatientLongitudinalObservation } from '../repositories/patientLongitudinalObservationRepository';
+import { upsertPatientTimelineEvent } from '../repositories/patientTimelineEventRepository';
 import { upsertRehabilitationMeasurement } from '../repositories/rehabilitationMeasurementRepository';
-import type { LongitudinalObservationType, RehabilitationMeasurementType } from '../types';
+import type {
+  LongitudinalObservationType,
+  PatientTimelineEventType,
+  RehabilitationMeasurementType,
+} from '../types';
 
 type SaveFHIRBundleOptions = {
   patientId?: string;
@@ -36,6 +41,9 @@ export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions =
           break;
         case 'CarePlan':
           upsertFHIRCarePlan(resource, importedPatientId, practitionerDisplayByReference);
+          break;
+        case 'Basic':
+          upsertPatientTimelineEventFromBasic(resource, importedPatientId);
           break;
         // add more resource types as needed
       }
@@ -164,6 +172,11 @@ function getStringExtension(resource: any, suffix: string): string | null {
   return extension?.valueString ?? null;
 }
 
+function getIntegerExtension(resource: any, suffix: string): number | null {
+  const extension = resource.extension?.find((item: any) => item?.url?.endsWith(`/${suffix}`));
+  return typeof extension?.valueInteger === 'number' ? extension.valueInteger : null;
+}
+
 function upsertObservation(db: any, r: any, activePatientId: string): void {
   // your health_samples table:
   // sample_id, patient_id, source, type, value, value_json, unit, recorded_at, received_at
@@ -283,6 +296,8 @@ function upsertObservation(db: any, r: any, activePatientId: string): void {
     '2708-6':  'spo2',
     '9279-1':  'respiratory_rate',
     '29463-7': 'weight',
+    '8302-2':  'height',
+    '39156-5': 'bmi',
   };
 
   const type = typeMap[loincCode];
@@ -341,6 +356,63 @@ function upsertCondition(db: any, r: any, activePatientId: string): void {
     r.code?.coding?.[0]?.code ?? null,
     r.onsetDateTime ?? null,
   );
+}
+
+const timelineEventTypes = new Set<PatientTimelineEventType>([
+  'pre_op_planning',
+  'operative_event',
+  'discharge_restrictions',
+  'post_op_follow_up',
+  'ot_orthosis_plan',
+  'equipment_orthotics_support',
+]);
+
+function upsertPatientTimelineEventFromBasic(r: any, activePatientId: string): void {
+  const code = r.code?.coding?.[0]?.code ?? r.code?.text;
+  if (code !== 'patient-timeline-event') return;
+
+  const patientId = getImportedPatientId(r, activePatientId);
+  const eventType = getStringExtension(r, 'timeline-event-type');
+  const visitIndex = getIntegerExtension(r, 'visit-index');
+  const daysFromFirstVisit = getIntegerExtension(r, 'days-from-first-visit');
+  const daysBeforeLatestVisit = getIntegerExtension(r, 'days-before-latest-visit');
+  const sourceFile = getStringExtension(r, 'source-file');
+  const sourceSection = getStringExtension(r, 'source-section');
+  const confidence = getStringExtension(r, 'confidence');
+  const clinicalRelevance =
+    getStringExtension(r, 'clinical-review-relevance') ??
+    getStringExtension(r, 'transition-planning-relevance');
+
+  if (
+    !patientId ||
+    !r.id ||
+    !timelineEventTypes.has(eventType as PatientTimelineEventType) ||
+    typeof visitIndex !== 'number' ||
+    typeof daysFromFirstVisit !== 'number' ||
+    typeof daysBeforeLatestVisit !== 'number' ||
+    !sourceFile ||
+    !sourceSection ||
+    (confidence !== 'high' && confidence !== 'medium' && confidence !== 'low') ||
+    !clinicalRelevance
+  ) {
+    return;
+  }
+
+  upsertPatientTimelineEvent({
+    eventId: r.id,
+    patientId,
+    eventType: eventType as PatientTimelineEventType,
+    title: r.code?.text ?? 'Documented care context',
+    summary: r.note?.[0]?.text ?? r.text?.div ?? '',
+    visitIndex,
+    daysFromFirstVisit,
+    daysBeforeLatestVisit,
+    sourceFile,
+    sourceSection,
+    confidence,
+    clinicalRelevance,
+    createdAt: new Date().toISOString(),
+  });
 }
 
 const rehabilitationObservationTypeMap: Record<string, RehabilitationMeasurementType> = {

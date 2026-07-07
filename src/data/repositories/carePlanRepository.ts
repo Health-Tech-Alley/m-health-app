@@ -84,3 +84,29 @@ export function getActiveCarePlanForPatient(patientId: string): CarePlan | null 
 
   return { ...plan, activities };
 }
+
+export function getCarePlansForPatient(patientId: string): CarePlan[] {
+  const db = getDatabase();
+  const plans = db.getAllSync<Omit<CarePlan, 'activities'>>(
+    `SELECT plan_id AS planId, patient_id AS patientId, version,
+            effective_date AS effectiveDate, safety_notes AS safetyNotes,
+            emergency_contact AS emergencyContact, status, intent, title,
+            description, period_start AS periodStart, period_end AS periodEnd,
+            care_team_display_json AS careTeamDisplayJson, created_at AS createdAt
+     FROM care_plans
+     WHERE patient_id = ?
+     ORDER BY COALESCE(period_start, effective_date) DESC, version DESC;`,
+    patientId,
+  );
+
+  return plans.map((plan) => {
+    const activities = db.getAllSync<CarePlanActivity>(
+      `SELECT activity_id AS activityId, plan_id AS planId, status, description, sequence
+       FROM care_plan_activities
+       WHERE plan_id = ?
+       ORDER BY sequence ASC;`,
+      plan.planId,
+    );
+    return { ...plan, activities };
+  });
+}

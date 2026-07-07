@@ -27,6 +27,7 @@ import {
   upsertMedication,
   upsertMedicationSchedule,
   type Medication,
+  type MedicationCandidate,
   type MedicationConfirmationPreference,
   type MedicationConfirmationRequirement,
   type MedicationSchedule,
@@ -40,11 +41,13 @@ interface MedRow {
   schedule?: MedicationSchedule;
   status: MedStatus;
   accent: string;
+  confirmationRequired: boolean;
   confirmationLabel?: "Required by care team" | "Confirmation selected" | "Confirmation preference saved";
 }
 
 const CARE_PLAN_ACCENT = "#F5B800";
 const CUSTOM_ACCENT = "#7C3AED";
+const UNSAVED_PREFERENCE_TIMESTAMP = new Date(0).toISOString();
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
@@ -56,36 +59,46 @@ function loadMedRows(patientId: string): MedRow[] {
   const schedules = getActiveMedicationSchedules(patientId);
   let preference: Pick<
     MedicationConfirmationPreference,
-    "confirmationMode" | "selectedMedicationIds"
+    "confirmationMode" | "selectedMedicationIds" | "createdAt"
   >;
   let requirements: Record<string, MedicationConfirmationRequirement>;
   try {
     preference = getMedicationConfirmationPreference(patientId);
     requirements = getMedicationConfirmationRequirementsForPatient(patientId);
   } catch {
-    preference = { confirmationMode: "all", selectedMedicationIds: [] };
+    preference = {
+      confirmationMode: "all",
+      selectedMedicationIds: [],
+      createdAt: UNSAVED_PREFERENCE_TIMESTAMP,
+    };
     requirements = {};
   }
+  const hasSavedPreference = preference.createdAt !== UNSAVED_PREFERENCE_TIMESTAMP;
+  const hasSavedRequirements = Object.keys(requirements).length > 0;
   return meds.map((med) => {
     const schedule = schedules.find((s) => s.medicationId === med.medicationId);
     const requirement = requirements[med.medicationId];
     const required = requirement?.confirmationRequirement === "required";
-    const confirmationSelected =
-      preference.confirmationMode === "all" ||
+    const confirmationRequired =
       required ||
+      (preference.confirmationMode === "all" && hasSavedPreference) ||
       (preference.confirmationMode === "personalized" &&
-        preference.selectedMedicationIds.includes(med.medicationId));
+        preference.selectedMedicationIds.includes(med.medicationId)) ||
+      (!hasSavedPreference && !hasSavedRequirements && med.source === "fhir");
     return {
       med,
       schedule,
       status: "pending" as MedStatus,
       accent: med.source === "custom" ? CUSTOM_ACCENT : CARE_PLAN_ACCENT,
-      confirmationLabel: confirmationSelected
+      confirmationRequired,
+      confirmationLabel: confirmationRequired
         ? required
           ? "Required by care team"
-          : schedule
+          : hasSavedPreference && schedule
             ? "Confirmation selected"
-            : "Confirmation preference saved"
+            : hasSavedPreference
+              ? "Confirmation preference saved"
+              : "Confirmation selected"
         : undefined,
     };
   });
@@ -93,7 +106,7 @@ function loadMedRows(patientId: string): MedRow[] {
 
 export default function MedicationsScreen() {
   const router = useRouter();
-  const { patientId, snapshot } = usePatientRecord();
+  const { patientId, snapshot, refresh } = usePatientRecord();
 
   const patientFirstName =
     snapshot?.patient?.name?.trim().split(/\s+/)[0] || "Patient";
@@ -108,6 +121,7 @@ export default function MedicationsScreen() {
   const [editDose, setEditDose] = useState("");
   const [editInstructions, setEditInstructions] = useState("");
   const [editTime, setEditTime] = useState("");
+  const [showMedicationHistory, setShowMedicationHistory] = useState(false);
   const [slmCheckMed, setSlmCheckMed] = useState<Medication | null>(null);
 
   const reload = useCallback(() => {
@@ -126,7 +140,11 @@ export default function MedicationsScreen() {
     return () => clearTimeout(handle);
   }, [patientId, snapshot?.lastRefreshedAt, snapshot?.medications.length]);
 
-  const nextDue = rows.find((r) => r.status === "pending") ?? rows[0];
+  const nextDue = rows.find((r) => r.confirmationRequired && r.status === "pending");
+  const medicationCandidates =
+    snapshot?.medicationCandidates.filter(
+      (candidate) => !rows.some((row) => row.med.medicationId === candidate.candidateId),
+    ) ?? [];
 
   const toggleConfirm = (medId: string) => {
     setRows((current) =>
@@ -227,6 +245,7 @@ export default function MedicationsScreen() {
       });
     }
     setEditing(null);
+    refresh();
     reload();
   };
 
@@ -250,6 +269,7 @@ export default function MedicationsScreen() {
               patientId,
               payload: { name: row.med.name },
             });
+            refresh();
             reload();
           },
         },
@@ -304,7 +324,11 @@ export default function MedicationsScreen() {
             <Text style={styles.reminderPreferencesText}>Reminder preferences</Text>
           </Pressable>
 
-          <Text style={styles.sectionLabel}>Current Medications</Text>
+          <Text style={styles.sectionLabel}>Active medications</Text>
+          <Text style={styles.candidateIntro}>
+            FHIR MedicationRequest rows marked active by the EHR stay available for medication
+            preferences and reminders. Reminders are only created when you add a schedule.
+          </Text>
 
           {rows.length === 0 ? (
             <Text style={styles.emptyText}>No medications yet. Add one below.</Text>
@@ -327,6 +351,36 @@ export default function MedicationsScreen() {
           <Pressable style={styles.addMedicationButton} onPress={openAdd}>
             <Text style={styles.addMedicationText}>➕ Add Medication</Text>
           </Pressable>
+          {medicationCandidates.length > 0 ? (
+            <>
+              <Pressable
+                style={styles.historyToggle}
+                onPress={() => setShowMedicationHistory((current) => !current)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: showMedicationHistory }}
+              >
+                <Text style={styles.historyToggleText}>
+                  {showMedicationHistory ? "Hide" : "View"} historical / review medications
+                </Text>
+                <Text style={styles.historyToggleCount}>{medicationCandidates.length}</Text>
+              </Pressable>
+              {showMedicationHistory ? (
+                <>
+                  <Text style={styles.sectionLabel}>Medication history / review candidates</Text>
+                  <Text style={styles.candidateIntro}>
+                    Imported Basic resources are history or review context only. They are not
+                    active, not current, and do not create reminders.
+                  </Text>
+                  {medicationCandidates.map((candidate) => (
+                    <MedicationCandidateCard
+                      key={candidate.candidateId}
+                      candidate={candidate}
+                    />
+                  ))}
+                </>
+              ) : null}
+            </>
+          ) : null}
         </ScrollView>
       </View>
 
@@ -427,6 +481,7 @@ function MedicationCard({
 }) {
   const isConfirmed = row.status === "confirmed";
   const isCustom = row.med.source === "custom";
+  const showConfirmationUi = row.confirmationRequired;
 
   return (
     <View style={styles.medicationCard}>
@@ -452,7 +507,7 @@ function MedicationCard({
           </Text>
         </View>
 
-        <StatusPill status={row.status} />
+        {showConfirmationUi ? <StatusPill status={row.status} /> : null}
       </View>
 
       <View style={[styles.timeBox, isConfirmed && styles.timeBoxConfirmed]}>
@@ -462,22 +517,24 @@ function MedicationCard({
       </View>
 
       <View style={styles.actionRow}>
-        <Pressable
-          style={[
-            styles.primaryAction,
-            isConfirmed && styles.primaryActionConfirmed,
-          ]}
-          onPress={onToggleConfirm}
-        >
-          <Text
+        {showConfirmationUi ? (
+          <Pressable
             style={[
-              styles.primaryActionText,
-              isConfirmed && styles.primaryActionTextConfirmed,
+              styles.primaryAction,
+              isConfirmed && styles.primaryActionConfirmed,
             ]}
+            onPress={onToggleConfirm}
           >
-            {isConfirmed ? "✅ Confirmed · tap to undo" : "✅ Confirm Given"}
-          </Text>
-        </Pressable>
+            <Text
+              style={[
+                styles.primaryActionText,
+                isConfirmed && styles.primaryActionTextConfirmed,
+              ]}
+            >
+              {isConfirmed ? "✅ Confirmed · tap to undo" : "✅ Confirm Given"}
+            </Text>
+          </Pressable>
+        ) : null}
 
         <Pressable style={styles.iconButton} onPress={onEdit}>
           <AppIcon name="note" size={20} color={AppTheme.colors.textMuted} />
@@ -494,6 +551,50 @@ function MedicationCard({
             <Text style={styles.deleteIconText}>🗑</Text>
           </Pressable>
         ) : null}
+      </View>
+    </View>
+  );
+}
+
+function MedicationCandidateCard({
+  candidate,
+}: {
+  candidate: MedicationCandidate;
+}) {
+  const sourceDetail = [
+    candidate.sourceFile,
+    typeof candidate.visitIndex === "number" ? `visit ${candidate.visitIndex}` : undefined,
+    typeof candidate.daysFromFirstVisit === "number"
+      ? `${candidate.daysFromFirstVisit} days from first visit`
+      : undefined,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <View style={[styles.medicationCard, styles.candidateCard]}>
+      <View style={styles.medicationHeader}>
+        <View style={[styles.medDot, { backgroundColor: AppTheme.colors.brandDark }]} />
+        <View style={styles.medicationTitleBlock}>
+          <View style={styles.nameRow}>
+            <Text style={styles.medicationName}>{candidate.name}</Text>
+            <View style={styles.reviewBadge}>
+              <Text style={styles.reviewBadgeText}>Review only</Text>
+            </View>
+          </View>
+          <Text style={styles.medicationDose}>
+            {candidate.category} - historical/review context
+          </Text>
+          {sourceDetail ? (
+            <Text style={styles.candidateSource}>{sourceDetail}</Text>
+          ) : null}
+        </View>
+      </View>
+
+      <Text style={styles.candidateIntro}>
+        Historical context for future medication review; not part of the active medication workflow.
+      </Text>
+
+      <View style={styles.reviewAction}>
+        <Text style={styles.reviewActionText}>Historical / review context</Text>
       </View>
     </View>
   );
@@ -625,6 +726,13 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 24,
   },
+  candidateIntro: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "700",
+    marginBottom: 10,
+  },
   medicationCard: {
     backgroundColor: AppTheme.colors.surface,
     borderRadius: 22,
@@ -633,6 +741,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
     ...AppTheme.shadow,
+  },
+  candidateCard: {
+    borderColor: AppTheme.colors.brandSoft,
+    backgroundColor: "#FBFFFE",
   },
   medicationHeader: {
     flexDirection: "row",
@@ -685,11 +797,31 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textTransform: "uppercase",
   },
+  reviewBadge: {
+    backgroundColor: AppTheme.colors.warningSoft,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginBottom: 4,
+  },
+  reviewBadgeText: {
+    color: "#B77900",
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
   medicationDose: {
     color: AppTheme.colors.textSoft,
     fontSize: 13,
     lineHeight: 19,
     fontWeight: "700",
+  },
+  candidateSource: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+    marginTop: 2,
   },
   statusPill: {
     borderRadius: AppTheme.radius.pill,
@@ -765,6 +897,43 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.textSoft,
     fontSize: 15,
     fontWeight: "800",
+  },
+  historyToggle: {
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: AppTheme.colors.softSurface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  historyToggleText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  historyToggleCount: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  reviewAction: {
+    minHeight: 44,
+    borderRadius: 16,
+    backgroundColor: AppTheme.colors.brandSoft,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: AppTheme.colors.brandPale,
+  },
+  reviewActionText: {
+    color: AppTheme.colors.brand,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
   },
   modalOverlay: {
     flex: 1,

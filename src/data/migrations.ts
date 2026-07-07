@@ -665,4 +665,26 @@ export const MIGRATIONS: Migration[] = [
       `);
     }
   },
+
+  // 24: source-traced patient timeline/context events curated from imported FHIR
+  `
+  CREATE TABLE IF NOT EXISTS patient_timeline_events (
+    event_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    visit_index INTEGER NOT NULL,
+    days_from_first_visit INTEGER NOT NULL,
+    days_before_latest_visit INTEGER NOT NULL,
+    source_file TEXT NOT NULL,
+    source_section TEXT NOT NULL,
+    confidence TEXT NOT NULL CHECK (confidence IN ('high', 'medium', 'low')),
+    transition_planning_relevance TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_patient_timeline_events_patient
+    ON patient_timeline_events(patient_id, days_from_first_visit DESC, visit_index DESC);
+  `,
 ];

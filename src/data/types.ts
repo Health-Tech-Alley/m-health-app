@@ -22,6 +22,8 @@ export type HealthSampleType =
   | 'blood_pressure_diastolic'
   | 'temperature'
   | 'weight'
+  | 'height'
+  | 'bmi'
   | 'blood_glucose'
   | 'steps'
   | 'distance'
@@ -271,6 +273,20 @@ export interface Medication {
   source?: 'care_plan' | 'custom' | 'fhir';
 }
 
+export interface MedicationCandidate {
+  candidateId: string;
+  patientId: string;
+  name: string;
+  category: string;
+  currentHomeUseStatus: 'unknown' | 'not_confirmed';
+  confirmationRequired: boolean;
+  sourceFile?: string;
+  visitIndex?: number;
+  daysFromFirstVisit?: number;
+  summary?: string;
+  fhirResourceId: string;
+}
+
 export type MedicationConfirmationRequirementStatus =
   | 'required'
   | 'not_required'
@@ -302,6 +318,30 @@ export interface MedicationConfirmationPreference {
   selectedMedicationIds: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export type PatientTimelineEventType =
+  | 'pre_op_planning'
+  | 'operative_event'
+  | 'discharge_restrictions'
+  | 'post_op_follow_up'
+  | 'ot_orthosis_plan'
+  | 'equipment_orthotics_support';
+
+export interface PatientTimelineEvent {
+  eventId: string;
+  patientId: string;
+  eventType: PatientTimelineEventType;
+  title: string;
+  summary: string;
+  visitIndex: number;
+  daysFromFirstVisit: number;
+  daysBeforeLatestVisit: number;
+  sourceFile: string;
+  sourceSection: string;
+  confidence: 'high' | 'medium' | 'low';
+  clinicalRelevance: string;
+  createdAt: string;
 }
 
 export interface PatientCondition {
@@ -582,7 +622,7 @@ export interface AppSettings {
 // FHIR resource cache + export queue
 // ---------------------------------------------------------------------------
 
-export type FhirResourceKind = 'care_plan' | 'export_queue' | 'consent_snapshot';
+export type FhirResourceKind = 'care_plan' | 'export_queue' | 'consent_snapshot' | 'imported';
 
 export interface FhirResource {
   resourceType: string; // 'CarePlan' | 'Composition' | 'Consent' | 'Provenance' ...
