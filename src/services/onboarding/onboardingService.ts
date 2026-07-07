@@ -172,6 +172,14 @@ export type PatientProfile = {
    * Health Connect later.
    */
   wearableDevice?: WearableDeviceProfile;
+
+  /**
+   * Free-text location (county / state). Drives the CDC PLACES SDOH bundle
+   * and RMPIF rural/urban context. Optional — the app degrades gracefully
+   * to a generic fixture record when missing.
+   * (planning/32 §10.2 / D5)
+   */
+  location?: string;
 };
 
 export type ProviderProfile = {

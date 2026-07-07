@@ -6,7 +6,7 @@ import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { confirmPendingCondition, deleteCondition } from '@/data';
 import type { PatientCondition } from '@/data/types';
-import { useAppSelector } from '@/store/hooks';
+import { useActivePatientView } from '@/hooks/useActivePatientView';
 import {
   displayClinical,
   displayEntered,
@@ -15,13 +15,13 @@ import {
   getPatientDisplayName,
   getPrimaryDiagnosisDisplay,
   NOT_AVAILABLE,
-} from '@/store/selectors/patientSelectors';
+} from '@/utils/patientDisplay';
 
 export function PatientSummaryCard() {
   const router = useRouter();
   const { snapshot, ready, error, refresh } = usePatientRecord();
   const [expanded, setExpanded] = useState(false);
-  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const activePatient = useActivePatientView();
 
   if (!ready) {
     return (

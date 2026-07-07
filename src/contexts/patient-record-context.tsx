@@ -39,10 +39,6 @@ import {
   type PatientRecordSnapshot,
 } from '@/data';
 import { saveFHIRBundleToDB } from '@/data/fhir/fhir-import';
-import {
-  clearActivePatientState,
-  hydrateActivePatientStateFromSnapshot,
-} from '@/services/patient/activePatientState';
 
 // ---------------------------------------------------------------------------
 // Module-level store — useSyncExternalStore reads from here.
@@ -96,7 +92,6 @@ function setPatientId(patientId: string, persist = true): void {
   }
   currentPatientId = patientId;
   currentSnapshot = nextSnapshot;
-  hydrateActivePatientStateFromSnapshot(nextSnapshot, patientId);
   emitChange();
 }
 
@@ -113,7 +108,6 @@ export function refreshPatientRecord(patientId?: string): void {
     }
     currentPatientId = null;
     currentSnapshot = null;
-    clearActivePatientState();
     emitChange();
     throw error;
   }
@@ -159,7 +153,6 @@ function initializePatientRecord(): PatientRecordInitState {
     if (!selectedId) {
       currentSnapshot = null;
       currentPatientId = null;
-      clearActivePatientState();
       emitChange();
       return { patientId: null, error: null, initialized: true };
     }
@@ -168,7 +161,6 @@ function initializePatientRecord(): PatientRecordInitState {
       clearActivePatientId();
       currentSnapshot = null;
       currentPatientId = null;
-      clearActivePatientState();
       emitChange();
       return { patientId: null, error: null, initialized: true };
     }
@@ -178,7 +170,6 @@ function initializePatientRecord(): PatientRecordInitState {
   } catch (error) {
     currentSnapshot = null;
     currentPatientId = null;
-    clearActivePatientState();
     emitChange();
     return { patientId: null, error: toError(error), initialized: true };
   }
@@ -207,13 +198,10 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
       try {
         if (!currentPatientId || currentPatientId !== patientId || !currentSnapshot) {
           setPatientId(patientId);
-        } else {
-          hydrateActivePatientStateFromSnapshot(currentSnapshot, patientId);
         }
       } catch {
         currentSnapshot = null;
         currentPatientId = null;
-        clearActivePatientState();
         emitChange();
       }
     }

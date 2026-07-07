@@ -19,6 +19,7 @@ import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
 import type { CoreVitals, ExtendedVitals } from '@/ml-models/alert-autoencoder/types';
 import type {
   AppleWatchVitalsInput,
+  PatientProfile,
   UC2DecisionResult,
 } from '@/ml-models/uc2-decision-layer';
 import {
@@ -26,6 +27,7 @@ import {
   createAlertAutoencoderRunner,
   createTfliteInterpreterAdapter,
   finalDecision,
+  patientProfileFromPlainObject,
   runEmergencyRuleEngine,
   runUC2DecisionLayer,
   runUC2DecisionLayerV2,
@@ -33,6 +35,7 @@ import {
 import type { AlertAutoencoder } from '@/ml-models/alert-autoencoder/alert-autoencoder';
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
+import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
 
 const MIN_SAMPLE_TYPES = 3;
 
@@ -103,10 +106,16 @@ export class AlertMlService {
   /**
    * Called for every new vitals_sample event. Pulls the latest samples from
    * SQLite and, if enough types are present, runs the UC2 decision layer.
+   *
+   * `snapshot` is the latest PatientRecordSnapshot; used to build the
+   * `PatientProfile` that drives personalized severity floors (per
+   * planning/14 §13 — without a profile, `personalizedThresholds.ts` is
+   * silently inactive).
    */
   async evaluate(
     patientId: string,
     triggeringEvent: Extract<OrchestrationEvent, { type: 'vitals_sample' }>,
+    snapshot: PatientRecordSnapshot | null = null,
   ): Promise<UC2DecisionResult | null> {
     if (!this.model.isLoaded) {
       await this.load();
@@ -115,10 +124,12 @@ export class AlertMlService {
     const built = this.buildInputFromRecentSamples(patientId, new Date(triggeringEvent.recordedAt));
     if (!built) return null;
 
+    const profile = this.buildProfileFromSnapshot(patientId, snapshot);
+
     // The UC2 layer needs a concrete AlertAutoencoder for the TFLite runner.
     // When the configured model is one, use it directly; otherwise fall back
     // to the legacy per-model inference path (kept for the mock provider).
-    const result = await this.runDecisionLayer(built.input);
+    const result = await this.runDecisionLayer(built.input, profile);
 
     if (result && (result.isAnomaly || result.emergencyResult.emergency)) {
       this.emitAlert(
@@ -137,11 +148,53 @@ export class AlertMlService {
   }
 
   /**
+   * Build a `PatientProfile` for the v2 decision layer from the active
+   * PatientRecordSnapshot. Returns undefined if no snapshot is available —
+   * the v2 layer tolerates an absent profile (it just skips personalized
+   * threshold floor + CP severity scale lookups).
+   */
+  private buildProfileFromSnapshot(
+    patientId: string,
+    snapshot: PatientRecordSnapshot | null,
+  ): PatientProfile | undefined {
+    if (!snapshot) return undefined;
+    const patient = snapshot.patient;
+    if (!patient) return undefined;
+
+    return patientProfileFromPlainObject(patientId, {
+      display_name: patient.name,
+      conditions: snapshot.conditions
+        .filter((c) => !c.needsReview)
+        .map((c) => c.name)
+        .filter(Boolean),
+      medications: snapshot.medications.map((m) => m.name).filter(Boolean),
+      care_plan_goals: snapshot.carePlanGoals.map((g) => g.description),
+      baseline_spo2: patient.spo2Cutoff
+        ? parseFloat(String(patient.spo2Cutoff).replace(/[^\d.]/g, ''))
+        : undefined,
+      resting_heart_rate: patient.baselineHeartRate
+        ? parseFloat(String(patient.baselineHeartRate).replace(/[^\d.]/g, ''))
+        : undefined,
+      gmfcs_level: (patient as { gmfcs?: string }).gmfcs,
+      macs: patient.macs,
+      cfcs: patient.cfcs,
+      edacs: patient.edacs,
+    });
+  }
+
+  /**
    * Run the UC2 decision layer v2 directly from an explicit vitals input (used by
    * the Care Management harness and tests). Returns the full result mapped to
    * the UC2DecisionResult compat shape.
+   *
+   * `profile` is optional but recommended: when supplied, the v2 layer applies
+   * personalized severity floors (e.g. for CP GMFCS Level V patients) and the
+   * Caregiver HITL matrix uses the patient's care context.
    */
-  async runDecisionLayer(input: AppleWatchVitalsInput): Promise<UC2DecisionResult | null> {
+  async runDecisionLayer(
+    input: AppleWatchVitalsInput,
+    profile?: PatientProfile,
+  ): Promise<UC2DecisionResult | null> {
     if (!this.model.isLoaded) {
       await this.load();
     }
@@ -171,6 +224,7 @@ export class AlertMlService {
 
     const v2Result = await runUC2DecisionLayerV2({
       raw,
+      profile,
       scaler: { mean: scaler.mean, scale: scaler.scale },
       interpreter: createTfliteInterpreterAdapter(ae),
       aeThreshold: this.model.threshold,
@@ -210,8 +264,9 @@ export class AlertMlService {
       caregiver_selected_codes: [],
       max_matrix_delta: 0,
       critical_route_triggered: false,
-      personalized_threshold_severity_floor: v2Result.personalized_thresholds?.severity_floor ?? 0,
-      recurrence_severity_floor: v2Result.recurrence?.severity_floor ?? 0,
+      personalized_threshold_severity_floor:
+        v2Result.personalized_thresholds?.personalized_threshold_severity_floor ?? 0,
+      recurrence_severity_floor: v2Result.recurrence?.recurrence_severity_floor ?? 0,
       final_notification_type: finalDec.final_notification_type,
       final_notification_level: finalDec.final_notification_level,
       quality_tags: v2Result.feature_quality_tags ?? [],

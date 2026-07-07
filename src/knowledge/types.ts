@@ -2,6 +2,31 @@
  * RAG public types.
  */
 
+export type RetrievedChunkSource =
+  | 'synthetic'
+  | 'rxnorm'
+  | 'dailymed'
+  | 'openfda'
+  | 'patient-plan'
+  | 'pubmed'
+  | 'medlineplus'
+  | 'clinicaltrials'
+  | 'orphanet'
+  | 'umls'
+  | 'cdc-places'
+  | 'semmeddb'
+  | 'hedis';
+
+export type RetrievedChunkDocumentType =
+  | 'abstract'
+  | 'fulltext'
+  | 'guideline'
+  | 'systematic_review'
+  | 'spl_full'
+  | 'synthetic';
+
+export type RetrievedChunkLengthTier = 'short' | 'medium' | 'long';
+
 export type RetrievedChunk = {
   /** Used to render a CITATION in the UI. */
   docId: string;
@@ -10,7 +35,13 @@ export type RetrievedChunk = {
   /** Combined score after RRF + optional re-rank. */
   score: number;
   /** Which corpus it came from. */
-  source: 'openevidence' | 'rxnorm' | 'dailymed' | 'openfda' | 'patient-plan' | 'pubmed' | 'medlineplus';
+  source: RetrievedChunkSource;
+  /** Optional chunk-depth classification (planning/32 §12.3). */
+  documentType?: RetrievedChunkDocumentType;
+  /** Optional length tier for budget-aware prompt injection. */
+  lengthTier?: RetrievedChunkLengthTier;
+  /** For section-chunked full-text docs, the heading that this chunk came from. */
+  sectionHeading?: string;
 };
 
 export type McpToolSummary = {

@@ -15,6 +15,7 @@ export type HealthSampleType =
   | 'blood_pressure_diastolic'
   | 'temperature'
   | 'weight'
+  | 'height'
   | 'blood_glucose'
   | 'steps'
   | 'distance'
@@ -33,6 +34,8 @@ export interface HealthSample {
   recordedAt: string;
   receivedAt: string;
   metadataJson?: string;
+  /** Optional reference to the source document (e.g. CDA doc_id). */
+  sourceDocId?: string;
 }
 
 export type RehabilitationMeasurementType =
@@ -40,7 +43,12 @@ export type RehabilitationMeasurementType =
   | 'rehabilitation_shoulder_rom'
   | 'rehabilitation_grip_strength'
   | 'rehabilitation_berg_balance'
-  | 'rehabilitation_fatigue';
+  | 'rehabilitation_fatigue'
+  | 'rehabilitation_modified_ashworth'
+  | 'rehabilitation_seated_postural_control'
+  | 'rehabilitation_feeding_tolerance'
+  | 'rehabilitation_communication_function'
+  | 'rehabilitation_joint_contracture_rom';
 
 export interface RehabilitationMeasurement {
   measurementId: string;
@@ -60,7 +68,11 @@ export type LongitudinalObservationType =
   | 'mobility_score'
   | 'sleep_quality'
   | 'pain_score'
-  | 'hydration_status';
+  | 'hydration_status'
+  | 'seizure_frequency'
+  | 'spasticity_episodes'
+  | 'respiratory_suctioning_events'
+  | 'feeding_intolerance';
 
 export interface PatientLongitudinalObservation {
   patientId: string;
@@ -226,6 +238,8 @@ export interface Patient {
   macs?: string;
   cfcs?: string;
   edacs?: string;
+  /** Free-text location (county / state) used for SDOH bundling. */
+  location?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -255,7 +269,7 @@ export interface Medication {
   route?: string;
   indication?: string;
   active: boolean;
-  source?: 'care_plan' | 'custom' | 'fhir';
+  source?: 'care_plan' | 'custom' | 'fhir' | 'ccda_import';
 }
 
 export interface PatientCondition {
@@ -263,6 +277,8 @@ export interface PatientCondition {
   patientId: string;
   name: string;
   icd10?: string;
+  /** Original SNOMED CT code (when the source provides SNOMED, e.g. CDA import). */
+  snomedCode?: string;
   onsetDate?: string;
   // M12 extensions — structured clinical metadata
   category?: string; // 'Respiratory' | 'Neurologic' | 'Cardiac' | 'Metabolic' | 'Cognitive' | 'Neurologic / Mobility' | ...
@@ -332,7 +348,32 @@ export interface WearableDevice {
 // (see planning/22_clinical-data-gathering.md §6a)
 // ---------------------------------------------------------------------------
 
-export type KnowledgeSource = 'pubmed' | 'medlineplus' | 'rxnorm' | 'dailymed' | 'openfda';
+export type KnowledgeSource =
+  | 'pubmed'
+  | 'medlineplus'
+  | 'rxnorm'
+  | 'dailymed'
+  | 'openfda'
+  | 'orphanet'
+  | 'clinicaltrials'
+  | 'umls'
+  | 'cdc-places'
+  | 'semmeddb'
+  | 'synthetic'
+  | 'hedis'
+  | 'patient-plan';
+
+/** Coarse chunk-depth tier used by the prompt-budget router (planning/32 §12.4). */
+export type KnowledgeDocumentType =
+  | 'abstract'
+  | 'fulltext'
+  | 'guideline'
+  | 'systematic_review'
+  | 'spl_full'
+  | 'synthetic';
+
+/** Length tier for budget-aware prompt injection. */
+export type KnowledgeLengthTier = 'short' | 'medium' | 'long';
 
 export interface KnowledgeChunk {
   chunkId: string; // docId, e.g. 'PMID-12345678', 'MLP-J44.1'
@@ -344,6 +385,12 @@ export interface KnowledgeChunk {
   expiresAt?: string;
   useCount: number;
   metadataJson?: string;
+  /** Optional chunk-depth classification (planning/32 §12.3). */
+  documentType?: KnowledgeDocumentType;
+  /** Optional length tier (planning/32 §12.3). */
+  lengthTier?: KnowledgeLengthTier;
+  /** For section-chunked full-text docs, the heading that this chunk came from. */
+  sectionHeading?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -623,3 +670,63 @@ export interface DailyCareEntry {
   createdAt: string;
   updatedAt: string;
 }
+
+export type NormalizedVitalReading = {
+  sampleId: string;
+  type: string;
+  value: number;
+  unit: string;
+  recordedAt: string;
+  source: string;
+};
+
+export type NormalizedBloodPressurePair = {
+  systolic?: number;
+  diastolic?: number;
+  systolicSampleId?: string;
+  diastolicSampleId?: string;
+  unit: string;
+  recordedAt?: string;
+  source?: string;
+};
+
+export type NormalizedVitalMetric = {
+  key: string;
+  label: string;
+  value: string;
+  unit: string;
+  status: "available" | "not_available";
+  recordedAt?: string;
+  sampleId?: string;
+  source?: string;
+  readings: NormalizedVitalReading[];
+  bloodPressure?: NormalizedBloodPressurePair;
+  bloodPressureReadings?: NormalizedBloodPressurePair[];
+  data: number[];
+};
+
+export type NormalizedActivePatient = {
+  patientId: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  preferredName: string;
+  age: string;
+  caregiver: Pick<Caregiver, "name" | "relationship"> | null;
+  primaryDiagnosis: PatientCondition | null;
+  comorbidities: PatientCondition[];
+  pendingConditions: PatientCondition[];
+  classifications: {
+    gmfcs: string;
+    fms: string;
+    macs: string;
+    cfcs: string;
+    edacs: string;
+  };
+  baselineDailyRoutine: string;
+  currentMedications: string;
+  spo2Cutoff: string;
+  baselineHeartRate: string;
+  status: "available" | "unknown";
+  lastRefreshedAt: string;
+};

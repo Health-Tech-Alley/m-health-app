@@ -6,6 +6,10 @@
  * The tab bar is styled to match the existing branded design: teal active
  * icon, muted inactive icon, white bar with a top border. The active icon
  * shape animates (scale + background) on focus change for a polished feel.
+ *
+ * Per planning/32 §4.4, the SLM status icon lives in the header (right side)
+ * for every tab. The Concierge tab also uses a full status row to surface
+ * model state at a glance.
  */
 
 import { Tabs } from "expo-router";

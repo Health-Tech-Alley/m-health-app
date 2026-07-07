@@ -16,6 +16,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { CriticalAlertDialog } from "@/components/critical-alert-dialog";
 import { InAppBanner } from "@/components/notifications/in-app-banner";
+import { HypotheticalCriticalBanner } from "@/components/notifications/hypothetical-critical-banner";
 import { CriticalAlertProvider } from "@/contexts/critical-alert-context";
 import { OrchestratorProvider } from "@/contexts/orchestrator-context";
 import { PatientRecordProvider } from "@/contexts/patient-record-context";
@@ -152,6 +153,7 @@ export default function RootLayout() {
                   <CriticalAlertProvider>
                     <AnimatedSplashOverlay />
                     <InAppBanner />
+                    <HypotheticalCriticalBanner />
                     <CriticalAlertDialog />
                     <Stack screenOptions={{ headerShown: false }} />
                   </CriticalAlertProvider>

@@ -4,6 +4,7 @@
  */
 
 import { getDatabase } from '../db';
+import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
 import type { AppSettings, AppMode, ThemePreference, NotificationPreferences } from '../types';
 
 const SETTINGS_KEY = 'app_settings';
@@ -11,7 +12,7 @@ const ACTIVE_PATIENT_KEY = 'active_patient_id';
 
 const DEFAULT_SETTINGS: AppSettings = {
   mode: 'demo',
-  demoDefaultModelId: 'healthgpt-pro-4b',
+  demoDefaultModelId: DEFAULT_SLM_MODEL_ID,
   theme: 'system',
   notifications: {
     anomaly: true,

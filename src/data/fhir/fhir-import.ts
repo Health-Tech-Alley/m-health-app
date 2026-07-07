@@ -326,19 +326,27 @@ function upsertMedication(db: any, r: any, activePatientId: string): void {
 
 function upsertCondition(db: any, r: any, activePatientId: string): void {
   // your patient_conditions table:
-  // condition_id, patient_id, name, icd10, onset_date,
+  // condition_id, patient_id, name, icd10, snomed_code, onset_date,
   // category, is_primary, source, needs_review
   const patientId = getImportedPatientId(r, activePatientId);
   if (!patientId) return;
 
+  const coding = r.code?.coding ?? [];
+  const icd10 = coding.find((c: any) => c?.system?.includes('icd-10'))?.code
+    ?? coding[0]?.code
+    ?? null;
+  const snomed = coding.find((c: any) => c?.system?.includes('snomed'))?.code
+    ?? null;
+
   db.runSync(
     `INSERT OR REPLACE INTO patient_conditions
-       (condition_id, patient_id, name, icd10, onset_date, source, needs_review)
-     VALUES (?, ?, ?, ?, ?, 'fhir_import', 1);`,
+       (condition_id, patient_id, name, icd10, snomed_code, onset_date, source, needs_review)
+     VALUES (?, ?, ?, ?, ?, ?, 'fhir_import', 1);`,
     r.id,
     patientId,
     r.code?.text ?? r.code?.coding?.[0]?.display ?? '',
-    r.code?.coding?.[0]?.code ?? null,
+    icd10,
+    snomed,
     r.onsetDateTime ?? null,
   );
 }

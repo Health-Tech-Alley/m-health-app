@@ -14,8 +14,8 @@ export function upsertPatient(patient: Patient): void {
     `INSERT INTO patients
       (patient_id, name, age, conditions, baseline_daily_routine, current_medications,
        spo2_cutoff, baseline_heart_rate, preferred_name, gmfcs, fms, macs, cfcs,
-       edacs, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       edacs, location, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(patient_id) DO UPDATE SET
        name = COALESCE(NULLIF(excluded.name, ''), patients.name),
        age = COALESCE(NULLIF(excluded.age, ''), patients.age),
@@ -30,6 +30,7 @@ export function upsertPatient(patient: Patient): void {
        macs = COALESCE(NULLIF(excluded.macs, ''), patients.macs),
        cfcs = COALESCE(NULLIF(excluded.cfcs, ''), patients.cfcs),
        edacs = COALESCE(NULLIF(excluded.edacs, ''), patients.edacs),
+       location = COALESCE(NULLIF(excluded.location, ''), patients.location),
        updated_at = excluded.updated_at;`,
     patient.patientId,
     patient.name,
@@ -45,6 +46,7 @@ export function upsertPatient(patient: Patient): void {
     patient.macs ?? null,
     patient.cfcs ?? null,
     patient.edacs ?? null,
+    patient.location ?? null,
     patient.createdAt,
     patient.updatedAt,
   );
@@ -57,7 +59,8 @@ export function getPatient(patientId: string): Patient | null {
       `SELECT patient_id AS patientId, name, age, conditions, baseline_daily_routine AS baselineDailyRoutine,
               current_medications AS currentMedications, spo2_cutoff AS spo2Cutoff,
               baseline_heart_rate AS baselineHeartRate, preferred_name AS preferredName,
-              gmfcs, fms, macs, cfcs, edacs, created_at AS createdAt, updated_at AS updatedAt
+              gmfcs, fms, macs, cfcs, edacs, location,
+              created_at AS createdAt, updated_at AS updatedAt
        FROM patients WHERE patient_id = ?;`,
       patientId,
     ) ?? null
@@ -182,13 +185,14 @@ export function upsertCondition(condition: PatientCondition): void {
   const db = getDatabase();
   db.runSync(
     `INSERT OR REPLACE INTO patient_conditions
-      (condition_id, patient_id, name, icd10, onset_date,
+      (condition_id, patient_id, name, icd10, snomed_code, onset_date,
        category, is_primary, source, source_doc_id, retrieved_at, needs_review)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     condition.conditionId,
     condition.patientId,
     condition.name,
     condition.icd10 ?? null,
+    condition.snomedCode ?? null,
     condition.onsetDate ?? null,
     condition.category ?? null,
     condition.isPrimary ? 1 : 0,
@@ -203,6 +207,7 @@ export function getConditionsForPatient(patientId: string): PatientCondition[] {
   const db = getDatabase();
   return db.getAllSync<PatientCondition>(
     `SELECT condition_id AS conditionId, patient_id AS patientId, name, icd10,
+            snomed_code AS snomedCode,
             onset_date AS onsetDate, category, is_primary AS isPrimary,
             source, source_doc_id AS sourceDocId, retrieved_at AS retrievedAt,
             needs_review AS needsReview

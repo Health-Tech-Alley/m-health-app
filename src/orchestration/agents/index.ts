@@ -166,12 +166,22 @@ export function createCoordinatorAgent(): RegisteredTool[] {
         const alert = getAlertById(alertId);
         if (!alert) return { ok: false, error: `Alert not found: ${alertId}` };
         try {
+          const patient = getPatient(alert.patientId);
+          const patientFirst = (patient?.name ?? 'Your loved one').trim().split(/\s+/)[0] || 'Your loved one';
+          // Caregiver-facing HITL framing per planning/29: the notification
+          // asks for a review, not a clinical reaction.
+          const notifTitle = alert.severity === 3
+            ? `Urgent: ${alert.title}`
+            : `${patientFirst} needs your review`;
+          const notifBody = alert.severity === 3
+            ? `${patientFirst} may need help right now. Tap to review and act.`
+            : `${alert.title}. Tap to review what the Health Monitor noticed.`;
           const notifId = await dispatchImmediate({
             patientId: alert.patientId,
             scope: 'anomaly',
             triggerRef: alertId,
-            title: alert.title,
-            body: alert.body,
+            title: notifTitle,
+            body: notifBody,
             severity: alert.severity,
             bypassDnd,
           });

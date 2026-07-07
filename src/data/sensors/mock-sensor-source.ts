@@ -8,7 +8,8 @@
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
 
-import { insertHealthSample, type HealthSampleType } from '../';
+import { insertHealthSample } from '../repositories/healthSampleRepository';
+import type { HealthSampleType } from '../types';
 import type { PermissionResult, SensorSample, SensorSource } from './sensor-source';
 
 export type MockPersona = 'spina-bifida' | 'post-stroke' | 'copd-tbi' | 'normal';

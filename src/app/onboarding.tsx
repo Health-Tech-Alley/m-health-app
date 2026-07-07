@@ -482,6 +482,10 @@ export default function OnboardingScreen() {
   const [edacsLevel, setEdacsLevel] = useState(
     normalizeClassificationValue(existingProfile.patient.edacsLevel),
   );
+  // D5: free-text location for SDOH / CDC PLACES bundling.
+  const [patientLocation, setPatientLocation] = useState(
+    existingProfile.patient.location ?? "",
+  );
   const [ehrRecordApplied, setEhrRecordApplied] = useState(false);
   const [clinicalImport, setClinicalImport] = useState<
     OnboardingFhirImportResult["clinicalImport"] | undefined
@@ -690,6 +694,7 @@ export default function OnboardingScreen() {
         macsLevel,
         cfcsLevel,
         edacsLevel,
+        location: patientLocation,
         wearableDevice: {
           deviceType,
           deviceLabel,
@@ -1231,6 +1236,14 @@ export default function OnboardingScreen() {
                   />
                 </View>
 
+                <Field
+                  label="Location (county, state)"
+                  value={patientLocation}
+                  onChangeText={setPatientLocation}
+                  placeholder="e.g. Garrett County, Maryland"
+                  helper="Used to fetch community health context (CDC PLACES) and tailor rural/urban care guidance."
+                />
+
                 <SectionLabel title="Functional and communication classifications" />
 
                 <ClassificationSelect
@@ -1584,6 +1597,7 @@ function Field({
   placeholder,
   keyboardType,
   autoCapitalize,
+  helper,
 }: {
   label: string;
   value: string;
@@ -1591,6 +1605,7 @@ function Field({
   placeholder: string;
   keyboardType?: "default" | "phone-pad" | "number-pad" | "email-address";
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  helper?: string;
 }) {
   return (
     <View style={styles.fieldBlock}>
@@ -1604,6 +1619,7 @@ function Field({
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
       />
+      {helper ? <Text style={styles.fieldHelper}>{helper}</Text> : null}
     </View>
   );
 }
@@ -2211,6 +2227,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900",
     marginBottom: 8,
+  },
+  fieldHelper: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    marginTop: 6,
+    lineHeight: 17,
   },
   input: {
     minHeight: 56,

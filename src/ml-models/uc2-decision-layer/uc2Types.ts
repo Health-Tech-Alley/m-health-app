@@ -316,6 +316,21 @@ export interface PatientProfile {
         role?: string;
         endpoint?: string;
     };
+    /**
+     * Functional classification scales for cerebral palsy / severe disability.
+     * Populated from FHIR Patient extensions in `ehrProfileAdapter.ts` and
+     * drive the v2 personalized-threshold floor.
+     *
+     * - `gmfcs_level`: Gross Motor Function Classification System (I–V).
+     *   Level V is the most severe mobility impairment.
+     * - `macs`: Manual Ability Classification System (I–V).
+     * - `cfcs`: Communication Function Classification System (I–V).
+     * - `edacs`: Eating and Drinking Ability Classification System (I–V).
+     */
+    gmfcs_level?: string;
+    macs?: string;
+    cfcs?: string;
+    edacs?: string;
 }
 
 export interface FhirBundle {

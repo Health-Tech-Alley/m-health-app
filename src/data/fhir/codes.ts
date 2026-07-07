@@ -44,6 +44,7 @@ export const VITAL_LOINC_MAP: Record<HealthSampleType, LoincVitalBinding | null>
   blood_pressure_diastolic: { loinc: '8462-4', display: 'Diastolic blood pressure', unit: 'mm[Hg]', ucumCode: 'mm[Hg]' },
   temperature: { loinc: '8310-5', display: 'Body temperature', unit: 'Cel', ucumCode: 'Cel' },
   weight: { loinc: '29463-7', display: 'Body weight', unit: 'kg', ucumCode: 'kg' },
+  height: { loinc: '8302-2', display: 'Body height', unit: 'cm', ucumCode: 'cm' },
   blood_glucose: { loinc: '2339-0', display: 'Glucose in Blood', unit: 'mg/dL', ucumCode: 'mg/dL' },
   steps: { loinc: '55423-8', display: 'Step count', unit: '1', ucumCode: '1' },
   distance: null,

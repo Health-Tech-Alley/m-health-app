@@ -37,11 +37,12 @@ import {
 } from '@/data/repositories/mlEventRepository';
 import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
 import type { InferenceProvider } from '@/inference/inference-provider';
-import type { FusedRetriever } from '@/knowledge';
+import type { FusedRetriever, RetrievedChunk } from '@/knowledge';
 import { audit, auditAlertCreated, auditCaregiverAction, auditSampleRead, auditSlmTurn } from '@/services/audit/auditService';
 import { checkEgressConsent } from '@/services/consent/consentGate';
 import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
 import { AlertMlService } from '@/services/ml/alert-ml-service';
+import type { AppleWatchVitalsInput, UC2DecisionResult } from '@/ml-models/uc2-decision-layer';
 import type { SlmTaskQueue } from '@/services/slm/slm-task-queue';
 
 import {
@@ -77,7 +78,22 @@ import {
   NEXT_STEP_TAXONOMY,
   isValidActionId,
 } from './next-steps';
+import { CONCIERGE_GENERATION_EXPLAIN, REASONING_FORMAT_EXPLAIN } from '@/constants/concierge';
+import { filterToolsForSkill, getSkillPromptFragment, type SkillId } from './skills';
 import type { MlRawVitalsPayload, NextStep, NextStepActionId } from '@/data/types';
+import {
+  patientBlock,
+  thresholdsBlock,
+  carePlanGoalsBlock,
+  recentVitalsBlock,
+  budgetAwareCitationsBlock,
+  toolsBlock,
+  personaPreamble,
+  priorDecisionsBlock,
+  progressMeasuresBlock,
+  sensitiveTopicsInstruction,
+  type PriorDecisionEntry,
+} from './prompt-fragments';
 
 export type OrchestratorConfig = {
   slm: InferenceProvider;
@@ -93,6 +109,13 @@ export type OrchestratorConfig = {
    * without being recreated on every store update.
    */
   snapshotProvider: () => PatientRecordSnapshot | null;
+  /**
+   * Optional — supplies a compact 3–5 line summary of the patient's recent
+   * caregiver actions + the currently-open non-emergency decision (if any)
+   * for prompt injection. Without this, the SLM has no memory of "last time
+   * you flagged this, you overrode it." See planning/32 §9 (D8).
+   */
+  priorDecisionsProvider?: (args: { patientId: string; alertId?: string }) => PriorDecisionEntry[];
 };
 
 export type ClarifyingQuestion = {
@@ -138,12 +161,14 @@ export class Orchestrator {
   private vitalsDebounce: Map<string, { timer: ReturnType<typeof setTimeout>; events: OrchestrationEvent[] }> = new Map();
   private static readonly DEBOUNCE_MS = 3000;
   private snapshotProvider: () => PatientRecordSnapshot | null;
+  private priorDecisionsProvider?: (args: { patientId: string; alertId?: string }) => PriorDecisionEntry[];
 
   constructor(config: OrchestratorConfig) {
     this.slm = config.slm;
     this.slmTasks = config.slmTasks;
     this.retriever = config.retriever;
     this.snapshotProvider = config.snapshotProvider;
+    this.priorDecisionsProvider = config.priorDecisionsProvider;
     const { client } = createInProcessMcp({ tools: createAllAgents() });
     this.client = client;
     this.cep = createDefaultCepEngine();
@@ -265,7 +290,14 @@ export class Orchestrator {
           try {
             const latest = batch[batch.length - 1];
             if (latest.type === 'vitals_sample') {
-              await this.alertMlService?.evaluate(latest.patientId, latest as Extract<OrchestrationEvent, { type: 'vitals_sample' }>);
+              // Pass the patient record snapshot so the v2 layer can compute
+              // personalized severity floors (CP GMFCS Level V, etc.).
+              const snapshot = this.snapshotProvider?.() ?? null;
+              await this.alertMlService?.evaluate(
+                latest.patientId,
+                latest as Extract<OrchestrationEvent, { type: 'vitals_sample' }>,
+                snapshot,
+              );
             }
           } catch (err) {
             console.error('[Orchestrator] Alert ML evaluation failed:', err);
@@ -587,6 +619,38 @@ export class Orchestrator {
       throw new Error('PatientRecordStore snapshot not available');
     }
     const context = await buildAggregatedContext(patientId, intent, this.retriever, snapshot);
+    if (this.priorDecisionsProvider) {
+      // D8: feed prior decisions into the prompt so the SLM can reference
+      // "last time you flagged this, you overrode it."
+      context.priorDecisions = this.priorDecisionsProvider({ patientId, alertId });
+    }
+
+    // D3 / T3: explain path always runs deep — fetch long-doc chunks too.
+    if ('retrieveDeep' in this.retriever && typeof (this.retriever as { retrieveDeep?: unknown }).retrieveDeep === 'function') {
+      try {
+        const deepResult = await (this.retriever as { retrieveDeep: (q: { intent: string; conditions: string[]; activeMeds: string[]; kTools: number; kChunks: number }) => Promise<{ chunks: RetrievedChunk[] }> }).retrieveDeep({
+          intent,
+          conditions: context.patient.conditions,
+          activeMeds: (context.patient.medications ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+          kTools: 3,
+          kChunks: 12,
+        });
+        // Merge: dedup by docId, prefer the deeper (longer) version.
+        const seen = new Set(context.retrieval.chunks.map((c) => c.docId));
+        for (const c of deepResult.chunks) {
+          if (!seen.has(c.docId)) {
+            context.retrieval.chunks.push(c);
+            seen.add(c.docId);
+          }
+        }
+        this.addTrace({
+          agent: 'orchestrator',
+          thought: `Deep mode added ${deepResult.chunks.length} chunks; total ${context.retrieval.chunks.length}.`,
+        });
+      } catch (err) {
+        console.warn('[Orchestrator] deep retrieval failed:', err);
+      }
+    }
 
     this.addTrace({ agent: 'orchestrator', thought: 'Building knowledge-graph context subgraph.' });
     const graph = this.graphProjector.build(patientId);
@@ -599,7 +663,10 @@ export class Orchestrator {
       rawVitals: mlRawVitals,
       confidenceRatio: mlConfidenceRatio,
     });
-    prompt = this.truncateToTokenBudget(prompt, 4096);
+    const reserveForGeneration = CONCIERGE_GENERATION_EXPLAIN.maxTokens > 0
+      ? CONCIERGE_GENERATION_EXPLAIN.maxTokens
+      : 2048; // unlimited generation — reserve a generous budget
+    prompt = this.truncateToTokenBudget(prompt, 4096 - reserveForGeneration);
 
     const turnId = `turn-${Date.now()}`;
 
@@ -608,14 +675,25 @@ export class Orchestrator {
 
     let slmResult;
     try {
-      this.addTrace({ agent: 'orchestrator', thought: 'Calling SLM with RAG context and tool schemas.' });
+      this.addTrace({ agent: 'orchestrator', thought: 'Selecting skill: explain-anomaly for alert-explain flow.' });
+      const activeSkill = 'explain-anomaly' as SkillId;
+      this.addTrace({ agent: 'orchestrator', thought: 'Calling SLM with RAG context, skill prompt, and skill-filtered tool schemas.' });
       slmResult = await this.slm.chat(
         [
-          { role: 'system', content: this.buildSystemPrompt(context) },
+          { role: 'system', content: this.buildSystemPrompt(context, activeSkill) },
           { role: 'user', content: prompt },
         ],
         () => {},
         new AbortController().signal,
+        { ...CONCIERGE_GENERATION_EXPLAIN, reasoningFormat: REASONING_FORMAT_EXPLAIN },
+        // Capture reasoning for the transparency trace (D4). Not displayed
+        // to the caregiver — the explain path waits for the full answer.
+        (reasoningToken) => {
+          this.addTrace({
+            agent: 'slm',
+            thought: `reasoning_token(${reasoningToken.length})`,
+          });
+        },
       );
     } finally {
       lease.release();
@@ -689,88 +767,68 @@ export class Orchestrator {
     return this.explainAlert(alertId, caregiverId);
   }
 
-  private buildSystemPrompt(context: AggregatedContext): string {
-    const thresholdBlock = context.activeThresholds
-      .map(
-        (t) =>
-          `- ${t.vitalType} ${t.direction} ${t.value} (severity ${t.severity})`,
-      )
-      .join('\n');
+  private buildSystemPrompt(context: AggregatedContext, skillId?: SkillId): string {
+    // Filter the visible tool list to the active skill's allow-list. This
+    // is the per-skill scope enforcement from planning/17 §3d.
+    const visibleTools = skillId
+      ? filterToolsForSkill(skillId, TOOL_SCHEMAS)
+      : TOOL_SCHEMAS;
 
-    const vitalsBlock = Object.entries(context.recentVitals)
-      .map(([type, info]) => `- ${type}: latest ${info.latest} ${info.unit} (${info.samples} samples in 24h)`)
-      .join('\n');
+    const caregiverFirst = (context.caregiver?.name ?? '').trim().split(/\s+/)[0] || 'caregiver';
+    const patientFirst = (context.patient.name ?? '').trim().split(/\s+/)[0] || 'the patient';
 
-    const goalsBlock = context.carePlanGoals
-      .map((g) => `- ${g.description}${g.targetDate ? ` (target: ${g.targetDate})` : ''}`)
-      .join('\n');
+    const skillFragment = getSkillPromptFragment(skillId ?? '');
 
-    const citationBlock = context.retrieval.chunks
-      .map((c) => `[${c.docId}] ${c.text}`)
-      .join('\n');
-
-    const toolBlock = TOOL_SCHEMAS
-      .map((t) => `- ${t.name}: ${t.description}`)
-      .join('\n');
-
-    // Structured conditions block — primary + comorbidities with ICD codes.
-    const primaryLine = context.patient.primaryCondition
-      ? `- ${context.patient.primaryCondition.name}${context.patient.primaryCondition.icd10 ? ` (${context.patient.primaryCondition.icd10})` : ''}${context.patient.primaryCondition.category ? ` [${context.patient.primaryCondition.category}]` : ''} — PRIMARY`
-      : '- None documented';
-    const comorbiditiesLine = context.patient.comorbidities.length > 0
-      ? context.patient.comorbidities.map((c) => `  - ${c}`).join('\n')
-      : '  - None documented';
-
-    const symptomsBlock = context.symptoms.length > 0
-      ? context.symptoms.map((s) => `- ${s.label} [${s.category}]`).join('\n')
-      : 'None documented';
+    const prior = (context as AggregatedContext & { priorDecisions?: PriorDecisionEntry[] }).priorDecisions;
 
     return [
-      'You are a caregiver-support assistant inside a mobile health app.',
-      'Your job is to help a non-clinical family caregiver understand a health alert and decide on safe next steps.',
+      personaPreamble({ voice: 'explain', caregiverFirst, patientFirst }),
+      '',
+      skillFragment,
       '',
       'RULES',
       '- Never diagnose. Never give definitive clinical instructions.',
-      '- Always defer clinical decisions to the care team or emergency services when red flags are present.',
-      '- Ground every clinical claim in the provided citations. Cite docId in brackets like [OE-copd-spo2-cutoff].',
-      '- If you need more information, ask ONE multiple-choice clarifying question. Provide 2–4 options.',
-      '- Do not ask open-ended questions.',
-      '- Keep answers to ~120–250 words. Lead with the bottom line, then numbered steps, then red flags.',
+      '- Defer clinical decisions to the care team or emergency services when red flags are present.',
+      '- Ground clinical claims in CITATIONS below. Add the source label in brackets after the relevant statement (e.g., "Common side effects include nausea [Drug Label]" or "Studies show improved outcomes [PubMed]").',
+      '- If a fact is missing, ask ONE multiple-choice clarifying question (2–4 options). Never ask open-ended questions.',
+      '- For severity-3 alerts: call_911 and/or go_to_er must appear first in NEXT_STEPS.',
       '',
-      'PATIENT CONTEXT',
-      `Name: ${context.patient.name}`,
-      `Age: ${context.patient.age ?? 'unknown'}`,
+      sensitiveTopicsInstruction(),
       '',
-      'CONDITIONS (structured)',
-      primaryLine,
-      'Comorbidities:',
-      comorbiditiesLine,
+      'USING THE CAREGIVER\'S NAME',
+      '- Use the caregiver\'s name when the situation is urgent, emotionally significant, or when establishing rapport.',
+      '- For routine clinical explanations, you can address them directly without the name.',
       '',
-      'CURRENT SYMPTOMS (caregiver-reported)',
-      symptomsBlock,
+      patientBlock({
+        name: context.patient.name,
+        age: context.patient.age,
+        primaryCondition: context.patient.primaryCondition,
+        comorbidities: context.patient.comorbidities,
+        symptoms: context.symptoms,
+        medications: context.patient.medications,
+        spo2Cutoff: context.patient.spo2Cutoff,
+        baselineHeartRate: context.patient.baselineHeartRate,
+        functionalScales: (context.patient as AggregatedContext['patient'] & { functionalScales?: { gmfcs?: string; fms?: string; macs?: string; cfcs?: string; edacs?: string } }).functionalScales,
+        location: (context.patient as AggregatedContext['patient'] & { location?: string }).location,
+      }),
       '',
-      `Medications: ${context.patient.medications ?? 'none documented'}`,
-      `SpO2 cutoff: ${context.patient.spo2Cutoff ?? 'not set'}`,
-      `Baseline heart rate: ${context.patient.baselineHeartRate ?? 'not set'}`,
+      thresholdsBlock(context.activeThresholds),
       '',
-      'ACTIVE THRESHOLDS (from the personalized care plan)',
-      thresholdBlock || 'None configured',
+      carePlanGoalsBlock(context.carePlanGoals),
       '',
-      'CARE PLAN GOALS (recovery milestones / target outcomes)',
-      goalsBlock || 'None configured',
+      recentVitalsBlock(context.recentVitals),
       '',
-      'RECENT VITALS (24h)',
-      vitalsBlock || 'No recent vitals',
+      progressMeasuresBlock(context.progressMeasures),
       '',
-      'CITATIONS',
-      citationBlock || 'No citations retrieved',
+      budgetAwareCitationsBlock(context.retrieval.chunks, 1200),
       '',
-      'AVAILABLE TOOLS',
-      toolBlock,
+      toolsBlock(visibleTools),
+      '',
+      priorDecisionsBlock(prior ?? []),
       '',
       'If you want the caregiver to use a tool, include a line like:',
       'ACTION: tool_name({"arg":"value"})',
-    ].join('\n');
+    ].filter(Boolean).join('\n');
   }
 
   private buildExplainPrompt(
@@ -845,36 +903,36 @@ export class Orchestrator {
       'Agent safety notes:',
       agentNotes || 'None',
       '',
-      'Recent graph-derived vitals:',
+      'Recent graph vitals:',
       graphVitals || 'No recent samples',
       '',
-      'Active thresholds from care graph:',
+      'Graph thresholds:',
       graphThresholds || 'None',
       '',
-      'Active medications from care graph:',
+      'Graph meds:',
       graphMeds || 'None documented',
       '',
-      'Explain what this alert means for this specific patient, what the caregiver should do now,',
-      'and what red flags would require calling emergency services.',
-      'Ground your explanation in the ML model output above — the top features explain WHY the',
-      'anomaly fired. The caregiver observations are ground truth; do not ask about things the',
-      'caregiver already confirmed.',
-      'If the information is insufficient, ask ONE multiple-choice clarifying question.',
+      'Write a 2–4 sentence explanation for the caregiver, leading with the action they should take now. Then any red flags. Then the NEXT_STEPS block (severity-3 first).',
       '',
-      'Then, recommend 1–4 next steps for the caregiver as multiple-choice options.',
-      'Format exactly:',
+      'GROUND TRUTH',
+      '- The ML model output above is WHY the alert fired — top features are the cause. Build the explanation on them.',
+      '- The caregiver observations are ground truth. Do not ask about things already confirmed.',
+      '- If information is still missing, ask ONE multiple-choice clarifying question (2–4 options).',
+      '',
+      'OUTPUT FORMAT',
+      'After the explanation, emit EXACTLY this block:',
       'NEXT_STEPS:',
       '- [call_911] Call 911',
       '- [contact_pcp] Contact Dr. Reynolds',
       '- [monitor_home] Continue monitoring at home',
       '',
-      'Only use action ids from: call_911, go_to_er, contact_pcp, geofence_service, schedule_urgent_appt, share_record, monitor_home, log_note.',
-      'Order by urgency. For severity-3 alerts, always include call_911 and/or go_to_er.',
+      'Action ids allowed: call_911, go_to_er, contact_pcp, geofence_service, schedule_urgent_appt, share_record, monitor_home, log_note.',
+      'Order by urgency. Severity-3 must include call_911 and/or go_to_er first.',
       '',
-      'SLM TASK CONSTRAINTS',
-      '- Allowed outputs: non-diagnostic explanation, structured follow-up questions, caregiver-safe next-step guidance, provider-ready summary if escalated.',
-      '- Blocked outputs: diagnosis, clinical certainty claim, medication change instruction, emergency decision override.',
-      '- You contextualize the already-explained anomaly; you do not decide whether an anomaly exists and you do not override the rule engine or anomaly model.',
+      'CONSTRAINTS',
+      '- Allowed: non-diagnostic explanation, structured follow-ups, caregiver-safe next steps, provider-ready summary if escalated.',
+      '- Blocked: diagnosis, clinical certainty, medication changes, overriding the rule engine or anomaly model.',
+      '- You contextualize the anomaly; you do not decide whether it exists.',
     ].join('\n');
   }
 
@@ -1088,5 +1146,127 @@ export class Orchestrator {
       }
     }
     return steps;
+  }
+
+  async executeHypotheticalEval(
+    action: { tool: string; args: Record<string, unknown>; rationale: string },
+    patientId: string,
+  ): Promise<{ mlResult: UC2DecisionResult | null; evalBlock: string }> {
+    if (action.tool !== 'evaluate_hypothetical_vitals') return { mlResult: null, evalBlock: '' };
+    if (!this.alertMlService) return { mlResult: null, evalBlock: '' };
+
+    const input: AppleWatchVitalsInput = {
+      patient_id: patientId,
+      timestamp: new Date().toISOString(),
+      heart_rate: action.args.heart_rate as number | undefined,
+      blood_oxygen: action.args.blood_oxygen as number | undefined,
+      blood_pressure_systolic: action.args.blood_pressure_systolic as number | undefined,
+      blood_pressure_diastolic: action.args.blood_pressure_diastolic as number | undefined,
+      glucose_level: action.args.glucose_level as number | undefined,
+      body_temperature: action.args.body_temperature as number | undefined,
+      respiratory_rate: action.args.respiratory_rate as number | undefined,
+      steps_count: undefined,
+    };
+
+    const mlResult = await this.alertMlService.runDecisionLayer(input);
+    const evalBlock = mlResult ? this.formatMlEvalForPrompt(mlResult) : '';
+    this.addTrace({
+      agent: 'orchestrator',
+      thought: `Ran hypothetical ML eval: severity=${mlResult?.finalDecision.final_severity}, aeScore=${mlResult?.aeScore?.toFixed(2)}.`,
+    });
+
+    if (mlResult && mlResult.finalDecision.final_severity === 3) {
+      const pendingAlertId = `hyp-${Date.now()}`;
+      const bus = getEventBus();
+      bus.publish({
+        type: 'slm_hypothetical_critical',
+        alertId: pendingAlertId,
+        patientId,
+        hypotheticalVitals: action.args as Partial<Record<'heart_rate' | 'blood_oxygen' | 'blood_pressure_systolic' | 'blood_pressure_diastolic' | 'glucose_level' | 'body_temperature' | 'respiratory_rate', number>>,
+        mlResult: {
+          severity: 3,
+          aeScore: mlResult.aeScore,
+          threshold: mlResult.threshold,
+          isAnomaly: mlResult.isAnomaly,
+          emergency: mlResult.emergencyResult.emergency,
+          topFeatures: mlResult.topFeatureEvidence.map(f => [f.feature, f.importance] as [string, number]),
+        },
+        requiresCaregiverConfirm: true,
+        at: new Date().toISOString(),
+      });
+
+      const caregiverResponse = await this.awaitCaregiverConfirm(pendingAlertId, patientId);
+
+      if (caregiverResponse === 'confirm') {
+        const alert: Alert = {
+          alertId: pendingAlertId,
+          patientId,
+          severity: 3,
+          status: 'open',
+          title: `Hypothetical critical: ML evaluation flagged severity-3 anomaly`,
+          body: `Caregiver-confirmed hypothetical vitals triggered a severity-3 ML alert.`,
+          mlScore: mlResult.aeScore ?? undefined,
+          createdAt: new Date().toISOString(),
+        };
+        insertAlert(alert);
+        bus.publish({
+          type: 'ml_alert_created',
+          alertId: pendingAlertId,
+          patientId,
+          severity: 3,
+          score: mlResult.aeScore ?? 0,
+          features: mlResult.rawFeatures,
+          at: new Date().toISOString(),
+        });
+        auditAlertCreated(patientId, pendingAlertId, {
+          source: 'slm_hypothetical_eval',
+          severity: 3,
+          aeScore: mlResult.aeScore,
+        });
+      } else {
+        audit({
+          actor: 'caregiver',
+          action: 'dismissed_hypothetical_critical',
+          resourceType: 'hypothetical_alert',
+          resourceId: pendingAlertId,
+          patientId,
+          payload: { severity: 3, aeScore: mlResult.aeScore },
+        });
+      }
+    }
+
+    return { mlResult, evalBlock };
+  }
+
+  private awaitCaregiverConfirm(alertId: string, patientId: string): Promise<'confirm' | 'dismiss'> {
+    return new Promise((resolve) => {
+      const bus = getEventBus();
+      const unsub = bus.subscribe('caregiver_ground_truth', (event) => {
+        if (event.type === 'caregiver_ground_truth' && event.alertId === alertId) {
+          unsub();
+          if (event.action === 'confirm_critical_hypothetical') {
+            resolve('confirm');
+          } else {
+            resolve('dismiss');
+          }
+        }
+      });
+      setTimeout(() => {
+        unsub();
+        resolve('dismiss');
+      }, 60_000);
+    });
+  }
+
+  private formatMlEvalForPrompt(r: UC2DecisionResult): string {
+    return [
+      'ML_HYPOTHETICAL_EVAL (the Health Monitor decision on the vitals you asked to test)',
+      `Anomaly score: ${r.aeScore !== null ? r.aeScore.toFixed(3) : 'n/a'} (threshold ${r.threshold.toFixed(3)})`,
+      `Is anomaly: ${r.isAnomaly}. Emergency: ${r.emergencyResult.emergency} (severity ${r.emergencyResult.severity}).`,
+      `Initial classification: ${r.initialAnomalyType.replace(/_/g, ' ').toLowerCase()}.`,
+      `Final notification: ${r.finalDecision.final_notification_type.replace(/_/g, ' ').toLowerCase()} (severity ${r.finalDecision.final_severity}).`,
+      r.topFeatureEvidence.slice(0, 3).map((f) => `  - ${f.feature}: ${f.importance.toFixed(2)}`).join('\n'),
+      'Ground your next answer in this ML output. The ML verdict is authoritative; you contextualize it.',
+    ].filter(Boolean).join('\n');
   }
 }

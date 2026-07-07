@@ -22,14 +22,16 @@ A **Health Tech Alley** project, built with **Expo + React Native**.
 
 A mobile health AI application that supports family caregivers of **severely disabled individuals** (disability level 3 on a 1–5 scale) with comorbidities and specialists involved. Built with **Expo SDK 56 and React Native 0.85** for iOS and Android.
 
-The first-run experience is an **onboarding intake** that captures caregiver, patient, provider, and safety details. The profile seeds the on-device SQLite database and drives the dashboard, the SLM system prompt, and the anomaly threshold engine. After onboarding, the user lands on a **tab-based dashboard** (Dashboard, Care, Medications, Schedule, Settings).
+The first-run experience is an **onboarding intake** that captures caregiver, patient, provider, and safety details — with optional FHIR import for EHR auto-population. The profile seeds the on-device SQLite database and drives the dashboard, the Concierge (on-device SLM) system prompt, and the Health Monitor (anomaly detection) threshold engine. After onboarding, the user lands on a **tab-based dashboard** (Dashboard, Care, Medications, Schedule, Concierge, More).
 
-**Target conditions:** cerebral palsy, traumatic brain injury (TBI), COPD — plus the three use-case conditions: Spina Bifida, post-stroke rehabilitation, COPD + TBI. *(Diabetes is no longer the primary condition.)*
+**Primary use case:** Mike EHR v5.9 case study — see `src/data/fhir/fixtures/mike-fhir-bundle-v5.9.json`.
+
+**Target conditions:** cerebral palsy, traumatic brain injury (TBI), COPD — plus the three use-case conditions: Spina Bifida, post-stroke rehabilitation, COPD + TBI.
 
 ## App Pillars
 
 The app is organized around three caregiver-facing pillars, each backed by the same on-device AI stack
-(SLM + RAG + MCP orchestration) and a deterministic rule/threshold engine that runs offline first.
+(Concierge SLM + RAG + MCP orchestration) and a deterministic rule/threshold engine that runs offline first.
 
 ### 1. Medication Management
 
@@ -147,18 +149,19 @@ The caregiver's calendar view of the care plan in motion.
 ## Tech Stack
 
 - **Framework:** Expo SDK 56 + React Native 0.85 + expo-router (file-based routing, tab-based navigation)
-- **On-device SLM:** llama.cpp via `llama.rn` — model catalog includes HealthGPT-Pro-4B (Q4_K_M), Gemma-4-E4B (UD-Q2_K_XL), and Gemma-4-E2B (UD-Q2_K_XL); all behind an `InferenceProvider` seam
-- **Orchestration:** Model Context Protocol (MCP) — 4 agents (caregiver / patient-state / coordinator / safety-reviewer) mediated by a single `Orchestrator` with CEP debouncing, confidence router, and prompt-budget guard; exposed through `OrchestratorProvider`
+- **On-device SLM:** llama.cpp via `llama.rn` — model catalog includes HealthGPT-Pro-4B (Q4_K_M) and Gemma-4-E2B-it (Q4_K_M); all behind an `InferenceProvider` seam
+- **Orchestration:** In-process MCP — 4 agents (caregiver / patient-state / coordinator / safety-reviewer) mediated by a single `Orchestrator` with CEP debouncing, confidence router, and prompt-budget guard; exposed through `OrchestratorProvider`
 - **Retrieval:** Hybrid RAG (`TrackAFusedRetriever`) — BM25 sparse index + deterministic hash dense embeddings + reciprocal rank fusion; fused tool-RAG + knowledge-RAG in a single hop
-- **Knowledge base:** OpenEvidence (primary clinical evidence, planned), PubMed E-utilities, MedlinePlus Connect, RxNorm, DailyMed, OpenFDA — Track A uses synthetic fixtures; the CachedFusedRetriever (BM25-only) reads from the `knowledge_cache` table populated by the condition-bundler at onboarding + live supplement at query time (see `planning/22_clinical-data-gathering.md`)
-- **Local storage:** `expo-sqlite` with migration-driven schema; SQLCipher-ready design
-- **Alert ML:** TensorFlow Lite via `react-native-fast-tflite` with CoreML delegate enabled; autoencoder model + scaler/metadata JSON
-- **Wearables:** HealthKit (iOS), Health Connect (Android) — `src/data/sensors` is scaffolded
+- **Knowledge base:** NLM/NIH public APIs (PubMed, MedlinePlus, RxNorm, DailyMed, OpenFDA) + planned expansion (ClinicalTrials.gov, SemMedDB, Orphanet, UMLS — see `planning/26_clinical-data-sources-research.md`); CachedFusedRetriever reads from the `knowledge_cache` table populated by the condition-bundler at onboarding + live supplement at query time
+- **Local storage:** `expo-sqlite` with migration-driven schema (24 repositories); SQLCipher-ready design
+- **Alert ML:** TensorFlow Lite via `react-native-fast-tflite` with CoreML delegate; UC2 Decision Layer v2 (EHR thresholds, HITL matrix, recurrence risk, personalized thresholds)
+- **Wearables:** HealthKit (iOS), Health Connect (Android) — `src/data/sensors` is scaffolded (mock-only)
 - **Notifications:** `expo-notifications` (dynamic require) with in-app banner fallback; deterministic reminder engine
-- **FHIR/C-CDA:** FHIR R4 resource mappers (`src/data/fhir/`) + C-CDA XML serializer for consent-gated export
-- **State management:** React Context (`SettingsProvider` → `PatientRecordProvider` → `SLMProvider` → `OrchestratorProvider`) + `useSyncExternalStore` for the patient-record store + local component reducer patterns
+- **FHIR/C-CDA:** FHIR R4 resource mappers + onboarding import mapper (`src/data/fhir/`) + C-CDA XML serializer for consent-gated export; 3 synthetic FHIR persona fixtures (Sofia, James, Elena)
+- **State management:** React Context + Redux Toolkit hybrid — Context for snapshot/orchestrator lifecycle (`SettingsProvider → PatientRecordProvider → SLMProvider → OrchestratorProvider → CriticalAlertProvider → UC2RuntimeProvider`), Redux for normalized patient state (`patientSlice`), non-emergency decisions (`nonEmergencyDecisionSlice`), and messaging (`messagesSlice`)
 - **CEP:** Custom TypeScript Complex Event Processing bus (`src/orchestration/event-bus.ts`) correlates sensor + UI + state events before the SLM is called
-- **Security:** `expo-secure-store` for HF tokens + NCBI API keys; default-deny consent gate + tamper-evident audit log
+- **Secure messaging:** Local AES-256-GCM encryption via `expo-crypto`; stored in SQLite; no transport layer (post-v1.0 for real E2EE)
+- **Security:** `expo-secure-store` for tokens/keys; default-deny consent gate + tamper-evident audit log
 
 ## Getting Started
 

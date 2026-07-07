@@ -65,8 +65,18 @@ export type OrchestrationEvent =
       alertId: string;
       patientId: string;
       observation: string;
+      action?: 'confirm_critical_hypothetical' | 'dismiss_critical_hypothetical' | string;
       at: string;
     }
   | { type: 'slm_explain_requested'; alertId: string; patientId: string; at: string }
   | { type: 'appt_synced'; apptId: string; patientId: string; at: string }
-  | { type: 'consent_changed'; patientId: string; scope: string; granted: boolean; at: string };
+  | { type: 'consent_changed'; patientId: string; scope: string; granted: boolean; at: string }
+  | {
+      type: 'slm_hypothetical_critical';
+      alertId: string;
+      patientId: string;
+      hypotheticalVitals: Partial<Record<'heart_rate' | 'blood_oxygen' | 'blood_pressure_systolic' | 'blood_pressure_diastolic' | 'glucose_level' | 'body_temperature' | 'respiratory_rate', number>>;
+      mlResult: { severity: number; aeScore: number | null; threshold: number; isAnomaly: boolean; emergency: boolean; topFeatures: [string, number][] };
+      requiresCaregiverConfirm: true;
+      at: string;
+    };

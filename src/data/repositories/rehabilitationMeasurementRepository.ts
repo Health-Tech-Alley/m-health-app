@@ -38,6 +38,33 @@ export function getRehabilitationMeasurements(
   );
 }
 
+/**
+ * Get the most-recent measurement for each rehab type (planning/32 §8.4).
+ * The SLM's `progressMeasures` block surfaces one row per type so the
+ * caregiver can read "Grip strength: 14 kg (last measured 2026-06-30)" in
+ * the prompt.
+ */
+export function getLatestRehabilitationMeasurements(
+  patientId: string,
+): RehabilitationMeasurement[] {
+  const db = getDatabase();
+  return db.getAllSync<RehabilitationMeasurement>(
+    `SELECT m.measurement_id AS measurementId, m.patient_id AS patientId, m.type,
+            m.value, m.unit, m.recorded_at AS recordedAt, m.source, m.created_at AS createdAt
+     FROM rehabilitation_measurements m
+     INNER JOIN (
+       SELECT type, MAX(recorded_at) AS max_recorded
+       FROM rehabilitation_measurements
+       WHERE patient_id = ?
+       GROUP BY type
+     ) latest ON latest.type = m.type AND latest.max_recorded = m.recorded_at
+     WHERE m.patient_id = ?
+     ORDER BY m.type;`,
+    patientId,
+    patientId,
+  );
+}
+
 export function countRehabilitationMeasurements(
   patientId: string,
   type: RehabilitationMeasurementType,

@@ -351,7 +351,7 @@ export default function MedicationsScreen() {
         </Pressable>
       </Modal>
 
-      {/* Custom-med SLM check */}
+      {/* Custom-med Concierge check */}
       <SlmInsightSheet
         visible={slmCheckMed !== null}
         onClose={() => setSlmCheckMed(null)}

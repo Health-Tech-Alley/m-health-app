@@ -23,17 +23,19 @@ import {
   type RamSeverity as Severity,
 } from "@/services/performance/performanceService";
 
-const SEVERITY_COLOR: Record<Severity, string> = {
-  ok: "#0E6F68",
-  warn: "#B54708",
-  crit: "#B42318",
-};
+import { AppTheme } from '@/constants/theme';
 
-const SEVERITY_LABEL: Record<Severity, string> = {
-  ok: "Healthy",
-  warn: "Elevated",
-  crit: "Critical",
-};
+function ramSeverityColor(s: Severity): string {
+  if (s === 'crit') return AppTheme.colors.danger;
+  if (s === 'warn') return AppTheme.colors.warning;
+  return AppTheme.colors.brand;
+}
+
+function ramSeverityLabel(s: Severity): string {
+  if (s === 'crit') return 'Critical';
+  if (s === 'warn') return 'Elevated';
+  return 'Healthy';
+}
 
 const POLL_INTERVAL_MS = 500;
 
@@ -45,8 +47,8 @@ export default function PerformanceScreen() {
 
   const isModelLoaded = loadStatus === "ready" && modelSizeGB !== null;
   const severity: Severity = snapshot ? ramSeverity(snapshot.usedRatio) : "ok";
-  const severityColor = SEVERITY_COLOR[severity];
-  const severityLabel = SEVERITY_LABEL[severity];
+  const sevColor = ramSeverityColor(severity);
+  const sevLabel = ramSeverityLabel(severity);
 
   const slmPercent = useMemo(() => {
     if (!snapshot || snapshot.totalMB <= 0) return 0;
@@ -98,16 +100,16 @@ export default function PerformanceScreen() {
             <View
               style={[
                 styles.severityPill,
-                { backgroundColor: severityColor + "20" },
+                { backgroundColor: sevColor + "20" },
               ]}>
               <View
                 style={[
                   styles.severityDot,
-                  { backgroundColor: severityColor },
+                  { backgroundColor: sevColor },
                 ]}
               />
-              <Text style={[styles.severityText, { color: severityColor }]}>
-                {snapshot ? severityLabel : "—"}
+              <Text style={[styles.severityText, { color: sevColor }]}>
+                {snapshot ? sevLabel : "—"}
               </Text>
             </View>
           </View>
@@ -141,7 +143,7 @@ export default function PerformanceScreen() {
                 styles.progressBarFill,
                 {
                   width: `${usedPercent}%`,
-                  backgroundColor: severityColor,
+                  backgroundColor: sevColor,
                 },
               ]}
             />
@@ -178,7 +180,7 @@ export default function PerformanceScreen() {
               <View
                 style={[styles.legendSwatch, { backgroundColor: "#0E6F68" }]}
               />
-              <Text style={styles.legendLabel}>SLM model</Text>
+              <Text style={styles.legendLabel}>Concierge model</Text>
               <Text style={styles.legendValue}>
                 {snapshot ? formatRam(snapshot.slmMB) : "—"}
               </Text>
@@ -187,7 +189,7 @@ export default function PerformanceScreen() {
               <View
                 style={[
                   styles.legendSwatch,
-                  { backgroundColor: severityColor },
+                  { backgroundColor: sevColor },
                 ]}
               />
               <Text style={styles.legendLabel}>Other (system + apps)</Text>
@@ -203,7 +205,7 @@ export default function PerformanceScreen() {
                 styles.stackedBarFill,
                 {
                   width: `${otherPercent}%`,
-                  backgroundColor: severityColor,
+                  backgroundColor: sevColor,
                 },
               ]}
             />
@@ -231,7 +233,7 @@ export default function PerformanceScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>SLM Status</Text>
+          <Text style={styles.cardTitle}>Concierge status</Text>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>State</Text>
             <Text style={styles.detailValue}>{loadStatus}</Text>

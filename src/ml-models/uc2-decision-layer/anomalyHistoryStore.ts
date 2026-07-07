@@ -139,60 +139,127 @@ export class InMemoryAnomalyHistoryStore implements AnomalyHistoryStore {
     }
 }
 
-// ── SQLite stub ───────────────────────────────────────────────────────────────
+// ── SQLite implementation ────────────────────────────────────────────────────
 
 /**
- * TODO: SQLite-backed anomaly history store.
+ * SQLite-backed anomaly history store.
  *
- * Implementation guide (for later):
- *   - Use expo-sqlite or react-native-quick-sqlite with SQLCipher for encryption.
- *   - Table: anomaly_history (patient_id, timestamp_iso, post_hitl_anomaly_type,
- *     final_severity, caregiver_confirmed)
- *   - Index: (patient_id, timestamp_iso) for efficient time-window queries.
- *   - Encrypt with per-patient key from secure keychain.
- *   - Prune on append if count exceeds retention limit (e.g., 90 days).
+ * Persists to the main app database (`caregiver-concierge.db`), table
+ * `anomaly_history`, defined by migration 21 in `src/data/migrations.ts`.
  *
- * This class implements the AnomalyHistoryStore interface so it is a drop-in
- * replacement for InMemoryAnomalyHistoryStore with no changes to callers.
+ * Schema (per planning/14_uc2-ml-alert-notification-flow.md §13):
+ *   patient_id        TEXT NOT NULL
+ *   event_id          TEXT NOT NULL
+ *   anomaly_type      TEXT NOT NULL  -- post_hitl_anomaly_type
+ *   severity          INTEGER NOT NULL
+ *   timestamp         TEXT NOT NULL  -- ISO-8601
+ *   caregiver_confirmed INTEGER NOT NULL DEFAULT 0
+ *   metadata_json     TEXT
+ *
+ * Indexes:
+ *   (patient_id, timestamp)
+ *   (patient_id, anomaly_type, timestamp)
+ *
+ * Encryption: SQLCipher is the planned encryption layer (doc 22). Until it
+ * ships, the table is plaintext within the app DB — acceptable for
+ * synthetic-only Track A data.
  */
 export class SQLiteAnomalyHistoryStore implements AnomalyHistoryStore {
-    constructor(
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        _dbPath: string,
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        _encryptionKey?: string
-    ) {
-        // TODO: open encrypted SQLite connection
+    constructor(_dbPath?: string, _encryptionKey?: string) {
+        // The store uses the shared `getDatabase()` connection; per-tenant
+        // SQLCipher keys will be wired here once doc 22 ships.
     }
 
-    async append(_event: HistoricalAnomalyEvent): Promise<void> {
-        // TODO: INSERT INTO anomaly_history ...
-        throw new Error(
-            "SQLiteAnomalyHistoryStore.append: not yet implemented. Use InMemoryAnomalyHistoryStore for now."
+    async append(event: HistoricalAnomalyEvent): Promise<void> {
+        const { getDatabase } = await import("@/data/db");
+        const db = getDatabase();
+        const eventId = `anomaly-${event.patient_id}-${Date.parse(event.timestamp_iso)}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`;
+        db.runSync(
+            `INSERT OR REPLACE INTO anomaly_history
+              (patient_id, event_id, anomaly_type, severity, timestamp,
+               caregiver_confirmed, metadata_json)
+             VALUES (?, ?, ?, ?, ?, ?, NULL);`,
+            event.patient_id,
+            eventId,
+            event.post_hitl_anomaly_type,
+            event.final_severity,
+            event.timestamp_iso,
+            event.caregiver_confirmed ? 1 : 0,
         );
     }
 
     async getRecent(
-        _patient_id: string,
-        _withinHours: number
+        patient_id: string,
+        withinHours: number
     ): Promise<HistoricalAnomalyEvent[]> {
-        // TODO: SELECT * FROM anomaly_history WHERE patient_id = ? AND timestamp_iso >= ?
-        throw new Error(
-            "SQLiteAnomalyHistoryStore.getRecent: not yet implemented. Use InMemoryAnomalyHistoryStore for now."
+        const cutoff = new Date(
+            Date.now() - withinHours * 60 * 60 * 1000
+        ).toISOString();
+        return this.queryWindow(patient_id, cutoff);
+    }
+
+    async getAll(patient_id: string): Promise<HistoricalAnomalyEvent[]> {
+        return this.queryWindow(patient_id, null);
+    }
+
+    async prune(patient_id: string, olderThanHours: number): Promise<void> {
+        const { getDatabase } = await import("@/data/db");
+        const db = getDatabase();
+        const cutoff = new Date(
+            Date.now() - olderThanHours * 60 * 60 * 1000
+        ).toISOString();
+        db.runSync(
+            `DELETE FROM anomaly_history
+             WHERE patient_id = ? AND timestamp < ?;`,
+            patient_id,
+            cutoff,
         );
     }
 
-    async getAll(_patient_id: string): Promise<HistoricalAnomalyEvent[]> {
-        // TODO: SELECT * FROM anomaly_history WHERE patient_id = ?
-        throw new Error(
-            "SQLiteAnomalyHistoryStore.getAll: not yet implemented. Use InMemoryAnomalyHistoryStore for now."
-        );
-    }
+    private queryWindow(
+        patient_id: string,
+        cutoff: string | null
+    ): HistoricalAnomalyEvent[] {
+        // Synchronous path: import is dynamic so this file is safe to load
+        // in environments where the DB module isn't initialized yet.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { getDatabase } = require("@/data/db") as typeof import("@/data/db");
+        const db = getDatabase();
+        const rows = cutoff
+            ? db.getAllSync<{
+                  anomaly_type: string;
+                  severity: number;
+                  timestamp: string;
+                  caregiver_confirmed: number;
+              }>(
+                  `SELECT anomaly_type, severity, timestamp, caregiver_confirmed
+                   FROM anomaly_history
+                   WHERE patient_id = ? AND timestamp >= ?
+                   ORDER BY timestamp DESC;`,
+                  patient_id,
+                  cutoff
+              )
+            : db.getAllSync<{
+                  anomaly_type: string;
+                  severity: number;
+                  timestamp: string;
+                  caregiver_confirmed: number;
+              }>(
+                  `SELECT anomaly_type, severity, timestamp, caregiver_confirmed
+                   FROM anomaly_history
+                   WHERE patient_id = ?
+                   ORDER BY timestamp DESC;`,
+                  patient_id
+              );
 
-    async prune(_patient_id: string, _olderThanHours: number): Promise<void> {
-        // TODO: DELETE FROM anomaly_history WHERE patient_id = ? AND timestamp_iso < ?
-        throw new Error(
-            "SQLiteAnomalyHistoryStore.prune: not yet implemented. Use InMemoryAnomalyHistoryStore for now."
-        );
+        return rows.map((row) => ({
+            patient_id,
+            timestamp_iso: row.timestamp,
+            post_hitl_anomaly_type: row.anomaly_type as PostHitlAnomalyType,
+            final_severity: row.severity as Severity,
+            caregiver_confirmed: row.caregiver_confirmed === 1,
+        }));
     }
 }

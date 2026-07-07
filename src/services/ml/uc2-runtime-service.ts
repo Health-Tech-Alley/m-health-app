@@ -87,8 +87,9 @@ function mapV2ToCompatResult(
     caregiver_selected_codes: v2.caregiver_hitl?.caregiver_selected_codes ?? [],
     max_matrix_delta: v2.caregiver_hitl?.max_matrix_delta ?? 0,
     critical_route_triggered: v2.caregiver_hitl?.critical_route_triggered ?? false,
-    personalized_threshold_severity_floor: v2.personalized_thresholds?.severity_floor ?? 0,
-    recurrence_severity_floor: v2.recurrence?.severity_floor ?? 0,
+    personalized_threshold_severity_floor:
+      v2.personalized_thresholds?.personalized_threshold_severity_floor ?? 0,
+    recurrence_severity_floor: v2.recurrence?.recurrence_severity_floor ?? 0,
     final_notification_type: finalDecision.final_notification_type,
     final_notification_level: finalDecision.final_notification_level,
     quality_tags: v2.feature_quality_tags ?? [],

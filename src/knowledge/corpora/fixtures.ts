@@ -12,77 +12,77 @@ export type FixtureCorpus = {
   chunks: RetrievedChunk[];
 };
 
-export const OPENEVIDENCE_FIXTURES: RetrievedChunk[] = [
+export const SYNTHETIC_FIXTURES: RetrievedChunk[] = [
   // Spina Bifida — autonomic dysreflexia
   {
-    docId: 'OE-spina-autonomic-dysreflexia',
-    source: 'openevidence',
+    docId: 'LOCAL-spina-autonomic-dysreflexia',
+    source: 'synthetic',
     text: 'Autonomic dysreflexia is a potentially life-threatening emergency in patients with spinal cord injury at T6 and above. It is triggered by a noxious stimulus below the level of injury, most commonly a full bladder or bowel. Signs include severe hypertension, pounding headache, bradycardia, flushing, and diaphoresis above the lesion.',
     score: 0,
   },
   {
-    docId: 'OE-spina-bladder-distension',
-    source: 'openevidence',
+    docId: 'LOCAL-spina-bladder-distension',
+    source: 'synthetic',
     text: 'Bladder distension is the most common cause of autonomic dysreflexia. Immediate steps include sitting the patient upright, loosening tight clothing, checking the urinary catheter for kinks or blockage, and seeking emergency care if symptoms do not resolve within minutes.',
     score: 0,
   },
   {
-    docId: 'OE-spina-bradycardia-hypertension',
-    source: 'openevidence',
+    docId: 'LOCAL-spina-bradycardia-hypertension',
+    source: 'synthetic',
     text: 'In autonomic dysreflexia, blood pressure can rise abruptly while heart rate falls due to unopposed vagal tone. A systolic blood pressure 20–40 mmHg above baseline in a person with spinal cord injury should be treated as autonomic dysreflexia until proven otherwise.',
     score: 0,
   },
 
   // Post-stroke — recovery milestones
   {
-    docId: 'OE-stroke-rom-milestones',
-    source: 'openevidence',
+    docId: 'LOCAL-stroke-rom-milestones',
+    source: 'synthetic',
     text: 'Post-stroke rehabilitation focuses on restoring range of motion, strength, and functional mobility. Early mobilization within 24–48 hours is safe for stable patients. Passive and active ROM exercises should be performed several times daily to prevent contractures.',
     score: 0,
   },
   {
-    docId: 'OE-stroke-spasticity',
-    source: 'openevidence',
+    docId: 'LOCAL-stroke-spasticity',
+    source: 'synthetic',
     text: 'Spasticity after stroke can limit ROM and cause pain. Positioning, stretching, splinting, and occupational therapy are first-line. Escalation to botulinum toxin or oral agents is considered when spasticity interferes with function or hygiene.',
     score: 0,
   },
   {
-    docId: 'OE-stroke-falls-risk',
-    source: 'openevidence',
+    docId: 'LOCAL-stroke-falls-risk',
+    source: 'synthetic',
     text: 'Falls are common after stroke due to hemiparesis, balance deficits, and orthostatic hypotension. Home safety modifications, gait training, and caregiver assistance during transfers reduce fall risk. Any fall with head impact or new weakness requires urgent evaluation.',
     score: 0,
   },
 
   // COPD + TBI — respiratory distress
   {
-    docId: 'OE-copd-exacerbation',
-    source: 'openevidence',
+    docId: 'LOCAL-copd-exacerbation',
+    source: 'synthetic',
     text: 'A COPD exacerbation is characterized by increased dyspnea, cough, and sputum production. Common triggers are respiratory infections and air pollution. Caregivers should monitor for decreased activity tolerance, increased accessory muscle use, and changes in sputum color.',
     score: 0,
   },
   {
-    docId: 'OE-copd-spo2-cutoff',
-    source: 'openevidence',
+    docId: 'LOCAL-copd-spo2-cutoff',
+    source: 'synthetic',
     text: 'In patients with severe COPD, oxygen saturation targets are individualized. Many clinicians use 88–92% as a safe target range. SpO2 persistently below 88% with increased work of breathing or altered mental status is a red flag requiring urgent medical evaluation.',
     score: 0,
   },
   {
-    docId: 'OE-copd-tbi-respiratory-depression',
-    source: 'openevidence',
+    docId: 'LOCAL-copd-tbi-respiratory-depression',
+    source: 'synthetic',
     text: 'Patients with COPD and traumatic brain injury are at risk for both hypoxic respiratory failure and CO2 retention. Sedating medications, including opioids and benzodiazepines, can worsen respiratory drive and should only be used under direct clinician guidance.',
     score: 0,
   },
   {
-    docId: 'OE-copd-albuterol-prn',
-    source: 'openevidence',
+    docId: 'LOCAL-copd-albuterol-prn',
+    source: 'synthetic',
     text: 'Short-acting beta agonists such as albuterol are used as rescue therapy for acute bronchospasm in COPD. Increased frequency of use is a warning sign of worsening control. Persistent need beyond the prescribed regimen warrants contacting the care team.',
     score: 0,
   },
 
   // Cross-cutting emergency guidance
   {
-    docId: 'OE-emergency-chest-pain',
-    source: 'openevidence',
+    docId: 'LOCAL-emergency-chest-pain',
+    source: 'synthetic',
     text: 'Chest pain, severe shortness of breath, altered mental status, cyanosis, or unilateral weakness are emergency warning signs. Caregivers should call emergency services immediately and not wait for an algorithm or AI explanation.',
     score: 0,
   },
@@ -129,7 +129,7 @@ export const OPENFDA_FIXTURES: RetrievedChunk[] = [
 
 export function getAllClinicalFixtures(): RetrievedChunk[] {
   return [
-    ...OPENEVIDENCE_FIXTURES,
+    ...SYNTHETIC_FIXTURES,
     ...RXNORM_FIXTURES,
     ...DAILYMED_FIXTURES,
     ...OPENFDA_FIXTURES,

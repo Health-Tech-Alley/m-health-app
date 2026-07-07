@@ -605,4 +605,68 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_longitudinal_observations_patient_type_time
     ON patient_longitudinal_observations(patient_id, measurement_type, recorded_at);
   `,
+
+  // 21: UC2 anomaly history (per planning/14_uc2-ml-alert-notification-flow.md §13).
+  // Backs `SQLiteAnomalyHistoryStore` so recurrence-risk scoring persists
+  // across app restarts. Uses the main app DB; encryption is provided by
+  // SQLCipher when that lands (planning/22).
+  `
+  CREATE TABLE IF NOT EXISTS anomaly_history (
+    patient_id            TEXT NOT NULL,
+    event_id              TEXT NOT NULL,
+    anomaly_type          TEXT NOT NULL,
+    severity              INTEGER NOT NULL,
+    timestamp             TEXT NOT NULL,
+    caregiver_confirmed   INTEGER NOT NULL DEFAULT 0,
+    metadata_json         TEXT,
+    PRIMARY KEY (patient_id, event_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_anomaly_history_patient_time
+    ON anomaly_history(patient_id, timestamp);
+
+  CREATE INDEX IF NOT EXISTS idx_anomaly_history_patient_type_time
+    ON anomaly_history(patient_id, anomaly_type, timestamp);
+  `,
+
+  // 22: patient.location (free-text county/state) for SDOH / CDC-Places bundling
+  // (planning/32 §10.2 / D5). Non-breaking: NULL when the caregiver has not
+  // provided a location during onboarding.
+  `
+  ALTER TABLE patients ADD COLUMN location TEXT;
+  `,
+
+  // 23: CDA EHR import scaffolding (planning/33_cda-ehr-import-slm-ml-integration.md
+  // §12). Three additions:
+  //   (a) cda_documents — tracks each imported CDA JSON file
+  //   (b) patient_conditions.snomed_code — keep SNOMED alongside ICD-10
+  //   (c) health_samples.source_doc_id — link a sample back to its CDA source
+  // All non-breaking: existing rows leave the new columns NULL.
+  `
+  CREATE TABLE IF NOT EXISTS cda_documents (
+    doc_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    source_file TEXT NOT NULL,
+    effective_time TEXT,
+    title TEXT,
+    imported_at TEXT NOT NULL,
+    import_summary_json TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_cda_documents_patient
+    ON cda_documents(patient_id, imported_at DESC);
+
+  ALTER TABLE patient_conditions ADD COLUMN snomed_code TEXT;
+  ALTER TABLE health_samples ADD COLUMN source_doc_id TEXT;
+  `,
+
+  // 24: knowledge_cache — add document_type, length_tier, section_heading columns
+  // so the prompt-budget router can distinguish deep docs (guideline, systematic_review,
+  // spl_full) from short abstracts, and the citation formatter can surface section headings.
+  // Non-breaking: existing rows get NULL for all three.
+  `
+  ALTER TABLE knowledge_cache ADD COLUMN document_type TEXT;
+  ALTER TABLE knowledge_cache ADD COLUMN length_tier TEXT;
+  ALTER TABLE knowledge_cache ADD COLUMN section_heading TEXT;
+  `,
 ];

@@ -28,6 +28,7 @@ import {
 
 import { AppIcon } from '@/components/AppIcon';
 import { AppTheme } from '@/constants/theme';
+import { severityColor } from '@/constants/user-terms';
 import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { getEventBus } from '@/orchestration/event-bus';
 import { audit } from '@/services/audit/auditService';
@@ -38,12 +39,6 @@ import {
 } from '@/services/care/careService';
 
 const ACTIVE_STATUSES = new Set(['open', 'acknowledged']);
-
-const SEVERITY_COLOR: Record<number, string> = {
-  3: AppTheme.colors.danger,
-  2: AppTheme.colors.warning,
-  1: AppTheme.colors.brand,
-};
 
 const STATUS_LABEL: Record<CareAlert['status'], string> = {
   open: 'Active',
@@ -203,7 +198,7 @@ function AlertRow({
   onOpen: () => void;
   onRemove: () => void;
 }) {
-  const color = SEVERITY_COLOR[alert.severity] ?? AppTheme.colors.brand;
+  const color = severityColor(alert.severity);
   return (
     <Pressable
       style={[styles.row, inactive && styles.rowInactive]}

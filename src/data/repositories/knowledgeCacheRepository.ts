@@ -15,8 +15,9 @@ export function insertKnowledgeChunk(chunk: KnowledgeChunk): void {
   const db = getDatabase();
   db.runSync(
     `INSERT OR REPLACE INTO knowledge_cache
-      (chunk_id, source, text, query_hash, conditions, retrieved_at, expires_at, use_count, metadata_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      (chunk_id, source, text, query_hash, conditions, retrieved_at, expires_at, use_count, metadata_json,
+       document_type, length_tier, section_heading)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     chunk.chunkId,
     chunk.source,
     chunk.text,
@@ -26,6 +27,9 @@ export function insertKnowledgeChunk(chunk: KnowledgeChunk): void {
     chunk.expiresAt ?? null,
     chunk.useCount,
     chunk.metadataJson ?? null,
+    chunk.documentType ?? null,
+    chunk.lengthTier ?? null,
+    chunk.sectionHeading ?? null,
   );
 }
 
@@ -36,8 +40,9 @@ export function insertKnowledgeChunks(chunks: KnowledgeChunk[]): void {
     for (const chunk of chunks) {
       db.runSync(
         `INSERT OR REPLACE INTO knowledge_cache
-          (chunk_id, source, text, query_hash, conditions, retrieved_at, expires_at, use_count, metadata_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+          (chunk_id, source, text, query_hash, conditions, retrieved_at, expires_at, use_count, metadata_json,
+           document_type, length_tier, section_heading)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
         chunk.chunkId,
         chunk.source,
         chunk.text,
@@ -47,6 +52,9 @@ export function insertKnowledgeChunks(chunks: KnowledgeChunk[]): void {
         chunk.expiresAt ?? null,
         chunk.useCount,
         chunk.metadataJson ?? null,
+        chunk.documentType ?? null,
+        chunk.lengthTier ?? null,
+        chunk.sectionHeading ?? null,
       );
     }
   });
@@ -58,7 +66,9 @@ export function getKnowledgeChunk(chunkId: string): KnowledgeChunk | null {
     db.getFirstSync<KnowledgeChunk>(
       `SELECT chunk_id AS chunkId, source, text, query_hash AS queryHash,
               conditions, retrieved_at AS retrievedAt, expires_at AS expiresAt,
-              use_count AS useCount, metadata_json AS metadataJson
+              use_count AS useCount, metadata_json AS metadataJson,
+              document_type AS documentType, length_tier AS lengthTier,
+              section_heading AS sectionHeading
        FROM knowledge_cache WHERE chunk_id = ?;`,
       chunkId,
     ) ?? null
@@ -70,7 +80,9 @@ export function getKnowledgeChunksBySource(source: KnowledgeSource): KnowledgeCh
   return db.getAllSync<KnowledgeChunk>(
     `SELECT chunk_id AS chunkId, source, text, query_hash AS queryHash,
             conditions, retrieved_at AS retrievedAt, expires_at AS expiresAt,
-            use_count AS useCount, metadata_json AS metadataJson
+            use_count AS useCount, metadata_json AS metadataJson,
+            document_type AS documentType, length_tier AS lengthTier,
+            section_heading AS sectionHeading
      FROM knowledge_cache
      WHERE source = ?
      ORDER BY retrieved_at DESC;`,
@@ -83,7 +95,9 @@ export function getKnowledgeChunksByCondition(condition: string): KnowledgeChunk
   return db.getAllSync<KnowledgeChunk>(
     `SELECT chunk_id AS chunkId, source, text, query_hash AS queryHash,
             conditions, retrieved_at AS retrievedAt, expires_at AS expiresAt,
-            use_count AS useCount, metadata_json AS metadataJson
+            use_count AS useCount, metadata_json AS metadataJson,
+            document_type AS documentType, length_tier AS lengthTier,
+            section_heading AS sectionHeading
      FROM knowledge_cache
      WHERE conditions LIKE ?
      ORDER BY retrieved_at DESC;`,
@@ -96,7 +110,9 @@ export function getAllKnowledgeChunks(): KnowledgeChunk[] {
   return db.getAllSync<KnowledgeChunk>(
     `SELECT chunk_id AS chunkId, source, text, query_hash AS queryHash,
             conditions, retrieved_at AS retrievedAt, expires_at AS expiresAt,
-            use_count AS useCount, metadata_json AS metadataJson
+            use_count AS useCount, metadata_json AS metadataJson,
+            document_type AS documentType, length_tier AS lengthTier,
+            section_heading AS sectionHeading
      FROM knowledge_cache
      ORDER BY retrieved_at DESC;`,
   );
@@ -108,7 +124,9 @@ export function searchKnowledgeCache(query: string, limit = 10): KnowledgeChunk[
   return db.getAllSync<KnowledgeChunk>(
     `SELECT chunk_id AS chunkId, source, text, query_hash AS queryHash,
             conditions, retrieved_at AS retrievedAt, expires_at AS expiresAt,
-            use_count AS useCount, metadata_json AS metadataJson
+            use_count AS useCount, metadata_json AS metadataJson,
+            document_type AS documentType, length_tier AS lengthTier,
+            section_heading AS sectionHeading
      FROM knowledge_cache
      WHERE text LIKE ? OR conditions LIKE ?
      ORDER BY use_count DESC, retrieved_at DESC
@@ -130,6 +148,43 @@ export function bumpChunkUseCount(chunkId: string): void {
 export function clearKnowledgeCache(): void {
   const db = getDatabase();
   db.runSync('DELETE FROM knowledge_cache;');
+}
+
+export function deleteKnowledgeChunk(chunkId: string): void {
+  const db = getDatabase();
+  db.runSync('DELETE FROM knowledge_cache WHERE chunk_id = ?;', chunkId);
+}
+
+export function deleteKnowledgeChunksBySource(source: string): number {
+  const db = getDatabase();
+  const result = db.runSync('DELETE FROM knowledge_cache WHERE source = ?;', source);
+  return result.changes;
+}
+
+export function deleteKnowledgeChunksByCondition(condition: string): number {
+  const db = getDatabase();
+  // conditions is a CSV column — match anywhere in the list.
+  const result = db.runSync(
+    'DELETE FROM knowledge_cache WHERE conditions LIKE ?;',
+    `%,${condition},%`,
+  );
+  return result.changes;
+}
+
+export function deleteKnowledgeChunksByDocumentType(
+  documentType: string,
+): number {
+  const db = getDatabase();
+  const result = db.runSync(
+    `DELETE FROM knowledge_cache
+     WHERE metadata_json LIKE ?;`,
+    `%"documentType":"${documentType}"%`,
+  );
+  return result.changes;
+}
+
+export function getKnowledgeChunkForExport(chunkId: string): KnowledgeChunk | null {
+  return getKnowledgeChunk(chunkId);
 }
 
 export function clearExpiredKnowledgeChunks(): number {

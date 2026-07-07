@@ -19,6 +19,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
+import { File, Paths } from 'expo-file-system';
 
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { AppTheme } from '@/constants/theme';
@@ -26,26 +29,34 @@ import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { usePatientRecord } from '@/contexts/patient-record-context';
-import { MODEL_CATALOG, type ModelEntry } from '@/inference/model-catalog';
+import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG, type ModelEntry } from '@/inference/model-catalog';
 import { isModelInstalled, deleteModel, clearAllModels } from '@/services/model-storage';
 import { downloadModel } from '@/services/model-download';
 import {
   clearKnowledgeCache,
+  deleteKnowledgeChunk,
+  deleteKnowledgeChunksBySource,
   getActiveConsents,
   getAllKnowledgeChunks,
   getAuditEntriesForResource,
+  getEnrichmentLogForPatient,
   getPendingThresholdRecommendations,
   resetDatabase,
   updateThresholdRecommendationStatus,
   verifyAuditChain,
   type ConsentToken,
   type KnowledgeChunk,
+  type PatientEnrichmentLogEntry,
   type ThresholdRecommendation,
 } from '@/data';
+import { importCdaJsonString, importCdaZip } from '@/data/cda';
+import { redownloadForChunk, redownloadAllForPatient } from '@/clinical-evidence/re-download';
 import { audit } from '@/services/audit/auditService';
 import { grantConsent, revokeConsentAndAudit } from '@/services/consent/consentGate';
-import { setNcbiApiKey, clearNcbiApiKey } from '@/services/ncbi-token-store';
-import { setOpenFdaApiKey, clearOpenFdaApiKey } from '@/services/openfda-token-store';
+import { getNcbiApiKey, setNcbiApiKey, clearNcbiApiKey } from '@/services/ncbi-token-store';
+import { getOpenFdaApiKey, setOpenFdaApiKey, clearOpenFdaApiKey } from '@/services/openfda-token-store';
+import { getUmlsApiKey, setUmlsApiKey, clearUmlsApiKey } from '@/services/umls-token-store';
+import { applyElenaGarciaDemoProfile } from '@/services/onboarding/fhirDemoImport';
 import {
   exportPatientCcda,
   getRecordConsentStatus,
@@ -68,13 +79,13 @@ const RECORD_CONSENT_OPTIONS: {
   {
     scope: 'ccda_export',
     emoji: '📤',
-    title: 'C-CDA export consent',
-    subtitle: 'Allow exporting a C-CDA record for care coordination.',
+    title: 'Health record export consent',
+    subtitle: 'Allow exporting a care summary for care coordination.',
   },
   {
     scope: 'fhir-share',
     emoji: '🔗',
-    title: 'FHIR share consent',
+    title: 'Health record share consent',
     subtitle: 'Allow sharing structured records with approved care systems.',
   },
   {
@@ -136,7 +147,7 @@ export function PreferencesScreen() {
       setRecordConsentGranted(nextConsentState);
       setRecordExportStatus(
         nextConsentState.ccda_export
-          ? 'Consent granted for C-CDA export'
+          ? 'Consent granted for health record export'
           : 'Consent required before export',
       );
     }, 0);
@@ -161,7 +172,7 @@ export function PreferencesScreen() {
     if (scope === 'ccda_export') {
       setRecordExportStatus(
         consent.granted
-          ? 'Consent granted for C-CDA export'
+          ? 'Consent granted for health record export'
           : 'Consent required before export',
       );
     }
@@ -171,7 +182,7 @@ export function PreferencesScreen() {
     const result = exportPatientCcda(patientId);
 
     if (result.status === 'queued') {
-      setRecordExportStatus('C-CDA export queued for sync');
+      setRecordExportStatus('Health record export queued for sync');
       Alert.alert('Export queued', result.message);
       return;
     }
@@ -184,12 +195,12 @@ export function PreferencesScreen() {
       setRecordExportStatus('Consent required before export');
       Alert.alert(
         'Consent required',
-        'Please turn on record export consent before exporting a C-CDA record.',
+        'Please turn on record export consent before exporting a health record.',
       );
       return;
     }
 
-    setRecordExportStatus('C-CDA export failed');
+    setRecordExportStatus('Health record export failed');
     Alert.alert('Export failed', result.message);
   }, [patientId]);
 
@@ -329,10 +340,10 @@ export function PreferencesScreen() {
                   {option.scope === 'ccda_export' && recordConsentGranted.ccda_export ? (
                     <PlainActionRow
                       emoji="📄"
-                      label="Export C-CDA"
+                      label="Export health record"
                       description={recordExportStatus}
                       onPress={handlePatientCcdaExport}
-                      accessibilityLabel="Export C-CDA record"
+                      accessibilityLabel="Export health record"
                     />
                   ) : null}
                 </View>
@@ -345,6 +356,8 @@ export function PreferencesScreen() {
             </View>
           </CompactActionRow>
         </Section>
+
+        <YourDecisionsSection patientId={patientId} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -363,10 +376,164 @@ export function AdvancedDeveloperSettingsScreen() {
   const { snapshot, refresh } = usePatientRecord();
   const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
   const [ncbiKeyInput, setNcbiKeyInput] = useState('');
-  const [openfdaKeyInput, setOpenFdaKeyInput] = useState('');
+  const [openfdaKeyInput, setOpenfdaKeyInput] = useState('');
+  const [umlsKeyInput, setUmlsKeyInput] = useState('');
+  const [ncbiKeyStored, setNcbiKeyStored] = useState(false);
+  const [openfdaKeyStored, setOpenfdaKeyStored] = useState(false);
+  const [umlsKeyStored, setUmlsKeyStored] = useState(false);
+
+  const refreshKeyStatus = useCallback(async () => {
+    setNcbiKeyStored(Boolean(await getNcbiApiKey()));
+    setOpenfdaKeyStored(Boolean(await getOpenFdaApiKey()));
+    setUmlsKeyStored(Boolean(await getUmlsApiKey()));
+  }, []);
+
+  // On mount, read the secure-store to show stored/empty badges for each key.
+  // This is a legit external-system sync (expo-secure-store), not a cascading render.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void refreshKeyStatus(); }, [refreshKeyStatus]);
   const [downloads, setDownloads] = useState<Map<string, { progress: number; cancel: () => void }>>(new Map());
   const [thresholdRecs, setThresholdRecs] = useState<ThresholdRecommendation[]>([]);
   const [recVersion, setRecVersion] = useState(0);
+  const [rerunningDemo, setRerunningDemo] = useState(false);
+  const [importingEhr, setImportingEhr] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+
+  const handleRerunElenaDemo = useCallback(async () => {
+    setRerunningDemo(true);
+    try {
+      const patientId = await applyElenaGarciaDemoProfile();
+      refresh();
+      Alert.alert(
+        'Demo persona loaded',
+        'Elena Garcia (COPD + TBI) onboarding data has been saved and seeded. Open the Dashboard to view.',
+      );
+      void patientId;
+    } catch (err) {
+      Alert.alert(
+        'Failed to load demo',
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setRerunningDemo(false);
+    }
+  }, [refresh]);
+
+  const handleImportEhrZip = useCallback(async () => {
+    setImportingEhr(true);
+    setImportProgress({ done: 0, total: 0 });
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/zip', 'public.zip-archive', '*/*'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const fileUri = result.assets[0].uri;
+      const fileName = result.assets[0].name ?? 'ehr.zip';
+      const summary = await importCdaZip(fileUri, {
+        patientId: patientId ?? 'default-patient',
+        isNewPatient: true,
+        onProgress: (done, total) => setImportProgress({ done, total }),
+      });
+      refresh();
+      audit({
+        actor: 'caregiver',
+        action: 'cda_zip_import',
+        resourceType: 'cda_import',
+        resourceId: fileName,
+        patientId,
+        payload: {
+          filesDiscovered: summary.filesDiscovered,
+          filesImported: summary.filesImported,
+          filesSkipped: summary.filesSkipped,
+          totalConditions: summary.totalConditions,
+          totalMedications: summary.totalMedications,
+          totalVitals: summary.totalVitals,
+          totalNarrativeChunks: summary.totalNarrativeChunks,
+          elapsedMs: summary.elapsedMs,
+        },
+      });
+      const errorTail = summary.errors.length
+        ? `\n\n${summary.errors.length} file(s) failed:\n${summary.errors
+            .slice(0, 3)
+            .map((e) => `• ${e.file}: ${e.message}`)
+            .join('\n')}${summary.errors.length > 3 ? `\n…and ${summary.errors.length - 3} more` : ''}`
+        : '';
+      Alert.alert(
+        'EHR Import Complete',
+        `Discovered ${summary.filesDiscovered} CDA documents.\n` +
+          `Imported ${summary.filesImported} (skipped ${summary.filesSkipped}).\n\n` +
+          `Conditions: ${summary.totalConditions}\n` +
+          `Medications: ${summary.totalMedications}\n` +
+          `Vitals: ${summary.totalVitals}\n` +
+          `Narrative chunks: ${summary.totalNarrativeChunks}\n` +
+          `Care plan activities: ${summary.totalCarePlanActivities}\n` +
+          `Longitudinal observations: ${summary.totalLongitudinalObservations}\n` +
+          `Appointments: ${summary.totalAppointments}\n\n` +
+          `Elapsed: ${(summary.elapsedMs / 1000).toFixed(1)}s` +
+          errorTail,
+      );
+    } catch (err) {
+      Alert.alert(
+        'EHR Import Failed',
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setImportingEhr(false);
+      setImportProgress({ done: 0, total: 0 });
+    }
+  }, [patientId, refresh]);
+
+  const handleImportEhrSingleFile = useCallback(async () => {
+    setImportingEhr(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/json', '*/*'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const fileUri = result.assets[0].uri;
+      const file = new File(fileUri);
+      const contents = await file.text();
+      const summary = importCdaJsonString(contents, {
+        patientId: patientId ?? 'default-patient',
+        isNewPatient: true,
+      });
+      refresh();
+      audit({
+        actor: 'caregiver',
+        action: 'cda_single_import',
+        resourceType: 'cda_import',
+        resourceId: summary.docId,
+        patientId,
+        payload: {
+          conditions: summary.conditions,
+          medications: summary.medications,
+          vitals: summary.vitals,
+          narrativeChunks: summary.narrativeChunks,
+        },
+      });
+      Alert.alert(
+        'CDA Document Imported',
+        `${summary.docId}\n\n` +
+          `Conditions: ${summary.conditions}\n` +
+          `Medications: ${summary.medications}\n` +
+          `Vitals: ${summary.vitals}\n` +
+          `Narrative chunks: ${summary.narrativeChunks}\n` +
+          `Care plan activities: ${summary.carePlanActivities}\n` +
+          `Longitudinal observations: ${summary.longitudinalObservations}\n` +
+          `Appointments: ${summary.appointments}` +
+          (summary.warnings.length ? `\n\nWarnings:\n${summary.warnings.join('\n')}` : ''),
+      );
+    } catch (err) {
+      Alert.alert(
+        'CDA Import Failed',
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setImportingEhr(false);
+    }
+  }, [patientId, refresh]);
 
   const toggleExpanded = useCallback((id: ExpandableId) => {
     setExpandedId((current) => (current === id ? null : id));
@@ -508,7 +675,7 @@ export function AdvancedDeveloperSettingsScreen() {
 
           {isDeveloper ? (
             <View style={styles.devSection}>
-              <Text style={styles.devLabel}>SLM Management</Text>
+              <Text style={styles.devLabel}>Concierge Management</Text>
               <Text style={styles.devInfo}>
                 Policy: {slm.policy} - Status: {slm.loadStatus}
                 {slm.currentModelId ? ` - Model: ${slm.currentModelId}` : ''}
@@ -576,14 +743,14 @@ export function AdvancedDeveloperSettingsScreen() {
                 })}
               </View>
 
-              <Text style={[styles.devLabel, { marginTop: 8 }]}>Default SLM Model (Demo auto-load)</Text>
+              <Text style={[styles.devLabel, { marginTop: 8 }]}>Default Concierge model (Demo auto-load)</Text>
               <Text style={styles.devInfo}>
                 The model auto-loaded when a transient task acquires a lease in Demo
-                mode. Currently: {settings.demoDefaultModelId ?? 'healthgpt-pro-4b'}
+                mode. Currently: {settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID}
               </Text>
               <View style={styles.modelActions}>
                 {MODEL_CATALOG.map((m) => {
-                  const active = (settings.demoDefaultModelId ?? 'healthgpt-pro-4b') === m.id;
+                  const active = (settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID) === m.id;
                   return (
                     <Pressable
                       key={m.id}
@@ -622,8 +789,18 @@ export function AdvancedDeveloperSettingsScreen() {
               </Pressable>
               <Pressable
                 style={styles.actionButton}
+                onPress={() => router.push('/health-monitor-demo')}>
+                <Text style={styles.actionButtonText}>Health Monitor Playground</Text>
+              </Pressable>
+              <Pressable
+                style={styles.actionButton}
+                onPress={() => router.push('/messaging-demo')}>
+                <Text style={styles.actionButtonText}>Messaging Demo</Text>
+              </Pressable>
+              <Pressable
+                style={styles.actionButton}
                 onPress={() => router.push('/slm')}>
-                <Text style={styles.actionButtonText}>Raw SLM Chat</Text>
+                <Text style={styles.actionButtonText}>Raw Concierge Chat</Text>
               </Pressable>
 
               <Text style={[styles.devLabel, { marginTop: 16 }]}>Clinical Evidence API Keys</Text>
@@ -632,7 +809,12 @@ export function AdvancedDeveloperSettingsScreen() {
                 uses a key for higher rate limits.
               </Text>
 
-              <Text style={[styles.devLabel, { marginTop: 8 }]}>NCBI API Key (PubMed)</Text>
+              <View style={styles.keyLabelRow}>
+                <Text style={[styles.devLabel, { marginTop: 8 }]}>NCBI API Key (PubMed)</Text>
+                <Text style={[styles.keyStatusBadge, ncbiKeyStored ? styles.keyStatusStored : styles.keyStatusEmpty]}>
+                  {ncbiKeyStored ? 'stored' : 'empty'}
+                </Text>
+              </View>
               <View style={styles.modelRow}>
                 <View style={styles.modelItem}>
                   <TextInput
@@ -650,6 +832,7 @@ export function AdvancedDeveloperSettingsScreen() {
                       onPress={async () => {
                         await setNcbiApiKey(ncbiKeyInput.trim());
                         setNcbiKeyInput('');
+                        await refreshKeyStatus();
                         Alert.alert('Saved', 'NCBI API key stored securely.');
                       }}>
                       <Text style={styles.smallButtonText}>Save Key</Text>
@@ -659,6 +842,7 @@ export function AdvancedDeveloperSettingsScreen() {
                       onPress={async () => {
                         await clearNcbiApiKey();
                         setNcbiKeyInput('');
+                        await refreshKeyStatus();
                         Alert.alert('Cleared', 'NCBI API key removed.');
                       }}>
                       <Text style={styles.smallButtonText}>Clear</Text>
@@ -667,13 +851,18 @@ export function AdvancedDeveloperSettingsScreen() {
                 </View>
               </View>
 
-              <Text style={[styles.devLabel, { marginTop: 8 }]}>OpenFDA API Key</Text>
+              <View style={styles.keyLabelRow}>
+                <Text style={[styles.devLabel, { marginTop: 8 }]}>OpenFDA API Key</Text>
+                <Text style={[styles.keyStatusBadge, openfdaKeyStored ? styles.keyStatusStored : styles.keyStatusEmpty]}>
+                  {openfdaKeyStored ? 'stored' : 'empty'}
+                </Text>
+              </View>
               <View style={styles.modelRow}>
                 <View style={styles.modelItem}>
                   <TextInput
                     style={styles.ncbiInput}
                     value={openfdaKeyInput}
-                    onChangeText={setOpenFdaKeyInput}
+                    onChangeText={setOpenfdaKeyInput}
                     placeholder="Enter OpenFDA API key..."
                     placeholderTextColor={mutedText}
                     autoCapitalize="none"
@@ -684,7 +873,8 @@ export function AdvancedDeveloperSettingsScreen() {
                       style={styles.smallButton}
                       onPress={async () => {
                         await setOpenFdaApiKey(openfdaKeyInput.trim());
-                        setOpenFdaKeyInput('');
+                        setOpenfdaKeyInput('');
+                        await refreshKeyStatus();
                         Alert.alert('Saved', 'OpenFDA API key stored securely.');
                       }}>
                       <Text style={styles.smallButtonText}>Save Key</Text>
@@ -693,8 +883,51 @@ export function AdvancedDeveloperSettingsScreen() {
                       style={[styles.smallButton, styles.dangerSmallButton]}
                       onPress={async () => {
                         await clearOpenFdaApiKey();
-                        setOpenFdaKeyInput('');
+                        setOpenfdaKeyInput('');
+                        await refreshKeyStatus();
                         Alert.alert('Cleared', 'OpenFDA API key removed.');
+                      }}>
+                      <Text style={styles.smallButtonText}>Clear</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.keyLabelRow}>
+                <Text style={[styles.devLabel, { marginTop: 8 }]}>UMLS API Key (Terminology Mapping)</Text>
+                <Text style={[styles.keyStatusBadge, umlsKeyStored ? styles.keyStatusStored : styles.keyStatusEmpty]}>
+                  {umlsKeyStored ? 'stored' : 'empty'}
+                </Text>
+              </View>
+              <View style={styles.modelRow}>
+                <View style={styles.modelItem}>
+                  <TextInput
+                    style={styles.ncbiInput}
+                    value={umlsKeyInput}
+                    onChangeText={setUmlsKeyInput}
+                    placeholder="Enter UMLS API key..."
+                    placeholderTextColor={mutedText}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <View style={styles.modelActions}>
+                    <Pressable
+                      style={styles.smallButton}
+                      onPress={async () => {
+                        await setUmlsApiKey(umlsKeyInput.trim());
+                        setUmlsKeyInput('');
+                        await refreshKeyStatus();
+                        Alert.alert('Saved', 'UMLS API key stored securely.');
+                      }}>
+                      <Text style={styles.smallButtonText}>Save Key</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.smallButton, styles.dangerSmallButton]}
+                      onPress={async () => {
+                        await clearUmlsApiKey();
+                        setUmlsKeyInput('');
+                        await refreshKeyStatus();
+                        Alert.alert('Cleared', 'UMLS API key removed.');
                       }}>
                       <Text style={styles.smallButtonText}>Clear</Text>
                     </Pressable>
@@ -735,7 +968,7 @@ export function AdvancedDeveloperSettingsScreen() {
                 </Pressable>
               ) : null}
 
-              <KnowledgeCacheViewer />
+              <KnowledgeCacheViewer patientId={patientId} />
 
               <View style={styles.thresholdBlock}>
                 <Text style={styles.thresholdTitle}>
@@ -783,13 +1016,46 @@ export function AdvancedDeveloperSettingsScreen() {
 
               <Text style={[styles.devLabel, { marginTop: 16 }]}>Import Record</Text>
               <Text style={styles.devInfo}>
-                Import a C-CDA or FHIR JSON record from the care team. Coming soon.
+                Import a zip of standardized CDA JSON files (the
+                Sahlin longitudinal EHR dataset), a single CDA JSON, or a
+                FHIR JSON bundle. Conditions are SNOMED-coded and
+                cross-walked to ICD-10; narrative sections become
+                SLM-retrievable knowledge chunks. See planning/33 for the
+                full pipeline.
               </Text>
               <Pressable
-                style={[styles.actionButton, styles.disabledActionButton]}
-                disabled
-                onPress={() => {}}>
-                <Text style={styles.actionButtonText}>Import Record (Coming Soon)</Text>
+                style={[styles.actionButton, importingEhr && styles.disabledActionButton]}
+                disabled={importingEhr}
+                onPress={handleImportEhrZip}>
+                <Text style={styles.actionButtonText}>
+                  {importingEhr
+                    ? `Importing EHR… ${importProgress.done}/${importProgress.total}`
+                    : 'Import EHR (zip of CDA JSON)'}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.actionButton, importingEhr && styles.disabledActionButton]}
+                disabled={importingEhr}
+                onPress={handleImportEhrSingleFile}>
+                <Text style={styles.actionButtonText}>
+                  {importingEhr ? 'Importing…' : 'Import single CDA JSON'}
+                </Text>
+              </Pressable>
+
+              <Text style={[styles.devLabel, { marginTop: 16 }]}>Demo Data</Text>
+              <Text style={styles.devInfo}>
+                Re-run onboarding with the pre-populated Elena Garcia demo
+                bundle (ST-03: COPD + TBI). Saves the profile, seeds the
+                database, and fires the clinical-evidence bundler.
+              </Text>
+              <Pressable
+                style={[styles.actionButton, rerunningDemo && styles.disabledActionButton]}
+                disabled={rerunningDemo}
+                onPress={handleRerunElenaDemo}
+              >
+                <Text style={styles.actionButtonText}>
+                  {rerunningDemo ? 'Loading Elena Garcia demo…' : 'Re-run onboarding with Elena Garcia demo'}
+                </Text>
               </Pressable>
 
               <Pressable
@@ -858,6 +1124,58 @@ function ConsentManagement({ patientId }: { patientId: string }) {
   );
 }
 
+function YourDecisionsSection({ patientId }: { patientId: string }) {
+  const [decisions, setDecisions] = useState<{ action: string; resourceId: string; timestamp: string; payload?: any }[]>(() => {
+    if (!patientId) return [];
+    try {
+      return getAuditEntriesForResource('caregiver_action', patientId, 10);
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (!patientId) return;
+    const handle = setTimeout(() => {
+      try {
+        const entries = getAuditEntriesForResource('caregiver_action', patientId, 10);
+        setDecisions(entries);
+      } catch {
+        // ignore — audit may not be initialized
+      }
+    }, 0);
+    return () => clearTimeout(handle);
+  }, [patientId]);
+
+  if (decisions.length === 0) return null;
+
+  return (
+    <Section
+      title="Your Decisions"
+      explanation="Recent decisions you've made about the Concierge's suggestions."
+    >
+      <View style={styles.subsection}>
+        {decisions.map((d, i) => (
+          <View key={`${d.resourceId}-${i}`} style={styles.decisionRow}>
+            <Text style={styles.decisionAction}>
+              {d.action === 'override'
+                ? 'You overrode'
+                : d.action === 'confirm'
+                  ? 'You confirmed'
+                  : `You ${d.action}`}
+            </Text>
+            <Text style={styles.decisionTime}>
+              {d.timestamp
+                ? new Date(d.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                : ''}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </Section>
+  );
+}
+
 function AuditViewer({ patientId }: { patientId: string }) {
   const [expanded, setExpanded] = useState(false);
   const [entries, setEntries] = useState<{ auditId: string; actor: string; action: string; resourceType: string; createdAt: string; hashChain: string }[]>([]);
@@ -918,21 +1236,287 @@ function AuditViewer({ patientId }: { patientId: string }) {
   );
 }
 
-function KnowledgeCacheViewer() {
+function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
+  const { refresh: refreshSnapshot } = usePatientRecord();
   const [loaded, setLoaded] = useState(false);
   const [chunks, setChunks] = useState<KnowledgeChunk[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedChunkId, setExpandedChunkId] = useState<string | null>(null);
+  // Source groups are collapsed by default; this set tracks which are expanded.
+  const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [exportingZip, setExportingZip] = useState(false);
+  const [enrichmentLogOpen, setEnrichmentLogOpen] = useState(false);
+  const [enrichmentLog, setEnrichmentLog] = useState<PatientEnrichmentLogEntry[]>([]);
 
   const loadChunks = useCallback(() => {
     setChunks(getAllKnowledgeChunks());
+    setEnrichmentLog(getEnrichmentLogForPatient(patientId, 20));
     setLoaded(true);
-  }, []);
+  }, [patientId]);
+
+  // Refresh both the local chunk list AND the patient-record snapshot so the
+  // Knowledge Cache stats counts + bundleStatus at the top of the block update
+  // (they read from snapshot.knowledgeStats, which only changes on snapshot refresh).
+  const refresh = useCallback(() => {
+    setChunks(getAllKnowledgeChunks());
+    setEnrichmentLog(getEnrichmentLogForPatient(patientId, 20));
+    refreshSnapshot();
+  }, [patientId, refreshSnapshot]);
 
   const closeViewer = useCallback(() => {
     setLoaded(false);
     setChunks([]);
-    setExpandedId(null);
+    setExpandedChunkId(null);
+    setExpandedSources(new Set());
+    setEnrichmentLogOpen(false);
   }, []);
+
+  const toggleSource = useCallback((source: string) => {
+    setExpandedSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(source)) next.delete(source);
+      else next.add(source);
+      return next;
+    });
+  }, []);
+
+  const handleCopy = useCallback((chunk: KnowledgeChunk) => {
+    try {
+      // Lazy import to avoid a top-level dependency on the deprecated
+      // RN Clipboard for callers that don't use the viewer.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const Clipboard = require('react-native').Clipboard;
+      if (Clipboard?.setString) {
+        Clipboard.setString(`${chunk.chunkId}\n\n${chunk.text}`);
+        Alert.alert('Copied', `${chunk.chunkId} copied to clipboard.`);
+      }
+    } catch (err) {
+      Alert.alert('Copy failed', err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  const handleDelete = useCallback((chunk: KnowledgeChunk) => {
+    Alert.alert(
+      'Delete chunk?',
+      `${chunk.chunkId} will be removed from the knowledge cache. The SLM will re-fetch it next time if needed.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            deleteKnowledgeChunk(chunk.chunkId);
+            refresh();
+          },
+        },
+      ],
+    );
+  }, [refresh]);
+
+  const handleRedownload = useCallback(async (chunk: KnowledgeChunk) => {
+    setBusyId(chunk.chunkId);
+    try {
+      const result = await redownloadForChunk(chunk.chunkId, patientId);
+      if (result.success) {
+        Alert.alert(
+          'Re-downloaded',
+          `Replaced ${chunk.chunkId} with ${result.newChunkIds.length} new chunk${result.newChunkIds.length === 1 ? '' : 's'}.`,
+        );
+      } else {
+        Alert.alert('Re-download failed', result.error ?? 'Unknown error');
+      }
+    } finally {
+      setBusyId(null);
+      refresh();
+    }
+  }, [patientId, refresh]);
+
+  const handleDeleteBySource = useCallback((source: string) => {
+    Alert.alert(
+      `Delete all "${source}" chunks?`,
+      `This removes every chunk with source="${source}". Use Re-download to re-fetch.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete all',
+          style: 'destructive',
+          onPress: () => {
+            const removed = deleteKnowledgeChunksBySource(source);
+            refresh();
+            Alert.alert('Deleted', `${removed} ${source} chunk${removed === 1 ? '' : 's'} removed.`);
+          },
+        },
+      ],
+    );
+  }, [refresh]);
+
+  const handleRedownloadAll = useCallback(async () => {
+    setBusyId('__all__');
+    try {
+      const result = await redownloadAllForPatient(patientId);
+      refresh();
+      if (result.errors.length === 0) {
+        Alert.alert('Re-downloaded', 'Knowledge cache rebuilt from current patient record.');
+      } else {
+        Alert.alert('Re-download completed with errors', result.errors.join('\n'));
+      }
+    } finally {
+      setBusyId(null);
+    }
+  }, [patientId, refresh]);
+
+  // Export the full knowledge cache as a single zip archive. Each chunk
+  // is written as a sanitized .txt file inside a per-source folder, plus a
+  // manifest.json with chunk metadata. Written to Paths.document so the
+  // file persists across app sessions and is reachable via iTunes File
+  // Sharing / the Files app on iOS. The URI is surfaced via Alert so the
+  // user can copy/paste it or AirDrop the file.
+  const handleExportZip = useCallback(async () => {
+    if (chunks.length === 0) {
+      Alert.alert('Nothing to export', 'The knowledge cache is empty.');
+      return;
+    }
+    setExportingZip(true);
+    try {
+      // Lazy-require JSZip so callers that never open the viewer don't pay
+      // the parse cost. (jszip is already a dependency — added in the plan
+      // implementation for the CDA zip import path.)
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const JSZip = require('jszip');
+      const zip = new JSZip();
+
+      const manifest: {
+        exportedAt: string;
+        patientId: string;
+        totalChunks: number;
+        sources: { source: string; count: number }[];
+        chunks: {
+          chunkId: string;
+          source: string;
+          conditions: string | null;
+          retrievedAt: string;
+          useCount: number;
+          documentType?: string | null;
+          lengthTier?: string | null;
+          file: string;
+        }[];
+      } = {
+        exportedAt: new Date().toISOString(),
+        patientId: patientId ?? 'default-patient',
+        totalChunks: chunks.length,
+        sources: [],
+        chunks: [],
+      };
+
+      // Group by source so each source lives in its own folder.
+      const bySource: Record<string, KnowledgeChunk[]> = {};
+      for (const c of chunks) {
+        const key = c.source || 'unknown';
+        if (!bySource[key]) bySource[key] = [];
+        bySource[key].push(c);
+      }
+
+      // Sanitize a chunk id into a filesystem-safe filename. Strips path
+      // separators and other chars that break iOS/Android filenames.
+      const safeName = (id: string): string =>
+        id.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80);
+
+      for (const [source, srcChunks] of Object.entries(bySource)) {
+        manifest.sources.push({ source, count: srcChunks.length });
+        const folder = zip.folder(source);
+        if (!folder) continue;
+        for (const c of srcChunks) {
+          const fname = `${safeName(c.chunkId)}.txt`;
+          const fpath = `${source}/${fname}`;
+          // Chunk body: the text + a small header block with the metadata
+          // so the file is self-describing if extracted individually.
+          const header = [
+            `chunkId: ${c.chunkId}`,
+            `source: ${c.source}`,
+            `conditions: ${c.conditions ?? ''}`,
+            `retrievedAt: ${c.retrievedAt}`,
+            `useCount: ${c.useCount}`,
+            c.documentType ? `documentType: ${c.documentType}` : null,
+            c.lengthTier ? `lengthTier: ${c.lengthTier}` : null,
+            '---',
+          ].filter(Boolean).join('\n');
+          folder.file(fname, `${header}\n${c.text}`);
+          manifest.chunks.push({
+            chunkId: c.chunkId,
+            source: c.source,
+            conditions: c.conditions ?? null,
+            retrievedAt: c.retrievedAt,
+            useCount: c.useCount,
+            documentType: c.documentType ?? null,
+            lengthTier: c.lengthTier ?? null,
+            file: fpath,
+          });
+        }
+      }
+
+      zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+
+      const buf = await zip.generateAsync({
+        type: 'uint8array',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 },
+      });
+
+      // Write to the app's document directory (persists across sessions,
+      // reachable from Files app on iOS).
+      const fileName = `knowledge-cache-${Date.now()}.zip`;
+      const outFile = new File(Paths.document, fileName);
+      outFile.write(buf as unknown as string);
+
+      audit({
+        actor: 'caregiver',
+        action: 'export',
+        resourceType: 'knowledge_cache',
+        resourceId: fileName,
+        patientId: patientId ?? undefined,
+        payload: { totalChunks: chunks.length, sources: manifest.sources.length, fileName },
+      });
+
+      // Open the OS share sheet so the caregiver can AirDrop, email, save
+      // to Files, or send via Messages — without leaving the app. Falls
+      // back to an Alert with the URI if sharing is unavailable (rare:
+      // simulator without share extension, or an unsupported file type).
+      let shared = false;
+      try {
+        if (await Sharing.isAvailableAsync()) {
+          // Copy to the cache directory first so the URI scheme is
+          // writable-share-compatible (Sharing prefers file:// uris under
+          // Paths.cache on iOS).
+          const cacheFile = new File(Paths.cache, fileName);
+          cacheFile.write(buf as unknown as string);
+          await Sharing.shareAsync(cacheFile.uri, {
+            mimeType: 'application/zip',
+            dialogTitle: 'Share Knowledge Cache Export',
+            UTI: 'public.zip-archive',
+          });
+          shared = true;
+        }
+      } catch (shareErr) {
+        // Share sheet cancelled or failed — fall through to the URI alert
+        // so the caregiver still knows where the file lives.
+        console.warn('[KnowledgeCacheViewer] Sharing.shareAsync failed:', shareErr);
+      }
+
+      if (!shared) {
+        Alert.alert(
+          'Knowledge cache exported',
+          `${chunks.length} chunk${chunks.length === 1 ? '' : 's'} (${manifest.sources.length} source${manifest.sources.length === 1 ? '' : 's'}) written to:\n\n${outFile.uri}\n\nOn iOS, find it in the Files app under this app's container; on Android, use a file manager or `+ '`adb pull`' +`.`,
+        );
+      }
+    } catch (err) {
+      Alert.alert(
+        'Export failed',
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setExportingZip(false);
+    }
+  }, [chunks, patientId]);
 
   if (!loaded) {
     return (
@@ -951,9 +1535,29 @@ function KnowledgeCacheViewer() {
 
   return (
     <View style={styles.cacheViewerWrap}>
-      <Pressable style={[styles.actionButton, styles.closeButton]} onPress={closeViewer}>
-        <Text style={styles.actionButtonText}>Close Chunk Viewer</Text>
-      </Pressable>
+      <View style={styles.cacheViewerActions}>
+        <Pressable style={[styles.actionButton, styles.closeButton]} onPress={closeViewer}>
+          <Text style={styles.actionButtonText}>Close</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.actionButton, busyId === '__all__' && styles.disabledActionButton]}
+          onPress={handleRedownloadAll}
+          disabled={busyId === '__all__'}
+        >
+          <Text style={styles.actionButtonText}>
+            {busyId === '__all__' ? 'Re-downloading…' : 'Re-download all (from current record)'}
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.actionButton, (exportingZip || chunks.length === 0) && styles.disabledActionButton]}
+          onPress={() => void handleExportZip()}
+          disabled={exportingZip || chunks.length === 0}
+        >
+          <Text style={styles.actionButtonText}>
+            {exportingZip ? 'Exporting…' : 'Export as ZIP'}
+          </Text>
+        </Pressable>
+      </View>
 
       {chunks.length === 0 ? (
         <Text style={styles.devInfo}>
@@ -962,37 +1566,119 @@ function KnowledgeCacheViewer() {
           conditions and medications.
         </Text>
       ) : (
-        sources.map((src) => (
+        sources.map((src) => {
+          const isSourceExpanded = expandedSources.has(src);
+          return (
           <View key={src} style={styles.cacheSourceGroup}>
-            <Text style={styles.cacheSourceLabel}>
-              {src} ({bySource[src].length})
-            </Text>
-            {bySource[src].map((chunk) => {
-              const isOpen = expandedId === chunk.chunkId;
-              return (
+            <View style={styles.cacheSourceHeader}>
+              <Pressable
+                style={styles.cacheSourceToggle}
+                onPress={() => toggleSource(src)}
+            >
+                <Text style={styles.cacheSourceCaret}>
+                  {isSourceExpanded ? '▾' : '▸'}
+                </Text>
+                <Text style={styles.cacheSourceLabel}>
+                  {src} ({bySource[src].length})
+                </Text>
+              </Pressable>
+              <View style={styles.cacheSourceHeaderActions}>
                 <Pressable
-                  key={chunk.chunkId}
-                  style={styles.cacheChunkRow}
-                  onPress={() => setExpandedId(isOpen ? null : chunk.chunkId)}
+                  style={[styles.smallButton]}
+                  onPress={() => toggleSource(src)}
                 >
-                  <Text style={styles.cacheChunkId}>{chunk.chunkId}</Text>
-                  <Text style={styles.cacheChunkMeta}>
-                    {chunk.conditions ? `conditions: ${chunk.conditions}` : 'no conditions'}
-                    {' - '}uses: {chunk.useCount}
+                  <Text style={styles.smallButtonText}>
+                    {isSourceExpanded ? 'Collapse' : 'Expand'}
                   </Text>
-                  {isOpen ? (
-                    <Text style={styles.cacheChunkText}>{chunk.text}</Text>
-                  ) : (
-                    <Text style={styles.cacheChunkPreview} numberOfLines={2}>
-                      {chunk.text}
-                    </Text>
-                  )}
                 </Pressable>
+                <Pressable
+                  style={[styles.smallButton, styles.dangerSmallButton]}
+                  onPress={() => handleDeleteBySource(src)}
+                >
+                  <Text style={styles.smallButtonText}>Delete all</Text>
+                </Pressable>
+              </View>
+            </View>
+            {isSourceExpanded ? bySource[src].map((chunk) => {
+              const isOpen = expandedChunkId === chunk.chunkId;
+              const isBusy = busyId === chunk.chunkId;
+              return (
+                <View key={chunk.chunkId} style={styles.cacheChunkRow}>
+                  <Pressable onPress={() => setExpandedChunkId(isOpen ? null : chunk.chunkId)}>
+                    <Text style={styles.cacheChunkId}>{chunk.chunkId}</Text>
+                    <Text style={styles.cacheChunkMeta}>
+                      {chunk.conditions ? `conditions: ${chunk.conditions}` : 'no conditions'}
+                      {' · '}uses: {chunk.useCount}
+                      {chunk.documentType ? ` · ${chunk.documentType}` : ''}
+                    </Text>
+                    {isOpen ? (
+                      <Text style={styles.cacheChunkText}>{chunk.text}</Text>
+                    ) : (
+                      <Text style={styles.cacheChunkPreview} numberOfLines={2}>
+                        {chunk.text}
+                      </Text>
+                    )}
+                  </Pressable>
+                  <View style={styles.cacheChunkActions}>
+                    <Pressable
+                      style={[styles.smallButton, isBusy && styles.disabledButton]}
+                      onPress={() => void handleRedownload(chunk)}
+                      disabled={isBusy}
+                    >
+                      <Text style={styles.smallButtonText}>
+                        {isBusy ? '…' : 'Re-download'}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.smallButton]}
+                      onPress={() => handleCopy(chunk)}
+                    >
+                      <Text style={styles.smallButtonText}>Copy</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.smallButton, styles.dangerSmallButton]}
+                      onPress={() => handleDelete(chunk)}
+                    >
+                      <Text style={styles.smallButtonText}>Delete</Text>
+                    </Pressable>
+                  </View>
+                </View>
               );
-            })}
+            }) : null}
           </View>
-        ))
+        );
+      })
       )}
+
+      {/* Enrichment log viewer (planning/32 §13.4) */}
+      <View style={styles.enrichmentLogBlock}>
+        <Pressable
+          style={styles.enrichmentLogHeader}
+          onPress={() => setEnrichmentLogOpen((v) => !v)}
+        >
+          <Text style={styles.devLabel}>
+            {enrichmentLogOpen ? '▾' : '▸'} Enrichment log ({enrichmentLog.length} entries)
+          </Text>
+        </Pressable>
+        {enrichmentLogOpen ? (
+          enrichmentLog.length === 0 ? (
+            <Text style={styles.devInfo}>No enrichment entries yet.</Text>
+          ) : (
+            enrichmentLog.map((entry) => (
+              <View key={entry.logId} style={styles.enrichmentLogRow}>
+                <Text style={styles.enrichmentLogMeta}>
+                  {entry.createdAt.slice(0, 19).replace('T', ' ')} · {entry.source} · {entry.action}
+                  {entry.resultCount !== undefined ? ` · ${entry.resultCount} chunks` : ''}
+                  {entry.latencyMs !== undefined ? ` · ${entry.latencyMs}ms` : ''}
+                </Text>
+                {entry.deidentifiedQuery ? (
+                  <Text style={styles.enrichmentLogQuery}>{entry.deidentifiedQuery}</Text>
+                ) : null}
+              </View>
+            ))
+          )
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -1331,6 +2017,30 @@ const styles = StyleSheet.create({
   devSection: { gap: 12, marginTop: 8, paddingHorizontal: 16, paddingBottom: 16 },
   devLabel: { fontSize: 14, fontWeight: '700', color: darkText },
   devInfo: { fontSize: 12, color: mutedText, lineHeight: 17 },
+  keyLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  keyStatusBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  keyStatusStored: {
+    color: '#0F7A4A',
+    backgroundColor: '#DCFCE7',
+  },
+  keyStatusEmpty: {
+    color: '#9CA3AF',
+    backgroundColor: '#F3F4F6',
+  },
   modelRow: { gap: 8 },
   modelItem: {
     borderWidth: 1,
@@ -1370,6 +2080,29 @@ const styles = StyleSheet.create({
   closeButton: { backgroundColor: '#6B7280' },
   cacheViewerWrap: { gap: 8, marginTop: 8 },
   cacheSourceGroup: { gap: 4, marginTop: 8 },
+  cacheSourceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  cacheSourceToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  cacheSourceCaret: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: teal,
+    width: 14,
+  },
+  cacheSourceHeaderActions: {
+    flexDirection: 'row',
+    gap: 6,
+    flexShrink: 0,
+  },
   cacheSourceLabel: {
     fontSize: 12,
     fontWeight: '800',
@@ -1382,7 +2115,7 @@ const styles = StyleSheet.create({
     borderColor,
     borderRadius: 8,
     padding: 10,
-    gap: 3,
+    gap: 6,
   },
   cacheChunkId: {
     fontSize: 12,
@@ -1404,6 +2137,41 @@ const styles = StyleSheet.create({
     color: darkText,
     lineHeight: 18,
     marginTop: 4,
+  },
+  cacheChunkActions: {
+    flexDirection: 'row',
+    gap: 6,
+    flexWrap: 'wrap',
+    marginTop: 6,
+  },
+  cacheViewerActions: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  enrichmentLogBlock: {
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: borderColor,
+  },
+  enrichmentLogHeader: {
+    paddingVertical: 4,
+  },
+  enrichmentLogRow: {
+    paddingVertical: 4,
+    gap: 2,
+  },
+  enrichmentLogMeta: {
+    fontSize: 11,
+    color: mutedText,
+    fontFamily: 'monospace',
+  },
+  enrichmentLogQuery: {
+    fontSize: 11,
+    color: darkText,
+    fontStyle: 'italic',
+    paddingLeft: 8,
   },
   progressBar: {
     height: 4,
@@ -1467,5 +2235,22 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.white,
     fontSize: 13,
     fontWeight: '800',
+  },
+  decisionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 0.5,
+    borderColor: AppTheme.colors.border,
+  },
+  decisionAction: {
+    fontSize: 14,
+    color: AppTheme.colors.text,
+    fontWeight: '600',
+  },
+  decisionTime: {
+    fontSize: 12,
+    color: AppTheme.colors.textMuted,
   },
 });

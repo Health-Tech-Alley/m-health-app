@@ -5,10 +5,11 @@ import { useRouter } from "expo-router";
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
 import { getCaregiverForPatient, insertCaregiverAction } from "@/data";
-import { useNonEmergencyDecisionWorkflow } from "@/services/care/useNonEmergencyDecisionWorkflow";
+import { useNonEmergencyDecisionWorkflow } from "@/hooks/useNonEmergencyDecisionWorkflow";
 import { useAppSelector } from "@/store/hooks";
+import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { selectNonEmergencyDecisionForAlert } from "@/store/reducers/nonEmergencyDecisionSlice";
-import { getPatientDisplayName } from "@/store/selectors/patientSelectors";
+import { getPatientDisplayName } from "@/utils/patientDisplay";
 
 const contextOptions = [
   { code: "increased_activity", label: "Exercising / increased activity" },
@@ -39,7 +40,7 @@ export function NonEmergencyInsightCard({
   patientId,
 }: NonEmergencyInsightCardProps) {
   const router = useRouter();
-  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const activePatient = useActivePatientView();
   const decisionWorkflow = useAppSelector((state) =>
     selectNonEmergencyDecisionForAlert(state, patientId, alertId),
   );

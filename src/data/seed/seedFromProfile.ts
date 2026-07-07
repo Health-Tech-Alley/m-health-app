@@ -32,7 +32,7 @@ import type { SymptomCategory, Threshold } from '../types';
 import { upsertMedicationSchedule } from '../repositories/medicationScheduleRepository';
 import { insertAppointment, deleteDemoAppointmentsForPatient } from '../repositories/appointmentRepository';
 import { ensureDefaultNotificationPreferences } from '../repositories/notificationRepository';
-import { upsertSymptom } from '../repositories/symptomRepository';
+import { upsertSymptom, deleteSymptomsForPatient } from '../repositories/symptomRepository';
 import { upsertWearableDevice } from '../repositories/wearableDeviceRepository';
 import { setBundlePending, setBundleStatus } from '../repositories/patientRecordRepository';
 
@@ -115,6 +115,7 @@ export function seedDatabaseFromProfile(
     macs: profile.patient.macsLevel || 'Not assessed',
     cfcs: profile.patient.cfcsLevel || 'Not assessed',
     edacs: profile.patient.edacsLevel || 'Not assessed',
+    location: profile.patient.location,
     createdAt: profile.completedAt ?? now,
     updatedAt: now,
   });
@@ -193,6 +194,10 @@ export function seedDatabaseFromProfile(
   }
 
   // -- Symptoms (structured catalog selections) -----------------------------
+  // Clear existing symptoms so re-seed is idempotent and duplicates don't
+  // accumulate across cold starts (mirrors conditions + medications above).
+  deleteSymptomsForPatient(patientId);
+
   const symptomIds = profile.patient.symptoms ?? [];
   for (const symptomId of symptomIds) {
     const category = SYMPTOM_CATEGORY_MAP[symptomId] ?? 'other';
@@ -361,13 +366,21 @@ export function seedDatabaseFromProfile(
   // on this; the retriever uses synthetic fixtures until the cache is populated,
   // then picks up the cached chunks on the next index rebuild.
   // (See planning/22_clinical-data-gathering.md §9a)
-  void import('@/clinical-evidence/condition-bundler').then(({ bundleConditionPack, bundleMedicationPack }) => {
+  void import('@/clinical-evidence/condition-bundler').then(({ bundleConditionPack, bundleMedicationPack, bundleSdohPack, bundleMeasurePack }) => {
     void bundleConditionPack(patientId).catch((err) => {
       console.error('[seedFromProfile] bundleConditionPack failed:', err);
       // Leave bundlePending = true so the app retries on next launch
     });
     void bundleMedicationPack(patientId).catch((err) => {
       console.error('[seedFromProfile] bundleMedicationPack failed:', err);
+    });
+    // D5: SDOH bundle (CDC PLACES) keyed off patient.location.
+    void bundleSdohPack(patientId, profile.patient.location).catch((err) => {
+      console.error('[seedFromProfile] bundleSdohPack failed:', err);
+    });
+    // D7: HEDIS measure-driven care-gap bundle.
+    void bundleMeasurePack(patientId).catch((err) => {
+      console.error('[seedFromProfile] bundleMeasurePack failed:', err);
     });
   }).catch((err) => {
     console.error('[seedFromProfile] Failed to load condition-bundler:', err);

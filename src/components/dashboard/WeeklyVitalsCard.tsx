@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-import { DeviceEventEmitter, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
-import { getHealthSampleForPatientAndCurrentMonth } from "@/data/repositories/healthSampleRepository";
-import { HealthSampleType, Patient } from "@/data/types";
+import { HealthSampleType } from "@/data/types";
 
 type VitalKey = "spo2" | "heartRate" | "respRate" | "mobility";
 type TimeRange = "12h" | "day" | "week" | "month";
@@ -93,20 +92,11 @@ export function WeeklyVitalsCard() {
   const [selectedKey, setSelectedKey] = useState<HealthSampleType>("spo2");
   const [selectedRange, setSelectedRange] = useState<TimeRange>("week");
   const [helperKey, setHelperKey] = useState<HealthSampleType>("spo2");
-  const [currentPatient, setCurrentPatient] = useState<Patient | null>(null);
-  const [fhirData, setFhirData] = useState<any>(null);
-  const [chartMetrics, setChartMetrics] = useState<VitalMetric[]>([]);
 
-  // load current patient on load
-  useEffect(() => {
-    const patient = null;
-    setCurrentPatient(patient);
-  }, []);
-
-  const selectedMetric =
-    metrics.find((metric) => metric.key === selectedKey) ?? chartMetrics[0];
+  const selectedMetric = metrics.find((metric) => metric.key === selectedKey);
   const helperMetric =
     metrics.find((metric) => metric.key === helperKey) ?? selectedMetric;
+  const safeSelectedMetric = selectedMetric ?? metrics[0];
 
   const heartRate = metrics.find((metric) => metric.key === "heart_rate");
   const respRate = metrics.find((metric) => metric.key === "respiratory_rate");
@@ -116,7 +106,7 @@ export function WeeklyVitalsCard() {
       <View style={styles.headerRow}>
         <View style={styles.titleBlock}>
           <Text style={styles.sectionTitle}>Weekly Vitals</Text>
-          <Text style={styles.subtitle}>{selectedMetric?.subtitle}</Text>
+          <Text style={styles.subtitle}>{safeSelectedMetric?.subtitle}</Text>
         </View>
 
         <View style={styles.tabRow}>
@@ -146,17 +136,17 @@ export function WeeklyVitalsCard() {
       </View>
 
       <View style={styles.valueRow}>
-        <Text style={styles.mainValue}>{selectedMetric?.value}</Text>
-        <Text style={styles.unit}>{selectedMetric?.unit}</Text>
+        <Text style={styles.mainValue}>{safeSelectedMetric?.value}</Text>
+        <Text style={styles.unit}>{safeSelectedMetric?.unit}</Text>
         <Text
           style={[
             styles.status,
-            selectedMetric?.statusTone === "critical" && styles.statusCritical,
-            selectedMetric?.statusTone === "warning" && styles.statusWarning,
-            selectedMetric?.statusTone === "good" && styles.statusGood,
+            safeSelectedMetric?.statusTone === "critical" && styles.statusCritical,
+            safeSelectedMetric?.statusTone === "warning" && styles.statusWarning,
+            safeSelectedMetric?.statusTone === "good" && styles.statusGood,
           ]}
         >
-          {selectedMetric?.status}
+          {safeSelectedMetric?.status}
         </Text>
       </View>
 
@@ -183,7 +173,7 @@ export function WeeklyVitalsCard() {
         })}
       </View>
 
-      <TrendChart values={selectedMetric?.data} />
+      <TrendChart values={safeSelectedMetric?.data ?? []} />
 
       <View style={styles.divider} />
 

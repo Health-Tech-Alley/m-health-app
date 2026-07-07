@@ -26,6 +26,36 @@ import type { FhirBundle, PatientProfile } from "./uc2Types";
 
 // ── FHIR helpers ──────────────────────────────────────────────────────────────
 
+/**
+ * CP/severe-disability functional classification scale extension URLs,
+ * matching `src/data/fhir/onboarding-import-mapper.ts` `EXTENSION_URLS`.
+ * Kept in sync with the importer so the same Patient record round-trips
+ * consistently into the ML layer.
+ */
+const CP_SCALE_EXTENSION_URLS = {
+    gmfcs: "gmfcs",
+    macs: "macs",
+    cfcs: "cfcs",
+    edacs: "edacs",
+} as const;
+
+function readPatientExtension(
+    patientResource: any,
+    urlFragment: string
+): string | undefined {
+    const extensions: any[] | undefined = patientResource?.extension;
+    if (!Array.isArray(extensions)) return undefined;
+    for (const ext of extensions) {
+        const url = typeof ext?.url === "string" ? ext.url : "";
+        if (!url.endsWith(urlFragment)) continue;
+        const value = ext?.valueString ?? ext?.valueCodeableConcept?.text;
+        if (typeof value === "string" && value.trim().length > 0) {
+            return value.trim();
+        }
+    }
+    return undefined;
+}
+
 function codeText(resource: any): string | undefined {
     return (
         resource?.code?.text ||
@@ -81,6 +111,18 @@ export function patientProfileFromFhirBundle(
                     .filter(Boolean)
                     .join(" ");
             profile.date_of_birth = r.birthDate;
+
+            // CP / severe-disability functional scales (FHIR Patient extensions).
+            // These are the severity signal the v2 layer needs to set
+            // personalized severity floors for GMFCS Level V patients.
+            const gmfcs = readPatientExtension(r, CP_SCALE_EXTENSION_URLS.gmfcs);
+            const macs = readPatientExtension(r, CP_SCALE_EXTENSION_URLS.macs);
+            const cfcs = readPatientExtension(r, CP_SCALE_EXTENSION_URLS.cfcs);
+            const edacs = readPatientExtension(r, CP_SCALE_EXTENSION_URLS.edacs);
+            if (gmfcs) profile.gmfcs_level = gmfcs;
+            if (macs) profile.macs = macs;
+            if (cfcs) profile.cfcs = cfcs;
+            if (edacs) profile.edacs = edacs;
         }
 
         if (r.resourceType === "Condition") {
@@ -154,6 +196,10 @@ export function patientProfileFromPlainObject(
         clinician_name?: string;
         clinician_role?: string;
         clinician_endpoint?: string;
+        gmfcs_level?: string;
+        macs?: string;
+        cfcs?: string;
+        edacs?: string;
     }
 ): PatientProfile {
     return {
@@ -182,5 +228,9 @@ export function patientProfileFromPlainObject(
                     endpoint: data.clinician_endpoint,
                 }
                 : undefined,
+        gmfcs_level: data.gmfcs_level,
+        macs: data.macs,
+        cfcs: data.cfcs,
+        edacs: data.edacs,
     };
 }

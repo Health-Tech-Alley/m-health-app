@@ -12,25 +12,27 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { AlertsLogCard } from "@/components/dashboard/AlertsLogCard";
+import { NeedsYourReviewBanner } from "@/components/dashboard/NeedsYourReviewBanner";
 import { NonEmergencyInsightCard } from "@/components/dashboard/NonEmergencyInsightCard";
 import { PatientSummaryCard } from "@/components/dashboard/PatientSummaryCard";
 import { TodayPriorityCard } from "@/components/dashboard/TodayPriorityCard";
 import { WeeklyVitalsCard } from "@/components/dashboard/WeeklyVitalsCard";
 import { AppTheme } from "@/constants/theme";
+import { timeOfDayGreeting } from "@/constants/user-terms";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
 import { getEventBus } from "@/orchestration/event-bus";
 import {
   getActiveCareAlerts,
   type CareAlert,
 } from "@/services/care/careService";
-import { useAppSelector } from "@/store/hooks";
+import { useActivePatientView } from "@/hooks/useActivePatientView";
 import {
   getCaregiverDisplay,
   getPatientDisplayName,
-} from "@/store/selectors/patientSelectors";
+} from "@/utils/patientDisplay";
 
 export default function DashboardRoute() {
-  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const activePatient = useActivePatientView();
   const patientId = useOrchestratorPatientId();
   const scrollRef = useRef<ScrollView | null>(null);
   const [alertsLogY, setAlertsLogY] = useState(0);
@@ -40,6 +42,7 @@ export default function DashboardRoute() {
 
   const caregiverFirstName = getFirstName(getCaregiverDisplay(activePatient));
   const patientFirstName = getFirstName(getPatientDisplayName(activePatient));
+  const greeting = `${timeOfDayGreeting()}, ${caregiverFirstName}`;
 
   const scrollToAlertsLog = () => {
     scrollRef.current?.scrollTo({
@@ -97,7 +100,7 @@ export default function DashboardRoute() {
           <MainTabHeader
             title="Caregiver Concierge"
             eyebrow="ACCESS-DP"
-            subtitle={`Good evening, ${caregiverFirstName}. Here's ${patientFirstName}'s status.`}
+            subtitle={`${greeting}. Here's ${patientFirstName}'s status.`}
             logoSource={require("@/assets/images/hta-logo.png")}
             rightContent={
               <Pressable
@@ -118,6 +121,10 @@ export default function DashboardRoute() {
 
           <PatientSummaryCard />
           <WeeklyVitalsCard />
+          <NeedsYourReviewBanner
+            patientId={patientId}
+            onReviewPress={scrollToAlertsLog}
+          />
           {visibleNonEmergencyAlert ? (
             <NonEmergencyInsightCard
               key={`${visibleNonEmergencyAlert.patientId}:${visibleNonEmergencyAlert.alertId}`}

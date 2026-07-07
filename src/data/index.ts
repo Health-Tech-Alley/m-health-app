@@ -59,8 +59,13 @@ export * from './repositories/rehabilitationMeasurementRepository';
 export * from './repositories/patientLongitudinalObservationRepository';
 export * from './repositories/appointmentRepository';
 export * from './repositories/thresholdRecommendationRepository';
+export * from './repositories/secureMessagingRepository';
 export * from './sensors';
 export { seedDatabaseFromProfile } from './seed/seedFromProfile';
 
 // FHIR resource layer (derived readers + C-CDA serializer).
 export * from './fhir';
+
+// CDA EHR import (planning/33): direct importer for standardized CDA JSON
+// (longitudinal EHR dataset) into the existing SQLite schema.
+export * from './cda';

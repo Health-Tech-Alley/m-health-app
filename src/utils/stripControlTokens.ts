@@ -10,8 +10,8 @@
  */
 export function stripControlTokens(text: string): { thinking: string | null; answer: string } {
   // gpt-oss / Gemma "harmony" channel format:
-  //   <|channel>thought ... <|channel>final ...
-  const channelRegex = /<!\|channel\|?>(\w+)\s*([\s\S]*?)(?=<!\|channel\|?>|<!\|end\|?>|<!\|return\|?>|$)/gi;
+  //   <|channel|>thought ... <|channel|>final ...
+  const channelRegex = /<\|channel\|?>(\w+)\s*([\s\S]*?)(?=<\|channel\|?>|<\|end\|?>|<\|return\|?>|$)/gi;
   const matches = [...text.matchAll(channelRegex)];
 
   if (matches.length > 0) {
@@ -19,7 +19,7 @@ export function stripControlTokens(text: string): { thinking: string | null; ans
     let answer = '';
     for (const m of matches) {
       const channel = m[1].toLowerCase();
-      const body = m[2].replace(/<!\|message\|?>/gi, '').trim();
+      const body = m[2].replace(/<\|message\|?>/gi, '').trim();
       if (channel === 'final' || channel === 'answer') {
         answer += body;
       } else {
@@ -27,8 +27,8 @@ export function stripControlTokens(text: string): { thinking: string | null; ans
       }
     }
     // Clean any remaining control tokens.
-    answer = answer.replace(/<!\|[^>]*\|?>/g, '').trim();
-    thinking = thinking.replace(/<!\|[^>]*\|?>/g, '').trim();
+    answer = answer.replace(/<\|[^>]*\|?>/g, '').trim();
+    thinking = thinking.replace(/<\|[^>]*\|?>/g, '').trim();
     if (answer) {
       return { thinking: thinking || null, answer };
     }
@@ -43,6 +43,6 @@ export function stripControlTokens(text: string): { thinking: string | null; ans
   }
 
   // No structured markers — return text with any stray control tokens removed.
-  const cleaned = text.replace(/<!\|[^>]*\|?>/g, '').trim();
+  const cleaned = text.replace(/<\|[^>]*\|?>/g, '').trim();
   return { thinking: null, answer: cleaned };
 }

@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { ObservationVitalsCard } from "@/app/ObservationVitalsCard";
+import { ObservationVitalsCard } from "@/components/care/ObservationVitalsCard";
 import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
@@ -26,7 +26,7 @@ import {
 import { getRehabilitationMeasurements } from "@/data/repositories/rehabilitationMeasurementRepository";
 import type { RehabilitationMeasurement, RehabilitationMeasurementType } from "@/data/types";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
-import { useAppSelector } from "@/store/hooks";
+import { useActivePatientView } from "@/hooks/useActivePatientView";
 import {
   displayClinical,
   getCaregiverDisplay,
@@ -34,14 +34,14 @@ import {
   getPatientAgeDisplay,
   getPatientDisplayName,
   getPrimaryDiagnosisDisplay,
-} from "@/store/selectors/patientSelectors";
+} from "@/utils/patientDisplay";
 
 export default function CareScreen() {
   const router = useRouter();
   const profile = getOnboardingProfile();
   const { patientId, snapshot } = usePatientRecord();
   const { reopenOnCareFocus } = useCriticalAlert();
-  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const activePatient = useActivePatientView();
   const patientName = getPatientDisplayName(activePatient);
   const patientAge = getPatientAgeDisplay(activePatient);
   const diagnosis = getPrimaryDiagnosisDisplay(activePatient);
@@ -82,6 +82,21 @@ export default function CareScreen() {
   const gaitSpeedMeasurements = rehabMeasurements.filter(
     (m) => m.type === "rehabilitation_gait_speed",
   );
+
+  // CP-relevant progress metrics for non-ambulatory patients (GMFCS IV–V).
+  // Pulled alongside the stroke-oriented Berg balance / gait speed rows so
+  // a single Care screen works for both populations.
+  const cpProgressMeasurements = useMemo(() => {
+    if (!patientId) return [];
+    const types: RehabilitationMeasurementType[] = [
+      "rehabilitation_modified_ashworth",
+      "rehabilitation_seated_postural_control",
+      "rehabilitation_feeding_tolerance",
+      "rehabilitation_communication_function",
+      "rehabilitation_joint_contracture_rom",
+    ];
+    return types.flatMap((t) => getRehabilitationMeasurements(patientId, t));
+  }, [patientId]);
 
   const openFieldEdit = (field: "setsCompleted" | "painBefore" | "painAfter" | "fatigue" | "notes") => {
     setEditingField(field);
@@ -288,6 +303,16 @@ export default function CareScreen() {
                     maxVal={1.5}
                     unit="m/s"
                   />
+
+                  {cpProgressMeasurements.length > 0 ? (
+                    <ProgressMetric
+                      label="CP progress (most recent)"
+                      measurements={cpProgressMeasurements}
+                      target={1}
+                      maxVal={1}
+                      unit=""
+                    />
+                  ) : null}
 
                   <Pressable style={styles.notesCard} onPress={() => openFieldEdit("notes")}>
                     <Text style={styles.notesLabel}>Caregiver Note · tap to edit</Text>

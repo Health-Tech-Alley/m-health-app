@@ -9,8 +9,8 @@ export function insertHealthSample(sample: HealthSample): void {
   const db = getDatabase();
   db.runSync(
     `INSERT OR REPLACE INTO health_samples
-      (sample_id, patient_id, source, type, value, value_json, unit, recorded_at, received_at, metadata_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      (sample_id, patient_id, source, type, value, value_json, unit, recorded_at, received_at, metadata_json, source_doc_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     sample.sampleId,
     sample.patientId,
     sample.source,
@@ -21,6 +21,7 @@ export function insertHealthSample(sample: HealthSample): void {
     sample.recordedAt,
     sample.receivedAt,
     sample.metadataJson ?? null,
+    sample.sourceDocId ?? null,
   );
 }
 
@@ -34,7 +35,7 @@ export function getRecentHealthSamples(
   return db.getAllSync<HealthSample>(
     `SELECT sample_id AS sampleId, patient_id AS patientId, source, type, value,
             value_json AS valueJson, unit, recorded_at AS recordedAt, received_at AS receivedAt,
-            metadata_json AS metadataJson
+            metadata_json AS metadataJson, source_doc_id AS sourceDocId
      FROM health_samples
      WHERE patient_id = ? AND type = ? AND recorded_at >= ?
      ORDER BY recorded_at DESC
@@ -55,7 +56,7 @@ export function getLatestHealthSample(
     db.getFirstSync<HealthSample>(
       `SELECT sample_id AS sampleId, patient_id AS patientId, source, type, value,
               value_json AS valueJson, unit, recorded_at AS recordedAt, received_at AS receivedAt,
-              metadata_json AS metadataJson
+              metadata_json AS metadataJson, source_doc_id AS sourceDocId
        FROM health_samples
        WHERE patient_id = ? AND type = ?
        ORDER BY recorded_at DESC

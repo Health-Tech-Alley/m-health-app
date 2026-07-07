@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Image, StyleSheet, Text, View, type ImageSourcePropType } from "react-native";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
+import { SlmStatusIcon } from "@/components/concierge/SlmStatusIcon";
 import { AppTheme } from "@/constants/theme";
 
 type MainTabHeaderProps = {
@@ -41,7 +42,18 @@ export function MainTabHeader({
           </Text>
         </View>
 
-        {rightContent ? <View style={styles.rightSlot}>{rightContent}</View> : null}
+        {rightContent ? (
+          <View style={styles.rightSlot}>
+            <View style={styles.rightRow}>
+              {rightContent}
+              <SlmStatusIcon compact />
+            </View>
+          </View>
+        ) : (
+          <View style={styles.rightSlot}>
+            <SlmStatusIcon compact />
+          </View>
+        )}
       </View>
 
       {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
@@ -110,5 +122,10 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     alignItems: "flex-end",
     justifyContent: "center",
+  },
+  rightRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
 });

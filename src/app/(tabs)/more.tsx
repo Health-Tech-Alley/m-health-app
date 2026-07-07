@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
+import { YourDecisionsSection } from "@/components/concierge/YourDecisionsSection";
 import { AppTheme } from "@/constants/theme";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
 import { usePatientRecord } from '@/contexts/patient-record-context';
@@ -14,15 +15,17 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 
+import { importCdaJsonString, importCdaZip } from '@/data/cda';
 import { dispatchImmediate } from '@/services/notifications';
-import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { addPatient } from '@/store/reducers/patientSlice';
+import { useAppDispatch } from '@/store/hooks';
+import { useActivePatientView } from '@/hooks/useActivePatientView';
 import {
   getCaregiverDisplay,
   getCaregiverRoleDisplay,
   getPatientAgeDisplay,
   getPatientDisplayName,
-} from '@/store/selectors/patientSelectors';
+} from '@/utils/patientDisplay';
+import { audit } from '@/services/audit/auditService';
 
 
 
@@ -31,7 +34,7 @@ export default function MoreScreen() {
   const params = useLocalSearchParams<{ focus?: string }>();
   const dispatch = useAppDispatch();
   const profile = getOnboardingProfile();
-  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const activePatient = useActivePatientView();
   const patientName = getPatientDisplayName(activePatient);
   const patientAge = getPatientAgeDisplay(activePatient);
   const caregiverName = getCaregiverDisplay(activePatient);
@@ -39,7 +42,7 @@ export default function MoreScreen() {
   const scrollRef = useRef<ScrollView | null>(null);
   const ehrImportYRef = useRef(0);
   const patientId = useOrchestratorPatientId();
-  const { importFHIRBundle } = usePatientRecord();
+  const { importFHIRBundle, refresh } = usePatientRecord();
   const [importing, setImporting] = useState(false);
 
   useEffect(() => {
@@ -56,53 +59,103 @@ export default function MoreScreen() {
   async function handleOpenEHRImport() {
     setImporting(true);
     try {
-      // 1. Let user pick a JSON file
+      // 1. Let user pick a file. We accept both FHIR JSON and CDA JSON /
+      //    CDA zip — the picker below uses `*/*` and we dispatch by
+      //    extension or by content sniff.
       const result = await DocumentPicker.getDocumentAsync({
-        type: 'application/json',
+        type: ['application/json', 'application/zip', 'public.zip-archive', '*/*'],
         copyToCacheDirectory: true,
       });
 
       if (result.canceled) return null;
 
-      // 2. Read the file contents
       const fileUri = result.assets[0].uri;
-      // const contents = await FileSystem.readAsStringAsync(fileUri);
-      const file = new File(fileUri);
-      const contents = await file.text();           // replaces readAsStringAsync
-      // const bundle = JSON.parse(contents);
+      const fileName = result.assets[0].name ?? '';
+      const lowerName = fileName.toLowerCase();
 
-      // 3. Parse FHIR JSON
+      // 2. Route to the right importer based on extension
+      if (lowerName.endsWith('.zip')) {
+        const summary = await importCdaZip(fileUri, {
+          patientId: patientId ?? 'default-patient',
+          isNewPatient: true,
+        });
+        refresh();
+        audit({
+          actor: 'caregiver',
+          action: 'cda_zip_import',
+          resourceType: 'cda_import',
+          resourceId: fileName,
+          patientId,
+          payload: {
+            filesDiscovered: summary.filesDiscovered,
+            filesImported: summary.filesImported,
+            filesSkipped: summary.filesSkipped,
+            totalConditions: summary.totalConditions,
+            totalNarrativeChunks: summary.totalNarrativeChunks,
+          },
+        });
+        await dispatchImmediate({
+          patientId,
+          scope: 'care_task',
+          title: 'EHR import complete',
+          body: `${summary.filesImported} of ${summary.filesDiscovered} documents imported.`,
+          severity: 1,
+        });
+        // Navigate to the post-import completion screen so the caregiver
+        // can fill in the redacted identity fields (planning/33 §6.4).
+        router.push('/ehr-complete');
+        return;
+      }
+
+      // 3. Single CDA JSON file (a single doc out of the zip)
+      if (/_deidentified\.json$/i.test(lowerName)) {
+        const file = new File(fileUri);
+        const contents = await file.text();
+        const result = importCdaJsonString(contents, {
+          patientId: patientId ?? 'default-patient',
+          isNewPatient: true,
+        });
+        refresh();
+        audit({
+          actor: 'caregiver',
+          action: 'cda_single_import',
+          resourceType: 'cda_import',
+          resourceId: result.docId,
+          patientId,
+          payload: {
+            conditions: result.conditions,
+            medications: result.medications,
+            narrativeChunks: result.narrativeChunks,
+            vitals: result.vitals,
+          },
+        });
+        await dispatchImmediate({
+          patientId,
+          scope: 'care_task',
+          title: 'EHR document imported',
+          body: `${result.conditions} conditions, ${result.medications} medications, ${result.narrativeChunks} narrative chunks.`,
+          severity: 1,
+        });
+        // Navigate to the post-import completion screen (planning/33 §6.4).
+        router.push('/ehr-complete');
+        return;
+      }
+
+      // 4. Fall back to FHIR Bundle import
+      const file = new File(fileUri);
+      const contents = await file.text();
       const fhirBundle = JSON.parse(contents);
-      // console.log("Parsed FHIR bundle:", fhirBundle);
       importFHIRBundle(fhirBundle);
-      // wherever you receive the patient data (API response, EHR import, etc.)
-      dispatch(addPatient(fhirBundle)); // Dispatch the action to save patient data to Redux store
       await dispatchImmediate({
         patientId: patientId,
         scope: 'anomaly',
-        title: "EHR Import",
-        body: 'FHIR bundle imported successfully',
+        title: 'Health record imported',
+        body: 'Health record imported successfully',
         severity: 1,
-      });// Schedule a push notification after importing the FHIR bundle
+      });
     } finally {
       setImporting(false);
     }
-    // scheduleLocalNotification(
-    //   {
-    //     patientId: 'String(args.patientId)',
-    //     scope: 'care_task',
-    //     triggerRef: 'args.alertId ? String(args.alertId) : undefined',
-    //     title: 'EHR Import',
-    //     body: 'FHIR bundle imported successfully',
-    //     triggerWhen: new Date(Date.now())
-    //   }
-    // ); // Emit the event with the FHIR bundle data
-
-    // Emit
-    // console.log('Emitting fhirBundleImported event with data: ');
-    // DeviceEventEmitter.emit('fhirBundleImported', { fhirBundle: fhirBundle });
-    // 4. Pass to your DB layer
-    // return fhirBundle;
   }
 
   return (
@@ -183,8 +236,8 @@ export default function MoreScreen() {
           >
             <SettingsRow
               icon="plus"
-              title="Populate from EHR"
-              subtitle={importing ? "Importing FHIR bundle..." : "C-CDA / FHIR records placeholder"}
+              title="Import from health record"
+              subtitle={importing ? "Importing health record..." : "Import a FHIR JSON, a single CDA JSON, or a zip of CDA JSONs"}
               onPress={handleOpenEHRImport}
             />
 
@@ -196,12 +249,29 @@ export default function MoreScreen() {
             />
           </SettingsSection>
 
+          <SettingsSection title="Your activity">
+            <YourDecisionsSection
+              patientFirstName={getFirstName(patientName)}
+              limit={20}
+            />
+          </SettingsSection>
+
           <SettingsSection title="About">
             <View style={styles.aboutContent}>
               <Text style={styles.aboutText}>Caregiver Concierge: ACCESS-DP</Text>
-              <Text style={styles.aboutText}>
-                Health Tech Alley {"\u2022"} v1.0.0
-              </Text>
+              <Pressable
+                onLongPress={() => router.push("/advanced-developer-settings" as never)}
+                delayLongPress={3000}
+                accessibilityRole="button"
+                accessibilityLabel="Hold to open developer tools"
+              >
+                <Text style={styles.aboutText}>
+                  Health Tech Alley {"\u2022"} v1.0.0
+                </Text>
+                <Text style={styles.aboutMuted}>
+                  Press and hold the version number for 3 seconds to open developer tools.
+                </Text>
+              </Pressable>
               <Text style={styles.aboutMuted}>
                 This app is a caregiver support prototype and does not replace
                 emergency care or professional medical advice.
@@ -543,3 +613,8 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 });
+
+function getFirstName(name: string): string {
+  const firstName = name.trim().split(/\s+/)[0];
+  return firstName || name;
+}

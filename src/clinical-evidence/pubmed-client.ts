@@ -22,12 +22,17 @@ export interface PubMedSearchResult {
 /**
  * Search PubMed for abstracts matching a de-identified query.
  * Returns a list of PMIDs.
+ *
+ * @param params.filter Optional PubMed filter. Use 'systematic_review' to
+ *                       restrict to meta-analyses + systematic reviews
+ *                       (P5b). Use 'free_full_text' for the PMC OA subset.
  */
 export async function searchPubMed(params: {
   query: string;
   retmax?: number;
+  filter?: 'systematic_review' | 'free_full_text' | 'guideline';
 }): Promise<PubMedSearchResult> {
-  const { query, retmax = 20 } = params;
+  const { query, retmax = 20, filter } = params;
   const apiKey = await getNcbiApiKey();
 
   const url = new URL(`${EUTILS_BASE}/esearch.fcgi`);
@@ -37,6 +42,18 @@ export async function searchPubMed(params: {
   url.searchParams.set('retmode', 'json');
   url.searchParams.set('sort', 'relevance');
   if (apiKey) url.searchParams.set('api_key', apiKey);
+
+  // P5b: PubMed filter tags.
+  // - systematic[sb] OR meta-analysis[pt]   → high-quality evidence tier
+  // - free full text[sb]                    → PMC OA subset for full-text
+  // - guideline[pt]                         → published guidelines
+  if (filter === 'systematic_review') {
+    url.searchParams.set('term', `${query} AND (systematic[sb] OR meta-analysis[pt])`);
+  } else if (filter === 'free_full_text') {
+    url.searchParams.set('term', `${query} AND free full text[sb]`);
+  } else if (filter === 'guideline') {
+    url.searchParams.set('term', `${query} AND (guideline[pt] OR practice guideline[pt])`);
+  }
 
   const response = await fetchWithTimeout(url.toString());
   if (!response.ok) {
@@ -105,7 +122,7 @@ function parseAbstractText(raw: string): KnowledgeChunk[] {
     chunks.push({
       chunkId: docId,
       source: 'pubmed',
-      text: abstract.slice(0, 2000), // cap at 2000 chars for BM25 index size
+      text: abstract.slice(0, 5000), // cap at 5000 chars for richer grounding per planning/26
       retrievedAt: now,
       useCount: 0,
       metadataJson: JSON.stringify({ pmid }),
