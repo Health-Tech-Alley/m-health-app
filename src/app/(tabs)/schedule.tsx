@@ -227,9 +227,9 @@ function emptyForm(profile: ReturnType<typeof getOnboardingProfile>) {
 export default function ScheduleScreen() {
   const profile = getOnboardingProfile();
   const { patientId } = usePatientRecord();
-  const athenaPatientId = '14167';
+  // let athenaPatientId = '-1';
   const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
-
+  const [athenaPatientId, setAthenaPatientId] = useState<string>('-1');
   const [form, setForm] = useState(() => emptyForm(profile));
   const [upcoming, setUpcoming] = useState<Appointment[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -250,8 +250,21 @@ export default function ScheduleScreen() {
 
   const reload = useCallback(async () => {
     setUpcoming([]); // clear while loading
-    if (patientId) setUpcoming(await searchUpcomingAppointments(athenaPatientId, todayIsoDate(), addDaysIso(todayIsoDate(), 90)));
-  }, [patientId]);
+    // find patietn record
+    console.log('reloading appointments due to patient update: ', patient, athenaPatientId);
+    if (patient) {
+      const patientRecord =  patient?.entry?.filter((entry: any) => entry && entry.resource && entry.resource.resourceType === "Patient");
+      console.log('patient record: ', patientRecord);
+
+      setAthenaPatientId(patientRecord ? patientRecord[0].resource?.id : '-1');
+      const tempAthenaPaientId = patientRecord ? patientRecord[0].resource?.id : '-1'
+      console.log('Updated Athena Patient ID: ', athenaPatientId, tempAthenaPaientId);
+      if( tempAthenaPaientId !== '-1') {
+        console.log('Reloading appointments for Athena Patient ID: ', athenaPatientId, tempAthenaPaientId);
+        setUpcoming(await searchUpcomingAppointments(tempAthenaPaientId, todayIsoDate(), addDaysIso(todayIsoDate(), 90)));
+      }
+  }
+  }, [patient]);
 
   useEffect(() => {
     const handle = setTimeout(() => reload(), 0);
@@ -558,6 +571,17 @@ export default function ScheduleScreen() {
                     : "Pick a time above first"}
               </Text>
             </Pressable>
+
+            <Pressable
+              style={[
+                styles.scheduleButton
+              ]}
+              onPress={reload}
+            >
+              <Text style={styles.scheduleButtonText}>
+                {"Reload Appointments"}
+              </Text>
+            </Pressable>
           </View>
 
           <View style={styles.card}>
@@ -800,7 +824,9 @@ function LargeField({
 function formatAppointmentDateTime(date: string, time?: string): string {
   // athenahealth-returned dates are MM/DD/YYYY; locally-created ones may be
   // YYYY-MM-DD, so handle both.
-  const isoLike = date.includes("/") ? date.split("/").reverse().join("-").replace(/^(\d{2})-(\d{2})-(\d{4})$/, "$3-$1-$2") : date;
+  const isoLike = date.includes("/")
+    ? date.replace(/^(\d{2})\/(\d{2})\/(\d{4})$/, "$3-$1-$2")
+    : date;
   const parsed = new Date(`${isoLike}T00:00:00`);
   const dateLabel = Number.isNaN(parsed.getTime())
     ? date
@@ -809,7 +835,6 @@ function formatAppointmentDateTime(date: string, time?: string): string {
         month: "short",
         day: "numeric",
       });
-
   return time ? `${dateLabel} at ${to12Hour(time)}` : dateLabel;
 }
 

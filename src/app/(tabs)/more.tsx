@@ -14,6 +14,12 @@ import {
 } from "@/services/onboarding/onboardingService";
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
+import {
+  exportPatientCcda,
+  getRecordConsentStatus,
+  setRecordConsent,
+  type RecordConsentScope,
+} from "@/services/records/recordsService";
 
 import { importCdaJsonString, importCdaZip } from '@/data/cda';
 import { dispatchImmediate } from '@/services/notifications';
@@ -141,20 +147,107 @@ export default function MoreScreen() {
         return;
       }
 
-      // 4. Fall back to FHIR Bundle import
-      const file = new File(fileUri);
-      const contents = await file.text();
-      const fhirBundle = JSON.parse(contents);
-      importFHIRBundle(fhirBundle);
-      await dispatchImmediate({
-        patientId: patientId,
-        scope: 'anomaly',
-        title: 'Health record imported',
-        body: 'Health record imported successfully',
-        severity: 1,
-      });
-    } finally {
-      setImporting(false);
+    setRecordExportStatus(
+      consent.granted
+        ? "Consent granted for C-CDA export"
+        : "Consent required before export",
+    );
+  }
+
+  async function handleOpenEHRImport() {
+    router.push("/select-fhir-profile" as never);
+    // 1. Let user pick a JSON file
+    // const result = await DocumentPicker.getDocumentAsync({
+    //   type: 'application/json',
+    //   copyToCacheDirectory: true,
+    // });
+
+    // if (result.canceled) return null;
+
+    // // 2. Read the file contents
+    // const fileUri = result.assets[0].uri;
+    // // const contents = await FileSystem.readAsStringAsync(fileUri);
+    // const file = new File(fileUri);
+    // const contents = await file.text();           // ← replaces readAsStringAsync
+    // // const bundle = JSON.parse(contents);
+
+    // // 3. Parse FHIR JSON
+    // const fhirBundle = JSON.parse(contents);
+    // // console.log("Parsed FHIR bundle:", fhirBundle);
+    // importFHIRBundle(fhirBundle);
+    // // wherever you receive the patient data (API response, EHR import, etc.)
+    // dispatch(addPatient(fhirBundle)); // Dispatch the action to save patient data to Redux store
+    // await dispatchImmediate({
+    //   patientId: patientId,
+    //   scope: 'anomaly',
+    //   title: "EHR Import",
+    //   body: 'FHIR bundle imported successfully',
+    //   severity: 1,
+    // });// Schedule a push notification after importing the FHIR bundle
+    // scheduleLocalNotification(
+    //   {
+    //     patientId: 'String(args.patientId)',
+    //     scope: 'care_task',
+    //     triggerRef: 'args.alertId ? String(args.alertId) : undefined',
+    //     title: 'EHR Import',
+    //     body: 'FHIR bundle imported successfully',
+    //     triggerWhen: new Date(Date.now())
+    //   }
+    // ); // Emit the event with the FHIR bundle data
+
+    // Emit
+    // console.log('Emitting fhirBundleImported event with data: ');
+    // DeviceEventEmitter.emit('fhirBundleImported', { fhirBundle: fhirBundle });
+    // 4. Pass to your DB layer
+    // return fhirBundle;
+  }
+
+  function handleCcdaExport() {
+    const result = exportPatientCcda(patientId);
+
+    if (result.status === "queued") {
+      setRecordExportStatus("C-CDA export queued for sync");
+      Alert.alert("Export queued", result.message);
+      return;
+    }
+
+    if (result.status === "denied") {
+      setConsentGranted((current) => ({
+        ...current,
+        ccda_export: false,
+      }));
+      setRecordExportStatus("Consent required before export");
+      Alert.alert(
+        "Consent required",
+        "Please turn on record export consent before exporting a C-CDA record.",
+      );
+      return;
+    }
+
+    setRecordExportStatus("C-CDA export failed");
+    Alert.alert("Export failed", result.message);
+  }
+
+  function handleToggleAuditLog() {
+    if (auditLogExpanded) {
+      setAuditLogExpanded(false);
+      return;
+    }
+
+    try {
+      const chain = verifyAuditLogChain();
+      const entries = getAuditLogEntriesForResource(undefined, undefined, 8);
+      setAuditChainOk(chain.ok);
+      setAuditEntries(entries);
+      setAuditError(null);
+    } catch (error) {
+      setAuditChainOk(null);
+      setAuditEntries([]);
+      setAuditError(
+        error instanceof Error
+          ? error.message
+          : "Unable to read the audit log right now",
+      );
     }
   }
 
