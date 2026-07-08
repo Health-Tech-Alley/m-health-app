@@ -8,7 +8,8 @@
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
 
-import { insertHealthSample, type HealthSampleType } from '../';
+import { insertHealthSample } from '../repositories/healthSampleRepository';
+import type { HealthSampleType } from '../types';
 import type { PermissionResult, SensorSample, SensorSource } from './sensor-source';
 
 export type MockPersona = 'spina-bifida' | 'post-stroke' | 'copd-tbi' | 'normal';
@@ -27,6 +28,13 @@ const PERSONA_BASELINES: Record<MockPersona, Record<string, { value: number; uni
     respiratory_rate: { value: 16, unit: 'rpm', variance: 1 },
     temperature: { value: 37.0, unit: 'C', variance: 0.2 },
     steps: { value: 4000, unit: 'count', variance: 500 },
+    blood_glucose: { value: 95, unit: 'mg/dL', variance: 8 },
+    distance: { value: 3000, unit: 'm', variance: 500 },
+    flights_climbed: { value: 5, unit: 'count', variance: 2 },
+    sleep: { value: 7.5, unit: 'h', variance: 0.5 },
+    coughing: { value: 0, unit: 'count', variance: 0 },
+    weight: { value: 70, unit: 'kg', variance: 0.5 },
+    height: { value: 175, unit: 'cm', variance: 0 },
   },
   'spina-bifida': {
     spo2: { value: 0.96, unit: 'fraction', variance: 0.015 },
@@ -36,6 +44,13 @@ const PERSONA_BASELINES: Record<MockPersona, Record<string, { value: number; uni
     blood_pressure_diastolic: { value: 80, unit: 'mmHg', variance: 5 },
     temperature: { value: 37.0, unit: 'C', variance: 0.3 },
     steps: { value: 800, unit: 'count', variance: 200 },
+    blood_glucose: { value: 90, unit: 'mg/dL', variance: 10 },
+    distance: { value: 400, unit: 'm', variance: 100 },
+    flights_climbed: { value: 1, unit: 'count', variance: 1 },
+    sleep: { value: 8, unit: 'h', variance: 1 },
+    coughing: { value: 0, unit: 'count', variance: 0 },
+    weight: { value: 45, unit: 'kg', variance: 0.5 },
+    height: { value: 155, unit: 'cm', variance: 0 },
   },
   'post-stroke': {
     spo2: { value: 0.96, unit: 'fraction', variance: 0.015 },
@@ -45,6 +60,13 @@ const PERSONA_BASELINES: Record<MockPersona, Record<string, { value: number; uni
     blood_pressure_diastolic: { value: 88, unit: 'mmHg', variance: 6 },
     temperature: { value: 37.1, unit: 'C', variance: 0.2 },
     steps: { value: 1500, unit: 'count', variance: 400 },
+    blood_glucose: { value: 100, unit: 'mg/dL', variance: 12 },
+    distance: { value: 800, unit: 'm', variance: 200 },
+    flights_climbed: { value: 2, unit: 'count', variance: 1 },
+    sleep: { value: 6.5, unit: 'h', variance: 1 },
+    coughing: { value: 0, unit: 'count', variance: 1 },
+    weight: { value: 78, unit: 'kg', variance: 0.5 },
+    height: { value: 170, unit: 'cm', variance: 0 },
   },
   'copd-tbi': {
     spo2: { value: 0.91, unit: 'fraction', variance: 0.02 },
@@ -52,6 +74,13 @@ const PERSONA_BASELINES: Record<MockPersona, Record<string, { value: number; uni
     respiratory_rate: { value: 24, unit: 'rpm', variance: 3 },
     temperature: { value: 37.2, unit: 'C', variance: 0.3 },
     steps: { value: 1200, unit: 'count', variance: 300 },
+    blood_glucose: { value: 95, unit: 'mg/dL', variance: 10 },
+    distance: { value: 600, unit: 'm', variance: 150 },
+    flights_climbed: { value: 2, unit: 'count', variance: 1 },
+    sleep: { value: 6.5, unit: 'h', variance: 1 },
+    coughing: { value: 1, unit: 'count', variance: 1 },
+    weight: { value: 51.71, unit: 'kg', variance: 0.5 },
+    height: { value: 149.9, unit: 'cm', variance: 0 },
   },
 };
 
@@ -166,6 +195,27 @@ export class MockSensorSource implements SensorSource {
         break;
       case 'steps':
         value = clamp(Math.round(jitter(base, variance)), 0, 20000);
+        break;
+      case 'blood_glucose':
+        value = clamp(Math.round(jitter(base, variance)), 60, 200);
+        break;
+      case 'distance':
+        value = clamp(Math.round(jitter(base, variance)), 0, 15000);
+        break;
+      case 'flights_climbed':
+        value = clamp(Math.round(jitter(base, variance)), 0, 30);
+        break;
+      case 'weight':
+        value = clamp(jitter(base, variance), 20, 200);
+        break;
+      case 'height':
+        value = clamp(jitter(base, variance), 50, 220);
+        break;
+      case 'sleep':
+        value = clamp(jitter(base, variance), 0, 12);
+        break;
+      case 'coughing':
+        value = clamp(Math.round(jitter(base, variance)), 0, 50);
         break;
       default:
         value = jitter(base, variance);

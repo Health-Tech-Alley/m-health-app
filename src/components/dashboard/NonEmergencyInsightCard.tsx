@@ -1,54 +1,141 @@
-import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
-import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
+import { getCaregiverForPatient, insertCaregiverAction } from "@/data";
+import type { CareAlert } from "@/services/care/careService";
+import { useNonEmergencyDecisionWorkflow } from "@/hooks/useNonEmergencyDecisionWorkflow";
+import { useAppSelector } from "@/store/hooks";
+import { useActivePatientView } from "@/hooks/useActivePatientView";
+import { selectNonEmergencyDecisionForAlert } from "@/store/reducers/nonEmergencyDecisionSlice";
+import { getPatientDisplayName } from "@/utils/patientDisplay";
 
 const contextOptions = [
-  "Exercising / increased activity",
-  "Poor sleep",
-  "Stress or emotional upset",
-  "Eating/drinking less than usual",
-  "Missed or changed medication",
-  "Bathroom changes",
-  "Vomiting or diarrhea",
-  "More tired, weak, confused, or not acting normal",
-  "Pain or discomfort",
-  "Breathing seemed different",
-  "Sensor/watch issue",
-  "Nothing unusual noticed",
-  "Not sure",
+  { code: "increased_activity", label: "Exercising / increased activity" },
+  { code: "poor_sleep", label: "Poor sleep" },
+  { code: "stress_emotional_upset", label: "Stress or emotional upset" },
+  { code: "eating_drinking_less", label: "Eating/drinking less than usual" },
+  { code: "medication_change", label: "Missed or changed medication" },
+  { code: "bathroom_changes", label: "Bathroom changes" },
+  { code: "vomiting_diarrhea", label: "Vomiting or diarrhea" },
+  {
+    code: "tired_weak_confused_not_normal",
+    label: "More tired, weak, confused, or not acting normal",
+  },
+  { code: "pain_discomfort", label: "Pain or discomfort" },
+  { code: "breathing_different", label: "Breathing seemed different" },
+  { code: "sensor_issue", label: "Sensor/watch issue" },
+  { code: "nothing_unusual", label: "Nothing unusual noticed" },
+  { code: "not_sure", label: "Not sure" },
 ];
 
-export function NonEmergencyInsightCard() {
+type NonEmergencyInsightCardProps = {
+  alert: CareAlert;
+};
+
+export function NonEmergencyInsightCard({
+  alert,
+}: NonEmergencyInsightCardProps) {
   const router = useRouter();
-  const profile = getOnboardingProfile();
-  const patientFirstName =
-    profile.patient.name.trim().split(/\s+/)[0] || "the patient";
+  const activePatient = useActivePatientView();
+  const { alertId, patientId } = alert;
+  const decisionWorkflow = useAppSelector((state) =>
+    selectNonEmergencyDecisionForAlert(state, patientId, alertId),
+  );
+  const { evaluateSavedResponse, resetDecisionWorkflow } =
+    useNonEmergencyDecisionWorkflow();
+  const alertTitle = alert.title.trim() || "Alert title not provided";
+  const alertBody =
+    alert.body.trim() ||
+    "Alert details not provided";
 
   const [selectedContexts, setSelectedContexts] = useState<string[]>([]);
   const [reasonSearch, setReasonSearch] = useState("");
   const [reasonPickerOpen, setReasonPickerOpen] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submittedSelectionKey, setSubmittedSelectionKey] = useState<string | null>(null);
+  const submittingRef = useRef(false);
 
   const answered = selectedContexts.length > 0;
+  const selectedContextKey = getSelectionKey(selectedContexts);
+  const updating = submitting || decisionWorkflow.status === "evaluating";
+  const selectionUpdated =
+    answered &&
+    submittedSelectionKey !== null &&
+    selectedContextKey === submittedSelectionKey &&
+    decisionWorkflow.status === "ready";
+  const canUpdateRecommendation = answered && !updating && !selectionUpdated;
+  const updateButtonText = updating
+    ? "Updating..."
+    : selectionUpdated
+      ? "Updated"
+      : "Update recommendation";
+
+  useEffect(() => {
+    resetDecisionWorkflow(patientId, alertId);
+  }, [alertId, patientId, resetDecisionWorkflow]);
+
   const visibleContextOptions = useMemo(() => {
     const query = reasonSearch.trim().toLowerCase();
 
     return [...contextOptions]
       .filter((option) => {
         if (!query) return true;
-        return option.toLowerCase().includes(query);
+        return option.label.toLowerCase().includes(query);
       })
-      .sort((a, b) => a.localeCompare(b));
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [reasonSearch]);
 
-  const handleDismiss = () => {
-    // Only allow dismissal once the prompt has been answered.
-    if (!answered) return;
-    setDismissed(true);
+  const handleUpdateRecommendation = () => {
+    // Only allow recalculation once the prompt has been answered.
+    if (!canUpdateRecommendation || submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+
+    try {
+      const submittedSelectionKey = selectedContextKey;
+      const selectedOptions = contextOptions.filter((option) =>
+        selectedContexts.includes(option.code),
+      );
+      const caregiverId =
+        getCaregiverForPatient(patientId)?.caregiverId ?? "caregiver-1";
+      const createdAt = new Date().toISOString();
+      const actionId = `act-${Date.now()}`;
+
+      insertCaregiverAction({
+        actionId,
+        alertId,
+        patientId,
+        caregiverId,
+        type: "answer_clarifying_question",
+        payloadJson: JSON.stringify({
+          kind: "non_emergency_context",
+          selectedReasons: selectedOptions.map((option) => ({
+            code: option.code,
+            label: option.label,
+          })),
+        }),
+        createdAt,
+      });
+      setSubmittedSelectionKey(submittedSelectionKey);
+      void evaluateSavedResponse({
+        alertId,
+        patientId,
+        caregiverActionId: actionId,
+        selectedReasonCodes: selectedContexts,
+      });
+    } catch (error) {
+      Alert.alert(
+        "Could not save response",
+        "Please try again. Your selected reasons are still shown.",
+      );
+      console.error("[NonEmergencyInsightCard] Failed to save context:", error);
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
   };
 
   const toggleContext = (option: string) => {
@@ -61,7 +148,13 @@ export function NonEmergencyInsightCard() {
     });
   };
 
-  if (dismissed) return null;
+  const recommendationText = getRecommendationText({
+    answered,
+    selectedContexts,
+    status: decisionWorkflow.status,
+    title: decisionWorkflow.decision?.notificationTitle ?? "",
+    body: decisionWorkflow.decision?.notificationBody ?? "",
+  });
 
   return (
     <View style={styles.card}>
@@ -72,7 +165,7 @@ export function NonEmergencyInsightCard() {
 
         <View style={styles.headerTextBlock}>
           <Text style={styles.kicker}>Non-emergency pattern</Text>
-          <Text style={styles.title}>Movement looked different today</Text>
+          <Text style={styles.title}>{alertTitle}</Text>
         </View>
 
         <View style={styles.softBadge}>
@@ -81,9 +174,7 @@ export function NonEmergencyInsightCard() {
       </View>
 
       <Text style={styles.bodyText}>
-        {patientFirstName}&apos;s mobility score was lower than expected, but
-        this does not look like an emergency. Add context so the Concierge can
-        avoid unnecessary alerts and learn the pattern.
+        {alertBody} Add caregiver context to recalculate the recommendation.
       </Text>
 
       <Text style={styles.questionText}>Was anything unusual happening?</Text>
@@ -129,16 +220,16 @@ export function NonEmergencyInsightCard() {
         <>
           <View style={styles.contextGrid}>
             {visibleContextOptions.map((option) => {
-              const selected = selectedContexts.includes(option);
+              const selected = selectedContexts.includes(option.code);
 
               return (
                 <Pressable
-                  key={option}
+                  key={option.code}
                   style={[
                     styles.contextChip,
                     selected && styles.contextChipSelected,
                   ]}
-                  onPress={() => toggleContext(option)}
+                  onPress={() => toggleContext(option.code)}
                 >
                   <Text
                     style={[
@@ -146,7 +237,7 @@ export function NonEmergencyInsightCard() {
                       selected && styles.contextChipTextSelected,
                     ]}
                   >
-                    {option}
+                    {option.label}
                   </Text>
                 </Pressable>
               );
@@ -163,17 +254,24 @@ export function NonEmergencyInsightCard() {
         <View style={styles.recommendationHeader}>
           <Text style={styles.recommendationLabel}>Concierge recommendation</Text>
           {answered ? (
-            <Pressable style={styles.checkmarkButton} onPress={handleDismiss}>
+            <Pressable
+              style={styles.checkmarkButton}
+              onPress={handleUpdateRecommendation}
+              disabled={!canUpdateRecommendation}
+            >
               <AppIcon name="check" size={16} color={AppTheme.colors.white} />
-              <Text style={styles.checkmarkText}>Dismiss</Text>
+              <Text style={styles.checkmarkText}>{updateButtonText}</Text>
             </Pressable>
           ) : null}
         </View>
         <Text style={styles.recommendationText}>
-          {answered
-            ? `${formatSelectedContexts(selectedContexts)} added as context. If this repeats at the same time or without explanation, consider asking the provider about the pattern.`
-            : "If there is a clear reason, add context. If this repeats without explanation, the app can suggest a provider check-in."}
+          {recommendationText}
         </Text>
+        {selectionUpdated ? (
+          <Text style={styles.recommendationHelperText}>
+            Recommendation updated. Add or change context to update it again.
+          </Text>
+        ) : null}
 
         {answered ? (
           <Pressable
@@ -191,11 +289,53 @@ export function NonEmergencyInsightCard() {
 }
 
 function formatSelectedContexts(selectedContexts: string[]): string {
-  if (selectedContexts.length === 1) {
-    return selectedContexts[0];
+  const selectedLabels = contextOptions
+    .filter((option) => selectedContexts.includes(option.code))
+    .map((option) => option.label);
+
+  if (selectedLabels.length === 1) {
+    return selectedLabels[0];
   }
 
-  return `${selectedContexts.length} reasons`;
+  return `${selectedLabels.length} reasons`;
+}
+
+function getSelectionKey(selectedContexts: string[]): string {
+  return [...selectedContexts].sort().join("|");
+}
+
+function getRecommendationText({
+  answered,
+  selectedContexts,
+  status,
+  title,
+  body,
+}: {
+  answered: boolean;
+  selectedContexts: string[];
+  status: "idle" | "evaluating" | "ready" | "unavailable" | "failed";
+  title: string;
+  body: string;
+}): string {
+  if (status === "evaluating") {
+    return `${formatSelectedContexts(selectedContexts)} added as context. Reviewing the saved alert details...`;
+  }
+
+  if (status === "ready") {
+    return [title, body].filter(Boolean).join(": ");
+  }
+
+  if (status === "unavailable") {
+    return "Your response was saved. Additional analysis is not available for this alert.";
+  }
+
+  if (status === "failed") {
+    return "Your response was saved, but the additional analysis could not be completed. Please try again later.";
+  }
+
+  return answered
+    ? `${formatSelectedContexts(selectedContexts)} added as context. Update the recommendation to include this alert context.`
+    : "If there is useful context, add it so the app can recalculate the recommendation for this alert.";
 }
 
 const styles = StyleSheet.create({
@@ -380,6 +520,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     fontWeight: "800",
+  },
+  recommendationHelperText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "800",
+    marginTop: 8,
   },
   suggestedFeatureButton: {
     marginTop: 10,

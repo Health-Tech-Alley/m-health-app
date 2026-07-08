@@ -17,6 +17,8 @@ export type OrchestrationEvent =
       value: number;
       unit: string;
       recordedAt: string;
+      source?: import('@/data/types').HealthSampleSource;
+      receivedAt?: string;
     }
   | {
       type: 'ml_alert_created';
@@ -41,7 +43,7 @@ export type OrchestrationEvent =
       topFeatures?: [string, number][]; // [["stress_level",23.19], ...]
       ruleEngine?: { is_emergency: boolean; severity: number; reasons: string[] };
       caregiverBlock?: { action?: string; confirmed?: boolean; observations?: string[] };
-      rawVitals?: Record<string, number>;
+      rawVitals?: unknown;
       trainingLabelProxy?: { health_event: number; event_label: number };
       // ── UC2 decision-layer fields (planning/23 §4) ──
       pipelinePath?: string;
@@ -65,8 +67,18 @@ export type OrchestrationEvent =
       alertId: string;
       patientId: string;
       observation: string;
+      action?: 'confirm_critical_hypothetical' | 'dismiss_critical_hypothetical' | string;
       at: string;
     }
   | { type: 'slm_explain_requested'; alertId: string; patientId: string; at: string }
   | { type: 'appt_synced'; apptId: string; patientId: string; at: string }
-  | { type: 'consent_changed'; patientId: string; scope: string; granted: boolean; at: string };
+  | { type: 'consent_changed'; patientId: string; scope: string; granted: boolean; at: string }
+  | {
+      type: 'slm_hypothetical_critical';
+      alertId: string;
+      patientId: string;
+      hypotheticalVitals: Partial<Record<'heart_rate' | 'blood_oxygen' | 'blood_pressure_systolic' | 'blood_pressure_diastolic' | 'glucose_level' | 'body_temperature' | 'respiratory_rate', number>>;
+      mlResult: { severity: number; aeScore: number | null; threshold: number; isAnomaly: boolean; emergency: boolean; topFeatures: [string, number][] };
+      requiresCaregiverConfirm: true;
+      at: string;
+    };

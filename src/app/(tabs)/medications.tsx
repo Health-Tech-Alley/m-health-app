@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Modal,
@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
@@ -21,13 +22,17 @@ import {
   getActiveMedications,
   getActiveMedicationSchedules,
   getMedicationById,
+  getMedicationConfirmationPreference,
+  getMedicationConfirmationRequirementsForPatient,
   upsertMedication,
   upsertMedicationSchedule,
   type Medication,
+  type MedicationCandidate,
+  type MedicationConfirmationPreference,
+  type MedicationConfirmationRequirement,
   type MedicationSchedule,
 } from "@/data";
 import { audit } from "@/services/audit/auditService";
-import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 type MedStatus = "pending" | "confirmed";
 
@@ -36,10 +41,13 @@ interface MedRow {
   schedule?: MedicationSchedule;
   status: MedStatus;
   accent: string;
+  confirmationRequired: boolean;
+  confirmationLabel?: "Required by care team" | "Confirmation selected" | "Confirmation preference saved";
 }
 
 const CARE_PLAN_ACCENT = "#F5B800";
 const CUSTOM_ACCENT = "#7C3AED";
+const UNSAVED_PREFERENCE_TIMESTAMP = new Date(0).toISOString();
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
@@ -49,23 +57,59 @@ function makeId(prefix: string): string {
 function loadMedRows(patientId: string): MedRow[] {
   const meds = getActiveMedications(patientId);
   const schedules = getActiveMedicationSchedules(patientId);
+  let preference: Pick<
+    MedicationConfirmationPreference,
+    "confirmationMode" | "selectedMedicationIds" | "createdAt"
+  >;
+  let requirements: Record<string, MedicationConfirmationRequirement>;
+  try {
+    preference = getMedicationConfirmationPreference(patientId);
+    requirements = getMedicationConfirmationRequirementsForPatient(patientId);
+  } catch {
+    preference = {
+      confirmationMode: "all",
+      selectedMedicationIds: [],
+      createdAt: UNSAVED_PREFERENCE_TIMESTAMP,
+    };
+    requirements = {};
+  }
+  const hasSavedPreference = preference.createdAt !== UNSAVED_PREFERENCE_TIMESTAMP;
+  const hasSavedRequirements = Object.keys(requirements).length > 0;
   return meds.map((med) => {
     const schedule = schedules.find((s) => s.medicationId === med.medicationId);
+    const requirement = requirements[med.medicationId];
+    const required = requirement?.confirmationRequirement === "required";
+    const confirmationRequired =
+      required ||
+      (preference.confirmationMode === "all" && hasSavedPreference) ||
+      (preference.confirmationMode === "personalized" &&
+        preference.selectedMedicationIds.includes(med.medicationId)) ||
+      (!hasSavedPreference && !hasSavedRequirements && med.source === "fhir");
     return {
       med,
       schedule,
       status: "pending" as MedStatus,
       accent: med.source === "custom" ? CUSTOM_ACCENT : CARE_PLAN_ACCENT,
+      confirmationRequired,
+      confirmationLabel: confirmationRequired
+        ? required
+          ? "Required by care team"
+          : hasSavedPreference && schedule
+            ? "Confirmation selected"
+            : hasSavedPreference
+              ? "Confirmation preference saved"
+              : "Confirmation selected"
+        : undefined,
     };
   });
 }
 
 export default function MedicationsScreen() {
-  const profile = getOnboardingProfile();
-  const { patientId } = usePatientRecord();
+  const router = useRouter();
+  const { patientId, snapshot, refresh } = usePatientRecord();
 
   const patientFirstName =
-    profile.patient.name.trim().split(/\s+/)[0] || "Patient";
+    snapshot?.patient?.name?.trim().split(/\s+/)[0] || "Patient";
 
   const [rows, setRows] = useState<MedRow[]>(() =>
     patientId ? loadMedRows(patientId) : [],
@@ -77,13 +121,30 @@ export default function MedicationsScreen() {
   const [editDose, setEditDose] = useState("");
   const [editInstructions, setEditInstructions] = useState("");
   const [editTime, setEditTime] = useState("");
+  const [showMedicationHistory, setShowMedicationHistory] = useState(false);
   const [slmCheckMed, setSlmCheckMed] = useState<Medication | null>(null);
 
   const reload = useCallback(() => {
     if (patientId) setRows(loadMedRows(patientId));
   }, [patientId]);
 
-  const nextDue = rows.find((r) => r.status === "pending") ?? rows[0];
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      if (!patientId) {
+        setRows([]);
+        return;
+      }
+      setRows(loadMedRows(patientId));
+    }, 0);
+
+    return () => clearTimeout(handle);
+  }, [patientId, snapshot?.lastRefreshedAt, snapshot?.medications.length]);
+
+  const nextDue = rows.find((r) => r.confirmationRequired && r.status === "pending");
+  const medicationCandidates =
+    snapshot?.medicationCandidates.filter(
+      (candidate) => !rows.some((row) => row.med.medicationId === candidate.candidateId),
+    ) ?? [];
 
   const toggleConfirm = (medId: string) => {
     setRows((current) =>
@@ -184,6 +245,7 @@ export default function MedicationsScreen() {
       });
     }
     setEditing(null);
+    refresh();
     reload();
   };
 
@@ -207,6 +269,7 @@ export default function MedicationsScreen() {
               patientId,
               payload: { name: row.med.name },
             });
+            refresh();
             reload();
           },
         },
@@ -215,7 +278,7 @@ export default function MedicationsScreen() {
   };
 
   const formatTimeLabel = (row: MedRow): string => {
-    if (!row.schedule) return "No schedule";
+    if (!row.schedule) return "Schedule not provided";
     return row.schedule.timeOfDay;
   };
 
@@ -251,7 +314,21 @@ export default function MedicationsScreen() {
             </View>
           ) : null}
 
-          <Text style={styles.sectionLabel}>Current Medications</Text>
+          <Pressable
+            style={styles.reminderPreferencesButton}
+            onPress={() => router.push("/notifications-reminders")}
+            accessibilityRole="button"
+            accessibilityLabel="Open reminder preferences"
+          >
+            <AppIcon name="bell" size={18} color={AppTheme.colors.brand} />
+            <Text style={styles.reminderPreferencesText}>Reminder preferences</Text>
+          </Pressable>
+
+          <Text style={styles.sectionLabel}>Active medications</Text>
+          <Text style={styles.candidateIntro}>
+            FHIR MedicationRequest rows marked active by the EHR stay available for medication
+            preferences and reminders. Reminders are only created when you add a schedule.
+          </Text>
 
           {rows.length === 0 ? (
             <Text style={styles.emptyText}>No medications yet. Add one below.</Text>
@@ -274,6 +351,36 @@ export default function MedicationsScreen() {
           <Pressable style={styles.addMedicationButton} onPress={openAdd}>
             <Text style={styles.addMedicationText}>➕ Add Medication</Text>
           </Pressable>
+          {medicationCandidates.length > 0 ? (
+            <>
+              <Pressable
+                style={styles.historyToggle}
+                onPress={() => setShowMedicationHistory((current) => !current)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: showMedicationHistory }}
+              >
+                <Text style={styles.historyToggleText}>
+                  {showMedicationHistory ? "Hide" : "View"} historical / review medications
+                </Text>
+                <Text style={styles.historyToggleCount}>{medicationCandidates.length}</Text>
+              </Pressable>
+              {showMedicationHistory ? (
+                <>
+                  <Text style={styles.sectionLabel}>Medication history / review candidates</Text>
+                  <Text style={styles.candidateIntro}>
+                    Imported Basic resources are history or review context only. They are not
+                    active, not current, and do not create reminders.
+                  </Text>
+                  {medicationCandidates.map((candidate) => (
+                    <MedicationCandidateCard
+                      key={candidate.candidateId}
+                      candidate={candidate}
+                    />
+                  ))}
+                </>
+              ) : null}
+            </>
+          ) : null}
         </ScrollView>
       </View>
 
@@ -341,7 +448,7 @@ export default function MedicationsScreen() {
         </Pressable>
       </Modal>
 
-      {/* Custom-med SLM check */}
+      {/* Custom-med Concierge check */}
       <SlmInsightSheet
         visible={slmCheckMed !== null}
         onClose={() => setSlmCheckMed(null)}
@@ -349,7 +456,7 @@ export default function MedicationsScreen() {
         reason="custom_med_check"
         prompt={
           slmCheckMed
-            ? `A caregiver is considering adding the medication "${slmCheckMed.name}" (${slmCheckMed.dosage ?? "dose not specified"}, ${slmCheckMed.frequency ?? "frequency not specified"}) for ${profile.patient.name}, who has these conditions: ${profile.patient.conditions ?? "not specified"} and takes these current medications: ${profile.patient.currentMedications ?? "none listed"}. Is this a reasonable choice? In plain, calm language for a family caregiver, summarize the main considerations, potential interactions or red flags to watch for, and whether to keep, modify, or remove it — and always recommend confirming with the prescriber.`
+            ? `A caregiver is considering adding the medication "${slmCheckMed.name}" (${slmCheckMed.dosage ?? "dose not specified"}, ${slmCheckMed.frequency ?? "frequency not specified"}) for ${snapshot?.patient?.name ?? "the selected patient"}, who has these conditions: ${snapshot?.conditions.map((condition) => condition.name).filter(Boolean).join(", ") || "not specified"} and takes these current medications: ${snapshot?.medications.map((medication) => medication.name).filter(Boolean).join(", ") || "none listed"}. Is this a reasonable choice? In plain, calm language for a family caregiver, summarize the main considerations, potential interactions or red flags to watch for, and whether to keep, modify, or remove it — and always recommend confirming with the prescriber.`
             : ""
         }
       />
@@ -374,6 +481,7 @@ function MedicationCard({
 }) {
   const isConfirmed = row.status === "confirmed";
   const isCustom = row.med.source === "custom";
+  const showConfirmationUi = row.confirmationRequired;
 
   return (
     <View style={styles.medicationCard}>
@@ -388,13 +496,18 @@ function MedicationCard({
                 <Text style={styles.customBadgeText}>Custom</Text>
               </View>
             ) : null}
+            {row.confirmationLabel ? (
+              <View style={styles.confirmationBadge}>
+                <Text style={styles.confirmationBadgeText}>{row.confirmationLabel}</Text>
+              </View>
+            ) : null}
           </View>
           <Text style={styles.medicationDose}>
             {row.med.dosage ?? "—"} · {row.med.frequency ?? row.med.indication ?? "—"}
           </Text>
         </View>
 
-        <StatusPill status={row.status} />
+        {showConfirmationUi ? <StatusPill status={row.status} /> : null}
       </View>
 
       <View style={[styles.timeBox, isConfirmed && styles.timeBoxConfirmed]}>
@@ -404,22 +517,24 @@ function MedicationCard({
       </View>
 
       <View style={styles.actionRow}>
-        <Pressable
-          style={[
-            styles.primaryAction,
-            isConfirmed && styles.primaryActionConfirmed,
-          ]}
-          onPress={onToggleConfirm}
-        >
-          <Text
+        {showConfirmationUi ? (
+          <Pressable
             style={[
-              styles.primaryActionText,
-              isConfirmed && styles.primaryActionTextConfirmed,
+              styles.primaryAction,
+              isConfirmed && styles.primaryActionConfirmed,
             ]}
+            onPress={onToggleConfirm}
           >
-            {isConfirmed ? "✅ Confirmed · tap to undo" : "✅ Confirm Given"}
-          </Text>
-        </Pressable>
+            <Text
+              style={[
+                styles.primaryActionText,
+                isConfirmed && styles.primaryActionTextConfirmed,
+              ]}
+            >
+              {isConfirmed ? "✅ Confirmed · tap to undo" : "✅ Confirm Given"}
+            </Text>
+          </Pressable>
+        ) : null}
 
         <Pressable style={styles.iconButton} onPress={onEdit}>
           <AppIcon name="note" size={20} color={AppTheme.colors.textMuted} />
@@ -436,6 +551,50 @@ function MedicationCard({
             <Text style={styles.deleteIconText}>🗑</Text>
           </Pressable>
         ) : null}
+      </View>
+    </View>
+  );
+}
+
+function MedicationCandidateCard({
+  candidate,
+}: {
+  candidate: MedicationCandidate;
+}) {
+  const sourceDetail = [
+    candidate.sourceFile,
+    typeof candidate.visitIndex === "number" ? `visit ${candidate.visitIndex}` : undefined,
+    typeof candidate.daysFromFirstVisit === "number"
+      ? `${candidate.daysFromFirstVisit} days from first visit`
+      : undefined,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <View style={[styles.medicationCard, styles.candidateCard]}>
+      <View style={styles.medicationHeader}>
+        <View style={[styles.medDot, { backgroundColor: AppTheme.colors.brandDark }]} />
+        <View style={styles.medicationTitleBlock}>
+          <View style={styles.nameRow}>
+            <Text style={styles.medicationName}>{candidate.name}</Text>
+            <View style={styles.reviewBadge}>
+              <Text style={styles.reviewBadgeText}>Review only</Text>
+            </View>
+          </View>
+          <Text style={styles.medicationDose}>
+            {candidate.category} - historical/review context
+          </Text>
+          {sourceDetail ? (
+            <Text style={styles.candidateSource}>{sourceDetail}</Text>
+          ) : null}
+        </View>
+      </View>
+
+      <Text style={styles.candidateIntro}>
+        Historical context for future medication review; not part of the active medication workflow.
+      </Text>
+
+      <View style={styles.reviewAction}>
+        <Text style={styles.reviewActionText}>Historical / review context</Text>
       </View>
     </View>
   );
@@ -534,6 +693,23 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 5,
   },
+  reminderPreferencesButton: {
+    minHeight: 44,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.surface,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 18,
+  },
+  reminderPreferencesText: {
+    color: AppTheme.colors.brand,
+    fontSize: 13,
+    fontWeight: "900",
+  },
   sectionLabel: {
     color: AppTheme.colors.sectionText,
     fontSize: 11,
@@ -550,6 +726,13 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 24,
   },
+  candidateIntro: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "700",
+    marginBottom: 10,
+  },
   medicationCard: {
     backgroundColor: AppTheme.colors.surface,
     borderRadius: 22,
@@ -558,6 +741,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
     ...AppTheme.shadow,
+  },
+  candidateCard: {
+    borderColor: AppTheme.colors.brandSoft,
+    backgroundColor: "#FBFFFE",
   },
   medicationHeader: {
     flexDirection: "row",
@@ -597,11 +784,44 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textTransform: "uppercase",
   },
+  confirmationBadge: {
+    backgroundColor: AppTheme.colors.brandSoft,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginBottom: 4,
+  },
+  confirmationBadgeText: {
+    color: AppTheme.colors.brand,
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  reviewBadge: {
+    backgroundColor: AppTheme.colors.warningSoft,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginBottom: 4,
+  },
+  reviewBadgeText: {
+    color: "#B77900",
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
   medicationDose: {
     color: AppTheme.colors.textSoft,
     fontSize: 13,
     lineHeight: 19,
     fontWeight: "700",
+  },
+  candidateSource: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+    marginTop: 2,
   },
   statusPill: {
     borderRadius: AppTheme.radius.pill,
@@ -677,6 +897,43 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.textSoft,
     fontSize: 15,
     fontWeight: "800",
+  },
+  historyToggle: {
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: AppTheme.colors.softSurface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  historyToggleText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  historyToggleCount: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  reviewAction: {
+    minHeight: 44,
+    borderRadius: 16,
+    backgroundColor: AppTheme.colors.brandSoft,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: AppTheme.colors.brandPale,
+  },
+  reviewActionText: {
+    color: AppTheme.colors.brand,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
   },
   modalOverlay: {
     flex: 1,

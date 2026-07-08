@@ -68,15 +68,8 @@ export async function initNotifications(): Promise<void> {
       return;
     }
     try {
-      if (typeof mod.requestPermissionsAsync === 'function') {
-        await mod.requestPermissionsAsync({
-          ios: {
-              allowAlert: true,
-              allowBadge: true,
-              allowSound: true,
-              allowCriticalAlerts: true,  // needed for your severity-3 path
-            },
-        });
+      if (typeof mod.getPermissionsAsync === 'function') {
+        await mod.getPermissionsAsync();
       }
       await setupNotificationChannels(mod);
       registerResponseListener(mod);
@@ -85,6 +78,32 @@ export async function initNotifications(): Promise<void> {
     }
   })();
   return initPromise;
+}
+
+export async function requestNotificationPermission(): Promise<boolean> {
+  const mod = loadNotificationsModule();
+  if (!mod || typeof mod.requestPermissionsAsync !== 'function') {
+    return false;
+  }
+  try {
+    const result = await mod.requestPermissionsAsync({
+      ios: {
+        allowAlert: true,
+        allowBadge: true,
+        allowSound: true,
+        allowCriticalAlerts: true,
+      },
+    });
+    const granted = result?.granted === true || result?.status === 'granted';
+    if (granted) {
+      await setupNotificationChannels(mod);
+      registerResponseListener(mod);
+    }
+    return granted;
+  } catch (err) {
+    console.warn('[notificationService] permission request failed:', err);
+    return false;
+  }
 }
 
 function registerResponseListener(mod: any): void {
@@ -125,6 +144,7 @@ export interface DispatchParams {
 
 export interface ScheduleParams extends DispatchParams {
   triggerWhen: Date;
+  deviceDelivery?: boolean;
 }
 
 /**
@@ -146,6 +166,12 @@ export async function scheduleLocalNotification(params: ScheduleParams): Promise
   }
 
   writeRecord(id, params, nowIso);
+
+  if (params.deviceDelivery === false) {
+    emitInAppBanner({ title: params.title, body: params.body, severity: params.severity, notificationId: id });
+    auditDispatch(id, params, 'in_app_only');
+    return id;
+  }
 
   const mod = loadNotificationsModule();
   if (!mod) {

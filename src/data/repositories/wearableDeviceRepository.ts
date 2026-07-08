@@ -1,11 +1,3 @@
-/**
- * Repository for the `wearable_devices` table.
- *
- * Tracks the patient's wearable (Apple Watch / Fitbit / etc.) and its
- * baseline-establishment status. Seeded from onboarding; updated when a
- * Track B wearable connection succeeds.
- */
-
 import { getDatabase } from '../db';
 import type { WearableDevice, WearableBaselineStatus } from '../types';
 
@@ -15,8 +7,8 @@ export function upsertWearableDevice(device: WearableDevice): void {
     `INSERT OR REPLACE INTO wearable_devices
       (device_id, patient_id, device_type, device_label, connected,
        baseline_status, baseline_started_at, baseline_completed_at,
-       created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+       created_at, updated_at, healthkit_source_id, healthkit_source_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     device.deviceId,
     device.patientId,
     device.deviceType,
@@ -27,6 +19,8 @@ export function upsertWearableDevice(device: WearableDevice): void {
     device.baselineCompletedAt ?? null,
     device.createdAt,
     device.updatedAt,
+    device.healthkitSourceId ?? null,
+    device.healthkitSourceName ?? null,
   );
 }
 
@@ -37,7 +31,9 @@ export function getWearableDevicesForPatient(patientId: string): WearableDevice[
             device_label AS deviceLabel, connected, baseline_status AS baselineStatus,
             baseline_started_at AS baselineStartedAt,
             baseline_completed_at AS baselineCompletedAt,
-            created_at AS createdAt, updated_at AS updatedAt
+            created_at AS createdAt, updated_at AS updatedAt,
+            healthkit_source_id AS healthkitSourceId,
+            healthkit_source_name AS healthkitSourceName
      FROM wearable_devices
      WHERE patient_id = ?
      ORDER BY created_at DESC;`,
@@ -53,7 +49,9 @@ export function getPrimaryWearableForPatient(patientId: string): WearableDevice 
               device_label AS deviceLabel, connected, baseline_status AS baselineStatus,
               baseline_started_at AS baselineStartedAt,
               baseline_completed_at AS baselineCompletedAt,
-              created_at AS createdAt, updated_at AS updatedAt
+              created_at AS createdAt, updated_at AS updatedAt,
+              healthkit_source_id AS healthkitSourceId,
+              healthkit_source_name AS healthkitSourceName
        FROM wearable_devices
        WHERE patient_id = ?
        ORDER BY connected DESC, created_at DESC
@@ -90,6 +88,24 @@ export function setWearableConnected(deviceId: string, connected: boolean): void
   db.runSync(
     'UPDATE wearable_devices SET connected = ?, updated_at = ? WHERE device_id = ?;',
     connected ? 1 : 0,
+    now,
+    deviceId,
+  );
+}
+
+export function setWearableHealthKitSource(
+  deviceId: string,
+  sourceId: string | null,
+  sourceName: string | null,
+): void {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.runSync(
+    `UPDATE wearable_devices
+     SET healthkit_source_id = ?, healthkit_source_name = ?, updated_at = ?
+     WHERE device_id = ?;`,
+    sourceId,
+    sourceName,
     now,
     deviceId,
   );

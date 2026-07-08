@@ -1,3 +1,5 @@
+import type { SQLiteDatabase } from 'expo-sqlite';
+
 /**
  * SQLite migrations.
  *
@@ -5,9 +7,10 @@
  * where possible (CREATE TABLE IF NOT EXISTS, etc.).
  */
 
-export const MIGRATIONS: string[] = [
+export type Migration = string | ((db: SQLiteDatabase) => void);
+
+export const MIGRATIONS: Migration[] = [
   // 0: core identity tables
-  // selected patient column is 1 when get selected, and when not selected it gets 0 since SQL Lite dont have a Boolean type
   `
   CREATE TABLE IF NOT EXISTS patients (
     patient_id TEXT PRIMARY KEY,
@@ -302,7 +305,27 @@ export const MIGRATIONS: string[] = [
   );
   `,
 
-  // 8: app settings
+  // 8: Secure Messaging and Encryption
+  `
+  CREATE TABLE IF NOT EXISTS secure_messaging_store (
+      message_id TEXT PRIMARY KEY,
+      patient_id TEXT NOT NULL,
+      recipient_provider_id TEXT NOT NULL,
+      encrypted_payload TEXT NOT NULL,
+      iv TEXT NOT NULL,
+      auth_tag TEXT NOT NULL,
+      ephemeral_public_key TEXT NOT NULL,
+      message_type TEXT CHECK(message_type IN ('CLINICAL_ESCALATION', 'STANDARD_CHAT')) NOT NULL,
+      sync_status TEXT CHECK(sync_status IN ('QUEUED', 'SENDING', 'SYNCED')) DEFAULT 'QUEUED',
+      created_at INTEGER NOT NULL,
+      consent_audit_token TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_secure_messaging_sync 
+  ON secure_messaging_store (sync_status, created_at);
+  `,
+
+  // 9: app settings
   `
   CREATE TABLE IF NOT EXISTS app_settings (
     key        TEXT PRIMARY KEY,
@@ -311,13 +334,13 @@ export const MIGRATIONS: string[] = [
   );
   `,
 
-  // 9: add per-turn RAM + token attribution to slm_turns
+  // 10: add per-turn RAM + token attribution to slm_turns
   `
   ALTER TABLE slm_turns ADD COLUMN tokens_generated INTEGER;
   ALTER TABLE slm_turns ADD COLUMN peak_ram_bytes INTEGER;
   `,
 
-  // 10: knowledge_cache — PubMed/MedlinePlus/RxNorm/DailyMed/OpenFDA chunks
+  // 11: knowledge_cache — PubMed/MedlinePlus/RxNorm/DailyMed/OpenFDA chunks
   // (see planning/22_clinical-data-gathering.md §6a)
   `
   CREATE TABLE IF NOT EXISTS knowledge_cache (
@@ -338,7 +361,7 @@ export const MIGRATIONS: string[] = [
     ON knowledge_cache(conditions);
   `,
 
-  // 11: patient_enrichment_log — observable/auditable record of every
+  // 12: patient_enrichment_log — observable/auditable record of every
   // clinical-source enrichment (which field, which source, when, query used)
   `
   CREATE TABLE IF NOT EXISTS patient_enrichment_log (
@@ -361,7 +384,7 @@ export const MIGRATIONS: string[] = [
     ON patient_enrichment_log(source, created_at DESC);
   `,
 
-  // 12: extend patient_conditions + new clinical-detail tables
+  // 13: extend patient_conditions + new clinical-detail tables
   // (structured ICD codes, comorbidities, symptoms, wearable devices, ML events)
   `
   ALTER TABLE patient_conditions ADD COLUMN category TEXT;
@@ -427,7 +450,7 @@ export const MIGRATIONS: string[] = [
     ON ml_events(alert_id);
   `,
 
-  // 13: daily_care_entries — the per-day therapy log (pain before/after,
+  // 14: daily_care_entries — the per-day therapy log (pain before/after,
   // fatigue, sets completed, notes). Editable from the Care screen.
   `
   CREATE TABLE IF NOT EXISTS daily_care_entries (
@@ -457,7 +480,7 @@ export const MIGRATIONS: string[] = [
     ON daily_care_entries(patient_id, entry_date);
   `,
 
-  // 14: medication source (care_plan vs custom) + appointments table
+  // 15: medication source (care_plan vs custom) + appointments table
   `
   ALTER TABLE medications ADD COLUMN source TEXT NOT NULL DEFAULT 'care_plan';
 
@@ -480,7 +503,7 @@ export const MIGRATIONS: string[] = [
     ON appointments(patient_id, date);
   `,
 
-  // 15: UC2 decision-layer columns on alerts + ml_events
+  // 16: UC2 decision-layer columns on alerts + ml_events
   // (see planning/23_uc2_ml_alert_notification_flow_plan.md §6)
   `
   ALTER TABLE alerts ADD COLUMN pipeline_path TEXT;
@@ -498,7 +521,7 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE ml_events ADD COLUMN threshold_recommendation_json TEXT;
   `,
 
-  // 16: threshold_recommendations — queued personalization suggestions
+  // 17: threshold_recommendations — queued personalization suggestions
   // (planning/23 §7.2). Never auto-applied; the caregiver confirms + audits.
   `
   CREATE TABLE IF NOT EXISTS threshold_recommendations (
@@ -515,4 +538,230 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_threshold_recs_patient
     ON threshold_recommendations(patient_id, status, created_at DESC);
   `,
+
+  // 17: caregiver preferred name + functional classification fields
+  `
+  ALTER TABLE patients ADD COLUMN preferred_name TEXT;
+  ALTER TABLE patients ADD COLUMN gmfcs TEXT;
+  ALTER TABLE patients ADD COLUMN fms TEXT;
+  ALTER TABLE patients ADD COLUMN macs TEXT;
+  ALTER TABLE patients ADD COLUMN cfcs TEXT;
+  ALTER TABLE patients ADD COLUMN edacs TEXT;
+  `,
+
+  // 18: normalized FHIR CarePlan fields + activities
+  `
+  ALTER TABLE care_plans ADD COLUMN status TEXT;
+  ALTER TABLE care_plans ADD COLUMN intent TEXT;
+  ALTER TABLE care_plans ADD COLUMN title TEXT;
+  ALTER TABLE care_plans ADD COLUMN description TEXT;
+  ALTER TABLE care_plans ADD COLUMN period_start TEXT;
+  ALTER TABLE care_plans ADD COLUMN period_end TEXT;
+  ALTER TABLE care_plans ADD COLUMN care_team_display_json TEXT;
+
+  CREATE TABLE IF NOT EXISTS care_plan_activities (
+    activity_id TEXT PRIMARY KEY,
+    plan_id     TEXT NOT NULL,
+    status      TEXT,
+    description TEXT,
+    sequence    INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_care_plan_activities_plan
+    ON care_plan_activities(plan_id, sequence);
+  `,
+
+  // 19: normalized longitudinal rehabilitation measurements from provider FHIR
+  `
+  CREATE TABLE IF NOT EXISTS rehabilitation_measurements (
+    measurement_id TEXT NOT NULL,
+    patient_id      TEXT NOT NULL,
+    type            TEXT NOT NULL,
+    value           REAL NOT NULL,
+    unit            TEXT NOT NULL,
+    recorded_at     TEXT NOT NULL,
+    source          TEXT NOT NULL DEFAULT 'fhir',
+    created_at      TEXT NOT NULL,
+    PRIMARY KEY (patient_id, measurement_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_rehab_measurements_patient_type_time
+    ON rehabilitation_measurements(patient_id, type, recorded_at);
+  `,
+
+  // 20: generalized patient-scoped longitudinal observations from FHIR
+  `
+  CREATE TABLE IF NOT EXISTS patient_longitudinal_observations (
+    patient_id        TEXT NOT NULL,
+    observation_id   TEXT NOT NULL,
+    measurement_type TEXT NOT NULL,
+    recorded_at      TEXT NOT NULL,
+    encounter_id     TEXT,
+    numeric_value    REAL,
+    text_value       TEXT,
+    unit             TEXT,
+    source_system    TEXT,
+    source_code      TEXT NOT NULL,
+    source_type      TEXT NOT NULL DEFAULT 'fhir',
+    PRIMARY KEY (patient_id, observation_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_longitudinal_observations_patient_type_time
+    ON patient_longitudinal_observations(patient_id, measurement_type, recorded_at);
+  `,
+
+  // 21: UC2 anomaly history (per planning/14_uc2-ml-alert-notification-flow.md §13).
+  // Backs `SQLiteAnomalyHistoryStore` so recurrence-risk scoring persists
+  // across app restarts. Uses the main app DB; encryption is provided by
+  // SQLCipher when that lands (planning/22).
+  `
+  CREATE TABLE IF NOT EXISTS anomaly_history (
+    patient_id            TEXT NOT NULL,
+    event_id              TEXT NOT NULL,
+    anomaly_type          TEXT NOT NULL,
+    severity              INTEGER NOT NULL,
+    timestamp             TEXT NOT NULL,
+    caregiver_confirmed   INTEGER NOT NULL DEFAULT 0,
+    metadata_json         TEXT,
+    PRIMARY KEY (patient_id, event_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_anomaly_history_patient_time
+    ON anomaly_history(patient_id, timestamp);
+
+  CREATE INDEX IF NOT EXISTS idx_anomaly_history_patient_type_time
+    ON anomaly_history(patient_id, anomaly_type, timestamp);
+  `,
+
+  // 22: patient.location (free-text county/state) for SDOH / CDC-Places bundling
+  // (planning/32 §10.2 / D5). Non-breaking: NULL when the caregiver has not
+  // provided a location during onboarding.
+  `
+  ALTER TABLE patients ADD COLUMN location TEXT;
+  `,
+
+  // 23: CDA EHR import scaffolding (planning/33_cda-ehr-import-slm-ml-integration.md
+  // §12). Three additions:
+  //   (a) cda_documents — tracks each imported CDA JSON file
+  //   (b) patient_conditions.snomed_code — keep SNOMED alongside ICD-10
+  //   (c) health_samples.source_doc_id — link a sample back to its CDA source
+  // All non-breaking: existing rows leave the new columns NULL.
+  `
+  CREATE TABLE IF NOT EXISTS cda_documents (
+    doc_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    source_file TEXT NOT NULL,
+    effective_time TEXT,
+    title TEXT,
+    imported_at TEXT NOT NULL,
+    import_summary_json TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_cda_documents_patient
+    ON cda_documents(patient_id, imported_at DESC);
+
+  ALTER TABLE patient_conditions ADD COLUMN snomed_code TEXT;
+  ALTER TABLE health_samples ADD COLUMN source_doc_id TEXT;
+  `,
+
+  // 24: knowledge_cache — add document_type, length_tier, section_heading columns
+  // so the prompt-budget router can distinguish deep docs (guideline, systematic_review,
+  // spl_full) from short abstracts, and the citation formatter can surface section headings.
+  // Non-breaking: existing rows get NULL for all three.
+  `
+  ALTER TABLE knowledge_cache ADD COLUMN document_type TEXT;
+  ALTER TABLE knowledge_cache ADD COLUMN length_tier TEXT;
+  ALTER TABLE knowledge_cache ADD COLUMN section_heading TEXT;
+  `,
+
+  // 25: optional baseline health readings captured during onboarding
+  `
+  ALTER TABLE patients ADD COLUMN baseline_blood_oxygen TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_respiratory_rate TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_blood_pressure_systolic TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_blood_pressure_diastolic TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_glucose_level TEXT;
+  ALTER TABLE patients ADD COLUMN baseline_body_temperature TEXT;
+  `,
+
+  // 26: demo medication confirmation requirement overrides
+  `
+  CREATE TABLE IF NOT EXISTS medication_confirmation_requirements (
+    patient_id TEXT NOT NULL,
+    medication_id TEXT NOT NULL,
+    confirmation_requirement TEXT NOT NULL CHECK (
+      confirmation_requirement IN ('required', 'not_required', 'not_provided')
+    ),
+    requirement_source TEXT NOT NULL CHECK (
+      requirement_source IN ('demo_override', 'demo_fixture', 'fhir_extension', 'provider_configuration')
+    ),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (patient_id, medication_id, requirement_source)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_med_confirmation_requirements_patient
+    ON medication_confirmation_requirements(patient_id, medication_id);
+  `,
+
+  // 27: caregiver medication-confirmation preferences + notification delivery channel flags
+  (db: SQLiteDatabase) => {
+    db.execSync(`
+    CREATE TABLE IF NOT EXISTS medication_confirmation_preferences (
+      patient_id TEXT PRIMARY KEY,
+      confirmation_mode TEXT NOT NULL DEFAULT 'all' CHECK (
+        confirmation_mode IN ('all', 'required_only', 'personalized')
+      ),
+      selected_medication_ids_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    `);
+
+    const columns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(notification_preferences);`,
+    );
+    const hasDeviceEnabled = columns.some((column) => column.name === 'device_enabled');
+    if (!hasDeviceEnabled) {
+      db.execSync(`
+      ALTER TABLE notification_preferences
+        ADD COLUMN device_enabled INTEGER NOT NULL DEFAULT 1;
+      `);
+    }
+  },
+
+  // 28: source-traced patient timeline/context events curated from imported FHIR
+  `
+  CREATE TABLE IF NOT EXISTS patient_timeline_events (
+    event_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    visit_index INTEGER NOT NULL,
+    days_from_first_visit INTEGER NOT NULL,
+    days_before_latest_visit INTEGER NOT NULL,
+    source_file TEXT NOT NULL,
+    source_section TEXT NOT NULL,
+    confidence TEXT NOT NULL CHECK (confidence IN ('high', 'medium', 'low')),
+    transition_planning_relevance TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_patient_timeline_events_patient
+    ON patient_timeline_events(patient_id, days_from_first_visit DESC, visit_index DESC);
+  `,
+
+  // 29: HealthKit source device tracking for watch filtering (doc 25 §1.6 M2)
+  (db: SQLiteDatabase) => {
+    const wearableCols = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(wearable_devices);`,
+    );
+    if (!wearableCols.some((c) => c.name === 'healthkit_source_id')) {
+      db.execSync(`ALTER TABLE wearable_devices ADD COLUMN healthkit_source_id TEXT;`);
+    }
+    if (!wearableCols.some((c) => c.name === 'healthkit_source_name')) {
+      db.execSync(`ALTER TABLE wearable_devices ADD COLUMN healthkit_source_name TEXT;`);
+    }
+  },
 ];

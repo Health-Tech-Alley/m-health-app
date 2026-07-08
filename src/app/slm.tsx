@@ -1,9 +1,9 @@
 /**
  * Caregiver SLM chat screen.
  *
- * Combines Sebastian's service-layer context (onboarding profile, safety note,
- * download helper) with Ethan's streaming playground UX (model selector, memory
- * bar, markdown rendering, control-token stripping, stop/new-conversation).
+ * Combines the PatientRecordSnapshot-backed care context with Ethan's streaming
+ * playground UX (model selector, memory bar, markdown rendering,
+ * control-token stripping, stop/new-conversation).
  */
 
 import { router } from 'expo-router';
@@ -14,6 +14,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type ReactNode,
 } from 'react';
 import {
   FlatList,
@@ -32,13 +33,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   formatCitationsForPrompt,
   messageHasClinicalKeywords,
-  retrieveClinicalChunks,
+  retrieveClinicalChunksViaBm25,
 } from '@/clinical-evidence/retrieval-helper';
 import { MainTabHeader } from '@/components/MainTabHeader';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
+import {
+  ThinkingIndicator,
+  shouldOfferTellMeMore,
+  truncateForQuickAnswer,
+} from '@/components/concierge/ThinkingIndicator';
 import { AppTheme, MaxContentWidth } from '@/constants/theme';
+import { CONCIERGE_GENERATION_DEEP, REASONING_FORMAT_EXPLAIN } from '@/constants/concierge';
 import { usePatientRecord } from '@/contexts/patient-record-context';
+import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
+import { useOrchestratorSafe, useOrchestratorRetriever, useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { useTheme } from '@/hooks/use-theme';
 import type { ChatMessage as ProviderChatMessage } from '@/inference/inference-provider';
 import { MODEL_CATALOG } from '@/inference/model-catalog';
@@ -51,9 +60,10 @@ import {
   CAREGIVER_SLM_MODEL_ID,
   downloadCaregiverSLMModel,
   isCaregiverSLMModelInstalled,
+  type CaregiverAssistantContext,
 } from '@/services/slm/slmService';
-import { useAppSelector } from "@/store/hooks";
 import { stripControlTokens } from '@/utils/stripControlTokens';
+import type { Medication, PatientCondition } from '@/data/types';
 
 type MessageStatus = 'streaming' | 'done' | 'stopped' | 'error';
 
@@ -87,6 +97,12 @@ interface ChatMessage {
   status: MessageStatus;
   startedAt: number;
   finishedAt: number | null;
+  /** When the first reasoning token was seen (drives phase rotation). */
+  reasoningStartedAt: number | null;
+  /** Current generation phase (mirrors ThinkingIndicator phase prop). */
+  phase: 0 | 1 | 2 | 3;
+  /** Whether the answer (not reasoning) channel has started streaming. */
+  answerStarted: boolean;
 }
 
 interface ChatState {
@@ -107,6 +123,10 @@ type ChatAction =
   | { type: 'send-stopped'; payload: { assistantId: string } }
   | { type: 'send-error'; payload: { assistantId: string; error: string } }
   | { type: 'append-token'; payload: { assistantId: string; token: string } }
+  | { type: 'append-reasoning-token'; payload: { assistantId: string; token: string } }
+  | { type: 'set-phase'; payload: { assistantId: string; phase: 0 | 1 | 2 | 3 } }
+  | { type: 'mark-answer-started'; payload: { assistantId: string } }
+  | { type: 'mark-tools-phase'; payload: { assistantId: string } }
   | { type: 'new-conversation' };
 
 function generateId(): string {
@@ -130,7 +150,16 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
       const { finalText, reasoningContent } = action.payload;
       const parsed = stripControlTokens(finalText);
       const thinking = reasoningContent || parsed.thinking;
-      const answer = parsed.answer;
+      // If the answer channel came back empty (model was cut off mid-thought,
+      // or only reasoning was produced), keep whatever answer tokens already
+      // streamed in via 'append-token' rather than blanking the bubble. If
+      // nothing streamed either, surface a graceful fallback instead of
+      // rendering the raw thinking.
+      const existing = state.messages.find((m) => m.id === action.payload.assistantId);
+      const answer =
+        parsed.answer ||
+        (existing?.text?.trim() ? existing.text : '') ||
+        'I ran out of room before finishing that thought. Tap "Ask" again or try a shorter question.';
 
       return {
         ...state,
@@ -144,6 +173,8 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
                 thinking,
                 status: 'done' as const,
                 finishedAt: Date.now(),
+                answerStarted: true,
+                phase: 3,
               }
             : m,
         ),
@@ -172,6 +203,8 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
                 status: 'error' as const,
                 finalText: action.payload.error,
                 finishedAt: Date.now(),
+                answerStarted: true,
+                phase: 3,
               }
             : m,
         ),
@@ -182,7 +215,50 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         messages: state.messages.map((m) =>
           m.id === action.payload.assistantId
-            ? { ...m, text: m.text + action.payload.token }
+            ? { ...m, text: m.text + action.payload.token, answerStarted: true, phase: 3 }
+            : m,
+        ),
+      };
+
+    case 'append-reasoning-token':
+      return {
+        ...state,
+        messages: state.messages.map((m) =>
+          m.id === action.payload.assistantId
+            ? {
+                ...m,
+                thinking: (m.thinking ?? '') + action.payload.token,
+                reasoningStartedAt: m.reasoningStartedAt ?? Date.now(),
+                phase: 1,
+              }
+            : m,
+        ),
+      };
+
+    case 'set-phase':
+      return {
+        ...state,
+        messages: state.messages.map((m) =>
+          m.id === action.payload.assistantId ? { ...m, phase: action.payload.phase } : m,
+        ),
+      };
+
+    case 'mark-answer-started':
+      return {
+        ...state,
+        messages: state.messages.map((m) =>
+          m.id === action.payload.assistantId
+            ? { ...m, answerStarted: true, phase: 3 }
+            : m,
+        ),
+      };
+
+    case 'mark-tools-phase':
+      return {
+        ...state,
+        messages: state.messages.map((m) =>
+          m.id === action.payload.assistantId
+            ? { ...m, phase: 2 }
             : m,
         ),
       };
@@ -202,18 +278,19 @@ export default function SLMScreen({
 } = {}) {
   const slm = useSLM();
   const theme = useTheme();
-  let profile: any = null;
-  const  snapshot = null;
+  const { isDeveloper } = useSettings();
+  const { snapshot, ready, error: patientRecordError } = usePatientRecord();
+  const retriever = useOrchestratorRetriever();
+  const orchestrator = useOrchestratorSafe();
+  const patientId = useOrchestratorPatientId();
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [inputText, setInputText] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [inputHeight, setInputHeight] = useState(PROMPT_INPUT_MIN_HEIGHT);
-  const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
-  const [patientProfile, setPatientProfile] = useState<any>(null);
-  const [conditions, setConditions] = useState<any[]>([]);
-  const [medications, setMedications] = useState<any[]>([]);
-  const [observations, setObservations] = useState<any[]>([]);
+  const [showReasoningFor, setShowReasoningFor] = useState<Set<string>>(new Set());
+  const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(new Set());
+  const [expandedCareSections, setExpandedCareSections] = useState<Set<string>>(new Set());
 
   const handleInputChange = useCallback((text: string) => {
     setInputText(text);
@@ -224,94 +301,43 @@ export default function SLMScreen({
   const memoryInfo = useMemoryInfo(2000);
   const hasNativeMemory = isNativeMemoryAvailable();
 
-  function calculateAge(birthdate: Date): number {
-    const today: Date = new Date();
-    const diff: number = today.getTime() - birthdate.getTime();
-    const ageDate: Date = new Date(diff);
-    return Math.abs(ageDate.getUTCFullYear() - 1970);
-  }
-
-  useEffect(() => {
-    console.log('[slm] patient changed, updating context...');
-      if (patient) {
-        console.log('[slm] fhirBundleImported event listener: ', Object.keys(patient));
-        const entries: any[] = patient['entry'] ?? [];
-
-        // Find the single Patient resource, not map+null
-        const patientEntry = entries.find(
-          (entry: any) => entry?.resource?.resourceType === 'Patient'
-        );
-        console.log('[slm] Found Patient resource:', patientEntry);
-
-        if (!patientEntry) {
-          console.warn('No Patient resource found in FHIR bundle');
-          return;
-        }
-
-        setPatientProfile(patientEntry);
-
-        const name = patientEntry.resource.name?.[0];
-        console.log(
-          '[slm] Patient:',
-          name?.given?.[0],
-          name?.family,
-        );
-
-        // Extract other resource types while you're here
-        const conditionEntries = entries.filter(
-          (e: any) => e?.resource?.resourceType === 'Condition'
-        );
-        setConditions(conditionEntries);
-        const medicationEntries = entries.filter(
-          (e: any) => e?.resource?.resourceType === 'MedicationRequest'
-        );
-        setMedications(medicationEntries);
-        const observationEntries = entries.filter(
-          (e: any) => e?.resource?.resourceType === 'Observation'
-        );
-        setObservations(observationEntries);
-
-        console.log(
-          `[slm] Found ${conditionEntries.length} conditions,`,
-          `${medicationEntries.length} medications,`,
-          `${observationEntries.length} observations`,
-        );
-      }
-    }, [patient]);
-
-  const caregiverContext = useMemo(
+  const medicationNames = useMemo(
     () =>
-      snapshot
-        ? buildCaregiverAssistantContextFromSnapshot(snapshot)
-        : {
-            // Fallback to onboarding profile if snapshot not ready yet.
-            patientName: patientProfile ? patientProfile?.name?.given?.[0] + ' ' + patientProfile?.name?.family : '',
-            patientAge: patientProfile?.resource?.birthDate ? calculateAge(new Date(patientProfile?.resource.birthDate)) : "N/A",
-            patientConditions: conditions.map((c) => c.resource.code?.text).filter(Boolean).join(', ') || 'No conditions provided',
-            patientBaselineDailyRoutine:
-              profile?.patient?.baselineDailyRoutine ?? 'No routine provided',
-            patientCurrentMedications:
-              medications.map((m) => m.resource.medicationCodeableConcept?.text).filter(Boolean).join(', ') || 'No medications provided',
-            patientSpo2Cutoff: profile?.patient?.spo2Cutoff,
-            patientBaselineHeartRate: profile?.patient?.baselineHeartRate,
-            caregiverName: profile?.caregiver?.name,
-            caregiverRelationship: profile?.caregiver?.relationship,
-            caregiverExperience: profile?.caregiver?.experience,
-            caregiverAvailability: profile?.caregiver?.availability,
-            caregiverLanguagePreference: profile?.caregiver?.languagePreference,
-            caregiverMedicalComfortLevel: profile?.caregiver?.medicalComfortLevel,
-            caregiverHobbiesOrRoutines: profile?.caregiver?.hobbiesOrRoutines,
-            caregiverMainConcern:
-              profile?.caregiver?.mainConcern ?? 'No active concern provided',
-            caregiverStressOrSupportNeeds: profile?.caregiver?.stressOrSupportNeeds,
-            caregiverBackup: profile?.caregiver?.backupCaregiver,
-            primaryCareProviderName: profile?.primaryCareProvider?.name,
-            primaryCareProviderPhone: profile?.primaryCareProvider?.phone,
-            primaryCareProviderEmail: profile?.primaryCareProvider?.email,
-            emergencyContact: profile?.safety?.emergencyContact,
-            safetyNotes: profile?.safety?.safetyNotes,
-          },
-    [snapshot, profile, patientProfile, conditions, medications],
+      snapshot?.medications
+        .map((medication: Medication) => medication.name.trim())
+        .filter(Boolean) ?? [],
+    [snapshot?.medications],
+  );
+
+  const dedupedSymptoms = useMemo(
+    () =>
+      [...new Set((snapshot?.symptoms ?? []).map((s) => s.label).filter(Boolean))],
+    [snapshot?.symptoms],
+  );
+
+  const toggleCareSection = useCallback((id: string) => {
+    setExpandedCareSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const caregiverContext = useMemo<CaregiverAssistantContext | null>(
+    () => {
+      if (!snapshot?.patient) return null;
+
+      const context = buildCaregiverAssistantContextFromSnapshot(snapshot);
+      const medicationSummary = medicationNames.join(', ');
+
+      return {
+        ...context,
+        patientAge: context.patientAge ? String(context.patientAge) : undefined,
+        medicationSummary: medicationSummary || context.medicationSummary,
+      };
+    },
+    [snapshot, medicationNames],
   );
 
   const installedModels = useMemo(
@@ -347,7 +373,7 @@ export default function SLMScreen({
         const message =
           error instanceof Error
             ? error.message
-            : 'Failed to download or load the native SLM model.';
+            : 'Failed to download or load the Concierge model.';
         dispatch({
           type: 'send-error',
           payload: { assistantId: generateId(), error: message },
@@ -362,6 +388,7 @@ export default function SLMScreen({
   const handleAskAssistant = useCallback(async () => {
     const trimmed = inputText.trim();
     if (!trimmed || state.runStatus === 'streaming') return;
+    const contextForRequest: CaregiverAssistantContext = caregiverContext ?? {};
 
     const userMessage: ChatMessage = {
       id: generateId(),
@@ -372,6 +399,9 @@ export default function SLMScreen({
       status: 'done',
       startedAt: Date.now(),
       finishedAt: Date.now(),
+      reasoningStartedAt: null,
+      phase: 0,
+      answerStarted: false,
     };
 
     const assistantMessage: ChatMessage = {
@@ -383,6 +413,9 @@ export default function SLMScreen({
       status: 'streaming',
       startedAt: Date.now(),
       finishedAt: null,
+      reasoningStartedAt: null,
+      phase: 0,
+      answerStarted: false,
     };
 
     dispatch({ type: 'send-start', payload: { userMessage, assistantMessage } });
@@ -391,7 +424,7 @@ export default function SLMScreen({
     // Mock fallback when no model is loaded.
     if (slm.loadStatus !== 'ready') {
       try {
-        const response = await askCaregiverAssistantMock(trimmed, caregiverContext);
+        const response = await askCaregiverAssistantMock(trimmed, contextForRequest);
         dispatch({
           type: 'send-success',
           payload: {
@@ -415,29 +448,35 @@ export default function SLMScreen({
       return;
     }
 
-    const systemContext = buildCaregiverSystemContext(caregiverContext);
+    const systemContext = buildCaregiverSystemContext(contextForRequest);
 
     // Opt-in clinical knowledge retrieval: only when the user's message
     // contains a condition or medication keyword. Avoids latency on
     // non-clinical questions.
     const conditionNames = snapshot
-      ? [snapshot.primaryCondition?.name, ...snapshot.comorbidities.map((c) => c.name)].filter((n): n is string => Boolean(n))
+      ? [
+          snapshot.primaryCondition?.name,
+          ...snapshot.comorbidities.map((condition: PatientCondition) => condition.name),
+        ].filter((name): name is string => Boolean(name))
       : [];
-    const medNames = (profile?.patient?.currentMedications ?? '')
-      .split(',')
-      .map((m) => m.trim())
-      .filter(Boolean);
+    const medNames = medicationNames;
 
     let userContent = trimmed;
-    if (messageHasClinicalKeywords(trimmed, conditionNames, medNames)) {
-      const citations = retrieveClinicalChunks(
+    const hasKeywords = messageHasClinicalKeywords(trimmed, conditionNames, medNames);
+    if (hasKeywords) {
+      const citations = await retrieveClinicalChunksViaBm25(
+        retriever,
         [trimmed, ...conditionNames, ...medNames].join(' '),
         5,
       );
+      console.log(`[SLM Chat] Keyword match detected. Retrieved ${citations.length} clinical chunks.`);
       const citationBlock = formatCitationsForPrompt(citations);
       if (citationBlock) {
-        userContent = `${trimmed}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above where relevant. Cite sources in brackets like [PMID-12345678].`;
+        console.log(`[SLM Chat] Citation block added (${citationBlock.length} chars)`);
+        userContent = `${trimmed}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above where relevant. Add the source label in brackets after relevant statements (e.g., "Common side effects include nausea [Drug Label]" or "Studies show improved outcomes [PubMed]").`;
       }
+    } else {
+      console.log(`[SLM Chat] No clinical keywords detected. Conditions: [${conditionNames.join(', ')}], Meds: [${medNames.join(', ')}]`);
     }
 
     const messages: ProviderChatMessage[] = [
@@ -446,26 +485,103 @@ export default function SLMScreen({
       { role: 'user', content: userContent },
     ];
 
+    // Debug logging: show user message and SLM output
+    console.log('[SLM Chat] === USER MESSAGE ===');
+    console.log(userContent);
+    console.log('[SLM Chat] === END PROMPT ===');
+
     abortControllerRef.current = new AbortController();
+
+    // §7: drive the phase-word indicator from real reasoning tokens.
+    const reasoningStartedAt = { current: null as number | null };
 
     try {
       const result = await slm.chat(
         messages,
         (token) => {
+          // First answer token — the indicator hides and the bold answer streams.
+          dispatch({
+            type: 'mark-answer-started',
+            payload: { assistantId: assistantMessage.id },
+          });
           dispatch({
             type: 'append-token',
             payload: { assistantId: assistantMessage.id, token },
           });
         },
         abortControllerRef.current.signal,
+        // Single mode: always deep. The model reasons fully in its dedicated
+        // channel (unlimited budget), then streams the complete answer. The
+        // fast path was removed — it reliably got cut off mid-thought.
+        CONCIERGE_GENERATION_DEEP,
+        (token) => {
+          // First reasoning token → phase 1 (Verifying).
+          if (reasoningStartedAt.current === null) {
+            reasoningStartedAt.current = Date.now();
+            dispatch({ type: 'set-phase', payload: { assistantId: assistantMessage.id, phase: 1 } });
+          }
+          dispatch({
+            type: 'append-reasoning-token',
+            payload: { assistantId: assistantMessage.id, token },
+          });
+        },
       );
+
+      let finalText = result.text;
+      let finalReasoning = result.reasoningContent;
+
+      // Debug logging: show SLM output
+      console.log('[SLM Chat] === SLM RESPONSE ===');
+      console.log(finalText);
+      if (finalReasoning) {
+        console.log('[SLM Chat] === REASONING ===');
+        console.log(finalReasoning);
+      }
+      console.log('[SLM Chat] === END RESPONSE ===');
+
+      const actionMatch = result.text.match(/ACTION:\s*evaluate_hypothetical_vitals\(([\s\S]*?)\)/);
+      if (actionMatch && orchestrator) {
+        dispatch({ type: 'mark-tools-phase', payload: { assistantId: assistantMessage.id } });
+        try {
+          const args = JSON.parse(actionMatch[1]);
+          const { evalBlock } = await orchestrator.executeHypotheticalEval(
+            { tool: 'evaluate_hypothetical_vitals', args, rationale: 'chat follow-up' },
+            patientId ?? '',
+          );
+          if (evalBlock) {
+            const turn2Messages: ProviderChatMessage[] = [
+              { role: 'system', content: `${systemContext}\n\n${evalBlock}` },
+              ...state.messages.map((m) => ({ role: m.role, content: m.text })),
+              { role: 'user', content: trimmed },
+              { role: 'assistant', content: result.text.replace(/ACTION:.*\n?/g, '').trim() },
+              { role: 'user', content: 'Now ground your answer in the ML hypothetical evaluation above.' },
+            ];
+            const turn2Abort = new AbortController();
+            abortControllerRef.current = turn2Abort;
+            dispatch({ type: 'set-phase', payload: { assistantId: assistantMessage.id, phase: 2 } });
+            const turn2Result = await slm.chat(
+              turn2Messages,
+              (token) => {
+                dispatch({ type: 'mark-answer-started', payload: { assistantId: assistantMessage.id } });
+                dispatch({ type: 'append-token', payload: { assistantId: assistantMessage.id, token } });
+              },
+              turn2Abort.signal,
+              CONCIERGE_GENERATION_DEEP,
+            );
+            finalText = turn2Result.text;
+            finalReasoning = turn2Result.reasoningContent ?? finalReasoning;
+          }
+        } catch {
+          // Hypothetical eval failed — fall through with the original answer.
+        }
+      }
 
       dispatch({
         type: 'send-success',
         payload: {
           assistantId: assistantMessage.id,
-          finalText: result.text,
-          reasoningContent: result.reasoningContent,
+          finalText,
+          reasoningContent: finalReasoning,
         },
       });
     } catch (error) {
@@ -489,7 +605,7 @@ export default function SLMScreen({
     } finally {
       abortControllerRef.current = null;
     }
-  }, [inputText, state.runStatus, state.messages, slm, caregiverContext, snapshot, profile?.patient?.currentMedications]);
+  }, [inputText, state.runStatus, state.messages, slm, caregiverContext, snapshot, medicationNames, retriever, orchestrator, patientId]);
 
   const handleStop = useCallback(() => {
     if (abortControllerRef.current) {
@@ -505,6 +621,106 @@ export default function SLMScreen({
     dispatch({ type: 'new-conversation' });
   }, []);
 
+  const toggleReasoning = useCallback((messageId: string) => {
+    setShowReasoningFor((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleTellMeMore = useCallback(
+    async (sourceMessage: ChatMessage) => {
+      if (!sourceMessage.finalText || state.runStatus === 'streaming') return;
+      const trimmed = inputText.trim();
+      const followUpText = trimmed || 'Tell me more about your last answer. Go deeper on the reasoning, evidence, and practical next steps.';
+      // Replay the most recent exchange as a follow-up.
+      const userMessage: ChatMessage = {
+        id: generateId(),
+        role: 'user',
+        text: followUpText,
+        finalText: followUpText,
+        thinking: null,
+        status: 'done',
+        startedAt: Date.now(),
+        finishedAt: Date.now(),
+        reasoningStartedAt: null,
+        phase: 0,
+        answerStarted: false,
+      };
+      const assistantMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        text: '',
+        finalText: null,
+        thinking: null,
+        status: 'streaming',
+        startedAt: Date.now(),
+        finishedAt: null,
+        reasoningStartedAt: null,
+        phase: 0,
+        answerStarted: false,
+      };
+      dispatch({ type: 'send-start', payload: { userMessage, assistantMessage } });
+      setInputText('');
+      const contextForRequest: CaregiverAssistantContext = caregiverContext ?? {};
+      const systemContext = buildCaregiverSystemContext(contextForRequest);
+      const priorMessages: ProviderChatMessage[] = state.messages.map((m) => ({
+        role: m.role,
+        content: m.finalText ?? m.text,
+      }));
+      const messages: ProviderChatMessage[] = [
+        { role: 'system', content: systemContext },
+        ...priorMessages,
+        { role: 'user', content: followUpText },
+      ];
+      abortControllerRef.current = new AbortController();
+      try {
+        const result = await slm.chat(
+          messages,
+          (token) => {
+            dispatch({ type: 'mark-answer-started', payload: { assistantId: assistantMessage.id } });
+            dispatch({ type: 'append-token', payload: { assistantId: assistantMessage.id, token } });
+          },
+          abortControllerRef.current.signal,
+          // §6.6: "Tell me more" is always deep.
+          { ...CONCIERGE_GENERATION_DEEP, reasoningFormat: REASONING_FORMAT_EXPLAIN },
+          (token) => {
+            dispatch({ type: 'set-phase', payload: { assistantId: assistantMessage.id, phase: 1 } });
+            dispatch({ type: 'append-reasoning-token', payload: { assistantId: assistantMessage.id, token } });
+          },
+        );
+        dispatch({
+          type: 'send-success',
+          payload: {
+            assistantId: assistantMessage.id,
+            finalText: result.text,
+            reasoningContent: result.reasoningContent,
+          },
+        });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          dispatch({ type: 'send-stopped', payload: { assistantId: assistantMessage.id } });
+        } else {
+          dispatch({
+            type: 'send-error',
+            payload: {
+              assistantId: assistantMessage.id,
+              error: error instanceof Error ? error.message : 'Something went wrong.',
+            },
+          });
+        }
+      } finally {
+        abortControllerRef.current = null;
+      }
+    },
+    [caregiverContext, inputText, slm, state.messages, state.runStatus],
+  );
+
   const renderMessage: ListRenderItem<ChatMessage> = ({ item }) => {
     if (item.role === 'user') {
       return (
@@ -516,23 +732,76 @@ export default function SLMScreen({
       );
     }
 
+    const reasoningOpen = showReasoningFor.has(item.id);
+    const isExpanded = expandedMessageIds.has(item.id);
+    const reasoning = item.thinking;
+    const showReasoningToggle = isDeveloper && Boolean(reasoning && reasoning.trim());
+    const displayText = isExpanded || !item.finalText
+      ? item.finalText ?? item.text
+      : truncateForQuickAnswer(item.finalText ?? item.text);
+
     return (
       <View style={styles.assistantBubble}>
-        {item.status === 'streaming' && (
-          <Text style={[styles.streamingText, { color: theme.textSecondary }]}>
-            {item.text || '...'}
-          </Text>
+        {item.status === 'streaming' && !item.answerStarted && (
+          // Never render the raw reasoning stream in the bubble. While the
+          // model is thinking (before the first answer token), show only the
+          // blinking-ellipsis + discrete step progress bar. Passing the raw
+          // reasoning text lets the indicator light one chunk per completed
+          // reasoning step (deriveReasoningSteps) — real structure, not a loop.
+          <ThinkingIndicator
+            phase={item.phase}
+            streaming={false}
+            reasoning={item.thinking}
+          />
+        )}
+
+        {item.status === 'streaming' && item.answerStarted && (
+          // Answer streaming — render in bold inline; the indicator hides
+          // (streaming={true}) and no grey reasoning text is shown.
+          <View style={styles.answerContainer}>
+            <MarkdownRenderer size="large" bold>{item.text}</MarkdownRenderer>
+          </View>
         )}
 
         {(item.status === 'done' || item.status === 'stopped' || item.status === 'error') && (
           <>
             {item.finalText ? (
               <View style={styles.answerContainer}>
-                <MarkdownRenderer size="large">{item.finalText}</MarkdownRenderer>
+                <MarkdownRenderer size="large">{displayText}</MarkdownRenderer>
+                {!isExpanded && shouldOfferTellMeMore(item.finalText) ? (
+                  <Pressable
+                    style={styles.tellMeMoreButton}
+                    onPress={() => {
+                      setExpandedMessageIds((prev) => new Set(prev).add(item.id));
+                      void handleTellMeMore(item);
+                    }}
+                    disabled={state.runStatus === 'streaming'}
+                  >
+                    <Text style={styles.tellMeMoreText}>Tell me more</Text>
+                  </Pressable>
+                ) : null}
               </View>
             ) : (
               <Text style={[styles.answerText, { color: theme.text }]}>{item.text}</Text>
             )}
+
+            {showReasoningToggle ? (
+              <View style={styles.reasoningSection}>
+                <Pressable onPress={() => toggleReasoning(item.id)}>
+                  <Text style={[styles.reasoningToggle, { color: theme.textSecondary }]}>
+                    {reasoningOpen ? '▾' : '▸'} Show reasoning
+                  </Text>
+                </Pressable>
+                {reasoningOpen ? (
+                  <View style={[styles.reasoningBox, { borderColor: theme.textSecondary + '40' }]}>
+                    <Text style={[styles.reasoningText, { color: theme.textSecondary }]}>
+                      {reasoning}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
             {item.status === 'error' ? (
               <Text style={styles.errorText}>Error: {item.finalText ?? 'Unknown error'}</Text>
             ) : null}
@@ -545,6 +814,7 @@ export default function SLMScreen({
     );
   };
 
+  const patientRecordLoading = !ready;
   const isInputDisabled = slm.loadStatus !== 'ready' && slm.loadStatus !== 'idle';
 
   return (
@@ -620,7 +890,7 @@ export default function SLMScreen({
 
                 {slm.loadStatus === 'ready' ? (
                   <Pressable onPress={slm.unloadModel} style={styles.secondaryButton}>
-                    <Text style={styles.secondaryButtonText}>Unload Native SLM Model</Text>
+                    <Text style={styles.secondaryButtonText}>Unload Concierge model</Text>
                   </Pressable>
                 ) : (
                   <Pressable
@@ -630,7 +900,7 @@ export default function SLMScreen({
                     <Text style={styles.secondaryButtonText}>
                       {isDownloading
                         ? `Downloading${downloadProgress !== null ? ` ${downloadProgress}%` : ''}`
-                        : 'Download / Load Native SLM Model'}
+                        : 'Download / load Concierge model'}
                     </Text>
                   </Pressable>
                 )}
@@ -672,53 +942,120 @@ export default function SLMScreen({
 
           <View style={styles.contextCard}>
             <Text style={styles.cardTitle}>Care Context</Text>
-            <Text style={styles.contextSection}>Patient</Text>
-            <Text style={styles.contextText}>
-              { patientProfile ? patientProfile?.resource?.name?.[0]?.given?.[0] + ' ' + patientProfile?.resource?.name?.[0]?.family : ''} · age {patientProfile?.resource?.birthDate ? calculateAge(new Date(patientProfile?.resource.birthDate)) : "N/A"}
-            </Text>
-            <Text style={styles.contextText}>
-              Conditions: {conditions.map((c) => c.resource.code?.text).filter(Boolean).join(', ') || 'No conditions provided'}
-            </Text>
-            <Text style={styles.contextText}>
-              Medications: {medications.map((m) => m.resource.medicationCodeableConcept?.text).filter(Boolean).join(', ') || 'No medications provided'}
-            </Text>
-            <Text style={styles.contextText}>
-              Baseline routine: {profile?.patient?.baselineDailyRoutine ?? 'Not provided'}
-            </Text>
-            <Text style={styles.contextText}>
-              SpO2 cutoff: {profile?.patient?.spo2Cutoff ?? '—'} · Baseline HR: {profile?.patient?.baselineHeartRate ?? '—'}
-            </Text>
-
-            <Text style={styles.contextSection}>Caregiver</Text>
-            <Text style={styles.contextText}>
-              {profile?.caregiver?.name} ({profile?.caregiver?.relationship}) · {profile?.caregiver?.experience ?? '—'} · {profile?.caregiver?.availability ?? '—'}
-            </Text>
-            <Text style={styles.contextText}>
-              Language: {profile?.caregiver?.languagePreference ?? '—'} · Comfort: {profile?.caregiver?.medicalComfortLevel ?? '—'}
-            </Text>
-            <Text style={styles.contextText}>
-              Active concern: {profile?.caregiver?.mainConcern ?? 'Not provided'}
-            </Text>
-            <Text style={styles.contextText}>
-              Backup: {profile?.caregiver?.backupCaregiver ?? 'Not provided'}
-            </Text>
-
-            <Text style={styles.contextSection}>Care Team</Text>
-            <Text style={styles.contextText}>
-              {profile?.primaryCareProvider?.name} · {profile?.primaryCareProvider?.phone}
-            </Text>
-
-            {profile?.safety ? (
+            {patientRecordLoading ? (
+              <Text style={styles.contextText}>Loading patient record...</Text>
+            ) : patientRecordError ? (
+              <Text style={styles.errorText}>
+                Patient record unavailable: {patientRecordError.message}
+              </Text>
+            ) : !snapshot?.patient ? (
+              <Text style={styles.contextText}>
+                No persisted patient record is available. Import or create a patient record before asking the Concierge.
+              </Text>
+            ) : (
               <>
-                <Text style={styles.contextSection}>Safety</Text>
-                <Text style={styles.contextText}>
-                  Emergency contact: {profile?.safety?.emergencyContact ?? 'Not provided'}
-                </Text>
-                <Text style={styles.contextText}>
-                  Notes: {profile?.safety?.safetyNotes ?? 'Not provided'}
-                </Text>
+                <CollapsibleCareSection
+                  id="patient"
+                  title="Patient"
+                  summary={`${snapshot.patient.name} · age ${caregiverContext?.patientAge ?? 'Not provided'}`}
+                  expanded={expandedCareSections.has('patient')}
+                  onToggle={toggleCareSection}
+                >
+                  <Text style={styles.contextText}>
+                    Conditions: {snapshot.conditions.map((condition: PatientCondition) => condition.name).filter(Boolean).join(', ') || 'No conditions provided'}
+                  </Text>
+                  <Text style={styles.contextText}>
+                    Medications: {medicationNames.join(', ') || 'No medications provided'}
+                  </Text>
+                  <Text style={styles.contextText}>
+                    Baseline routine: {snapshot.patient.baselineDailyRoutine ?? 'Not provided'}
+                  </Text>
+                  <Text style={styles.contextText}>
+                    SpO2 cutoff: {snapshot.patient.spo2Cutoff ?? 'Not provided'} · Baseline HR: {snapshot.patient.baselineHeartRate ?? 'Not provided'}
+                  </Text>
+                </CollapsibleCareSection>
+
+                <CollapsibleCareSection
+                  id="caregiver"
+                  title="Caregiver"
+                  summary={
+                    snapshot.caregiver
+                      ? `${snapshot.caregiver.name} (${snapshot.caregiver.relationship ?? 'N/A'})`
+                      : 'Not provided'
+                  }
+                  expanded={expandedCareSections.has('caregiver')}
+                  onToggle={toggleCareSection}
+                >
+                  {snapshot.caregiver ? (
+                    <>
+                      <Text style={styles.contextText}>
+                        {snapshot.caregiver.name} ({snapshot.caregiver.relationship ?? 'relationship not provided'}) · {snapshot.caregiver.experience ?? 'experience not provided'} · {snapshot.caregiver.availability ?? 'availability not provided'}
+                      </Text>
+                      <Text style={styles.contextText}>
+                        Language: {snapshot.caregiver.languagePreference ?? 'Not provided'} · Comfort: {snapshot.caregiver.medicalComfortLevel ?? 'Not provided'}
+                      </Text>
+                      <Text style={styles.contextText}>
+                        Active concern: {snapshot.caregiver.mainConcern ?? 'Not provided'}
+                      </Text>
+                      <Text style={styles.contextText}>
+                        Backup: {snapshot.caregiver.backupCaregiver ?? 'Not provided'}
+                      </Text>
+                    </>
+                  ) : (
+                    <Text style={styles.contextText}>No caregiver information was provided.</Text>
+                  )}
+                </CollapsibleCareSection>
+
+                <CollapsibleCareSection
+                  id="care-team"
+                  title="Care Team"
+                  summary={`PCP: ${caregiverContext?.primaryCareProviderName ?? 'Not provided'}`}
+                  expanded={expandedCareSections.has('care-team')}
+                  onToggle={toggleCareSection}
+                >
+                  <Text style={styles.contextText}>
+                    PCP: {caregiverContext?.primaryCareProviderName ?? 'Not provided'}
+                    {caregiverContext?.primaryCareProviderPhone ? ` · ${caregiverContext.primaryCareProviderPhone}` : ''}
+                  </Text>
+                  {caregiverContext?.primaryCareProviderEmail ? (
+                    <Text style={styles.contextText}>
+                      Email: {caregiverContext.primaryCareProviderEmail}
+                    </Text>
+                  ) : null}
+                </CollapsibleCareSection>
+
+                <CollapsibleCareSection
+                  id="safety"
+                  title="Safety"
+                  summary={`Emergency: ${caregiverContext?.emergencyContact ?? 'Not provided'}`}
+                  expanded={expandedCareSections.has('safety')}
+                  onToggle={toggleCareSection}
+                >
+                  <Text style={styles.contextText}>
+                    Emergency contact: {caregiverContext?.emergencyContact ?? 'Not provided'}
+                  </Text>
+                  <Text style={styles.contextText}>
+                    Safety notes: {caregiverContext?.safetyNotes ?? 'Not provided'}
+                  </Text>
+                </CollapsibleCareSection>
+
+                <CollapsibleCareSection
+                  id="clinical"
+                  title="Clinical"
+                  summary={`${dedupedSymptoms.length} symptom${dedupedSymptoms.length === 1 ? '' : 's'} · ${snapshot.thresholds.length} active threshold${snapshot.thresholds.length === 1 ? '' : 's'}`}
+                  expanded={expandedCareSections.has('clinical')}
+                  onToggle={toggleCareSection}
+                >
+                  <Text style={styles.contextText}>
+                    Symptoms: {dedupedSymptoms.join(', ') || 'No symptoms provided'}
+                  </Text>
+                  <Text style={styles.contextText}>
+                    Active thresholds: {snapshot.thresholds.length}
+                  </Text>
+                </CollapsibleCareSection>
               </>
-            ) : null}
+            )}
+            <Text style={styles.tagline}>The Concierge suggests. You decide.</Text>
           </View>
 
           {state.messages.length > 0 ? (
@@ -789,6 +1126,42 @@ export default function SLMScreen({
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+function CollapsibleCareSection({
+  id,
+  title,
+  summary,
+  expanded,
+  onToggle,
+  children,
+}: {
+  id: string;
+  title: string;
+  summary: string;
+  expanded: boolean;
+  onToggle: (id: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <View style={styles.careSectionWrap}>
+      <Pressable
+        style={styles.careSectionHeader}
+        onPress={() => onToggle(id)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`${title}${expanded ? ' — collapse' : ' — expand'}`}
+      >
+        <Text style={styles.contextSection}>{title}</Text>
+        <Text style={styles.careSectionChevron}>{expanded ? '▾' : '▸'}</Text>
+      </Pressable>
+      {expanded ? (
+        <View style={styles.careSectionBody}>{children}</View>
+      ) : (
+        <Text style={styles.careSectionSummary} numberOfLines={2}>{summary}</Text>
+      )}
+    </View>
   );
 }
 
@@ -899,6 +1272,36 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 4,
   },
+  careSectionWrap: {
+    marginBottom: 2,
+  },
+  careSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  careSectionChevron: {
+    color: '#0E6F68',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  careSectionSummary: {
+    color: '#7A8A89',
+    fontSize: 13,
+    marginBottom: 6,
+    lineHeight: 20,
+  },
+  careSectionBody: {
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  tagline: {
+    fontSize: 11,
+    color: '#8B9AB6',
+    fontStyle: 'italic',
+    marginTop: 12,
+    textAlign: 'center',
+  },
   helperText: {
     marginTop: 10,
     color: '#6B7C7B',
@@ -986,6 +1389,40 @@ const styles = StyleSheet.create({
   },
   answerContainer: {
     marginTop: 4,
+  },
+  tellMeMoreButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#0E6F68',
+  },
+  tellMeMoreText: {
+    color: '#0E6F68',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  reasoningSection: {
+    marginTop: 8,
+  },
+  reasoningToggle: {
+    fontSize: 12,
+    fontWeight: '600',
+    paddingVertical: 4,
+  },
+  reasoningBox: {
+    marginTop: 4,
+    padding: 10,
+    borderWidth: 1,
+    borderRadius: 8,
+    backgroundColor: '#F7FAF9',
+  },
+  reasoningText: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontStyle: 'italic',
   },
   answerText: {
     fontSize: 15,

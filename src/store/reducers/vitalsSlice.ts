@@ -1,269 +1,152 @@
-import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import type { CoreVitals, ExtendedVitals, MLResult } from '@/ml-models/alert-autoencoder/types';
-import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
+import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+import type {
+  HealthSample,
+  HealthSampleSource,
+  HealthSampleType,
+} from '@/data/types';
+import type { RootState } from '@/store';
 
-export interface VitalsSnapshot {
-  core: CoreVitals;
-  extended: ExtendedVitals;
-  timestamp: string; // ISO string
+export type LiveVitalReading = {
   patientId: string;
-}
-
-export type InferenceStatus = 'idle' | 'running' | 'success' | 'error';
-
-export interface VitalsState {
-  /** Most recent vitals snapshot committed to state */
-  current: VitalsSnapshot | null;
-
-  /** Rolling history — newest first, capped at HISTORY_LIMIT */
-  history: VitalsSnapshot[];
-
-  /** Latest ML inference result */
-  inferenceResult: MLResult | null;
-
-  /** Whether an inference is currently in-flight */
-  inferenceStatus: InferenceStatus;
-
-  /** Last inference error message, if any */
-  inferenceError: string | null;
-
-  /** Whether the ML model has been loaded */
-  modelLoaded: boolean;
-
-  /** Timestamp (ISO) of the last successful inference */
-  lastInferenceAt: string | null;
-}
-
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-const HISTORY_LIMIT = 100;
-
-// ─── Initial State ───────────────────────────────────────────────────────────
-
-const initialState: VitalsState = {
-  current: null,
-  history: [],
-  inferenceResult: null,
-  inferenceStatus: 'idle',
-  inferenceError: null,
-  modelLoaded: false,
-  lastInferenceAt: null,
+  sampleId: string;
+  type: HealthSampleType;
+  value: number;
+  unit: string;
+  source: HealthSampleSource;
+  recordedAt: string;
+  receivedAt: string;
 };
 
-// ─── Async Thunks ─────────────────────────────────────────────────────────────
+export type VitalsStatus = 'idle' | 'loading' | 'ready' | 'unavailable' | 'error';
 
-/**
- * Load the ML model. Call once at app startup (or after a release).
- */
-export const loadModel = createAsyncThunk<void, AlertMlModel>(
-  'vitals/loadModel',
-  async (model) => {
-    await model.load();
-  }
-);
+export interface VitalsState {
+  activePatientId: string | null;
+  readings: LiveVitalReading[];
+  status: VitalsStatus;
+  error: string | null;
+  hydratedAt: string | null;
+}
 
-/**
- * Release the ML model. Call on app teardown or when vitals monitoring stops.
- */
-export const releaseModel = createAsyncThunk<void, AlertMlModel>(
-  'vitals/releaseModel',
-  async (model) => {
-    await model.release();
-  }
-);
+const READING_LIMIT = 100;
 
-/**
- * Run inference against the loaded ML model using the current vitals snapshot.
- *
- * Usage:
- *   dispatch(runInference({ model, snapshot }))
- *
- * The thunk reads core + extended vitals from the snapshot and forwards
- * them — plus an optional Date — to model.runInference().
- */
-export const runInference = createAsyncThunk<
-  MLResult,
-  { model: AlertMlModel; snapshot: VitalsSnapshot },
-  { rejectValue: string }
->(
-  'vitals/runInference',
-  async ({ model, snapshot }, { rejectWithValue }) => {
-    if (!model.isLoaded) {
-      return rejectWithValue('ML model is not loaded. Call loadModel() first.');
-    }
+const initialState: VitalsState = {
+  activePatientId: null,
+  readings: [],
+  status: 'idle',
+  error: null,
+  hydratedAt: null,
+};
 
-    try {
-      const result = await model.runInference(
-        snapshot.core,
-        snapshot.extended,
-        new Date(snapshot.timestamp)
-      );
-      return result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return rejectWithValue(`Inference failed: ${message}`);
-    }
-  }
-);
+function toLiveVitalReading(sample: HealthSample): LiveVitalReading {
+  return {
+    patientId: sample.patientId,
+    sampleId: sample.sampleId,
+    type: sample.type,
+    value: sample.value,
+    unit: sample.unit,
+    source: sample.source,
+    recordedAt: sample.recordedAt,
+    receivedAt: sample.receivedAt,
+  };
+}
 
-/**
- * Convenience thunk: commit a new snapshot AND immediately run inference.
- *
- * Dispatches setVitals internally so you only need one dispatch from
- * the caller when you want both effects.
- */
-export const setVitalsAndInfer = createAsyncThunk<
-  MLResult,
-  { model: AlertMlModel; snapshot: VitalsSnapshot },
-  { rejectValue: string }
->(
-  'vitals/setVitalsAndInfer',
-  async ({ model, snapshot }, { dispatch, rejectWithValue }) => {
-    dispatch(vitalsSlice.actions.setVitals(snapshot));
+function sortNewestFirst(readings: LiveVitalReading[]): LiveVitalReading[] {
+  return [...readings].sort((a, b) => {
+    const bTime = Date.parse(b.recordedAt);
+    const aTime = Date.parse(a.recordedAt);
+    const timeDelta =
+      (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
 
-    const result = await dispatch(runInference({ model, snapshot }));
+    return timeDelta || b.sampleId.localeCompare(a.sampleId);
+  });
+}
 
-    if (runInference.fulfilled.match(result)) {
-      return result.payload;
-    }
-
-    return rejectWithValue(
-      (result.payload as string) ?? 'setVitalsAndInfer: unknown error'
-    );
-  }
-);
-
-// ─── Slice ────────────────────────────────────────────────────────────────────
+function bounded(readings: LiveVitalReading[]): LiveVitalReading[] {
+  return sortNewestFirst(readings).slice(0, READING_LIMIT);
+}
 
 const vitalsSlice = createSlice({
   name: 'vitals',
   initialState,
   reducers: {
-    /**
-     * Commit a new vitals snapshot.
-     * Pushes the previous snapshot into history (if one exists) and updates
-     * `current`. Oldest entries are pruned when HISTORY_LIMIT is exceeded.
-     */
-    setVitals(state, action: PayloadAction<VitalsSnapshot>) {
-      if (state.current) {
-        state.history.unshift(state.current);
-        if (state.history.length > HISTORY_LIMIT) {
-          state.history.length = HISTORY_LIMIT;
-        }
+    hydrationStarted(state, action: PayloadAction<{ patientId: string }>) {
+      state.activePatientId = action.payload.patientId;
+      state.readings = [];
+      state.status = 'loading';
+      state.error = null;
+      state.hydratedAt = null;
+    },
+    hydrationSucceeded(
+      state,
+      action: PayloadAction<{ patientId: string; samples: HealthSample[] }>,
+    ) {
+      state.activePatientId = action.payload.patientId;
+      state.readings = bounded(action.payload.samples.map(toLiveVitalReading));
+      state.status = 'ready';
+      state.error = null;
+      state.hydratedAt = new Date().toISOString();
+    },
+    hydrationFailed(
+      state,
+      action: PayloadAction<{ patientId: string | null; error: string }>,
+    ) {
+      state.activePatientId = action.payload.patientId;
+      state.readings = [];
+      state.status = 'error';
+      state.error = action.payload.error;
+      state.hydratedAt = new Date().toISOString();
+    },
+    projectHealthSample(state, action: PayloadAction<HealthSample>) {
+      const reading = toLiveVitalReading(action.payload);
+
+      if (state.activePatientId && state.activePatientId !== reading.patientId) {
+        return;
       }
-      state.current = action.payload;
-    },
 
-    /**
-     * Patch only the CoreVitals fields of the current snapshot.
-     * No-ops silently if there is no current snapshot yet.
-     */
-    updateCoreVitals(state, action: PayloadAction<Partial<CoreVitals>>) {
-      if (state.current) {
-        state.current.core = { ...state.current.core, ...action.payload };
+      state.activePatientId = reading.patientId;
+      state.status = 'ready';
+      state.error = null;
+      state.readings = bounded([
+        reading,
+        ...state.readings.filter((item) => item.sampleId !== reading.sampleId),
+      ]);
+    },
+    clearVitalsForPatient(state, action: PayloadAction<{ patientId?: string } | undefined>) {
+      const patientId = action.payload?.patientId;
+      if (patientId && state.activePatientId && state.activePatientId !== patientId) {
+        return;
       }
+      state.activePatientId = patientId ?? null;
+      state.readings = [];
+      state.status = 'idle';
+      state.error = null;
+      state.hydratedAt = null;
     },
-
-    /**
-     * Patch only the ExtendedVitals fields of the current snapshot.
-     * No-ops silently if there is no current snapshot yet.
-     */
-    updateExtendedVitals(state, action: PayloadAction<Partial<ExtendedVitals>>) {
-      if (state.current) {
-        state.current.extended = { ...state.current.extended, ...action.payload };
-      }
+    markVitalsUnavailable(state, action: PayloadAction<{ patientId: string | null }>) {
+      state.activePatientId = action.payload.patientId;
+      state.readings = [];
+      state.status = 'unavailable';
+      state.error = null;
+      state.hydratedAt = new Date().toISOString();
     },
-
-    /** Clear the most recent inference result and reset status to idle. */
-    clearInferenceResult(state) {
-      state.inferenceResult = null;
-      state.inferenceStatus = 'idle';
-      state.inferenceError = null;
-    },
-
-    /** Wipe the entire vitals history (current snapshot is preserved). */
-    clearHistory(state) {
-      state.history = [];
-    },
-
-    /** Full reset — useful for patient logout or session teardown. */
-    resetVitals() {
-      return initialState;
-    },
-  },
-
-  extraReducers: (builder) => {
-    // ── loadModel ──────────────────────────────────────────────────────────
-    builder
-      .addCase(loadModel.fulfilled, (state) => {
-        state.modelLoaded = true;
-      })
-      .addCase(loadModel.rejected, (state) => {
-        state.modelLoaded = false;
-      });
-
-    // ── releaseModel ───────────────────────────────────────────────────────
-    builder.addCase(releaseModel.fulfilled, (state) => {
-      state.modelLoaded = false;
-    });
-
-    // ── runInference ───────────────────────────────────────────────────────
-    builder
-      .addCase(runInference.pending, (state) => {
-        state.inferenceStatus = 'running';
-        state.inferenceError = null;
-      })
-      .addCase(runInference.fulfilled, (state, action) => {
-        state.inferenceStatus = 'success';
-        state.inferenceResult = action.payload;
-        state.lastInferenceAt = new Date().toISOString();
-        state.inferenceError = null;
-      })
-      .addCase(runInference.rejected, (state, action) => {
-        state.inferenceStatus = 'error';
-        state.inferenceError = action.payload ?? 'Unknown inference error';
-      });
-
-    // ── setVitalsAndInfer — mirror inference status only (setVitals is
-    //    handled by the internal synchronous dispatch)
-    builder
-      .addCase(setVitalsAndInfer.pending, (state) => {
-        state.inferenceStatus = 'running';
-        state.inferenceError = null;
-      })
-      .addCase(setVitalsAndInfer.rejected, (state, action) => {
-        state.inferenceStatus = 'error';
-        state.inferenceError = action.payload ?? 'Unknown error in setVitalsAndInfer';
-      });
-    // fulfilled is already handled by runInference.fulfilled above
   },
 });
 
-// ─── Exports ──────────────────────────────────────────────────────────────────
-
 export const {
-  setVitals,
-  updateCoreVitals,
-  updateExtendedVitals,
-  clearInferenceResult,
-  clearHistory,
-  resetVitals,
+  clearVitalsForPatient,
+  hydrationFailed,
+  hydrationStarted,
+  hydrationSucceeded,
+  markVitalsUnavailable,
+  projectHealthSample,
 } = vitalsSlice.actions;
 
 export default vitalsSlice.reducer;
 
-// ─── Selectors ────────────────────────────────────────────────────────────────
-
-import type { RootState } from '@/store'; // adjust path to your store
-
-export const selectCurrentVitals = (state: RootState) => state.vitals.current;
-export const selectCoreVitals    = (state: RootState) => state.vitals.current?.core ?? null;
-export const selectExtendedVitals= (state: RootState) => state.vitals.current?.extended ?? null;
-export const selectVitalsHistory = (state: RootState) => state.vitals.history;
-export const selectInferenceResult  = (state: RootState) => state.vitals.inferenceResult;
-export const selectInferenceStatus  = (state: RootState) => state.vitals.inferenceStatus;
-export const selectInferenceError   = (state: RootState) => state.vitals.inferenceError;
-export const selectModelLoaded      = (state: RootState) => state.vitals.modelLoaded;
-export const selectLastInferenceAt  = (state: RootState) => state.vitals.lastInferenceAt;
+export const selectLiveVitalsState = (state: RootState) => state.vitals;
+export const selectLiveVitalReadings = (state: RootState) => state.vitals.readings;
+export const selectLatestLiveVitalReading = (
+  state: RootState,
+  type: HealthSampleType,
+) => state.vitals.readings.find((reading) => reading.type === type) ?? null;

@@ -10,6 +10,7 @@ export * from './codes';
 export * from './identifiers';
 export * from './patient-mapper';
 export * from './clinical-mappers';
+export * from './onboarding-import-mapper';
 export * from './care-plan-mapper';
 export * from './consent-mapper';
 export * from './audit-mapper';

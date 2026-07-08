@@ -15,15 +15,23 @@
 import { getDatabase } from '../db';
 import type {
   Caregiver,
+  CarePlan,
   Medication,
+  MedicationCandidate,
+  MedicationConfirmationRequirement,
   Patient,
   PatientCondition,
+  PatientTimelineEvent,
   Symptom,
   Threshold,
   WearableDevice,
 } from '../types';
+import { getActiveCarePlanForPatient, getCarePlansForPatient } from './carePlanRepository';
+import { getMedicationCandidatesForPatient } from './fhirResourceRepository';
 import { getKnowledgeCacheStats } from './knowledgeCacheRepository';
+import { getMedicationConfirmationRequirementsForPatient } from './medicationConfirmationRequirementRepository';
 import { getEnrichmentStats } from './patientEnrichmentLogRepository';
+import { getPatientTimelineEvents } from './patientTimelineEventRepository';
 import {
   getActiveMedications,
   getCaregiverForPatient,
@@ -62,7 +70,12 @@ export interface PatientRecordSnapshot {
   symptoms: Symptom[];
   wearable: WearableDevice | null;
   medications: Medication[];
+  medicationCandidates: MedicationCandidate[];
+  medicationConfirmationRequirements: Record<string, MedicationConfirmationRequirement>;
   thresholds: Threshold[];
+  carePlan: CarePlan | null;
+  carePlans: CarePlan[];
+  timelineEvents: PatientTimelineEvent[];
   carePlanGoals: CarePlanGoalSummary[];
   knowledgeStats: { total: number; bySource: Record<string, number> };
   enrichmentStats: {
@@ -144,7 +157,13 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const symptoms = getSymptomsForPatient(patientId);
   const wearable = getPrimaryWearableForPatient(patientId);
   const medications = getActiveMedications(patientId);
+  const medicationCandidates = getMedicationCandidatesForPatient(patientId);
+  const medicationConfirmationRequirements =
+    getMedicationConfirmationRequirementsForPatient(patientId);
   const thresholds = getActiveThresholds(patientId);
+  const carePlan = getActiveCarePlanForPatient(patientId);
+  const carePlans = getCarePlansForPatient(patientId);
+  const timelineEvents = getPatientTimelineEvents(patientId);
   const carePlanGoals = getCarePlanGoals(patientId);
   const knowledgeStats = getKnowledgeCacheStats();
   const enrichmentStats = getEnrichmentStats(patientId);
@@ -165,7 +184,12 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     symptoms,
     wearable,
     medications,
+    medicationCandidates,
+    medicationConfirmationRequirements,
     thresholds,
+    carePlan,
+    carePlans,
+    timelineEvents,
     carePlanGoals,
     knowledgeStats,
     enrichmentStats,

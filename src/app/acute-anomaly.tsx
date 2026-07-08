@@ -22,7 +22,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { severityColor } from '@/constants/user-terms';
+import { ThinkingIndicator } from '@/components/concierge/ThinkingIndicator';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
+import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
 import {
   useOrchestrator,
   useOrchestratorPatientId,
@@ -77,8 +80,7 @@ function SwipeableAlertRow({
     [translateX, onDismiss, alert.alertId],
   );
 
-  const severityColor =
-    alert.severity === 3 ? '#B42318' : alert.severity === 2 ? '#B54708' : '#0E6F68';
+  const color = severityColor(alert.severity);
 
   return (
     <View style={styles.swipeableRow}>
@@ -88,7 +90,7 @@ function SwipeableAlertRow({
       <Animated.View
         style={[styles.alertRowContainer, { transform: [{ translateX }] }]}
         {...panResponder.panHandlers}>
-        <View style={[styles.severityDot, { backgroundColor: severityColor }]} />
+        <View style={[styles.severityDot, { backgroundColor: color }]} />
         <View style={styles.alertBody}>
           <Text style={styles.alertTitle}>{alert.title}</Text>
           <Text style={styles.muted}>{alert.body}</Text>
@@ -96,7 +98,7 @@ function SwipeableAlertRow({
             <Pressable
               style={[styles.button, styles.secondaryButton]}
               onPress={() => onExplain(alert.alertId)}>
-              <Text style={styles.secondaryButtonText}>Explain with SLM</Text>
+              <Text style={styles.secondaryButtonText}>Ask Concierge to explain</Text>
             </Pressable>
           )}
         </View>
@@ -190,7 +192,7 @@ export default function AcuteAnomalyScreen() {
         }
         const result = await orchestrator.explainAlert(alertId, 'caregiver-1');
         setProposal(result);
-        log(`SLM explanation received. Citations: ${result.citations.length}`);
+        log(`Concierge explanation received. Citations: ${result.citations.length}`);
       } catch (err) {
         log(`Explain failed: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
@@ -214,7 +216,7 @@ export default function AcuteAnomalyScreen() {
           option,
         );
         setProposal(result);
-        log('Clarifying question answered; SLM re-ran.');
+        log('Clarifying question answered; Concierge re-ran.');
       } catch (err) {
         log(`Answer failed: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
@@ -245,7 +247,7 @@ export default function AcuteAnomalyScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>Acute Anomaly Flow</Text>
         <Text style={styles.subtitle}>
-          Simulate vitals, watch the orchestrator create alerts, then ask the SLM for an
+          Simulate vitals, watch the Concierge create alerts, then ask the Concierge for an
           explanation with optional clarifying questions.
         </Text>
 
@@ -272,7 +274,7 @@ export default function AcuteAnomalyScreen() {
             />
           </View>
           <Pressable style={styles.button} onPress={simulateVitals}>
-            <Text style={styles.buttonText}>Send vitals to orchestrator</Text>
+            <Text style={styles.buttonText}>Send vitals to Concierge</Text>
           </Pressable>
         </View>
 
@@ -301,15 +303,15 @@ export default function AcuteAnomalyScreen() {
 
         {loading && (
           <View style={styles.card}>
-            <Text style={styles.muted}>Loading SLM explanation…</Text>
+            <ThinkingIndicator text="" />
           </View>
         )}
 
         {proposal && (
           <View style={styles.explanationCard}>
             <View style={styles.explanationHeader}>
-              <Text style={styles.explanationEyebrow}>SLM Analysis</Text>
-              <Text style={styles.explanationTitle}>Alert Explanation</Text>
+              <Text style={styles.explanationEyebrow}>Concierge analysis</Text>
+              <Text style={styles.explanationTitle}>Alert explanation</Text>
             </View>
 
             <View style={styles.answerContainer}>
@@ -357,7 +359,7 @@ export default function AcuteAnomalyScreen() {
   );
 }
 
-const CAREGIVER_SLM_MODEL_ID = 'healthgpt-pro-4b';
+const CAREGIVER_SLM_MODEL_ID = DEFAULT_SLM_MODEL_ID;
 
 const styles = StyleSheet.create({
   safeArea: {

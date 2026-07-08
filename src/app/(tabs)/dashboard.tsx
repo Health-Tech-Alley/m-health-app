@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -6,25 +6,43 @@ import {
   Text,
   View,
 } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { AlertsLogCard } from "@/components/dashboard/AlertsLogCard";
+import { NeedsYourReviewBanner } from "@/components/dashboard/NeedsYourReviewBanner";
 import { NonEmergencyInsightCard } from "@/components/dashboard/NonEmergencyInsightCard";
 import { PatientSummaryCard } from "@/components/dashboard/PatientSummaryCard";
 import { TodayPriorityCard } from "@/components/dashboard/TodayPriorityCard";
 import { WeeklyVitalsCard } from "@/components/dashboard/WeeklyVitalsCard";
 import { AppTheme } from "@/constants/theme";
-import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
+import { timeOfDayGreeting } from "@/constants/user-terms";
+import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
+import { getEventBus } from "@/orchestration/event-bus";
+import {
+  getActiveCareAlerts,
+  type CareAlert,
+} from "@/services/care/careService";
+import { useActivePatientView } from "@/hooks/useActivePatientView";
+import {
+  getCaregiverDisplay,
+  getPatientDisplayName,
+} from "@/utils/patientDisplay";
 
 export default function DashboardRoute() {
-  const profile = getOnboardingProfile();
+  const activePatient = useActivePatientView();
+  const patientId = useOrchestratorPatientId();
   const scrollRef = useRef<ScrollView | null>(null);
   const [alertsLogY, setAlertsLogY] = useState(0);
+  const [nonEmergencyAlert, setNonEmergencyAlert] = useState<CareAlert | null>(
+    null,
+  );
 
-  const caregiverFirstName = getFirstName(profile.caregiver.name);
-  const patientFirstName = getFirstName(profile.patient.name);
+  const caregiverFirstName = getFirstName(getCaregiverDisplay(activePatient));
+  const patientFirstName = getFirstName(getPatientDisplayName(activePatient));
+  const greeting = `${timeOfDayGreeting()}, ${caregiverFirstName}`;
 
   const scrollToAlertsLog = () => {
     scrollRef.current?.scrollTo({
@@ -32,6 +50,44 @@ export default function DashboardRoute() {
       animated: true,
     });
   };
+
+  const refreshNonEmergencyAlert = useCallback(() => {
+    if (!patientId) {
+      setNonEmergencyAlert(null);
+      return;
+    }
+
+    const alert = selectNonEmergencyAlert(getActiveCareAlerts(patientId));
+    setNonEmergencyAlert(alert);
+  }, [patientId]);
+
+  useEffect(() => {
+    if (!patientId) {
+      const clear = setTimeout(() => setNonEmergencyAlert(null), 0);
+      return () => clearTimeout(clear);
+    }
+
+    const initial = setTimeout(refreshNonEmergencyAlert, 0);
+    const deferredRefresh = () => setTimeout(refreshNonEmergencyAlert, 250);
+    const bus = getEventBus();
+    const unsubMl = bus.subscribe("ml_alert_created", deferredRefresh);
+    const unsubVitals = bus.subscribe("vitals_sample", deferredRefresh);
+
+    return () => {
+      clearTimeout(initial);
+      unsubMl();
+      unsubVitals();
+    };
+  }, [patientId, refreshNonEmergencyAlert]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshNonEmergencyAlert();
+    }, [refreshNonEmergencyAlert]),
+  );
+
+  const visibleNonEmergencyAlert =
+    nonEmergencyAlert?.patientId === patientId ? nonEmergencyAlert : null;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -44,7 +100,7 @@ export default function DashboardRoute() {
           <MainTabHeader
             title="Caregiver Concierge"
             eyebrow="ACCESS-DP"
-            subtitle={`Good evening, ${caregiverFirstName}. Here's ${patientFirstName}'s status.`}
+            subtitle={`${greeting}. Here's ${patientFirstName}'s status.`}
             logoSource={require("@/assets/images/hta-logo.png")}
             rightContent={
               <Pressable
@@ -65,7 +121,16 @@ export default function DashboardRoute() {
 
           <PatientSummaryCard />
           <WeeklyVitalsCard />
-          <NonEmergencyInsightCard />
+          <NeedsYourReviewBanner
+            patientId={patientId}
+            onReviewPress={scrollToAlertsLog}
+          />
+          {visibleNonEmergencyAlert ? (
+            <NonEmergencyInsightCard
+              key={`${visibleNonEmergencyAlert.patientId}:${visibleNonEmergencyAlert.alertId}`}
+              alert={visibleNonEmergencyAlert}
+            />
+          ) : null}
 
           <Text style={styles.sectionTitle}>Today&apos;s Priority</Text>
           <TodayPriorityCard />
@@ -82,6 +147,33 @@ export default function DashboardRoute() {
       </View>
     </SafeAreaView>
   );
+}
+
+function selectNonEmergencyAlert(alerts: CareAlert[]): CareAlert | null {
+  return alerts.reduce<CareAlert | null>((selected, alert) => {
+    if (alert.severity !== 1 && alert.severity !== 2) {
+      return selected;
+    }
+    if (!selected) {
+      return alert;
+    }
+    if (alert.severity !== selected.severity) {
+      return alert.severity > selected.severity ? alert : selected;
+    }
+
+    const alertTime = Date.parse(alert.createdAt);
+    const selectedTime = Date.parse(selected.createdAt);
+    const safeAlertTime = Number.isFinite(alertTime) ? alertTime : 0;
+    const safeSelectedTime = Number.isFinite(selectedTime) ? selectedTime : 0;
+
+    if (safeAlertTime !== safeSelectedTime) {
+      return safeAlertTime > safeSelectedTime ? alert : selected;
+    }
+
+    return alert.alertId.localeCompare(selected.alertId) > 0
+      ? alert
+      : selected;
+  }, null);
 }
 
 function getFirstName(name: string): string {

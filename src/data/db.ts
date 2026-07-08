@@ -18,13 +18,17 @@ const DB_NAME = 'caregiver-concierge.db';
 let dbInstance: SQLiteDatabase | null = null;
 
 export function getDatabase(): SQLiteDatabase {
-  console.log('getDatabase() called', dbInstance ? 'returning existing instance' : 'creating new instance');
   if (!dbInstance) {
+    console.log('[DB] Creating new database instance');
     const db = openDatabaseSync(DB_NAME);
     migrate(db);          // fully complete before assigning
     dbInstance = db;      // ← only now is it visible to other callers
   }
   return dbInstance;
+}
+
+export function initializeDatabase(): void {
+  getDatabase();
 }
 
 export function closeDatabase(): void {
@@ -50,12 +54,33 @@ function migrate(db: SQLiteDatabase): void {
     );
     if (exists && exists.count > 0) continue;
 
-    db.execSync(MIGRATIONS[i]);
+    const migration = MIGRATIONS[i];
+    if (typeof migration === 'function') {
+      migration(db);
+    } else {
+      db.execSync(migration);
+    }
     db.runSync(
       'INSERT INTO __migrations (id, applied_at) VALUES (?, ?);',
       i,
       new Date().toISOString(),
     );
+  }
+
+  // Defensive: ensure critical columns exist even if a migration was skipped
+  // or the __migrations table was in a bad state. Each ALTER fails silently
+  // if the column already exists. Without this, upsertPatient crashes on
+  // "no column named location" and the entire patient record (conditions,
+  // diagnosis, meds, symptoms) fails to save.
+  const defensiveColumns: Array<{ table: string; col: string; type: string }> = [
+    { table: 'patients', col: 'location', type: 'TEXT' },
+  ];
+  for (const { table, col, type } of defensiveColumns) {
+    try {
+      db.execSync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type};`);
+    } catch {
+      // Column already exists — expected.
+    }
   }
 }
 
@@ -94,9 +119,14 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS wearable_devices;
     DROP TABLE IF EXISTS ml_events;
     DROP TABLE IF EXISTS daily_care_entries;
+    DROP TABLE IF EXISTS rehabilitation_measurements;
+    DROP TABLE IF EXISTS patient_longitudinal_observations;
+    DROP TABLE IF EXISTS patient_timeline_events;
     DROP TABLE IF EXISTS appointments;
     DROP TABLE IF EXISTS threshold_recommendations;
     DROP TABLE IF EXISTS __migrations;
+    DROP TABLE IF EXISTS secure_messaging_store;
+    DROP TABLE IF EXISTS health_samples;
   `);
   closeDatabase();
   dbInstance = null;

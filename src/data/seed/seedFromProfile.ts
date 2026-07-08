@@ -32,7 +32,7 @@ import type { SymptomCategory, Threshold } from '../types';
 import { upsertMedicationSchedule } from '../repositories/medicationScheduleRepository';
 import { insertAppointment, deleteDemoAppointmentsForPatient } from '../repositories/appointmentRepository';
 import { ensureDefaultNotificationPreferences } from '../repositories/notificationRepository';
-import { upsertSymptom } from '../repositories/symptomRepository';
+import { upsertSymptom, deleteSymptomsForPatient } from '../repositories/symptomRepository';
 import { upsertWearableDevice } from '../repositories/wearableDeviceRepository';
 import { setBundlePending, setBundleStatus } from '../repositories/patientRecordRepository';
 
@@ -42,6 +42,13 @@ function makeId(prefix: string): string {
 
 const DEFAULT_PATIENT_ID = 'default-patient';
 const DEFAULT_CAREGIVER_ID = 'default-caregiver';
+
+type SeedConditionInput = {
+  code?: string;
+  label: string;
+  category?: string;
+  isPrimary: boolean;
+};
 
 /**
  * Map onboarding symptom IDs to their structured categories.
@@ -96,12 +103,25 @@ export function seedDatabaseFromProfile(
   upsertPatient({
     patientId,
     name: profile.patient.name,
+    preferredName: profile.patient.preferredName,
     age: profile.patient.age,
     conditions: profile.patient.conditions,
     baselineDailyRoutine: profile.patient.baselineDailyRoutine,
     currentMedications: profile.patient.currentMedications,
     spo2Cutoff: profile.patient.spo2Cutoff,
     baselineHeartRate: profile.patient.baselineHeartRate,
+    baselineBloodOxygen: profile.patient.baselineBloodOxygen,
+    baselineRespiratoryRate: profile.patient.baselineRespiratoryRate,
+    baselineBloodPressureSystolic: profile.patient.baselineBloodPressureSystolic,
+    baselineBloodPressureDiastolic: profile.patient.baselineBloodPressureDiastolic,
+    baselineGlucoseLevel: profile.patient.baselineGlucoseLevel,
+    baselineBodyTemperature: profile.patient.baselineBodyTemperature,
+    gmfcs: profile.patient.gmfcsLevel || 'Not assessed',
+    fms: profile.patient.fmsScore || 'Not assessed',
+    macs: profile.patient.macsLevel || 'Not assessed',
+    cfcs: profile.patient.cfcsLevel || 'Not assessed',
+    edacs: profile.patient.edacsLevel || 'Not assessed',
+    location: profile.patient.location,
     createdAt: profile.completedAt ?? now,
     updatedAt: now,
   });
@@ -127,18 +147,40 @@ export function seedDatabaseFromProfile(
   // Clear any existing conditions so re-seed is idempotent.
   deleteConditionsForPatient(patientId);
 
-  // Primary condition
-  if (profile.patient.primaryIcdCode && profile.patient.primaryIcdLabel) {
-    upsertCondition({
-      conditionId: makeId('condition'),
-      patientId,
-      name: profile.patient.primaryIcdLabel,
-      icd10: profile.patient.primaryIcdCode,
-      category: deriveConditionCategory(profile.patient.primaryIcdCode),
-      isPrimary: true,
-      source: 'onboarding',
-      needsReview: false,
-    });
+  const structuredConditions = dedupeSeedConditions([
+    ...(profile.patient.primaryIcdLabel
+      ? [
+          {
+            code: profile.patient.primaryIcdCode,
+            label: profile.patient.primaryIcdLabel,
+            category: profile.patient.primaryIcdCode
+              ? deriveConditionCategory(profile.patient.primaryIcdCode)
+              : undefined,
+            isPrimary: true,
+          },
+        ]
+      : []),
+    ...(profile.patient.comorbidities ?? []).map((condition) => ({
+      code: condition.code,
+      label: condition.label,
+      category: condition.category ?? (condition.code ? deriveConditionCategory(condition.code) : undefined),
+      isPrimary: false,
+    })),
+  ]);
+
+  if (structuredConditions.length > 0) {
+    for (const condition of structuredConditions) {
+      upsertCondition({
+        conditionId: makeId('condition'),
+        patientId,
+        name: condition.label,
+        icd10: condition.code,
+        category: condition.category,
+        isPrimary: condition.isPrimary,
+        source: 'onboarding',
+        needsReview: false,
+      });
+    }
   } else {
     // Fallback: derive from the legacy comma-separated conditions string.
     const fallbackNames = profile.patient.conditions
@@ -157,22 +199,11 @@ export function seedDatabaseFromProfile(
     }
   }
 
-  // Comorbidities (structured)
-  const comorbidities = profile.patient.comorbidities ?? [];
-  for (const cm of comorbidities) {
-    upsertCondition({
-      conditionId: makeId('condition'),
-      patientId,
-      name: cm.label,
-      icd10: cm.code,
-      category: cm.category ?? deriveConditionCategory(cm.code),
-      isPrimary: false,
-      source: 'onboarding',
-      needsReview: false,
-    });
-  }
-
   // -- Symptoms (structured catalog selections) -----------------------------
+  // Clear existing symptoms so re-seed is idempotent and duplicates don't
+  // accumulate across cold starts (mirrors conditions + medications above).
+  deleteSymptomsForPatient(patientId);
+
   const symptomIds = profile.patient.symptoms ?? [];
   for (const symptomId of symptomIds) {
     const category = SYMPTOM_CATEGORY_MAP[symptomId] ?? 'other';
@@ -341,13 +372,21 @@ export function seedDatabaseFromProfile(
   // on this; the retriever uses synthetic fixtures until the cache is populated,
   // then picks up the cached chunks on the next index rebuild.
   // (See planning/22_clinical-data-gathering.md §9a)
-  void import('@/clinical-evidence/condition-bundler').then(({ bundleConditionPack, bundleMedicationPack }) => {
+  void import('@/clinical-evidence/condition-bundler').then(({ bundleConditionPack, bundleMedicationPack, bundleSdohPack, bundleMeasurePack }) => {
     void bundleConditionPack(patientId).catch((err) => {
       console.error('[seedFromProfile] bundleConditionPack failed:', err);
       // Leave bundlePending = true so the app retries on next launch
     });
     void bundleMedicationPack(patientId).catch((err) => {
       console.error('[seedFromProfile] bundleMedicationPack failed:', err);
+    });
+    // D5: SDOH bundle (CDC PLACES) keyed off patient.location.
+    void bundleSdohPack(patientId, profile.patient.location).catch((err) => {
+      console.error('[seedFromProfile] bundleSdohPack failed:', err);
+    });
+    // D7: HEDIS measure-driven care-gap bundle.
+    void bundleMeasurePack(patientId).catch((err) => {
+      console.error('[seedFromProfile] bundleMeasurePack failed:', err);
     });
   }).catch((err) => {
     console.error('[seedFromProfile] Failed to load condition-bundler:', err);
@@ -369,6 +408,36 @@ function deriveConditionCategory(icdCode: string): string {
   if (root.startsWith('G') || root.startsWith('S06') || root.startsWith('F')) return 'Neurologic';
   if (root.startsWith('G80')) return 'Neurologic / Mobility';
   return 'General';
+}
+
+function dedupeSeedConditions(
+  conditions: SeedConditionInput[],
+): SeedConditionInput[] {
+  const seenCodes = new Set<string>();
+  const seenLabels = new Set<string>();
+
+  return conditions.filter((condition) => {
+    const codeKey = normalizeIcdCodeForComparison(condition.code);
+    const labelKey = normalizeConditionLabelForComparison(condition.label);
+    const duplicate =
+      (codeKey && seenCodes.has(codeKey)) ||
+      (!codeKey && labelKey && seenLabels.has(labelKey));
+
+    if (duplicate) return false;
+    if (codeKey) seenCodes.add(codeKey);
+    if (labelKey) seenLabels.add(labelKey);
+    return true;
+  });
+}
+
+function normalizeIcdCodeForComparison(value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return '';
+  return trimmed.match(/[A-Z][0-9][A-Z0-9.]*/i)?.[0].toUpperCase() ?? '';
+}
+
+function normalizeConditionLabelForComparison(value: string | undefined): string {
+  return value?.trim().toLowerCase().replace(/\s+/g, ' ') ?? '';
 }
 
 function parseThresholdValue(value: string | undefined): number | null {

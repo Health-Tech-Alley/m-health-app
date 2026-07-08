@@ -5,10 +5,12 @@
  * SLMContext. Multiple SLM-required tasks (explain_alert, clarifying_answer,
  * caregiver_chat, ML enrichment) acquire leases via `acquire(reason)`; the
  * model stays loaded while any lease is held. When the last lease is released
- * and policy is 'auto', a 60s auto-unload timer starts. Any new acquire()
+ * and policy is 'auto', a 30s auto-unload timer starts. Any new acquire()
  * cancels the timer.
  *
- * AppState background force-releases all leases and unloads the model.
+ * The AppState background handling lives in SLMProvider now (D1): instead of
+ * a forced immediate unload, the provider debounces a 30s grace window. The
+ * queue just owns refcount + timer; the provider owns the policy decision.
  *
  * The orchestrator calls `acquire('explain_alert')` before `slm.chat(...)` and
  * `lease.release()` in a finally block. This makes the SLM lifecycle the
@@ -51,7 +53,8 @@ export interface SlmTaskQueueConfig {
   /** Called when the queue wants to know if a load is already in progress. */
   getLoadPromise: () => Promise<void> | null;
   setLoadPromise: (promise: Promise<void> | null) => void;
-  autoUnloadMs?: number; // default 60_000
+  /** Idle-unload timer in ms. Default 30_000 (D1). */
+  autoUnloadMs?: number;
 }
 
 export class SlmTaskQueue {
@@ -62,7 +65,7 @@ export class SlmTaskQueue {
 
   constructor(config: SlmTaskQueueConfig) {
     this.config = config;
-    this.autoUnloadMs = config.autoUnloadMs ?? 60_000;
+    this.autoUnloadMs = config.autoUnloadMs ?? 30_000;
   }
 
   /** Update the config (called by SLMProvider when state changes). */
@@ -74,8 +77,8 @@ export class SlmTaskQueue {
    * Acquire a lease for an SLM-required task.
    *
    * - If the model is 'ready', returns immediately with an incremented refcount.
-   * - If 'idle' and policy is 'auto', loads the default model first.
-   * - If 'loading', awaits the in-progress load.
+   * - If 'loading', awaits the in-progress load (startup or another acquire).
+   * - If 'idle'/'error' and policy is 'auto', triggers a fresh load.
    * - If policy is 'manual' and not ready, throws SlmNotReadyError.
    *
    * Cancels any pending auto-unload timer.
@@ -98,7 +101,8 @@ export class SlmTaskQueue {
       return this.makeLease(reason);
     }
 
-    // A load is already in progress — await it rather than starting a second.
+    // A load is already in progress (e.g. the startup load from
+    // SLMProvider) — await it rather than starting a second.
     if (status === 'loading') {
       const existing = this.config.getLoadPromise();
       if (!existing) {
@@ -145,7 +149,7 @@ export class SlmTaskQueue {
     }
   }
 
-  /** Force-release all leases (e.g. on AppState background). */
+  /** Force-release all leases (no unload — the provider owns that decision). */
   releaseAll(): void {
     this.refcount = 0;
     this.cancelAutoUnload();
@@ -157,15 +161,13 @@ export class SlmTaskQueue {
   }
 
   /**
-   * Called on AppState 'background'. Force-releases all leases and unloads
-   * the model immediately, regardless of policy.
+   * Back-compat alias for the old onAppBackground hook. SLMProvider no longer
+   * calls this — it owns the debounced unload — but external callers may
+   * still import it. The behavior is intentionally limited: clear the timer,
+   * drop leases. Do not unload the model here.
    */
   onAppBackground(): void {
     this.releaseAll();
-    const status = this.config.getLoadStatus();
-    if (status === 'ready') {
-      void this.config.unloadModel();
-    }
   }
 
   private scheduleAutoUnload(): void {

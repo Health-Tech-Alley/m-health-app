@@ -1,5 +1,13 @@
-import { TopFeatureEvidence, UC2ContextualType } from "./uc2Types";
+import {
+    TopFeatureEvidence,
+    UC2ContextualType,
+    AutoencoderResult,
+    CompletedFeatureVector,
+    SensorClassificationResult,
+    Severity,
+} from "./uc2Types";
 
+// @compat Preserved
 export function classifyInitialContextualType(params: {
     emergency: boolean;
     isAnomaly: boolean;
@@ -36,6 +44,7 @@ export function classifyInitialContextualType(params: {
     return "GENERAL_MULTIVARIATE_ANOMALY";
 }
 
+// @compat Preserved
 export function fusePostHITLContext(params: {
     initialType: UC2ContextualType;
     caregiverSelectedCodes: string[];
@@ -73,4 +82,67 @@ export function fusePostHITLContext(params: {
     }
 
     return initialType;
+}
+
+// New in v2
+export function classifySensorAnomaly(
+    features: CompletedFeatureVector,
+    ae: AutoencoderResult
+): SensorClassificationResult {
+    if (!ae.is_anomaly) {
+        return {
+            sensor_anomaly_type: "NORMAL_PATTERN",
+            pre_hitl_severity: 0,
+            reasons: ["AE score below threshold."],
+        };
+    }
+
+    const top = ae.top_contributors.map((x) => x.feature);
+
+    if (
+        top.includes("blood_oxygen") ||
+        top.includes("respiratory_rate") ||
+        top.includes("heart_rate")
+    ) {
+        return {
+            sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
+            pre_hitl_severity: inferPreHitlSeverity(ae.ae_score, ae.ae_threshold),
+            reasons: ["Cardio-respiratory features contributed to anomaly."],
+        };
+    }
+
+    if (
+        top.includes("sleep_quality") ||
+        top.includes("hrv_sdnn") ||
+        top.includes("is_sleep_window")
+    ) {
+        return {
+            sensor_anomaly_type: "SLEEP_RECOVERY_DEVIATION",
+            pre_hitl_severity: 1,
+            reasons: ["Sleep/recovery features contributed to anomaly."],
+        };
+    }
+
+    if (
+        top.includes("steps_count") ||
+        top.includes("calories_burned") ||
+        top.includes("activity_level")
+    ) {
+        return {
+            sensor_anomaly_type: "EXERTION_OR_ACTIVITY_PATTERN",
+            pre_hitl_severity: 1,
+            reasons: ["Activity/exertion features contributed to anomaly."],
+        };
+    }
+
+    return {
+        sensor_anomaly_type: "UNEXPLAINED_PHYSIOLOGIC_STRESS",
+        pre_hitl_severity: inferPreHitlSeverity(ae.ae_score, ae.ae_threshold),
+        reasons: ["Anomaly detected without a watch-only explanation."],
+    };
+}
+
+function inferPreHitlSeverity(score: number, threshold: number): Severity {
+    if (score >= threshold * 2) return 2;
+    return 1;
 }

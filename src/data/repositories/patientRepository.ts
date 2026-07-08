@@ -11,10 +11,36 @@ import type { Caregiver, Medication, Patient, PatientCondition } from '../types'
 export function upsertPatient(patient: Patient): void {
   const db = getDatabase();
   db.runSync(
-    `INSERT OR REPLACE INTO patients
+    `INSERT INTO patients
       (patient_id, name, age, conditions, baseline_daily_routine, current_medications,
-       spo2_cutoff, baseline_heart_rate, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+       spo2_cutoff, baseline_heart_rate, baseline_blood_oxygen,
+       baseline_respiratory_rate, baseline_blood_pressure_systolic,
+       baseline_blood_pressure_diastolic, baseline_glucose_level,
+       baseline_body_temperature, preferred_name, gmfcs, fms, macs, cfcs,
+       edacs, location, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(patient_id) DO UPDATE SET
+       name = COALESCE(NULLIF(excluded.name, ''), patients.name),
+       age = COALESCE(NULLIF(excluded.age, ''), patients.age),
+       conditions = COALESCE(NULLIF(excluded.conditions, ''), patients.conditions),
+       baseline_daily_routine = COALESCE(NULLIF(excluded.baseline_daily_routine, ''), patients.baseline_daily_routine),
+       current_medications = COALESCE(NULLIF(excluded.current_medications, ''), patients.current_medications),
+       spo2_cutoff = COALESCE(NULLIF(excluded.spo2_cutoff, ''), patients.spo2_cutoff),
+       baseline_heart_rate = COALESCE(NULLIF(excluded.baseline_heart_rate, ''), patients.baseline_heart_rate),
+       baseline_blood_oxygen = COALESCE(NULLIF(excluded.baseline_blood_oxygen, ''), patients.baseline_blood_oxygen),
+       baseline_respiratory_rate = COALESCE(NULLIF(excluded.baseline_respiratory_rate, ''), patients.baseline_respiratory_rate),
+       baseline_blood_pressure_systolic = COALESCE(NULLIF(excluded.baseline_blood_pressure_systolic, ''), patients.baseline_blood_pressure_systolic),
+       baseline_blood_pressure_diastolic = COALESCE(NULLIF(excluded.baseline_blood_pressure_diastolic, ''), patients.baseline_blood_pressure_diastolic),
+       baseline_glucose_level = COALESCE(NULLIF(excluded.baseline_glucose_level, ''), patients.baseline_glucose_level),
+       baseline_body_temperature = COALESCE(NULLIF(excluded.baseline_body_temperature, ''), patients.baseline_body_temperature),
+       preferred_name = COALESCE(NULLIF(excluded.preferred_name, ''), patients.preferred_name),
+       gmfcs = COALESCE(NULLIF(excluded.gmfcs, ''), patients.gmfcs),
+       fms = COALESCE(NULLIF(excluded.fms, ''), patients.fms),
+       macs = COALESCE(NULLIF(excluded.macs, ''), patients.macs),
+       cfcs = COALESCE(NULLIF(excluded.cfcs, ''), patients.cfcs),
+       edacs = COALESCE(NULLIF(excluded.edacs, ''), patients.edacs),
+       location = COALESCE(NULLIF(excluded.location, ''), patients.location),
+       updated_at = excluded.updated_at;`,
     patient.patientId,
     patient.name,
     patient.age ?? null,
@@ -23,6 +49,19 @@ export function upsertPatient(patient: Patient): void {
     patient.currentMedications ?? null,
     patient.spo2Cutoff ?? null,
     patient.baselineHeartRate ?? null,
+    patient.baselineBloodOxygen ?? null,
+    patient.baselineRespiratoryRate ?? null,
+    patient.baselineBloodPressureSystolic ?? null,
+    patient.baselineBloodPressureDiastolic ?? null,
+    patient.baselineGlucoseLevel ?? null,
+    patient.baselineBodyTemperature ?? null,
+    patient.preferredName ?? null,
+    patient.gmfcs ?? null,
+    patient.fms ?? null,
+    patient.macs ?? null,
+    patient.cfcs ?? null,
+    patient.edacs ?? null,
+    patient.location ?? null,
     patient.createdAt,
     patient.updatedAt,
   );
@@ -34,7 +73,15 @@ export function getPatient(patientId: string): Patient | null {
     db.getFirstSync<Patient>(
       `SELECT patient_id AS patientId, name, age, conditions, baseline_daily_routine AS baselineDailyRoutine,
               current_medications AS currentMedications, spo2_cutoff AS spo2Cutoff,
-              baseline_heart_rate AS baselineHeartRate, created_at AS createdAt, updated_at AS updatedAt
+              baseline_heart_rate AS baselineHeartRate, preferred_name AS preferredName,
+              baseline_blood_oxygen AS baselineBloodOxygen,
+              baseline_respiratory_rate AS baselineRespiratoryRate,
+              baseline_blood_pressure_systolic AS baselineBloodPressureSystolic,
+              baseline_blood_pressure_diastolic AS baselineBloodPressureDiastolic,
+              baseline_glucose_level AS baselineGlucoseLevel,
+              baseline_body_temperature AS baselineBodyTemperature,
+              gmfcs, fms, macs, cfcs, edacs, location,
+              created_at AS createdAt, updated_at AS updatedAt
        FROM patients WHERE patient_id = ?;`,
       patientId,
     ) ?? null
@@ -159,13 +206,14 @@ export function upsertCondition(condition: PatientCondition): void {
   const db = getDatabase();
   db.runSync(
     `INSERT OR REPLACE INTO patient_conditions
-      (condition_id, patient_id, name, icd10, onset_date,
+      (condition_id, patient_id, name, icd10, snomed_code, onset_date,
        category, is_primary, source, source_doc_id, retrieved_at, needs_review)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     condition.conditionId,
     condition.patientId,
     condition.name,
     condition.icd10 ?? null,
+    condition.snomedCode ?? null,
     condition.onsetDate ?? null,
     condition.category ?? null,
     condition.isPrimary ? 1 : 0,
@@ -180,6 +228,7 @@ export function getConditionsForPatient(patientId: string): PatientCondition[] {
   const db = getDatabase();
   return db.getAllSync<PatientCondition>(
     `SELECT condition_id AS conditionId, patient_id AS patientId, name, icd10,
+            snomed_code AS snomedCode,
             onset_date AS onsetDate, category, is_primary AS isPrimary,
             source, source_doc_id AS sourceDocId, retrieved_at AS retrievedAt,
             needs_review AS needsReview
@@ -205,8 +254,12 @@ export function deleteCondition(conditionId: string): void {
   db.runSync('DELETE FROM patient_conditions WHERE condition_id = ?;', conditionId);
 }
 
-/** Remove all conditions for a patient (used during re-seed). */
+/** Remove onboarding-seeded conditions for a patient while preserving imported review rows. */
 export function deleteConditionsForPatient(patientId: string): void {
   const db = getDatabase();
-  db.runSync('DELETE FROM patient_conditions WHERE patient_id = ?;', patientId);
+  db.runSync(
+    `DELETE FROM patient_conditions
+     WHERE patient_id = ? AND COALESCE(source, 'onboarding') = 'onboarding';`,
+    patientId,
+  );
 }

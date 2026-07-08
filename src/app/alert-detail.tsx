@@ -22,6 +22,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppTheme } from '@/constants/theme';
+import { severityColor, severityLabel } from '@/constants/user-terms';
 import {
   getAlertById,
   getAnomalyConfidenceRatio,
@@ -42,14 +43,6 @@ const BG = AppTheme.colors.screen;
 const DARK = AppTheme.colors.text;
 const MUTED = AppTheme.colors.textSoft;
 const RED = AppTheme.colors.danger;
-const ORANGE = AppTheme.colors.warning;
-
-const SEVERITY_COLOR: Record<number, string> = { 3: RED, 2: ORANGE, 1: TEAL };
-const SEVERITY_LABEL: Record<number, string> = {
-  3: 'Emergency',
-  2: 'Urgent',
-  1: 'Info',
-};
 
 export default function AlertDetailScreen() {
   const router = useRouter();
@@ -183,7 +176,7 @@ export default function AlertDetailScreen() {
     );
   }
 
-  const color = SEVERITY_COLOR[alert.severity] ?? TEAL;
+  const color = severityColor(alert.severity);
   const isEmergency = alert.severity === 3;
 
   return (
@@ -202,7 +195,7 @@ export default function AlertDetailScreen() {
         {/* Alert header */}
         <View style={[styles.alertHeader, { backgroundColor: color }]}>
           <Text style={styles.alertEyebrow}>
-            {SEVERITY_LABEL[alert.severity]} · Severity {alert.severity}
+            {severityLabel(alert.severity)}
           </Text>
           <Text style={styles.alertTitle}>{alert.title}</Text>
           {alert.body ? <Text style={styles.alertBody}>{alert.body}</Text> : null}
@@ -231,7 +224,7 @@ export default function AlertDetailScreen() {
         {/* ML event details (UC2 decision-layer output) */}
         {mlDetails && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>ML Analysis</Text>
+            <Text style={styles.cardTitle}>Health Monitor analysis</Text>
             {mlDetails.event.initialAnomalyType && (
               <Text style={styles.mlLine}>
                 Pattern: {mlDetails.event.initialAnomalyType.replace(/_/g, ' ').toLowerCase()}

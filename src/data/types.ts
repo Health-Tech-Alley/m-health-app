@@ -5,7 +5,15 @@
  * these typed objects and the raw database rows.
  */
 
-export type HealthSampleSource = 'apple-health' | 'health-connect' | 'manual' | 'mock';
+export type HealthSampleSource =
+  | 'apple-health'
+  | 'health-connect'
+  | 'manual'
+  | 'mock'
+  | 'fhir'
+  | 'wearable'
+  | 'simulated'
+  | 'cda_import';
 
 export type HealthSampleType =
   | 'spo2'
@@ -14,6 +22,9 @@ export type HealthSampleType =
   | 'blood_pressure_systolic'
   | 'blood_pressure_diastolic'
   | 'temperature'
+  | 'weight'
+  | 'height'
+  | 'bmi'
   | 'blood_glucose'
   | 'steps'
   | 'distance'
@@ -32,6 +43,58 @@ export interface HealthSample {
   recordedAt: string;
   receivedAt: string;
   metadataJson?: string;
+  /** Optional reference to the source document (e.g. CDA doc_id). */
+  sourceDocId?: string;
+}
+
+export type RehabilitationMeasurementType =
+  | 'rehabilitation_gait_speed'
+  | 'rehabilitation_shoulder_rom'
+  | 'rehabilitation_grip_strength'
+  | 'rehabilitation_berg_balance'
+  | 'rehabilitation_fatigue'
+  | 'rehabilitation_modified_ashworth'
+  | 'rehabilitation_seated_postural_control'
+  | 'rehabilitation_feeding_tolerance'
+  | 'rehabilitation_communication_function'
+  | 'rehabilitation_joint_contracture_rom';
+
+export interface RehabilitationMeasurement {
+  measurementId: string;
+  patientId: string;
+  type: RehabilitationMeasurementType;
+  value: number;
+  unit: string;
+  recordedAt: string;
+  source: 'fhir';
+  createdAt: string;
+}
+
+export type LongitudinalObservationType =
+  | 'vomiting_episodes'
+  | 'urinary_symptom_score'
+  | 'bowel_regimen_score'
+  | 'mobility_score'
+  | 'sleep_quality'
+  | 'pain_score'
+  | 'hydration_status'
+  | 'seizure_frequency'
+  | 'spasticity_episodes'
+  | 'respiratory_suctioning_events'
+  | 'feeding_intolerance';
+
+export interface PatientLongitudinalObservation {
+  patientId: string;
+  observationId: string;
+  measurementType: LongitudinalObservationType;
+  recordedAt: string;
+  encounterId?: string | null;
+  numericValue?: number | null;
+  textValue?: string | null;
+  unit?: string | null;
+  sourceSystem?: string | null;
+  sourceCode: string;
+  sourceType: 'fhir';
 }
 
 export interface Threshold {
@@ -45,6 +108,32 @@ export interface Threshold {
   citationId?: string;
   createdAt: string;
   supersededAt?: string;
+}
+
+export interface CarePlanActivity {
+  activityId: string;
+  planId: string;
+  status?: string;
+  description?: string;
+  sequence: number;
+}
+
+export interface CarePlan {
+  planId: string;
+  patientId: string;
+  version: number;
+  effectiveDate: string;
+  status?: string;
+  intent?: string;
+  title?: string;
+  description?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  careTeamDisplayJson?: string;
+  safetyNotes?: string;
+  emergencyContact?: string;
+  createdAt: string;
+  activities: CarePlanActivity[];
 }
 
 export interface Alert {
@@ -146,12 +235,26 @@ export interface ConsentToken {
 export interface Patient {
   patientId: string;
   name: string;
+  preferredName?: string;
   age?: string;
   conditions?: string;
   baselineDailyRoutine?: string;
   currentMedications?: string;
   spo2Cutoff?: string;
   baselineHeartRate?: string;
+  baselineBloodOxygen?: string;
+  baselineRespiratoryRate?: string;
+  baselineBloodPressureSystolic?: string;
+  baselineBloodPressureDiastolic?: string;
+  baselineGlucoseLevel?: string;
+  baselineBodyTemperature?: string;
+  gmfcs?: string;
+  fms?: string;
+  macs?: string;
+  cfcs?: string;
+  edacs?: string;
+  /** Free-text location (county / state) used for SDOH bundling. */
+  location?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -181,7 +284,78 @@ export interface Medication {
   route?: string;
   indication?: string;
   active: boolean;
-  source?: 'care_plan' | 'custom';
+  source?: 'care_plan' | 'custom' | 'fhir' | 'ccda_import';
+}
+
+export interface MedicationCandidate {
+  candidateId: string;
+  patientId: string;
+  name: string;
+  category: string;
+  currentHomeUseStatus: 'unknown' | 'not_confirmed';
+  confirmationRequired: boolean;
+  sourceFile?: string;
+  visitIndex?: number;
+  daysFromFirstVisit?: number;
+  summary?: string;
+  fhirResourceId: string;
+}
+
+export type MedicationConfirmationRequirementStatus =
+  | 'required'
+  | 'not_required'
+  | 'not_provided';
+
+export type MedicationConfirmationRequirementSource =
+  | 'demo_override'
+  | 'demo_fixture'
+  | 'fhir_extension'
+  | 'provider_configuration';
+
+export interface MedicationConfirmationRequirement {
+  patientId: string;
+  medicationId: string;
+  confirmationRequirement: MedicationConfirmationRequirementStatus;
+  requirementSource?: MedicationConfirmationRequirementSource;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type MedicationConfirmationPreferenceMode =
+  | 'all'
+  | 'required_only'
+  | 'personalized';
+
+export interface MedicationConfirmationPreference {
+  patientId: string;
+  confirmationMode: MedicationConfirmationPreferenceMode;
+  selectedMedicationIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PatientTimelineEventType =
+  | 'pre_op_planning'
+  | 'operative_event'
+  | 'discharge_restrictions'
+  | 'post_op_follow_up'
+  | 'ot_orthosis_plan'
+  | 'equipment_orthotics_support';
+
+export interface PatientTimelineEvent {
+  eventId: string;
+  patientId: string;
+  eventType: PatientTimelineEventType;
+  title: string;
+  summary: string;
+  visitIndex: number;
+  daysFromFirstVisit: number;
+  daysBeforeLatestVisit: number;
+  sourceFile: string;
+  sourceSection: string;
+  confidence: 'high' | 'medium' | 'low';
+  clinicalRelevance: string;
+  createdAt: string;
 }
 
 export interface PatientCondition {
@@ -189,6 +363,8 @@ export interface PatientCondition {
   patientId: string;
   name: string;
   icd10?: string;
+  /** Original SNOMED CT code (when the source provides SNOMED, e.g. CDA import). */
+  snomedCode?: string;
   onsetDate?: string;
   // M12 extensions — structured clinical metadata
   category?: string; // 'Respiratory' | 'Neurologic' | 'Cardiac' | 'Metabolic' | 'Cognitive' | 'Neurologic / Mobility' | ...
@@ -251,6 +427,8 @@ export interface WearableDevice {
   baselineCompletedAt?: string;
   createdAt: string;
   updatedAt: string;
+  healthkitSourceId?: string;
+  healthkitSourceName?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +436,32 @@ export interface WearableDevice {
 // (see planning/22_clinical-data-gathering.md §6a)
 // ---------------------------------------------------------------------------
 
-export type KnowledgeSource = 'pubmed' | 'medlineplus' | 'rxnorm' | 'dailymed' | 'openfda';
+export type KnowledgeSource =
+  | 'pubmed'
+  | 'medlineplus'
+  | 'rxnorm'
+  | 'dailymed'
+  | 'openfda'
+  | 'orphanet'
+  | 'clinicaltrials'
+  | 'umls'
+  | 'cdc-places'
+  | 'semmeddb'
+  | 'synthetic'
+  | 'hedis'
+  | 'patient-plan';
+
+/** Coarse chunk-depth tier used by the prompt-budget router (planning/32 §12.4). */
+export type KnowledgeDocumentType =
+  | 'abstract'
+  | 'fulltext'
+  | 'guideline'
+  | 'systematic_review'
+  | 'spl_full'
+  | 'synthetic';
+
+/** Length tier for budget-aware prompt injection. */
+export type KnowledgeLengthTier = 'short' | 'medium' | 'long';
 
 export interface KnowledgeChunk {
   chunkId: string; // docId, e.g. 'PMID-12345678', 'MLP-J44.1'
@@ -270,6 +473,12 @@ export interface KnowledgeChunk {
   expiresAt?: string;
   useCount: number;
   metadataJson?: string;
+  /** Optional chunk-depth classification (planning/32 §12.3). */
+  documentType?: KnowledgeDocumentType;
+  /** Optional length tier (planning/32 §12.3). */
+  lengthTier?: KnowledgeLengthTier;
+  /** For section-chunked full-text docs, the heading that this chunk came from. */
+  sectionHeading?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -357,6 +566,44 @@ export interface MlRawVitals {
   [key: string]: number | undefined;
 }
 
+export interface MlInputProvenance {
+  source?: HealthSampleSource;
+  sampleId?: string;
+  recordedAt?: string;
+  receivedAt?: string;
+  unit?: string;
+  healthSampleType?: HealthSampleType;
+  metadataJson?: string;
+}
+
+export interface MlRawVitalsInputEnvelope {
+  contract: 'AppleWatchVitalsInput';
+  contractVersion: 1;
+  input: {
+    patient_id: string;
+    caregiver_id?: string;
+    device_id?: string;
+    timestamp: string;
+    heart_rate?: number;
+    blood_oxygen?: number;
+    respiratory_rate?: number;
+    hrv_sdnn?: number;
+    steps_count?: number;
+    calories_burned?: number;
+    sleep_quality?: number;
+    blood_pressure_systolic?: number;
+    blood_pressure_diastolic?: number;
+    glucose_level?: number;
+    body_temperature?: number;
+    stress_level?: number;
+    activity_level?: number;
+  };
+  provenance: Record<string, MlInputProvenance>;
+  evaluatedAt: string;
+}
+
+export type MlRawVitalsPayload = MlRawVitals | MlRawVitalsInputEnvelope;
+
 // ---------------------------------------------------------------------------
 // Medication schedules (structured reminder times)
 // ---------------------------------------------------------------------------
@@ -396,9 +643,12 @@ export interface NotificationRecord {
 export interface NotificationPreferences {
   anomaly: boolean;
   medication: boolean;
+  medicationDevice: boolean;
   appointment: boolean;
+  appointmentDevice: boolean;
   appointmentLeadTimeMin: number;
   careTask: boolean;
+  careTaskDevice: boolean;
   quietHoursStart?: string; // 'HH:mm'
   quietHoursEnd?: string;
 }
@@ -421,7 +671,7 @@ export interface AppSettings {
 // FHIR resource cache + export queue
 // ---------------------------------------------------------------------------
 
-export type FhirResourceKind = 'care_plan' | 'export_queue' | 'consent_snapshot';
+export type FhirResourceKind = 'care_plan' | 'export_queue' | 'consent_snapshot' | 'imported';
 
 export interface FhirResource {
   resourceType: string; // 'CarePlan' | 'Composition' | 'Consent' | 'Provenance' ...
@@ -511,3 +761,70 @@ export interface DailyCareEntry {
   createdAt: string;
   updatedAt: string;
 }
+
+export type NormalizedVitalReading = {
+  sampleId: string;
+  type: string;
+  value: number;
+  unit: string;
+  recordedAt: string;
+  source: string;
+};
+
+export type NormalizedBloodPressurePair = {
+  systolic?: number;
+  diastolic?: number;
+  systolicSampleId?: string;
+  diastolicSampleId?: string;
+  unit: string;
+  recordedAt?: string;
+  source?: string;
+};
+
+export type NormalizedVitalMetric = {
+  key: string;
+  label: string;
+  value: string;
+  unit: string;
+  status: "available" | "not_available";
+  recordedAt?: string;
+  sampleId?: string;
+  source?: string;
+  readings: NormalizedVitalReading[];
+  bloodPressure?: NormalizedBloodPressurePair;
+  bloodPressureReadings?: NormalizedBloodPressurePair[];
+  data: number[];
+};
+
+export type NormalizedActivePatient = {
+  patientId: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  preferredName: string;
+  age: string;
+  caregiver: Pick<Caregiver, "name" | "relationship"> | null;
+  primaryDiagnosis: PatientCondition | null;
+  comorbidities: PatientCondition[];
+  pendingConditions: PatientCondition[];
+  classifications: {
+    gmfcs: string;
+    fms: string;
+    macs: string;
+    cfcs: string;
+    edacs: string;
+  };
+  baselineDailyRoutine: string;
+  currentMedications: string;
+  spo2Cutoff: string;
+  baselineHeartRate: string;
+  baselineBloodOxygen: string;
+  baselineRespiratoryRate: string;
+  baselineBloodPressureSystolic: string;
+  baselineBloodPressureDiastolic: string;
+  baselineGlucoseLevel: string;
+  baselineBodyTemperature: string;
+  medicationConfirmationRequirements: Record<string, MedicationConfirmationRequirement>;
+  status: "available" | "unknown";
+  lastRefreshedAt: string;
+};

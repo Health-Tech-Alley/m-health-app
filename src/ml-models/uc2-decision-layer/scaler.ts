@@ -1,7 +1,4 @@
-export type UC2Scaler = {
-    mean: number[];
-    scale: number[];
-};
+import type { ScalerParams, UC2Scaler } from "./uc2Types";
 
 export function scaleFeatures(
     rawFeatures: number[],
@@ -16,5 +13,21 @@ export function scaleFeatures(
     return rawFeatures.map((value, i) => {
         const scale = scaler.scale[i] === 0 ? 1 : scaler.scale[i];
         return (value - scaler.mean[i]) / scale;
+    });
+}
+
+export function scaleVector(input: number[], scaler: ScalerParams): number[] {
+    return input.map((value, i) => {
+        const mean = scaler.mean[i] ?? 0;
+        const scale = scaler.scale[i] === 0 ? 1 : scaler.scale[i] ?? 1;
+        return (value - mean) / scale;
+    });
+}
+
+export function inverseScaleVector(input: number[], scaler: ScalerParams): number[] {
+    return input.map((value, i) => {
+        const mean = scaler.mean[i] ?? 0;
+        const scale = scaler.scale[i] === 0 ? 1 : scaler.scale[i] ?? 1;
+        return value * scale + mean;
     });
 }

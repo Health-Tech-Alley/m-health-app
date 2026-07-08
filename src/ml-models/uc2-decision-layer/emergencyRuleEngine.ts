@@ -1,54 +1,45 @@
-import { EmergencyRuleResult } from "./uc2Types";
+import { HARD_EMERGENCY_THRESHOLDS } from "./uc2Constants";
+import type {
+    CompletedFeatureVector,
+    EmergencyRuleResult,
+    PipelinePath,
+} from "./uc2Types";
 
 export function runEmergencyRuleEngine(
-    featureMap: Record<string, number>
+    features: CompletedFeatureVector | Record<string, number>
 ): EmergencyRuleResult {
-    const tempF = featureMap.body_temperature;
-    const spo2 = featureMap.blood_oxygen;
-    const hr = featureMap.heart_rate;
-    const rr = featureMap.respiratory_rate;
+    const reasons: string[] = [];
 
-    if (spo2 !== undefined && spo2 <= 88) {
-        return {
-            emergency: true,
-            severity: 3,
-            reason: "LOW_BLOOD_OXYGEN",
-            pipelinePath: "RULE_ENGINE_EMERGENCY_FAST_PATH",
-        };
+    const spo2 = features.blood_oxygen;
+    if (spo2 !== undefined && spo2 <= HARD_EMERGENCY_THRESHOLDS.blood_oxygen_lte) {
+        reasons.push(`SpO2 ${spo2} <= ${HARD_EMERGENCY_THRESHOLDS.blood_oxygen_lte}`);
     }
 
-    // Fahrenheit
-    if (tempF !== undefined && tempF >= 104.0) {
-        return {
-            emergency: true,
-            severity: 3,
-            reason: "HIGH_FEVER_F",
-            pipelinePath: "RULE_ENGINE_EMERGENCY_FAST_PATH",
-        };
+    const hr = features.heart_rate;
+    if (hr !== undefined && hr >= HARD_EMERGENCY_THRESHOLDS.heart_rate_gte) {
+        reasons.push(`Heart rate ${hr} >= ${HARD_EMERGENCY_THRESHOLDS.heart_rate_gte}`);
     }
 
-    if (hr !== undefined && hr >= 140) {
-        return {
-            emergency: true,
-            severity: 3,
-            reason: "EXTREME_HEART_RATE",
-            pipelinePath: "RULE_ENGINE_EMERGENCY_FAST_PATH",
-        };
+    const rr = features.respiratory_rate;
+    if (rr !== undefined && rr >= HARD_EMERGENCY_THRESHOLDS.respiratory_rate_gte) {
+        reasons.push(`Respiratory rate ${rr} >= ${HARD_EMERGENCY_THRESHOLDS.respiratory_rate_gte}`);
     }
 
-    if (rr !== undefined && rr >= 30) {
-        return {
-            emergency: true,
-            severity: 3,
-            reason: "HIGH_RESPIRATORY_RATE",
-            pipelinePath: "RULE_ENGINE_EMERGENCY_FAST_PATH",
-        };
+    const tempF = features.body_temperature;
+    if (tempF !== undefined && tempF >= HARD_EMERGENCY_THRESHOLDS.body_temperature_f_gte) {
+        reasons.push(`Body temperature ${tempF}°F >= ${HARD_EMERGENCY_THRESHOLDS.body_temperature_f_gte}°F`);
     }
+
+    const is_emergency = reasons.length > 0;
 
     return {
-        emergency: false,
-        severity: 0,
-        reason: null,
-        pipelinePath: "UC2_SLOW_PATH",
+        is_emergency,
+        severity: is_emergency ? 3 : 0,
+        reasons,
+
+        // @compat fields for old callers
+        emergency: is_emergency,
+        reason: is_emergency ? reasons[0] : null,
+        pipelinePath: (is_emergency ? "RULE_ENGINE_EMERGENCY_FAST_PATH" : "UC2_SLOW_PATH") as PipelinePath,
     };
 }

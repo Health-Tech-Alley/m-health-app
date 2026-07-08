@@ -384,7 +384,7 @@ stripping, multiline auto-growing input, and a detailed Care Context card.
 ### Models (`src/app/models/`)
 
 - Lists the model catalog (`src/inference/model-catalog.ts`): HealthGPT Pro
-  4B (Q4_K_M), Gemma 4 E4B (UD-Q2_K_XL), Gemma 4 E2B (UD-Q2_K_XL).
+  4B (Q4_K_M), HealthGPT Pro 8B (Q3_K_M), Gemma 4 E2B (Q4_K_M).
 - Download from Hugging Face with live progress, cancel, delete.
 - Optional Hugging Face token (stored via `expo-secure-store`) for gated
   repos; token can be shown/hidden and saved from the same screen.
@@ -429,7 +429,7 @@ Implements the canonical ST-01-style flow:
   (`src/contexts/slm-context.tsx`) and consumed with the `useSLM()` hook.
 - **Metal GPU acceleration** is enabled (`n_gpu_layers: -1`).
 - Model catalog lives in `src/inference/model-catalog.ts`: HealthGPT Pro
-  4B, Gemma 4 E4B, Gemma 4 E2B.
+  4B, HealthGPT Pro 8B, Gemma 4 E2B.
 - Structured-output models (Gemma "harmony" channels, `<thinking>` tags)
   are parsed by llama.rn into `content` (answer) + `reasoning_content`
   (thinking). A `stripControlTokens()` safety net in

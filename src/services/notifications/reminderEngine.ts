@@ -81,6 +81,7 @@ export async function rescheduleMedicationReminders(patientId: string): Promise<
           title,
           body,
           triggerWhen: fireAt,
+          deviceDelivery: prefs.medicationDevice,
         });
       } catch (err) {
         console.warn('[reminderEngine] schedule med reminder failed:', err);
@@ -131,6 +132,7 @@ export async function rescheduleAppointmentReminders(patientId: string): Promise
         title,
         body,
         triggerWhen: fireAt,
+        deviceDelivery: prefs.appointmentDevice,
       });
     } catch (err) {
       console.warn('[reminderEngine] schedule appointment reminder failed:', err);
@@ -239,9 +241,12 @@ function safeGetPreferences() {
     return {
       anomaly: true,
       medication: true,
+      medicationDevice: true,
       appointment: true,
+      appointmentDevice: true,
       appointmentLeadTimeMin: 30,
       careTask: true,
+      careTaskDevice: true,
     };
   }
 }

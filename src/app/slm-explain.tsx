@@ -25,6 +25,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ThinkingIndicator } from '@/components/concierge/ThinkingIndicator';
+import { AiSuggestsTagline } from '@/components/AiSuggestsTagline';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import {
   useOrchestrator,
@@ -33,6 +35,7 @@ import {
 import { useSLM } from '@/contexts/slm-context';
 import { getAlertById, insertCaregiverAction } from '@/data';
 import type { NextStepActionId } from '@/data/types';
+import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
 import type { AgentProposal } from '@/orchestration';
 import { executeNextStep, type NextStepExecutionResult } from '@/orchestration/next-steps';
 
@@ -41,8 +44,10 @@ const BG = '#EEF7F6';
 const DARK = '#123433';
 const MUTED = '#526866';
 const RED = '#B42318';
+const AMBER = '#E1A53C';
+const GREEN = '#0F7A4A';
 
-const CAREGIVER_SLM_MODEL_ID = 'healthgpt-pro-4b';
+const CAREGIVER_SLM_MODEL_ID = DEFAULT_SLM_MODEL_ID;
 
 export default function SlmExplainScreen() {
   const router = useRouter();
@@ -59,6 +64,7 @@ export default function SlmExplainScreen() {
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideText, setOverrideText] = useState('');
   const [stepResult, setStepResult] = useState<NextStepExecutionResult | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   const log = useCallback((msg: string) => setLogs((prev) => [...prev, msg]), []);
 
@@ -70,10 +76,10 @@ export default function SlmExplainScreen() {
     setStepResult(null);
     try {
       if (slm.loadStatus !== 'ready') {
-        log('Loading SLM model…');
+        log('Loading Concierge model…');
         await slm.loadModel(CAREGIVER_SLM_MODEL_ID);
       }
-      log('Requesting SLM explanation…');
+      log('Requesting Concierge explanation…');
       const result = await orchestrator.explainAlert(alertId, 'caregiver-1');
         setProposal(result);
         log(`Explanation received. Citations: ${result.citations.length}.`);
@@ -109,7 +115,7 @@ export default function SlmExplainScreen() {
           option,
         );
         setProposal(result);
-        log('Clarifying question answered; SLM re-ran.');
+        log('Clarifying question answered; Concierge re-ran.');
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(msg);
@@ -157,9 +163,25 @@ export default function SlmExplainScreen() {
       createdAt: new Date().toISOString(),
     });
     log('Override recorded.');
+    setFeedback('Thanks. I\u2019ll learn from your feedback.');
     setOverrideText('');
     setOverrideOpen(false);
   }, [alertId, patientId, overrideText, log]);
+
+  const confirmProposal = useCallback(() => {
+    if (!alertId) return;
+    insertCaregiverAction({
+      actionId: `act-${Date.now()}`,
+      alertId,
+      patientId,
+      caregiverId: 'caregiver-1',
+      type: 'ask_slm',
+      payloadJson: JSON.stringify({ confirmed: true }),
+      createdAt: new Date().toISOString(),
+    });
+    log('Caregiver confirmed the Concierge explanation.');
+    setFeedback('Got it. The next step is in your hands.');
+  }, [alertId, patientId, log]);
 
   const alert = alertId ? getAlertById(alertId) : null;
 
@@ -183,7 +205,7 @@ export default function SlmExplainScreen() {
 
         {loading && (
           <View style={styles.card}>
-            <Text style={styles.muted}>Concierge is thinking…</Text>
+            <ThinkingIndicator text="" />
           </View>
         )}
 
@@ -199,8 +221,8 @@ export default function SlmExplainScreen() {
         {proposal && (
           <View style={styles.explanationCard}>
             <View style={styles.explanationHeader}>
-              <Text style={styles.explanationEyebrow}>SLM Analysis</Text>
-              <Text style={styles.explanationTitle}>Alert Explanation</Text>
+              <Text style={styles.explanationEyebrow}>Concierge analysis</Text>
+              <Text style={styles.explanationTitle}>Alert explanation</Text>
             </View>
 
             <View style={styles.answerContainer}>
@@ -278,13 +300,49 @@ export default function SlmExplainScreen() {
           </View>
         )}
 
-        {/* HITL controls */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Caregiver Control</Text>
-          <Pressable style={styles.overrideButton} onPress={() => setOverrideOpen(true)}>
-            <Text style={styles.overrideButtonText}>Override / Add note</Text>
-          </Pressable>
-        </View>
+        {/* HITL controls — promoted per planning/29 */}
+        {proposal ? (
+          <View style={styles.hitlCard}>
+            <AiSuggestsTagline variant="outline" />
+            <View style={styles.hitlHeaderRow}>
+              <Text style={styles.hitlTitle}>Your review</Text>
+              {alert ? (
+                <Text style={styles.hitlEyebrow}>
+                  {alert.title}
+                </Text>
+              ) : null}
+            </View>
+            <Text style={styles.hitlHint}>
+              The Concierge suggested the explanation above. Confirm if it matches what you see, or tell us why it\u2019s off.
+            </Text>
+            <View style={styles.hitlActions}>
+              <Pressable
+                style={[styles.hitlPrimaryButton, loading && styles.disabledButton]}
+                onPress={confirmProposal}
+                disabled={loading}
+                accessibilityRole="button"
+                accessibilityLabel="Confirm the Concierge explanation"
+              >
+                <Text style={styles.hitlPrimaryText}>Looks right, proceed</Text>
+              </Pressable>
+              <Pressable
+                style={styles.hitlSecondaryButton}
+                onPress={() => setOverrideOpen(true)}
+                disabled={loading}
+                accessibilityRole="button"
+                accessibilityLabel="I disagree with the Concierge"
+              >
+                <Text style={styles.hitlSecondaryText}>I disagree</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.tagline}>The Concierge suggests. You decide.</Text>
+            {feedback ? (
+              <View style={styles.feedbackBox}>
+                <Text style={styles.feedbackText}>{feedback}</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         {/* Trace log (collapsible) */}
         <Pressable style={styles.traceHeader} onPress={() => setTraceOpen((v) => !v)}>
@@ -540,6 +598,86 @@ const styles = StyleSheet.create({
     color: DARK,
     fontSize: 15,
     fontWeight: '700',
+  },
+  hitlCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E4E7EC',
+    padding: 18,
+    gap: 12,
+  },
+  hitlHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  hitlTitle: {
+    color: DARK,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  hitlEyebrow: {
+    color: MUTED,
+    fontSize: 12,
+    fontWeight: '600',
+    flexShrink: 1,
+    textAlign: 'right',
+    marginLeft: 8,
+  },
+  hitlHint: {
+    color: MUTED,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  tagline: {
+    fontSize: 11,
+    color: MUTED,
+    fontStyle: 'italic',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  hitlActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  hitlPrimaryButton: {
+    flex: 2,
+    backgroundColor: GREEN,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  hitlPrimaryText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  hitlSecondaryButton: {
+    flex: 1,
+    backgroundColor: AMBER,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  hitlSecondaryText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  disabledButton: { opacity: 0.5 },
+  feedbackBox: {
+    backgroundColor: '#F7FAF9',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#D9E7E5',
+  },
+  feedbackText: {
+    color: TEAL,
+    fontStyle: 'italic',
+    fontSize: 13,
+    lineHeight: 18,
   },
   traceHeader: {
     paddingVertical: 6,

@@ -7,6 +7,8 @@
  * See planning/22_clinical-data-gathering.md §5c.
  */
 
+import { withRetry } from './rate-limiter';
+
 const RXNORM_BASE = 'https://rxnav.nlm.nih.gov/REST';
 const TIMEOUT_MS = 15_000;
 
@@ -89,11 +91,18 @@ export async function getTherapeuticCategory(rxCui: string): Promise<string[]> {
 }
 
 async function fetchWithTimeout(url: string): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    return await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+  return withRetry(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      // "A server with the specified hostname could not be found"
+      // (NSURLErrorCannotFindHost, -1003) is common in the iOS simulator
+      // when the host's DNS cache is stale. withRetry re-runs with
+      // exponential backoff — the simulator's resolver usually recovers
+      // within a few seconds, so the second or third attempt succeeds.
+      return await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }, { maxRetries: 3, baseDelayMs: 1500, maxDelayMs: 8000 });
 }

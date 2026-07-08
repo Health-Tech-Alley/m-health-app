@@ -19,6 +19,7 @@ import {
   insertEnrichmentLogEntry,
   setBundlePending,
   setBundleStatus,
+  getKnowledgeChunk,
   type BundleStatus,
 } from '@/data';
 import type { KnowledgeChunk, PatientEnrichmentLogEntry } from '@/data/types';
@@ -29,6 +30,12 @@ import { fetchHealthTopic } from './medlineplus-client';
 import { normalizeDrugName } from './rxnorm-client';
 import { fetchDrugLabel } from './dailymed-client';
 import { fetchAdverseEvents, fetchDrugRecalls } from './openfda-client';
+import { searchOrphanet, orphanetToChunks } from './orphanet-client';
+import { lookupUmls, umlsToChunks } from './umls-client';
+import { fetchCdcPlaces, cdcToChunks } from './cdc-places-client';
+import { measuresForPatient, type HedisMeasure } from './hedis-measures';
+import { getPatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
+import { getDatabase } from '@/data/db';
 import { RateLimiter } from './rate-limiter';
 
 // 500ms between NLM API calls = 2 req/s (well under the 3 req/s limit
@@ -50,11 +57,20 @@ function hashQuery(query: string): string {
   return hash.toString(16);
 }
 
+/**
+ * Filter out chunks whose chunkId already exists in the knowledge_cache.
+ * Prevents later packs (systematic review, HEDIS) from overwriting earlier
+ * packs (condition) when the same PMID appears in multiple searches.
+ */
+function filterNewChunks(chunks: KnowledgeChunk[]): KnowledgeChunk[] {
+  return chunks.filter((c) => !getKnowledgeChunk(c.chunkId));
+}
+
 function logEnrichment(
   patientId: string,
-  field: 'condition' | 'medication',
+  field: 'condition' | 'medication' | 'goal' | 'threshold',
   resourceId: string,
-  source: 'pubmed' | 'medlineplus' | 'rxnorm' | 'dailymed' | 'openfda',
+  source: 'pubmed' | 'medlineplus' | 'rxnorm' | 'dailymed' | 'openfda' | 'orphanet' | 'umls' | 'cdc-places' | 'hedis',
   action: 'bundled' | 'suggested' | 'supplemented_live',
   deidentifiedQuery: string,
   resultCount: number,
@@ -80,6 +96,10 @@ function logEnrichment(
 /**
  * Bundle condition packs for a patient: PubMed abstracts + MedlinePlus topics
  * for each confirmed condition. Fire-and-forget — caller does not await.
+ *
+ * Per planning/32 §10.2, this also calls UMLS (ICD-10 → MeSH) and the SDOH
+ * CDC-Places bundler. UMLS is woven into the per-condition loop so the
+ * returned MeSH term can be fed back into the next PubMed search.
  */
 export async function bundleConditionPack(patientId: string): Promise<void> {
   // Mark in-flight so the UI can show "Enrichment in progress…".
@@ -100,18 +120,52 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
   let totalChunks = 0;
   let lastError: string | undefined;
 
+  // Cache UMLS-derived MeSH terms per condition so the PubMed query can be
+  // expanded for better recall (planning/32 §10.2).
+  const meshTermCache: Record<string, string> = {};
+
   try {
     for (const condition of conditions) {
       const conditionName = condition.name;
       const icdCode = condition.icd10;
 
+      // --- UMLS (ICD-10 → CUI + MeSH term) ------------------------------
+      // D5: improves PubMed recall on the next condition's search and
+      // produces a KnowledgeChunk for the graph projector.
+      if (icdCode) {
+        try {
+          const t0 = Date.now();
+          const mapping = await lookupUmls({ code: icdCode, vocabulary: 'ICD10' });
+          if (mapping) {
+            const tagged = umlsToChunks(mapping).map((c) => ({
+              ...c,
+              conditions: conditionName,
+            }));
+            insertKnowledgeChunks(tagged);
+            totalChunks += tagged.length;
+            logEnrichment(
+              patientId, 'condition', condition.conditionId, 'umls', 'bundled',
+              `ICD10:${icdCode}`, tagged.length, Date.now() - t0,
+              tagged.map((c) => c.chunkId),
+            );
+            // Feed the MeSH term back into the next PubMed query for better recall.
+            const mesh = mapping.related.find((r) => r.vocabulary === 'MeSH')?.term;
+            if (mesh) meshTermCache[conditionName] = mesh;
+          }
+        } catch (err) {
+          console.error(`[condition-bundler] UMLS failed for ${icdCode}:`, err);
+        }
+      }
+
       // --- PubMed ---
       try {
-        const rawQuery = buildPubMedQuery(conditionName, { caregiverFocus: true });
-        const deidQuery = deidentifyQuery(rawQuery, pii);
+        const meshTerm = meshTermCache[conditionName];
+        const baseQuery = buildPubMedQuery(conditionName, { caregiverFocus: true });
+        const expandedQuery = meshTerm ? `${baseQuery} (${meshTerm}[MeSH Terms])` : baseQuery;
+        const deidQuery = deidentifyQuery(expandedQuery, pii);
         const t0 = Date.now();
         await nlmRateLimiter.throttle();
-        const searchResult = await searchPubMed({ query: deidQuery, retmax: 20 });
+        const searchResult = await searchPubMed({ query: deidQuery, retmax: 10 });
         await nlmRateLimiter.throttle();
         const abstracts = await fetchAbstracts(searchResult.pmids);
 
@@ -160,6 +214,27 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
           console.error(`[condition-bundler] MedlinePlus failed for ${icdCode}:`, err);
         }
       }
+
+      // --- Orphanet (rare-disease / CP-specific guidance) ---
+      try {
+        const t0 = Date.now();
+        const record = await searchOrphanet({ disease: conditionName });
+        if (record) {
+          const tagged = orphanetToChunks(record).map((c) => ({
+            ...c,
+            conditions: conditionName,
+          }));
+          insertKnowledgeChunks(tagged);
+          totalChunks += tagged.length;
+          logEnrichment(
+            patientId, 'condition', condition.conditionId, 'orphanet', 'bundled',
+            conditionName, tagged.length, Date.now() - t0,
+            tagged.map((c) => c.chunkId),
+          );
+        }
+      } catch (err) {
+        console.error(`[condition-bundler] Orphanet failed for ${conditionName}:`, err);
+      }
     }
   } catch (err) {
     // A top-level failure (e.g. repository read threw) — record and degrade.
@@ -177,6 +252,195 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
     setBundleStatus(patientId, status);
     setBundlePending(patientId, false);
     console.log(`[condition-bundler] Bundle finished for ${patientId}: ${status.state} (${totalChunks} chunks)`);
+  }
+}
+
+/**
+ * Bundle SDOH context from CDC PLACES for the patient's geography.
+ * D5: the geography comes from `patient.location` (free-text county/state
+ * set during onboarding). Falls back to a fixture record on failure.
+ */
+export async function bundleSdohPack(patientId: string, location?: string): Promise<void> {
+  const profile = getOnboardingProfile();
+  const loc = (location ?? (profile.patient as { location?: string }).location ?? '').trim();
+  if (!loc) {
+    console.log('[condition-bundler] bundleSdohPack skipped — no patient.location set.');
+    return;
+  }
+  try {
+    const t0 = Date.now();
+    const rec = await fetchCdcPlaces({ location: loc });
+    if (rec) {
+      const tagged = cdcToChunks(rec).map((c) => ({
+        ...c,
+        conditions: 'SDOH',
+      }));
+      insertKnowledgeChunks(tagged);
+      logEnrichment(
+        patientId, 'condition', 'sdoh', 'cdc-places', 'bundled',
+        loc, tagged.length, Date.now() - t0,
+        tagged.map((c) => c.chunkId),
+      );
+    }
+  } catch (err) {
+    console.error(`[condition-bundler] CDC PLACES failed for ${loc}:`, err);
+  }
+}
+
+/**
+ * Bundle HEDIS-driven care-gap evidence.
+ *
+ * For each measure that applies to the patient (planning/32 §11 / D7):
+ *   1. Fetch PubMed + MedlinePlus evidence using the measure's clinical
+ *      question.
+ *   2. Insert the resulting chunks, tagged with the measure id (so the
+ *      retriever can surface them when the conversation turns to the
+ *      measure's domain).
+ *   3. Insert a care-plan goal derived from `measure.carePlanGoal` so the
+ *      SLM's carePlanGoalsBlock reflects the HEDIS gap.
+ */
+export async function bundleMeasurePack(patientId: string): Promise<void> {
+  let snapshot: ReturnType<typeof getPatientRecordSnapshot> | null = null;
+  try {
+    snapshot = getPatientRecordSnapshot(patientId);
+  } catch (err) {
+    console.error('[condition-bundler] getPatientRecordSnapshot failed for HEDIS:', err);
+    return;
+  }
+  if (!snapshot) return;
+  const measures = measuresForPatient(snapshot);
+  for (const measure of measures) {
+    await bundleOneMeasure(patientId, measure);
+  }
+}
+
+async function bundleOneMeasure(patientId: string, measure: HedisMeasure): Promise<void> {
+  const profile = getOnboardingProfile();
+  const pii = {
+    patientName: profile.patient.name,
+    caregiverName: profile.caregiver.name,
+    providerName: profile.primaryCareProvider.name,
+  };
+
+  // --- PubMed ---
+  try {
+    const rawQuery = measure.sourceQuery.pubmed;
+    const deidQuery = deidentifyQuery(rawQuery, pii);
+    const t0 = Date.now();
+    await nlmRateLimiter.throttle();
+    const search = await searchPubMed({ query: deidQuery, retmax: 5 });
+    await nlmRateLimiter.throttle();
+    const abstracts = await fetchAbstracts(search.pmids);
+    const tagged: KnowledgeChunk[] = filterNewChunks(abstracts.map((c) => ({
+      ...c,
+      conditions: measure.id,
+      queryHash: hashQuery(deidQuery),
+    })));
+    if (tagged.length > 0) {
+      insertKnowledgeChunks(tagged);
+    }
+    logEnrichment(
+      patientId, 'goal', measure.id, 'hedis', 'bundled',
+      deidQuery, tagged.length, Date.now() - t0,
+      tagged.map((c) => c.chunkId),
+    );
+  } catch (err) {
+    console.error(`[condition-bundler] HEDIS PubMed failed for ${measure.id}:`, err);
+  }
+
+  // --- Care plan goal ---
+  // Best-effort upsert; goals are written as description-only rows tagged
+  // with the measure id in the description. The SLM picks them up via
+  // the carePlanGoalsBlock in the prompt.
+  try {
+    const db = getDatabase();
+    const planId = `plan-hedis-${patientId}`;
+    db.runSync(
+      `INSERT OR IGNORE INTO care_plans
+        (plan_id, patient_id, version, effective_date, status, intent, title, created_at)
+       VALUES (?, ?, 1, ?, 'active', 'hedis-aligned', 'HEDIS-aligned care plan', ?);`,
+      planId, patientId, new Date().toISOString(), new Date().toISOString(),
+    );
+    const goalId = `goal-${measure.id}`;
+    db.runSync(
+      `INSERT OR REPLACE INTO care_plan_goals
+        (goal_id, plan_id, description, status)
+       VALUES (?, ?, ?, 'active');`,
+      goalId, planId, measure.carePlanGoal,
+    );
+  } catch (err) {
+    console.error(`[condition-bundler] HEDIS care-plan goal insert failed for ${measure.id}:`, err);
+  }
+}
+
+/**
+ * Bundle systematic-review + meta-analysis evidence for each condition.
+ * P5b / D6: restricts to PubMed's high-quality evidence tier via
+ * `systematic[sb] OR meta-analysis[pt]`. Tagged with `documentType:
+ * 'systematic_review'` and `lengthTier: 'long'` so the prompt-router
+ * surfaces them in deep mode only.
+ */
+export async function bundleSystematicReviewPack(patientId: string): Promise<void> {
+  const conditions = getConditionsForPatient(patientId).filter((c) => !c.needsReview);
+  const profile = getOnboardingProfile();
+  const pii = {
+    patientName: profile.patient.name,
+    caregiverName: profile.caregiver.name,
+    providerName: profile.primaryCareProvider.name,
+  };
+
+  for (const condition of conditions) {
+    try {
+      const rawQuery = buildPubMedQuery(condition.name, { caregiverFocus: true });
+      const deidQuery = deidentifyQuery(rawQuery, pii);
+      const t0 = Date.now();
+      await nlmRateLimiter.throttle();
+      const search = await searchPubMed({ query: deidQuery, retmax: 5, filter: 'systematic_review' });
+      await nlmRateLimiter.throttle();
+      const abstracts = await fetchAbstracts(search.pmids);
+      const tagged: KnowledgeChunk[] = filterNewChunks(abstracts.map((c) => ({
+        ...c,
+        conditions: condition.name,
+        queryHash: hashQuery(deidQuery),
+        documentType: 'systematic_review',
+        lengthTier: 'long',
+      })));
+      if (tagged.length > 0) {
+        insertKnowledgeChunks(tagged);
+      }
+      logEnrichment(
+        patientId, 'condition', condition.conditionId, 'pubmed', 'bundled',
+        `${deidQuery} (systematic_review filter)`, tagged.length, Date.now() - t0,
+        tagged.map((c) => c.chunkId),
+      );
+    } catch (err) {
+      console.error(`[condition-bundler] Systematic-review bundle failed for ${condition.name}:`, err);
+    }
+  }
+}
+
+/**
+ * Bundle full Structured Product Label (SPL) sections for each active med.
+ * P5b / D6: asks DailyMed for the structured sections (indications,
+ * warnings, dosage, contraindications) and emits one chunk per section so
+ * the retriever can surface only the relevant one in deep mode.
+ */
+export async function bundleFullSplPack(patientId: string): Promise<void> {
+  const medications = getActiveMedications(patientId);
+  for (const med of medications) {
+    try {
+      const t0 = Date.now();
+      await nlmRateLimiter.throttle();
+      const labels = await fetchDrugLabel(med.name, true);
+      insertKnowledgeChunks(labels);
+      logEnrichment(
+        patientId, 'medication', med.medicationId, 'dailymed', 'bundled',
+        `${med.name} (full SPL)`, labels.length, Date.now() - t0,
+        labels.map((c) => c.chunkId),
+      );
+    } catch (err) {
+      console.error(`[condition-bundler] Full SPL bundle failed for ${med.name}:`, err);
+    }
   }
 }
 

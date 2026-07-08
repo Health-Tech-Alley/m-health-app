@@ -40,11 +40,12 @@ import {
 } from 'react-native';
 
 import { MarkdownRenderer } from '@/components/markdown-renderer';
+import { CONCIERGE_GENERATION_DEEP } from '@/constants/concierge';
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
-import { MODEL_CATALOG } from '@/inference/model-catalog';
+import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
 import type { SlmTaskReason, SlmTaskLease } from '@/services/slm/slm-task-queue';
 import { isModelInstalled } from '@/services/model-storage';
 import {
@@ -53,10 +54,11 @@ import {
   askCaregiverAssistantMock,
 } from '@/services/slm/slmService';
 import {
-  retrieveClinicalChunks,
+  retrieveClinicalChunksViaBm25,
   formatCitationsForPrompt,
   buildRetrievalQuery,
 } from '@/clinical-evidence/retrieval-helper';
+import { useOrchestratorRetriever } from '@/contexts/orchestrator-context';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 
 export interface SlmInsightSheetProps {
@@ -101,7 +103,8 @@ export function SlmInsightSheet({
   } = slm;
   const { snapshot } = usePatientRecord();
   const { settings } = useSettings();
-  const defaultModelId = settings.demoDefaultModelId ?? 'healthgpt-pro-4b';
+  const retriever = useOrchestratorRetriever();
+  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [answer, setAnswer] = useState('');
@@ -221,7 +224,7 @@ export function SlmInsightSheet({
     // safety consideration or med-check question).
     const conditionName = snapshot?.primaryCondition?.name;
     const retrievalQuery = buildRetrievalQuery(conditionName, prompt);
-    const citations = retrieveClinicalChunks(retrievalQuery, 3);
+    const citations = await retrieveClinicalChunksViaBm25(retriever, retrievalQuery, 3);
     const citationBlock = formatCitationsForPrompt(citations);
     const enrichedPrompt = citationBlock
       ? `${prompt}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above. Cite sources in brackets like [PMID-12345678].`
@@ -242,6 +245,10 @@ export function SlmInsightSheet({
 
       try {
         const systemContext = buildCaregiverSystemContext(context);
+        // Single mode: always deep. The fast path was removed app-wide, so the
+        // insight sheet no longer branches on query complexity — the model
+        // reasons fully (unlimited budget) then emits the complete answer.
+        const generation = CONCIERGE_GENERATION_DEEP;
         const result = await provider.chat(
           [
             { role: 'system', content: systemContext },
@@ -255,6 +262,7 @@ export function SlmInsightSheet({
             setAnswer((prev) => prev + token);
           },
           controller.signal,
+          generation,
         );
         if (cancelRef.current) return;
         const cleaned = stripControlTokens(result.text).answer;
@@ -299,6 +307,7 @@ export function SlmInsightSheet({
     prompt,
     currentModelId,
     streamMock,
+    retriever,
   ]);
 
   // Kick off the explanation when the sheet becomes visible. Deferred to a

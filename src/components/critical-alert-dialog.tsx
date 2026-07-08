@@ -139,7 +139,7 @@ export function CriticalAlertDialog() {
                 <Text style={styles.eyebrow}>Active Alert · Emergency</Text>
                 <Text style={styles.title}>{alert.title}</Text>
                 <Text style={styles.subtitle}>
-                  Severity 3 · {formatRelativeTime(alert.createdAt)}
+                  {formatRelativeTime(alert.createdAt)}
                 </Text>
               </View>
               <View style={styles.urgentPill}>

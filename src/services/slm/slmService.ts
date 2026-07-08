@@ -10,13 +10,25 @@ import type {
     ChatMessage as ProviderChatMessage,
 } from "@/inference/inference-provider";
 import type { ModelEntry } from "@/inference/model-catalog";
-import { MODEL_CATALOG } from "@/inference/model-catalog";
+import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from "@/inference/model-catalog";
 import { getHfToken } from "@/services/hf-token-store";
 import { downloadModel } from "@/services/model-download";
 import { isModelInstalled } from "@/services/model-storage";
 import type { PatientRecordSnapshot } from "@/data/repositories/patientRecordRepository";
+import { CONCIERGE_GENERATION_DEEP } from "@/constants/concierge";
+import { getSkillPromptFragment } from "@/orchestration/skills";
+import { stripControlTokens } from "@/utils/stripControlTokens";
+import {
+  caregiverToneInstruction,
+  escalationBlock,
+  patientBlock,
+  personaPreamble,
+  sensitiveTopicsInstruction,
+  type PriorDecisionEntry,
+} from "@/orchestration/prompt-fragments";
 
-export const CAREGIVER_SLM_MODEL_ID = "healthgpt-pro-4b";
+export { DEFAULT_SLM_MODEL_ID };
+export const CAREGIVER_SLM_MODEL_ID = DEFAULT_SLM_MODEL_ID;
 
 export type CaregiverAssistantContext = {
   // Patient demographics & clinical picture
@@ -154,10 +166,11 @@ export async function askCaregiverAssistantWithProvider(params: {
   context?: CaregiverAssistantContext;
   onToken?: (token: string) => void;
   signal?: AbortSignal;
+  skillId?: string;
 }): Promise<CaregiverAssistantResponse> {
-  const { provider, prompt, context = {}, onToken, signal } = params;
+  const { provider, prompt, context = {}, onToken, signal, skillId } = params;
 
-  const systemContext = buildCaregiverSystemContext(context);
+  const systemContext = buildCaregiverSystemContext(context, skillId ? { skillId } : undefined);
 
   const messages: ProviderChatMessage[] = [
     {
@@ -174,10 +187,11 @@ export async function askCaregiverAssistantWithProvider(params: {
     messages,
     onToken ?? (() => {}),
     signal ?? new AbortController().signal,
+    CONCIERGE_GENERATION_DEEP,
   );
 
   return {
-    answer: cleanAssistantText(result.text),
+    answer: stripControlTokens(result.text).answer,
     reasoningContent: result.reasoningContent ?? null,
     safetyNote:
       "This assistant is a caregiver support prototype and does not replace emergency care or professional medical advice.",
@@ -200,131 +214,99 @@ export async function askCaregiverAssistantMock(
   };
 }
 
-export function buildCaregiverSystemContext(context: CaregiverAssistantContext): string {
+export function buildCaregiverSystemContext(
+  context: CaregiverAssistantContext,
+  options?: { skillId?: string; priorDecisions?: PriorDecisionEntry[] },
+): string {
+  const caregiverFirst = (context.caregiverName ?? "").trim().split(/\s+/)[0] || "there";
+  const patientFirst = (context.patientName ?? "").trim().split(/\s+/)[0] || "the patient";
+  const relationshipLine = context.caregiverRelationship
+    ? `When referring to ${patientFirst}, you can use the relationship (e.g. "your ${context.caregiverRelationship.toLowerCase()}") when it feels natural.`
+    : "";
+
+  const toneInstruction = caregiverToneInstruction(context.caregiverMedicalComfortLevel);
+  const sensitiveTopics = sensitiveTopicsInstruction(context.caregiverMedicalComfortLevel);
+
   const preamble = [
-    "You are the embedded caregiver-support assistant inside a mobile health app",
-    "called Caregiver Concierge: ACCESS-DP. The app is built by Health Tech Alley",
-    "for family caregivers of a severely disabled loved one (disability level ~3/5)",
-    "with multiple comorbidities and a multi-specialist care team.",
+    personaPreamble({ voice: 'chat', caregiverFirst, patientFirst }),
+    relationshipLine,
+    toneInstruction,
     "",
-    "The user typing to you is a NON-CLINICAL family caregiver — typically a spouse,",
-    "parent, sibling, or adult child — using the app in real time, often with one",
-    "hand, sometimes in a stressful or sleep-deprived moment. They are not a nurse",
-    "or a doctor. They are doing their best.",
+    "RESPONSE STYLE",
+    "- When suggesting an action, lead with the action, not the reasoning.",
+    "- When you do list steps, use a short bulleted list. Otherwise write prose.",
+    "- Use Markdown sparingly: **bold** for one key term, short lists for steps. No long preambles.",
     "",
-    "The PATIENT's full care plan, medications, vitals cadence, and emergency",
-    "thresholds are provided below as structured context. You are expected to use",
-    "this context as ground truth and to personalize every answer to it.",
+    "USING THE CAREGIVER'S NAME",
+    "- Use the caregiver's name RARELY. Only in the very first message of a conversation, or in genuinely urgent/emotional situations.",
+    "- NEVER start every response with the name. This feels robotic and repetitive.",
+    "- For 95% of responses, do NOT use the name at all. Just answer directly.",
+    "- BAD: \"Luis, the morning dose is at 8 AM.\" / \"Luis, yes, that's a common side effect.\"",
+    "- GOOD: \"The morning dose is at 8 AM.\" / \"Yes, that's a common side effect.\"",
     "",
-    "WHAT KIND OF ANSWER IS EXPECTED",
-    "------------------------------",
-    "- Plain, calm, practical guidance a stressed caregiver can act on in seconds.",
-    "- Short, scannable structure: lead with the bottom line, then 2–5 numbered or",
-    "  bulleted steps, then any 'watch for' red flags.",
-    "- Concrete numbers when relevant (SpO2 thresholds, dose amounts, time windows)",
-    "  pulled from the care context below, not invented.",
-    "- Tone: warm, respectful, never patronizing. Address the caregiver by name.",
-    "- Format: Markdown. Use **bold** for key terms, short lists for steps, and",
-    "  inline `code` for medication names or vitals values when it improves clarity.",
-    "- Length: aim for ~120–250 words. Go longer only when the question requires it.",
+    "SAFETY RECOMMENDATIONS",
+    "- Include safety monitoring advice (\"watch for X\", \"call if Y happens\") only when the query involves a concerning symptom, vital sign abnormality, or clinical uncertainty.",
+    "- For straightforward information queries (drug side effects, scheduling, general education), answer the question directly without appending safety caveats.",
+    "- Reserve emergency guidance (\"call 911\", \"go to the ER\") for clear red-flag situations.",
     "",
-    "WHAT YOU MUST NEVER DO",
-    "----------------------",
-    "- Never diagnose. Never name a condition the patient is not already known to",
-    "  have. Say 'this could be consistent with X' only when X is in the patient's",
-    "  documented conditions, and always recommend confirming with the care team.",
-    "- Never prescribe, change a dose, or stop a medication. You can restate the",
-    "  current regimen and flag when to call the prescriber.",
+    sensitiveTopics,
+    "",
+    "CITING SOURCES",
+    "- When the CLINICAL KNOWLEDGE block is provided and you use information from it, add the source label in brackets after the relevant statement.",
+    "- Format: put the source name in square brackets at the end of the sentence or claim.",
+    "- Example: \"Common side effects include nausea and dizziness [Drug Label].\" or \"Studies show improved outcomes with early intervention [PubMed].\"",
+    "- Don't cite sources for general knowledge or information from the patient's care context.",
+    "",
+    "NEVER",
+    "- Never diagnose. Never name a condition not already in the patient's record.",
+    "- Never prescribe, change a dose, or stop a medication. Restate the regimen; flag when to call the prescriber.",
     "- Never replace a clinician, an emergency line, or the care plan.",
-    "- Never invent facts that are not in the provided context or in well-known",
-    "  general medical knowledge. If you don't know, say so and point to the care",
-    "  team or a trusted source.",
+    "- Never invent numbers, medication names, or thresholds that aren't in the care context.",
     "",
-    "ESCALATION RULES",
-    "----------------",
-    "- If the caregiver describes a red-flag symptom (trouble breathing, chest",
-    "  pain, sudden weakness on one side, severe bleeding, loss of consciousness,",
-    "  SpO2 below the patient's cutoff, etc.), lead with: 'Call 911 / your local",
-    "  emergency number now' and then a brief 'while you wait' checklist.",
-    "- For non-emergent but time-sensitive concerns, recommend contacting the",
-    "  primary care provider (name and phone are in the context) before the end",
-    "  of the day.",
-    "- When uncertain, err on the side of escalating sooner rather than later.",
+    escalationBlock(context.primaryCareProviderName),
     "",
-    "REASONING VS. ANSWER",
-    "---------------------",
-    "- If your model emits reasoning (thinking / analysis channels), keep it brief",
-    "  and do not let it leak into the final answer. The caregiver only sees the",
-    "  final answer block, rendered as Markdown.",
-    "- The final answer is what the caregiver will read aloud or act on. Make it",
-    "  count.",
+    "VOICE",
+    `— "${caregiverFirst}, ${patientFirst}'s SpO2 dropped to 88% — below her safe zone. Given her COPD, I'd watch her breathing and call Dr. ${(context.primaryCareProviderName ?? "her doctor").split(/\s+/).slice(-1)[0] ?? "the doctor"} if it doesn't improve in 10 minutes."`,
+    `— "You already gave the morning dose at 8 — the next one is due around 8 PM."`,
+    `— "Prednisone is a steroid that calms inflammation and quietens the immune system — that's why it helps ${patientFirst}'s breathing. Most people notice more appetite and trouble sleeping; in rare cases, more serious reactions have been reported, so it's worth flagging anything unusual to the prescriber."`,
     "",
-    "================================================================================",
-    "CARE CONTEXT (ground truth for this conversation)",
-    "================================================================================",
-    "",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
-  const ctx = [
-    "## Patient",
-    `- Name: ${context.patientName ?? "Unknown"}`,
-    `- Age: ${context.patientAge ?? "Not provided"}`,
-    "",
-    "## Conditions (structured)",
-    context.primaryCondition
-      ? `- PRIMARY: ${context.primaryCondition.name}${context.primaryCondition.icd10 ? ` (${context.primaryCondition.icd10})` : ""}${context.primaryCondition.category ? ` [${context.primaryCondition.category}]` : ""}`
-      : `- Documented conditions: ${context.patientConditions ?? "Not provided"}`,
-    context.comorbidities && context.comorbidities.length > 0
-      ? `Comorbidities:\n${context.comorbidities.map((c) => `  - ${c.name}${c.icd10 ? ` (${c.icd10})` : ""}${c.category ? ` [${c.category}]` : ""}`).join("\n")}`
-      : "Comorbidities: none documented",
-    "",
-    "## Current symptoms (caregiver-reported)",
-    context.symptoms && context.symptoms.length > 0
-      ? context.symptoms.map((s) => `- ${s.label} [${s.category}]`).join("\n")
-      : "None documented",
-    "",
-    `- Baseline daily routine: ${context.patientBaselineDailyRoutine ?? context.scheduleSummary ?? "Not provided"}`,
-    `- Current medications: ${context.patientCurrentMedications ?? context.medicationSummary ?? "Not provided"}`,
-    `- SpO2 cutoff (red breath alert threshold): ${context.patientSpo2Cutoff ?? "Not provided"}`,
-    `- Baseline heart rate: ${context.patientBaselineHeartRate ?? "Not provided"}`,
-    "",
-    "## Caregiver (the user you are talking to)",
-    `- Name: ${context.caregiverName ?? "Unknown"}`,
-    `- Relationship to patient: ${context.caregiverRelationship ?? "Not provided"}`,
-    `- Caregiving experience: ${context.caregiverExperience ?? "Not provided"}`,
-    `- Availability: ${context.caregiverAvailability ?? "Not provided"}`,
-    `- Language preference: ${context.caregiverLanguagePreference ?? "Not provided"}`,
-    `- Medical comfort level: ${context.caregiverMedicalComfortLevel ?? "Not provided"}`,
-    `- Hobbies / routines (use to keep advice realistic): ${context.caregiverHobbiesOrRoutines ?? "Not provided"}`,
-    `- Active concern (the thing on their mind right now): ${context.caregiverMainConcern ?? context.activeConcern ?? "Not provided"}`,
-    `- Stress or support needs: ${context.caregiverStressOrSupportNeeds ?? "Not provided"}`,
-    `- Backup caregiver: ${context.caregiverBackup ?? "Not provided"}`,
-    "",
-    "## Care team",
-    `- Primary care provider: ${context.primaryCareProviderName ?? "Not provided"}`,
-    `- Provider phone: ${context.primaryCareProviderPhone ?? "Not provided"}`,
-    `- Provider email: ${context.primaryCareProviderEmail ?? "Not provided"}`,
-    "",
-    "## Safety",
-    `- Emergency contact: ${context.emergencyContact ?? "Not provided"}`,
-    `- Safety notes (allergies, falls risk, etc.): ${context.safetyNotes ?? "Not provided"}`,
-  ];
+  // The patient block uses the structured patient data from the context,
+  // falling back to the legacy free-text fields for older callers.
+  const pBlock = patientBlock({
+    name: context.patientName ?? 'Unknown',
+    age: context.patientAge,
+    primaryCondition: context.primaryCondition,
+    comorbidities: (context.comorbidities ?? []).map((c) => c.name),
+    symptoms: context.symptoms ?? [],
+    medications: context.patientCurrentMedications ?? context.medicationSummary,
+    spo2Cutoff: context.patientSpo2Cutoff,
+    baselineHeartRate: context.patientBaselineHeartRate,
+  });
 
-  const closing = [
-    "",
-    "================================================================================",
-    "INSTRUCTIONS REMINDER",
-    "================================================================================",
-    "- Personalize every answer using the care context above.",
-    "- If a number, medication, or threshold is needed and isn't in the context,",
-    "  tell the caregiver to confirm with the care team — don't guess.",
-    "- Use Markdown. Lead with the bottom line. End with red flags to watch for.",
-    "- When in doubt, escalate.",
-  ].join("\n");
+  // A compact, chat-specific context summary that preserves the older
+  // caregiver-facing fields (daily routine, "on the caregiver's mind", PCP,
+  // safety) that the chat path used to inject. Replaces the older
+  // hand-rolled `CARE CONTEXT` block.
+  const ctxLines: string[] = ["CARE CONTEXT (summary)"];
+  if (context.patientBaselineDailyRoutine ?? context.scheduleSummary) {
+    ctxLines.push(`Daily routine: ${context.patientBaselineDailyRoutine ?? context.scheduleSummary}.`);
+  }
+  if (context.activeConcern ?? context.caregiverMainConcern) {
+    ctxLines.push(`On the caregiver's mind: ${context.activeConcern ?? context.caregiverMainConcern}.`);
+  }
+  if (context.primaryCareProviderName) {
+    ctxLines.push(`PCP: ${context.primaryCareProviderName}${context.primaryCareProviderPhone ? ` · ${context.primaryCareProviderPhone}` : ""}.`);
+  }
+  if (context.safetyNotes) {
+    ctxLines.push(`Safety: ${context.safetyNotes}.`);
+  }
+  const ctx = ctxLines.join("\n");
 
-  return preamble + ctx.join("\n") + "\n" + closing;
-}
+  const skillFragment = getSkillPromptFragment(options?.skillId ?? '');
 
-export function cleanAssistantText(text: string): string {
-  return text.replace(/<\|[^>]*\|?>/g, "").trim();
+  const prior = options?.priorDecisions ?? [];
+
+  return `${preamble}\n${pBlock}\n\n${ctx}\n${prior.length > 0 ? `\nPRIOR DECISIONS\n${prior.map((e) => `- ${e.at.slice(0, 10)} · ${e.verb} · ${e.summary}`).join('\n')}\n` : ''}${skillFragment ? `\n${skillFragment}\n` : ''}`;
 }

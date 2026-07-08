@@ -25,6 +25,7 @@ import {
   getAllClinicalFixtures,
   getPatientPlanFixtures,
 } from '@/knowledge/corpora/fixtures';
+import { getAllCpgFixtures } from '@/knowledge/corpora/cpg-fixtures';
 import {
   getAllKnowledgeChunks,
   clearExpiredKnowledgeChunks,
@@ -40,6 +41,9 @@ function knowledgeChunkToRetrievedChunk(chunk: KnowledgeChunk, score: number): R
     text: chunk.text,
     score,
     source: chunk.source as RetrievedChunk['source'],
+    documentType: chunk.documentType as RetrievedChunk['documentType'],
+    lengthTier: chunk.lengthTier as RetrievedChunk['lengthTier'],
+    sectionHeading: chunk.sectionHeading,
   };
 }
 
@@ -80,6 +84,7 @@ export class CachedFusedRetriever implements FusedRetriever {
     // Combine: synthetic fixtures (fallback) + cached clinical chunks
     const fixtureChunks = [
       ...getAllClinicalFixtures(),
+      ...getAllCpgFixtures(),
       ...getPatientPlanFixtures(
         options.patientName ?? 'the patient',
         options.patientConditions ?? [],
@@ -129,6 +134,22 @@ export class CachedFusedRetriever implements FusedRetriever {
   }
 
   async retrieve(q: RetrievalQuery): Promise<RetrievalResult> {
+    return this.retrieveInternal(q, 'fast');
+  }
+
+  /**
+   * Deep mode (planning/32 §12.4) — returns up to 2 long-doc chunks
+   * (guideline / systematic-review / full SPL) plus the regular short
+   * chunks. The prompt-budget router truncates the long chunks per budget.
+   */
+  async retrieveDeep(q: RetrievalQuery): Promise<RetrievalResult> {
+    return this.retrieveInternal(q, 'deep');
+  }
+
+  private async retrieveInternal(
+    q: RetrievalQuery,
+    mode: 'fast' | 'deep',
+  ): Promise<RetrievalResult> {
     await this.ensureReady();
 
     const t0 = performance.now();
@@ -190,6 +211,21 @@ export class CachedFusedRetriever implements FusedRetriever {
       } catch (err) {
         console.error('[CachedFusedRetriever] Live supplement failed:', err);
       }
+    }
+
+    // Deep mode (§12.4): up the chunk count and prefer long-doc chunks
+    // (guideline / systematic_review / fulltext / spl_full).
+    if (mode === 'deep') {
+      const deepPool = Array.from(this.chunkMap.values()).filter((c) =>
+        c.documentType &&
+        ['guideline', 'systematic_review', 'fulltext', 'spl_full'].includes(
+          c.documentType,
+        ),
+      );
+      const longDocs = deepPool.slice(0, 2);
+      const dedup = new Map<string, RetrievedChunk>();
+      for (const c of [...chunks, ...longDocs]) dedup.set(c.docId, c);
+      chunks = Array.from(dedup.values());
     }
 
     return {
