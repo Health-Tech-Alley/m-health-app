@@ -22,6 +22,27 @@ export function PatientSummaryCard() {
   const { snapshot, ready, error, refresh } = usePatientRecord();
   const [expanded, setExpanded] = useState(false);
   const activePatient = useActivePatientView();
+  const { patient, loading, lastSynced } = useAppSelector(state => state.patient);
+  const [patientProfile, setPatientProfile] = useState<any>(null);
+
+  useEffect(() => {
+    if (patient) {
+      setPatientProfile(patient);
+      const patientData =  patient["entry"]?.map(
+            (entry: any) => {
+              return entry && entry.resource && entry.resource.resourceType === "Patient" ? entry : null;
+            }
+        );
+        setPatientProfile(patientData);
+        // console.log("Patient Profile EHR data:", patientData);
+    }
+  }, [patient]);
+
+  const patientPersonalInfo = patientProfile?.filter((entry: any) => entry && entry.resource && entry.resource.resourceType === "Patient")[0]?.resource;
+  const patientFirstName = patientPersonalInfo?.name?.[0]?.given?.[0] || "Patient";
+  const patientFamilyName = patientPersonalInfo?.name?.[0]?.family || "Name";
+  const patientAge = patientPersonalInfo?.birthDate ? calculateAge(new Date(patientPersonalInfo.birthDate)) : "N/A";
+
 
   if (!ready) {
     return (
