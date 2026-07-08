@@ -1,12 +1,16 @@
-/**
- * Repository for health samples (continuous sensor data).
- */
-
 import { getDatabase } from '../db';
 import type { HealthSample, HealthSampleType } from '../types';
 
 export function insertHealthSample(sample: HealthSample): void {
   const db = getDatabase();
+
+  let value = sample.value;
+  let unit = sample.unit;
+  if (sample.type === 'spo2' && value <= 1.0) {
+    value = value * 100;
+    unit = '%';
+  }
+
   db.runSync(
     `INSERT OR REPLACE INTO health_samples
       (sample_id, patient_id, source, type, value, value_json, unit, recorded_at, received_at, metadata_json, source_doc_id)
@@ -15,9 +19,9 @@ export function insertHealthSample(sample: HealthSample): void {
     sample.patientId,
     sample.source,
     sample.type,
-    sample.value,
+    value,
     sample.valueJson ?? null,
-    sample.unit,
+    unit,
     sample.recordedAt,
     sample.receivedAt,
     sample.metadataJson ?? null,
@@ -90,5 +94,31 @@ export function getHealthSampleForPatientAndCurrentMonth(patientId: string, type
     patientId,
     type,
     startOfMonthISO,
+  );
+}
+
+export function getSyncCursor(source: string, type: HealthSampleType): string | null {
+  const db = getDatabase();
+  const row = db.getFirstSync<{ last_cursor: string }>(
+    `SELECT last_cursor FROM health_sync_state WHERE type = ?;`,
+    `${source}:${type}`,
+  );
+  return row?.last_cursor ?? null;
+}
+
+export function setSyncCursor(source: string, type: HealthSampleType, cursor: string): void {
+  const db = getDatabase();
+  db.runSync(
+    `INSERT OR REPLACE INTO health_sync_state (type, last_cursor) VALUES (?, ?);`,
+    `${source}:${type}`,
+    cursor,
+  );
+}
+
+export function clearSyncCursor(source: string, type: HealthSampleType): void {
+  const db = getDatabase();
+  db.runSync(
+    `DELETE FROM health_sync_state WHERE type = ?;`,
+    `${source}:${type}`,
   );
 }

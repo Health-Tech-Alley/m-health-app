@@ -40,6 +40,8 @@ import {
   type OnboardingFhirImportResult,
 } from "@/services/onboarding/fhirDemoImport";
 import { refreshPatientRecord } from "@/contexts/patient-record-context";
+import { ALL_HEALTHKIT_READ_TYPES } from "@/data/sensors/healthkit-type-map";
+import { AppleHealthSource } from "@/data/sensors/apple-health-source";
 
 const totalScreens = 6;
 const formStepCount = 5;
@@ -787,20 +789,47 @@ export default function OnboardingScreen() {
     });
   }
 
-  function simulateDeviceConnection() {
+  async function connectAppleWatch() {
     const startedAt = new Date().toISOString();
-
     setBaselineStartedAt(startedAt);
     setBaselineStatus("not_started");
     setDeviceConnected(false);
 
-    setTimeout(() => {
-      const completedAt = new Date().toISOString();
+    try {
+      const source = new AppleHealthSource({
+        patientId: 'onboarding-temp',
+        types: ALL_HEALTHKIT_READ_TYPES,
+      });
 
-      setDeviceConnected(true);
-      setBaselineStatus("simulated");
-      setBaselineCompletedAt(completedAt);
-    }, 1000);
+      const available = await source.isHealthDataAvailable();
+      if (!available) {
+        const completedAt = new Date().toISOString();
+        setDeviceConnected(true);
+        setBaselineStatus("simulated");
+        setBaselineCompletedAt(completedAt);
+        return;
+      }
+
+      const result = await source.requestPermissions(ALL_HEALTHKIT_READ_TYPES);
+
+      if (result.granted) {
+        const completedAt = new Date().toISOString();
+        setDeviceConnected(true);
+        setBaselineStatus("connected");
+        setBaselineCompletedAt(completedAt);
+      } else {
+        setBaselineStatus("failed");
+        if (result.deniedTypes?.length) {
+          console.warn(
+            '[onboarding] HealthKit denied for types:',
+            result.deniedTypes,
+          );
+        }
+      }
+    } catch (err) {
+      console.error('[onboarding] Apple Watch connection failed:', err);
+      setBaselineStatus("failed");
+    }
   }
 
   return (
@@ -1514,7 +1543,7 @@ export default function OnboardingScreen() {
 
                   <Pressable
                     style={styles.connectButton}
-                    onPress={simulateDeviceConnection}
+                    onPress={connectAppleWatch}
                   >
                     <Text style={styles.connectButtonText}>
                       Check device connection

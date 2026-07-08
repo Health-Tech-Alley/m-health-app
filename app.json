@@ -65,6 +65,13 @@
           ]
         }
       ],
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Caregiver Concierge reads heart rate, oxygen saturation, respiratory rate, blood pressure, temperature, steps, sleep, and related vitals from Apple Health to detect early warning signs for your care recipient. This data stays on your device and is only shared with your care team when you explicitly consent.",
+          "background": true
+        }
+      ],
       "./plugins/with-local-only-notifications"
     ],
     "experiments": {

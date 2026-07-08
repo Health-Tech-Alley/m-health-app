@@ -20,6 +20,7 @@ import { HypotheticalCriticalBanner } from "@/components/notifications/hypotheti
 import { CriticalAlertProvider } from "@/contexts/critical-alert-context";
 import { OrchestratorProvider } from "@/contexts/orchestrator-context";
 import { PatientRecordProvider } from "@/contexts/patient-record-context";
+import { SensorProvider } from "@/contexts/sensor-context";
 import { SettingsProvider, useSettings } from "@/contexts/settings-context";
 import { SLMProvider, useSLM } from "@/contexts/slm-context";
 import { UC2RuntimeProvider } from "@/contexts/uc2-runtime-context";
@@ -148,17 +149,19 @@ export default function RootLayout() {
               <SlmPolicySync />
               <NotificationInit />
               <NotificationResponseInit />
-              <UC2RuntimeProvider>
-                <OrchestratorProvider>
-                  <CriticalAlertProvider>
-                    <AnimatedSplashOverlay />
-                    <InAppBanner />
-                    <HypotheticalCriticalBanner />
-                    <CriticalAlertDialog />
-                    <Stack screenOptions={{ headerShown: false }} />
-                  </CriticalAlertProvider>
-                </OrchestratorProvider>
-              </UC2RuntimeProvider>
+              <SensorProvider>
+                <UC2RuntimeProvider>
+                  <OrchestratorProvider>
+                    <CriticalAlertProvider>
+                      <AnimatedSplashOverlay />
+                      <InAppBanner />
+                      <HypotheticalCriticalBanner />
+                      <CriticalAlertDialog />
+                      <Stack screenOptions={{ headerShown: false }} />
+                    </CriticalAlertProvider>
+                  </OrchestratorProvider>
+                </UC2RuntimeProvider>
+              </SensorProvider>
             </SLMProvider>
           </PatientRecordProvider>
         </SettingsProvider>

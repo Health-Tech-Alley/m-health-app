@@ -398,7 +398,7 @@ export function mapCdaVitalOrganizer(
     samples.push({
       sampleId,
       patientId,
-      source: 'fhir', // CDA-derived vitals share the FHIR ingestion pipeline
+      source: 'cda_import',
       type,
       value,
       unit: v.unit ?? '',

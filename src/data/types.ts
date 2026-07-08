@@ -12,7 +12,8 @@ export type HealthSampleSource =
   | 'mock'
   | 'fhir'
   | 'wearable'
-  | 'simulated';
+  | 'simulated'
+  | 'cda_import';
 
 export type HealthSampleType =
   | 'spo2'
@@ -426,6 +427,8 @@ export interface WearableDevice {
   baselineCompletedAt?: string;
   createdAt: string;
   updatedAt: string;
+  healthkitSourceId?: string;
+  healthkitSourceName?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -751,4 +751,17 @@ export const MIGRATIONS: Migration[] = [
   CREATE INDEX IF NOT EXISTS idx_patient_timeline_events_patient
     ON patient_timeline_events(patient_id, days_from_first_visit DESC, visit_index DESC);
   `,
+
+  // 29: HealthKit source device tracking for watch filtering (doc 25 §1.6 M2)
+  (db: SQLiteDatabase) => {
+    const wearableCols = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(wearable_devices);`,
+    );
+    if (!wearableCols.some((c) => c.name === 'healthkit_source_id')) {
+      db.execSync(`ALTER TABLE wearable_devices ADD COLUMN healthkit_source_id TEXT;`);
+    }
+    if (!wearableCols.some((c) => c.name === 'healthkit_source_name')) {
+      db.execSync(`ALTER TABLE wearable_devices ADD COLUMN healthkit_source_name TEXT;`);
+    }
+  },
 ];
