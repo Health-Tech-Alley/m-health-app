@@ -747,13 +747,18 @@ export function AdvancedDeveloperSettingsScreen() {
               </Pressable>
               <Pressable
                 style={styles.actionButton}
+                onPress={() => router.push('/care-management')}>
+                <Text style={styles.actionButtonText}>Developer: ML Care Analysis</Text>
+              </Pressable>
+              <Pressable
+                style={styles.actionButton}
                 onPress={() => router.push('/acute-anomaly')}>
-                <Text style={styles.actionButtonText}>Acute Anomaly Demo</Text>
+                <Text style={styles.actionButtonText}>Developer: Acute Anomaly Demo</Text>
               </Pressable>
               <Pressable
                 style={styles.actionButton}
                 onPress={() => router.push('/health-monitor-demo')}>
-                <Text style={styles.actionButtonText}>Health Monitor Playground</Text>
+                <Text style={styles.actionButtonText}>Developer: Health Monitor Playground</Text>
               </Pressable>
               <Pressable
                 style={styles.actionButton}

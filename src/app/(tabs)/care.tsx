@@ -1,4 +1,4 @@
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAppSelector } from '@/store/hooks';
 import { calculateAge } from "@/utils/commonFunctions";
@@ -56,7 +56,6 @@ type CareContextDisplayGroup = {
 };
 
 export default function CareScreen() {
-  const router = useRouter();
   const profile = getOnboardingProfile();
   const { patientId, snapshot } = usePatientRecord();
   const { reopenOnCareFocus } = useCriticalAlert();
@@ -423,19 +422,6 @@ export default function CareScreen() {
               )}
             </View>
 
-            <Text style={styles.sectionTitle}>Care Analysis</Text>
-
-            <Pressable
-              style={styles.mlButton}
-              onPress={() => router.push("/care-management")}
-            >
-              <Text style={styles.mlButtonKicker}>ML Care Analysis</Text>
-              <Text style={styles.mlButtonText}>
-                Review anomaly detection, wearable scenario details, and care
-                explanation.
-              </Text>
-              <Text style={styles.mlButtonLink}>Open care analysis →</Text>
-            </Pressable>
           </>
         ) : !mostActionableCarePlan && secondaryCarePlanHistory.length === 0 ? (
           <>
@@ -1801,31 +1787,5 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.textMuted,
     fontSize: 13,
     fontWeight: "800",
-  },
-  mlButton: {
-    backgroundColor: AppTheme.colors.brandSoft,
-    borderWidth: 1,
-    borderColor: "#B7FFF1",
-    borderRadius: AppTheme.radius.card,
-    padding: 20,
-  },
-  mlButtonKicker: {
-    color: AppTheme.colors.brand,
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: 8,
-  },
-  mlButtonText: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 15,
-    lineHeight: 23,
-    marginBottom: 12,
-  },
-  mlButtonLink: {
-    color: AppTheme.colors.brand,
-    fontSize: 15,
-    fontWeight: "900",
   },
 });
