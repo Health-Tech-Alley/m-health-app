@@ -17,14 +17,14 @@ import { File } from 'expo-file-system';
 
 import { importCdaJsonString, importCdaZip } from '@/data/cda';
 import { dispatchImmediate } from '@/services/notifications';
-import { useAppDispatch } from '@/store/hooks';
-import { useActivePatientView } from '@/hooks/useActivePatientView';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { addPatient } from '@/store/reducers/patientSlice';
 import {
   getCaregiverDisplay,
   getCaregiverRoleDisplay,
   getPatientAgeDisplay,
   getPatientDisplayName,
-} from '@/utils/patientDisplay';
+} from '@/store/selectors/patientSelectors';
 import { audit } from '@/services/audit/auditService';
 
 
@@ -34,7 +34,7 @@ export default function MoreScreen() {
   const params = useLocalSearchParams<{ focus?: string }>();
   const dispatch = useAppDispatch();
   const profile = getOnboardingProfile();
-  const activePatient = useActivePatientView();
+  const activePatient = useAppSelector((state) => state.patient.activePatient);
   const patientName = getPatientDisplayName(activePatient);
   const patientAge = getPatientAgeDisplay(activePatient);
   const caregiverName = getCaregiverDisplay(activePatient);
@@ -146,6 +146,7 @@ export default function MoreScreen() {
       const contents = await file.text();
       const fhirBundle = JSON.parse(contents);
       importFHIRBundle(fhirBundle);
+      dispatch(addPatient(fhirBundle));
       await dispatchImmediate({
         patientId: patientId,
         scope: 'anomaly',

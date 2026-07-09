@@ -25,14 +25,14 @@ import {
   getActiveCareAlerts,
   type CareAlert,
 } from "@/services/care/careService";
-import { useActivePatientView } from "@/hooks/useActivePatientView";
+import { useAppSelector } from "@/store/hooks";
 import {
   getCaregiverDisplay,
   getPatientDisplayName,
-} from "@/utils/patientDisplay";
+} from "@/store/selectors/patientSelectors";
 
 export default function DashboardRoute() {
-  const activePatient = useActivePatientView();
+  const activePatient = useAppSelector((state) => state.patient.activePatient);
   const patientId = useOrchestratorPatientId();
   const scrollRef = useRef<ScrollView | null>(null);
   const [alertsLogY, setAlertsLogY] = useState(0);

@@ -7,7 +7,6 @@ import type { HealthSampleType } from "@/data/types";
 import { useAppSelector } from "@/store/hooks";
 import type { LiveVitalReading } from "@/store/reducers/vitalsSlice";
 import { selectLiveVitalsState } from "@/store/reducers/vitalsSlice";
-import { useActivePatientView } from "@/hooks/useActivePatientView";
 
 type MetricTone = "critical" | "warning" | "good";
 
@@ -126,8 +125,7 @@ const RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 export function WeeklyVitalsCard() {
   const [selectedKey, setSelectedKey] = useState<HealthSampleType>("spo2");
   const vitals = useAppSelector(selectLiveVitalsState);
-  const activePatient = useActivePatientView();
-  const activePatientId = activePatient?.patientId ?? null;
+  const activePatientId = useAppSelector((state) => state.patient.activePatient?.patientId ?? null);
 
   const metrics = useMemo(
     () => buildMetrics(vitals.readings, activePatientId),

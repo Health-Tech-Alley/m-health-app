@@ -62,7 +62,7 @@ export * from './repositories/patientLongitudinalObservationRepository';
 export * from './repositories/patientTimelineEventRepository';
 export * from './repositories/appointmentRepository';
 export * from './repositories/thresholdRecommendationRepository';
-export * from './repositories/secureMessagingRepository';
+export * from './repositories/SecureMessagingRepository';
 export * from './sensors';
 export { seedDatabaseFromProfile } from './seed/seedFromProfile';
 

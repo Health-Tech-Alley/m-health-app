@@ -4,8 +4,8 @@ import { Pressable, StyleSheet, Text, useColorScheme, View } from "react-native"
 
 import { AppTheme, Colors } from "@/constants/theme";
 import type { HealthSampleType } from "@/data/types";
-import { useClinicalVitals } from "@/hooks/useActivePatientView";
-import type { NormalizedBloodPressurePair, NormalizedVitalMetric } from "@/data/types";
+import { useAppSelector } from "@/store/hooks";
+import type { NormalizedBloodPressurePair, NormalizedVitalMetric } from "@/store/reducers/patientSlice";
 
 type RangeKey = "6m" | "1y" | "2y";
 
@@ -120,7 +120,7 @@ export function ObservationVitalsCard() {
   const router = useRouter();
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
-  const clinicalVitals = useClinicalVitals();
+  const clinicalVitals = useAppSelector((state) => state.patient.clinicalVitals);
   const chartMetrics = useMemo(
     () => clinicalVitals.map(toVitalMetric).filter(isVitalMetric),
     [clinicalVitals],

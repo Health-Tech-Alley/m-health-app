@@ -1,1 +1,1 @@
-export { CareManagementScreen as default } from '@/features/care-management/care-management-screen';
+export { CareManagementScreen as default } from '@/app/care-management/care-management-screen';

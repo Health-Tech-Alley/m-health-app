@@ -6,11 +6,10 @@ import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
 import { getCaregiverForPatient, insertCaregiverAction } from "@/data";
 import type { CareAlert } from "@/services/care/careService";
-import { useNonEmergencyDecisionWorkflow } from "@/hooks/useNonEmergencyDecisionWorkflow";
+import { useNonEmergencyDecisionWorkflow } from "@/services/care/useNonEmergencyDecisionWorkflow";
 import { useAppSelector } from "@/store/hooks";
-import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { selectNonEmergencyDecisionForAlert } from "@/store/reducers/nonEmergencyDecisionSlice";
-import { getPatientDisplayName } from "@/utils/patientDisplay";
+import { getPatientDisplayName } from "@/store/selectors/patientSelectors";
 
 const contextOptions = [
   { code: "increased_activity", label: "Exercising / increased activity" },
@@ -39,7 +38,7 @@ export function NonEmergencyInsightCard({
   alert,
 }: NonEmergencyInsightCardProps) {
   const router = useRouter();
-  const activePatient = useActivePatientView();
+  const activePatient = useAppSelector((state) => state.patient.activePatient);
   const { alertId, patientId } = alert;
   const decisionWorkflow = useAppSelector((state) =>
     selectNonEmergencyDecisionForAlert(state, patientId, alertId),

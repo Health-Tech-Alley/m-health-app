@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { ObservationVitalsCard } from "@/components/care/ObservationVitalsCard";
+import { ObservationVitalsCard } from "@/app/ObservationVitalsCard";
 import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
@@ -28,7 +28,7 @@ import {
 import { getRehabilitationMeasurements } from "@/data/repositories/rehabilitationMeasurementRepository";
 import type { RehabilitationMeasurement, RehabilitationMeasurementType } from "@/data/types";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
-import { useActivePatientView } from "@/hooks/useActivePatientView";
+import { useAppSelector } from "@/store/hooks";
 import {
   displayClinical,
   getCaregiverDisplay,
@@ -36,14 +36,14 @@ import {
   getPatientAgeDisplay,
   getPatientDisplayName,
   getPrimaryDiagnosisDisplay,
-} from "@/utils/patientDisplay";
+} from "@/store/selectors/patientSelectors";
 
 export default function CareScreen() {
   const router = useRouter();
   const profile = getOnboardingProfile();
   const { patientId, snapshot } = usePatientRecord();
   const { reopenOnCareFocus } = useCriticalAlert();
-  const activePatient = useActivePatientView();
+  const activePatient = useAppSelector((state) => state.patient.activePatient);
   const patientName = getPatientDisplayName(activePatient);
   const patientAge = getPatientAgeDisplay(activePatient);
   const diagnosis = getPrimaryDiagnosisDisplay(activePatient);

@@ -1,7 +1,7 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
-import type { SecureConversation, SecureMessage } from "@/components/messaging/types";
+import type { SecureConversation, SecureMessage } from "@/features/messaging/types";
 
 export function MessageThread({
   conversation,
