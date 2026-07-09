@@ -13,7 +13,6 @@ import { MainTabHeader } from "@/components/MainTabHeader";
 import { AlertsLogCard } from "@/components/dashboard/AlertsLogCard";
 import { NeedsYourReviewBanner } from "@/components/dashboard/NeedsYourReviewBanner";
 import { PatientSummaryCard } from "@/components/dashboard/PatientSummaryCard";
-import { TodayPriorityCard } from "@/components/dashboard/TodayPriorityCard";
 import { WeeklyVitalsCard } from "@/components/dashboard/WeeklyVitalsCard";
 import { AppTheme } from "@/constants/theme";
 import { timeOfDayGreeting } from "@/constants/user-terms";
@@ -77,9 +76,6 @@ export default function DashboardRoute() {
             patientId={patientId}
             onReviewPress={scrollToAlertsLog}
           />
-
-          <Text style={styles.sectionTitle}>Today&apos;s Priority</Text>
-          <TodayPriorityCard />
 
           <View
             onLayout={(event) => {
