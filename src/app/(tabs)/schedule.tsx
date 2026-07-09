@@ -388,6 +388,7 @@ export default function ScheduleScreen() {
 
   const handleDelete = (appt: Appointment) => {
     if (!patientId) return;
+    const appointmentId = appt.appointmentid ?? appt.appointmentId;
     Alert.alert(
       "Delete appointment",
       `Delete the ${appt.patientappointmenttypename} appointment on ${appt.date}?`,
@@ -397,21 +398,21 @@ export default function ScheduleScreen() {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            setCancelingId(appt.appointmentid);
+            setCancelingId(appointmentId);
             try {
-              await cancelAthenaAppointment(appt.appointmentid);
+              await cancelAthenaAppointment(appointmentId);
             } catch (err) {
               Alert.alert(
                 "Couldn't cancel with athenahealth",
                 `${err instanceof Error ? err.message : String(err)}\n\nRemoving it locally anyway.`,
               );
             }
-            deleteAppointment(appt.appointmentid);
+            deleteAppointment(appointmentId);
             audit({
               actor: "caregiver",
               action: "delete_appointment",
               resourceType: "appointment",
-              resourceId: appt.appointmentid,
+              resourceId: appointmentId,
               patientId,
             });
             setCancelingId(null);

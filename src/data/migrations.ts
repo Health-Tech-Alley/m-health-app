@@ -753,6 +753,72 @@ export const MIGRATIONS: Migration[] = [
   `,
 
   // 29: HealthKit source device tracking for watch filtering (doc 25 §1.6 M2)
+  // 29: source provenance for categorical functional observations imported from FHIR
+  (db: SQLiteDatabase) => {
+    const columns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(patient_longitudinal_observations);`,
+    );
+    const addColumn = (name: string, definition: string) => {
+      if (!columns.some((column) => column.name === name)) {
+        db.execSync(`ALTER TABLE patient_longitudinal_observations ADD COLUMN ${definition};`);
+      }
+    };
+
+    addColumn('source_label', 'source_label TEXT');
+    addColumn('source_file', 'source_file TEXT');
+    addColumn('source_section', 'source_section TEXT');
+    addColumn('visit_index', 'visit_index INTEGER');
+    addColumn('days_from_first_visit', 'days_from_first_visit INTEGER');
+    addColumn('confidence', 'confidence TEXT');
+    addColumn('raw_excerpt', 'raw_excerpt TEXT');
+  },
+
+  // 30: enriched source-backed care context imported from FHIR Basic resources
+  `
+  CREATE TABLE IF NOT EXISTS patient_care_context_items (
+    item_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    context_category TEXT NOT NULL,
+    plain_title TEXT NOT NULL,
+    factual_summary TEXT NOT NULL,
+    source_excerpt TEXT NOT NULL,
+    source_document TEXT NOT NULL,
+    source_section TEXT NOT NULL,
+    visit_index INTEGER,
+    days_from_first_visit INTEGER,
+    source_path TEXT,
+    related_timeline_event TEXT,
+    handling_json TEXT NOT NULL,
+    confidence TEXT,
+    limitations TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_patient_care_context_patient
+    ON patient_care_context_items(patient_id, days_from_first_visit DESC, visit_index DESC);
+  `,
+
+  // 31: curated app-level condition roles and source timing references
+  (db: SQLiteDatabase) => {
+    const columns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(patient_conditions);`,
+    );
+    const hasConditionRole = columns.some((column) => column.name === 'condition_role');
+    const hasSourceReferences = columns.some(
+      (column) => column.name === 'source_references_json',
+    );
+
+    if (!hasConditionRole) {
+      db.execSync(`ALTER TABLE patient_conditions ADD COLUMN condition_role TEXT;`);
+    }
+
+    if (!hasSourceReferences) {
+      db.execSync(`ALTER TABLE patient_conditions ADD COLUMN source_references_json TEXT;`);
+    }
+  },
+
+  // 32: HealthKit source device tracking for watch filtering
   (db: SQLiteDatabase) => {
     const wearableCols = db.getAllSync<{ name: string }>(
       `PRAGMA table_info(wearable_devices);`,

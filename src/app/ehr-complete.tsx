@@ -102,12 +102,13 @@ export default function EhrCompleteScreen() {
         });
       }
       upsertCaregiver({
+        ...existingCaregiver,
         caregiverId: existingCaregiver?.caregiverId ?? 'default-caregiver',
         patientId,
         name: caregiverName.trim() || 'Caregiver',
         relationship: caregiverRelationship.trim() || undefined,
         medicalComfortLevel: caregiverComfort,
-        ...existingCaregiver,
+        createdAt: existingCaregiver?.createdAt ?? new Date().toISOString(),
       });
       refreshPatientRecord(patientId);
       refresh();

@@ -20,7 +20,9 @@ import type {
   MedicationCandidate,
   MedicationConfirmationRequirement,
   Patient,
+  PatientCareContextItem,
   PatientCondition,
+  PatientLongitudinalObservation,
   PatientTimelineEvent,
   Symptom,
   Threshold,
@@ -31,6 +33,8 @@ import { getMedicationCandidatesForPatient } from './fhirResourceRepository';
 import { getKnowledgeCacheStats } from './knowledgeCacheRepository';
 import { getMedicationConfirmationRequirementsForPatient } from './medicationConfirmationRequirementRepository';
 import { getEnrichmentStats } from './patientEnrichmentLogRepository';
+import { getPatientCareContextItems } from './patientCareContextRepository';
+import { getPatientLongitudinalObservations } from './patientLongitudinalObservationRepository';
 import { getPatientTimelineEvents } from './patientTimelineEventRepository';
 import {
   getActiveMedications,
@@ -72,9 +76,11 @@ export interface PatientRecordSnapshot {
   medications: Medication[];
   medicationCandidates: MedicationCandidate[];
   medicationConfirmationRequirements: Record<string, MedicationConfirmationRequirement>;
+  functionalObservations: PatientLongitudinalObservation[];
   thresholds: Threshold[];
   carePlan: CarePlan | null;
   carePlans: CarePlan[];
+  careContextItems: PatientCareContextItem[];
   timelineEvents: PatientTimelineEvent[];
   carePlanGoals: CarePlanGoalSummary[];
   knowledgeStats: { total: number; bySource: Record<string, number> };
@@ -116,6 +122,35 @@ export function setBundlePending(patientId: string, pending: boolean): void {
 }
 
 const DEFAULT_BUNDLE_STATUS: BundleStatus = { state: 'complete', chunksAdded: 0 };
+
+function isCerebralPalsyCondition(condition: PatientCondition): boolean {
+  return condition.name.toLowerCase().includes('cerebral palsy');
+}
+
+function hasCuratedConditionRoles(conditions: PatientCondition[]): boolean {
+  return conditions.some((condition) => Boolean(condition.conditionRole));
+}
+
+const activeComorbidityOrder = new Map([
+  ['contracture', 0],
+  ['scoliosis', 1],
+  ['constipation', 2],
+  ['dysphagia', 3],
+  ['esophagitis', 4],
+  ['epilepsy', 5],
+]);
+
+function sortActiveComorbidities(conditions: PatientCondition[]): PatientCondition[] {
+  return [...conditions].sort(
+    (a, b) =>
+      (activeComorbidityOrder.get(a.name.toLowerCase()) ?? Number.MAX_SAFE_INTEGER) -
+      (activeComorbidityOrder.get(b.name.toLowerCase()) ?? Number.MAX_SAFE_INTEGER),
+  );
+}
+
+function isFallbackVisibleComorbidity(condition: PatientCondition): boolean {
+  return condition.source !== 'fhir_import';
+}
 
 export function getBundleStatus(patientId: string): BundleStatus {
   try {
@@ -160,9 +195,14 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const medicationCandidates = getMedicationCandidatesForPatient(patientId);
   const medicationConfirmationRequirements =
     getMedicationConfirmationRequirementsForPatient(patientId);
+  const functionalObservations = [
+    ...getPatientLongitudinalObservations(patientId, 'mobility_assistance_level'),
+    ...getPatientLongitudinalObservations(patientId, 'musculoskeletal_limitation_level'),
+  ];
   const thresholds = getActiveThresholds(patientId);
   const carePlan = getActiveCarePlanForPatient(patientId);
   const carePlans = getCarePlansForPatient(patientId);
+  const careContextItems = getPatientCareContextItems(patientId);
   const timelineEvents = getPatientTimelineEvents(patientId);
   const carePlanGoals = getCarePlanGoals(patientId);
   const knowledgeStats = getKnowledgeCacheStats();
@@ -170,9 +210,21 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const bundleStatus = getBundleStatus(patientId);
   const bundlePending = bundleStatus.state === 'in_flight';
 
-  const primaryCondition = conditions.find((c) => c.isPrimary) ?? conditions[0] ?? null;
-  const comorbidities = conditions.filter((c) => c !== primaryCondition);
-  const pendingReviewConditions = conditions.filter((c) => c.needsReview);
+  const hasCuratedRoles = hasCuratedConditionRoles(conditions);
+  const primaryCondition =
+    conditions.find((c) => c.conditionRole === 'primary_diagnosis') ??
+    conditions.find((c) => c.isPrimary) ??
+    conditions.find(isCerebralPalsyCondition) ??
+    conditions[0] ??
+    null;
+  const comorbidities = hasCuratedRoles
+    ? sortActiveComorbidities(
+        conditions.filter((c) => c.conditionRole === 'active_comorbidity'),
+      )
+    : conditions.filter((c) => c !== primaryCondition && isFallbackVisibleComorbidity(c));
+  const pendingReviewConditions = conditions.filter(
+    (c) => c.needsReview && c !== primaryCondition,
+  );
 
   return {
     patient,
@@ -186,9 +238,11 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     medications,
     medicationCandidates,
     medicationConfirmationRequirements,
+    functionalObservations,
     thresholds,
     carePlan,
     carePlans,
+    careContextItems,
     timelineEvents,
     carePlanGoals,
     knowledgeStats,

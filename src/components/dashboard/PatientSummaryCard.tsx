@@ -5,7 +5,6 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { calculateAge } from '@/utils/commonFunctions';
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
-import { confirmPendingCondition, deleteCondition } from '@/data';
 import type { PatientCondition } from '@/data/types';
 import { useActivePatientView } from '@/hooks/useActivePatientView';
 import {
@@ -27,16 +26,19 @@ export function PatientSummaryCard() {
   const [patientProfile, setPatientProfile] = useState<any>(null);
 
   useEffect(() => {
-    if (patient) {
-      setPatientProfile(patient);
-      const patientData =  patient["entry"]?.map(
-            (entry: any) => {
-              return entry && entry.resource && entry.resource.resourceType === "Patient" ? entry : null;
-            }
-        );
+    const handle = setTimeout(() => {
+      if (patient) {
+        const patientData =  patient["entry"]?.map(
+              (entry: any) => {
+                return entry && entry.resource && entry.resource.resourceType === "Patient" ? entry : null;
+              }
+          );
         setPatientProfile(patientData);
-        // console.log("Patient Profile EHR data:", patientData);
-    }
+      } else {
+        setPatientProfile(null);
+      }
+    }, 0);
+    return () => clearTimeout(handle);
   }, [patient]);
 
   const patientPersonalInfo = patientProfile?.filter((entry: any) => entry && entry.resource && entry.resource.resourceType === "Patient")[0]?.resource;
@@ -79,7 +81,6 @@ export function PatientSummaryCard() {
   const caregiverName = getCaregiverDisplay(activePatient);
   const primaryCondition = activePatient?.primaryDiagnosis ?? null;
   const comorbidities = activePatient?.comorbidities ?? [];
-  const pendingReview = activePatient?.pendingConditions ?? [];
   const sourceCount = countKnowledgeSources(snapshot.knowledgeStats.bySource);
   const cacheSummary = formatKnowledgeCacheSummary(
     snapshot.knowledgeStats.total,
@@ -89,21 +90,10 @@ export function PatientSummaryCard() {
     snapshot.knowledgeStats.bySource,
   );
 
-  const handleConfirm = (conditionId: string) => {
-    confirmPendingCondition(conditionId);
-    refresh();
-  };
-
-  const handleDismiss = (conditionId: string) => {
-    deleteCondition(conditionId);
-    refresh();
-  };
-
   const primaryDisplay = primaryCondition
     ? `${primaryCondition.icd10 ? `${primaryCondition.icd10} · ` : ''}${primaryCondition.name}`
     : getPrimaryDiagnosisDisplay(activePatient);
-  const needsClinicalImport =
-    primaryDisplay === NOT_AVAILABLE || pendingReview.length > 0;
+  const needsClinicalImport = primaryDisplay === NOT_AVAILABLE;
 
   return (
     <View style={styles.card}>
@@ -167,39 +157,6 @@ export function PatientSummaryCard() {
             </View>
           ) : null}
         </Pressable>
-      ) : null}
-
-      {pendingReview.length > 0 ? (
-        <View style={styles.reviewSection}>
-          <Text style={styles.reviewTitle}>Review suggested conditions</Text>
-          <Text style={styles.reviewSubtitle}>
-            MedlinePlus identified {pendingReview.length} possibly related {pendingReview.length === 1 ? 'condition' : 'conditions'}:
-          </Text>
-          {pendingReview.map((c, i) => (
-            <View key={c.conditionId ?? i} style={styles.reviewRow}>
-              <View style={styles.reviewText}>
-                <Text style={styles.reviewConditionName}>
-                  {c.icd10 ? `${c.icd10} · ` : ''}{c.name}
-                </Text>
-                {c.category ? <Text style={styles.reviewCategory}>{c.category}</Text> : null}
-              </View>
-              <View style={styles.reviewButtons}>
-                <Pressable
-                  style={styles.confirmButton}
-                  onPress={() => handleConfirm(c.conditionId)}
-                >
-                  <Text style={styles.confirmButtonText}>Confirm</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.dismissButton}
-                  onPress={() => handleDismiss(c.conditionId)}
-                >
-                  <Text style={styles.dismissButtonText}>Dismiss</Text>
-                </Pressable>
-              </View>
-            </View>
-          ))}
-        </View>
       ) : null}
 
       <View style={styles.infoGrid}>

@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAppSelector } from '@/store/hooks';
 import { calculateAge } from "@/utils/commonFunctions";
 import {
@@ -25,10 +25,14 @@ import {
   upsertDailyCareEntry,
   type CarePlan,
   type DailyCareEntry,
-  type PatientTimelineEvent,
 } from "@/data";
 import { getRehabilitationMeasurements } from "@/data/repositories/rehabilitationMeasurementRepository";
-import type { RehabilitationMeasurement, RehabilitationMeasurementType } from "@/data/types";
+import type {
+  PatientCareContextItem,
+  PatientTimelineEvent,
+  RehabilitationMeasurement,
+  RehabilitationMeasurementType,
+} from "@/data/types";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
 import {
@@ -40,6 +44,17 @@ import {
   getPrimaryDiagnosisDisplay,
 } from "@/utils/patientDisplay";
 
+type CareContextDisplayItem = {
+  item: PatientCareContextItem;
+  secondary: boolean;
+};
+
+type CareContextDisplayGroup = {
+  key: string;
+  title: string;
+  items: CareContextDisplayItem[];
+};
+
 export default function CareScreen() {
   const router = useRouter();
   const profile = getOnboardingProfile();
@@ -50,24 +65,24 @@ export default function CareScreen() {
   const diagnosis = getPrimaryDiagnosisDisplay(activePatient);
   const carePlan = snapshot?.carePlan ?? null;
   const carePlanHistory = snapshot?.carePlans ?? [];
-  const timelineEvents = snapshot?.timelineEvents ?? [];
+  const timelineEvents = snapshot?.timelineEvents;
   const mostActionableCarePlan =
     carePlan ?? carePlanHistory.find(isMostActionableCarePlan) ?? null;
   const secondaryCarePlanHistory = carePlanHistory.filter(
     (plan) => plan.planId !== mostActionableCarePlan?.planId,
   );
-  const importantClinicalEvents = timelineEvents.filter(
-    (event) =>
-      !(
-        event.eventType === "ot_orthosis_plan" &&
-        mostActionableCarePlan &&
-        isMostActionableCarePlan(mostActionableCarePlan)
-      ),
+  const clinicalTimelineEvents = useMemo(
+    () =>
+      (timelineEvents ?? [])
+        .filter((event) => Boolean(event.title || event.summary))
+        .sort((a, b) => a.daysFromFirstVisit - b.daysFromFirstVisit),
+    [timelineEvents],
   );
   const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
   const [patientProfile, setPatientProfile] = useState<any>(null);
   
   useEffect(() => {
+    const handle = setTimeout(() => {
       if (patient) {
         console.log('fhirBundleImported event listener: ', Object.keys(patient));
         const patientData =  patient["entry"]?.map(
@@ -76,7 +91,11 @@ export default function CareScreen() {
             }
         );
         setPatientProfile(patientData);
+      } else {
+        setPatientProfile(null);
       }
+    }, 0);
+    return () => clearTimeout(handle);
   }, [patient]);
 
   const caregiverDisplay = getCaregiverDisplay(activePatient);
@@ -119,6 +138,10 @@ export default function CareScreen() {
   );
   const gaitSpeedMeasurements = rehabMeasurements.filter(
     (m) => m.type === "rehabilitation_gait_speed",
+  );
+  const careContextGroups = useMemo(
+    () => buildCareContextGroups(clinicalTimelineEvents, snapshot?.careContextItems ?? []),
+    [clinicalTimelineEvents, snapshot?.careContextItems],
   );
 
   // CP-relevant progress metrics for non-ambulatory patients (GMFCS IV–V).
@@ -198,87 +221,19 @@ export default function CareScreen() {
           </View>
         </View>
 
-        <ObservationVitalsCard />
+        <View style={styles.contextGrid}>
+          <ObservationVitalsCard />
 
-        {mostActionableCarePlan && !carePlan ? (
-          <>
-            <Text style={styles.sectionTitle}>Current Care Focus</Text>
-            <View style={styles.carePlanCard}>
-              <Text style={styles.carePlanKicker}>What to focus on now</Text>
-              <Text style={styles.carePlanTitle}>
-                {mostActionableCarePlan.title || "Documented care guidance"}
-              </Text>
-              {mostActionableCarePlan.description ? (
-                <Text style={styles.carePlanSubtitle}>
-                  {mostActionableCarePlan.description}
-                </Text>
-              ) : null}
-              <Text style={styles.emptyCarePlanText}>
-                Guidance documented in care records. This section does not
-                create tasks or reminders.
-              </Text>
-            </View>
-          </>
-        ) : null}
-
-        {secondaryCarePlanHistory.length > 0 ? (
-          <>
-            <Text style={styles.sectionTitle}>Other Care Guidance</Text>
-            <View style={styles.carePlanCard}>
-              <Text style={styles.carePlanKicker}>Additional care notes from the record</Text>
-              <Text style={styles.emptyCarePlanText}>
-                These notes are documented in care records. Items with unknown status are not
-                treated as current and do not create tasks or reminders.
-              </Text>
-              <View style={styles.activityList}>
-                <Text style={styles.activityTitle}>Documented guidance</Text>
-                {secondaryCarePlanHistory.map((plan) => (
-                  <View key={plan.planId} style={styles.activityRow}>
-                    <View style={styles.activityDot} />
-                    <View style={styles.activityTextBlock}>
-                      <Text style={styles.activityDescription}>
-                        {plan.title || "Documented care guidance"}
-                      </Text>
-                      {plan.description ? (
-                        <Text style={styles.activityStatus}>{plan.description}</Text>
-                      ) : null}
-                    </View>
-                  </View>
-                ))}
-              </View>
-            </View>
-          </>
-        ) : null}
-
-        {importantClinicalEvents.length > 0 ? (
-          <>
-            <Text style={styles.sectionTitle}>Important Health Events</Text>
-            <View style={styles.carePlanCard}>
-              <Text style={styles.carePlanKicker}>Documented events from care records</Text>
-              <Text style={styles.emptyCarePlanText}>
-                Important events documented in the record. These facts do
-                not create tasks, reminders, diagnoses, or plans.
-              </Text>
-              <View style={styles.activityList}>
-                {importantClinicalEvents.map((event) => (
-                  <View key={event.eventId} style={styles.activityRow}>
-                    <View style={styles.activityDot} />
-                    <View style={styles.activityTextBlock}>
-                      <Text style={styles.activityDescription}>{event.title}</Text>
-                      <Text style={styles.activityStatus}>{event.summary}</Text>
-                      <Text style={styles.timelineSource}>
-                        {formatTimelineSource(event)}
-                      </Text>
-                      <Text style={styles.timelineWhy}>
-                        {event.clinicalRelevance}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            </View>
-          </>
-        ) : null}
+          <ContextCard title="Care Planning Context">
+            {careContextGroups.length > 0 ? (
+              careContextGroups.map((group) => (
+                <CareContextTimelineGroup key={group.key} group={group} />
+              ))
+            ) : (
+              <Text style={styles.contextMutedText}>No care context collected.</Text>
+            )}
+          </ContextCard>
+        </View>
 
         {carePlan ? (
           <>
@@ -300,12 +255,12 @@ export default function CareScreen() {
               ))}
             </View>
 
-            <Text style={styles.sectionTitle}>Current Care Focus</Text>
+            <Text style={styles.sectionTitle}>Care Focus</Text>
 
             <View style={styles.carePlanCard}>
               <View style={styles.carePlanHeader}>
                 <View style={styles.carePlanHeaderText}>
-                  <Text style={styles.carePlanKicker}>What to focus on now</Text>
+                  <Text style={styles.carePlanKicker}>Documented care context</Text>
                   <Text style={styles.carePlanTitle}>
                     {carePlan.title || "Care plan"}
                   </Text>
@@ -476,8 +431,8 @@ export default function CareScreen() {
             >
               <Text style={styles.mlButtonKicker}>ML Care Analysis</Text>
               <Text style={styles.mlButtonText}>
-                Review anomaly detection, wearable scenario details, and generated
-                care explanation.
+                Review anomaly detection, wearable scenario details, and care
+                explanation.
               </Text>
               <Text style={styles.mlButtonLink}>Open care analysis →</Text>
             </Pressable>
@@ -618,6 +573,72 @@ function parseSafetyConsiderations(notes: string): string[] {
   return unique.length > 0 ? unique : ["No safety notes provided."];
 }
 
+function ContextCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <View style={styles.contextCard}>
+      <Text style={styles.contextCardTitle}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+function CareContextSummaryCard({
+  item,
+  secondary = false,
+}: {
+  item: PatientCareContextItem;
+  secondary?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const sourceLabel = formatCareContextSource(item);
+  const label = secondary ? "Background context" : null;
+
+  return (
+    <View style={[styles.careContextItemCard, secondary && styles.careContextItemSecondary]}>
+      {label ? (
+        <Text style={styles.backgroundContextTitle}>{label}</Text>
+      ) : null}
+      <Text style={styles.careContextItemTitle}>{item.plainTitle}</Text>
+      <Text style={styles.careContextItemSummary}>{item.factualSummary}</Text>
+      <Text style={styles.careContextItemMeta}>{sourceLabel}</Text>
+
+      {item.sourceExcerpt ? (
+        <Pressable
+          style={styles.sourceExcerptToggle}
+          onPress={() => setExpanded((value) => !value)}
+          accessibilityRole="button"
+          accessibilityLabel={`${expanded ? "Hide" : "Show"} source details for ${item.plainTitle}`}
+        >
+          <Text style={styles.sourceExcerptToggleText}>
+            {expanded ? "Hide source details" : "View source details"}
+          </Text>
+        </Pressable>
+      ) : null}
+
+      {expanded ? (
+        <View style={styles.sourceExcerptBox}>
+          <Text style={styles.sourceExcerptText}>{item.sourceExcerpt}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function CareContextTimelineGroup({ group }: { group: CareContextDisplayGroup }) {
+  return (
+    <View style={styles.careContextTimelineGroup}>
+      <Text style={styles.careContextTimelineTitle}>{group.title}</Text>
+      {group.items.map(({ item, secondary }) => (
+        <CareContextSummaryCard
+          key={item.itemId}
+          item={item}
+          secondary={secondary}
+        />
+      ))}
+    </View>
+  );
+}
+
 function CarePlanMeta({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.carePlanMetaItem}>
@@ -737,8 +758,122 @@ function isMostActionableCarePlan(plan: CarePlan): boolean {
   );
 }
 
-function formatTimelineSource(event: PatientTimelineEvent): string {
-  return `${event.sourceFile} · visit ${event.visitIndex} · ${event.sourceSection} · ${event.confidence} confidence`;
+function isMainCareContextItem(item: PatientCareContextItem): boolean {
+  return item.handling.includes("care_planning_context");
+}
+
+function isAdditionalCareContextItem(item: PatientCareContextItem): boolean {
+  return (
+    item.handling.includes("slm_context_ready") &&
+    !isMainCareContextItem(item) &&
+    !item.handling.includes("raw_context_only") &&
+    !item.handling.includes("needs_human_review")
+  );
+}
+
+function buildCareContextGroups(
+  events: PatientTimelineEvent[],
+  items: PatientCareContextItem[],
+): CareContextDisplayGroup[] {
+  const itemsByEvent = new Map<
+    PatientTimelineEvent["eventType"],
+    { mainItems: PatientCareContextItem[]; backgroundItems: PatientCareContextItem[] }
+  >();
+  const sortedEvents = [...events].sort(
+    (a, b) => a.daysFromFirstVisit - b.daysFromFirstVisit || a.visitIndex - b.visitIndex,
+  );
+
+  sortedEvents.forEach((event) => {
+    itemsByEvent.set(event.eventType, {
+      mainItems: [],
+      backgroundItems: [],
+    });
+  });
+
+  const ungroupedMainItems: PatientCareContextItem[] = [];
+  const ungroupedBackgroundItems: PatientCareContextItem[] = [];
+
+  items.forEach((item) => {
+    const isMain = isMainCareContextItem(item);
+    const isBackground = isAdditionalCareContextItem(item);
+    if (!isMain && !isBackground) return;
+
+    const relatedEventType = item.relatedTimelineEvent as PatientTimelineEvent["eventType"] | undefined;
+    const eventItems = relatedEventType ? itemsByEvent.get(relatedEventType) : undefined;
+    if (eventItems) {
+      if (isMain) eventItems.mainItems.push(item);
+      else eventItems.backgroundItems.push(item);
+      return;
+    }
+
+    if (isMain) ungroupedMainItems.push(item);
+    else ungroupedBackgroundItems.push(item);
+  });
+
+  const eventGroups = sortedEvents.flatMap((event) => {
+      const eventItems = itemsByEvent.get(event.eventType);
+      if (!eventItems) return [];
+      const displayItems = toCareContextDisplayItems(eventItems.mainItems, eventItems.backgroundItems);
+      if (displayItems.length === 0) return [];
+      return [{
+        key: event.eventId,
+        title: formatCareContextEventTitle(event),
+        items: displayItems,
+      }];
+    });
+  const ungroupedItems = toCareContextDisplayItems(ungroupedMainItems, ungroupedBackgroundItems);
+
+  return ungroupedItems.length > 0
+    ? [
+        ...eventGroups,
+        {
+          key: "ungrouped-care-context",
+          title: "Additional care context",
+          items: ungroupedItems,
+        },
+      ]
+    : eventGroups;
+}
+
+function formatCareContextEventTitle(event: PatientTimelineEvent): string {
+  return event.title || formatCareContextEventType(event.eventType);
+}
+
+function formatCareContextEventType(type: PatientTimelineEvent["eventType"]): string {
+  switch (type) {
+    case "pre_op_planning":
+      return "Pre-op planning";
+    case "operative_event":
+      return "Operative context";
+    case "discharge_restrictions":
+      return "Discharge restrictions";
+    case "post_op_follow_up":
+      return "Post-op follow-up";
+    case "ot_orthosis_plan":
+      return "Orthosis plan";
+    case "equipment_orthotics_support":
+      return "Equipment and brace support";
+    default:
+      return String(type).replace(/_/g, " ");
+  }
+}
+
+function formatCareContextSource(item: PatientCareContextItem): string {
+  const documentName = item.sourceDocument
+    .replace(/_deidentified_timeline\.json$/i, "")
+    .replace(/_deidentified\.xml$/i, "");
+  const visitText = typeof item.visitIndex === "number" ? `visit ${item.visitIndex}` : null;
+  return [documentName, item.sourceSection, visitText].filter(Boolean).join(" · ");
+}
+
+function toCareContextDisplayItems(
+  mainItems: PatientCareContextItem[],
+  backgroundItems: PatientCareContextItem[],
+): CareContextDisplayItem[] {
+  return [
+    ...mainItems.map((item) => ({ item, secondary: false })),
+    ...backgroundItems.map((item) => ({ item, secondary: true })),
+  ];
 }
 
 function ProgressMetric({
@@ -1083,6 +1218,197 @@ const styles = StyleSheet.create({
     lineHeight: 30,
     fontWeight: "800",
   },
+  contextGrid: {
+    gap: 14,
+    marginBottom: 24,
+  },
+  contextCard: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    padding: 16,
+  },
+  contextCardTitle: {
+    color: AppTheme.colors.sectionText,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 10,
+  },
+  contextMutedText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  contextBulletRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 9,
+    paddingVertical: 5,
+  },
+  contextBulletDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: AppTheme.colors.brand,
+    marginTop: 6,
+  },
+  contextBulletText: {
+    flex: 1,
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  contextToggle: {
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: AppTheme.colors.softSurface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  contextToggleText: {
+    flex: 1,
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "900",
+  },
+  contextToggleCount: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  careContextGroupCard: {
+    backgroundColor: AppTheme.colors.softSurface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    padding: 14,
+    marginTop: 10,
+  },
+  careContextGroupTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "900",
+  },
+  careContextGroupMeta: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "800",
+    marginTop: 5,
+  },
+  careContextGroupSummary: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "700",
+    marginTop: 8,
+  },
+  careContextItemsBlock: {
+    marginTop: 12,
+  },
+  careContextItemsTitle: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  backgroundContextBlock: {
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+    marginTop: 12,
+    paddingTop: 12,
+  },
+  backgroundContextTitle: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  careContextTimelineGroup: {
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+    paddingTop: 12,
+    marginTop: 12,
+  },
+  careContextTimelineTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "900",
+  },
+  careContextItemCard: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    padding: 14,
+    marginTop: 10,
+  },
+  careContextItemSecondary: {
+    backgroundColor: AppTheme.colors.softSurface,
+  },
+  careContextItemTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "900",
+  },
+  careContextItemSummary: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "700",
+    marginTop: 6,
+  },
+  careContextItemMeta: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "800",
+    marginTop: 8,
+  },
+  sourceExcerptToggle: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    backgroundColor: AppTheme.colors.brandSoft,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 10,
+  },
+  sourceExcerptToggleText: {
+    color: AppTheme.colors.brand,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  sourceExcerptBox: {
+    borderLeftWidth: 3,
+    borderLeftColor: AppTheme.colors.brand,
+    paddingLeft: 10,
+    marginTop: 10,
+  },
+  sourceExcerptText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
   sectionTitle: {
     color: AppTheme.colors.sectionText,
     fontSize: 15,
@@ -1091,12 +1417,34 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginBottom: 14,
   },
+  historyToggle: {
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: AppTheme.colors.softSurface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  historyToggleText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  historyToggleCount: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
   carePlanCard: {
     backgroundColor: AppTheme.colors.surface,
     borderRadius: AppTheme.radius.card,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
-    padding: 22,
+    padding: 18,
     marginBottom: 24,
     ...AppTheme.shadow,
   },
@@ -1120,15 +1468,15 @@ const styles = StyleSheet.create({
   },
   carePlanTitle: {
     color: AppTheme.colors.text,
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: 18,
+    lineHeight: 24,
     fontWeight: "900",
   },
   carePlanSubtitle: {
     color: AppTheme.colors.textSoft,
-    fontSize: 15,
+    fontSize: 14,
     lineHeight: 21,
-    marginTop: 4,
+    marginTop: 6,
   },
   emptyCarePlanText: {
     color: AppTheme.colors.text,
@@ -1178,6 +1526,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     gap: 12,
   },
+  guidanceCard: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    padding: 14,
+  },
   activityTitle: {
     color: AppTheme.colors.text,
     fontSize: 14,
@@ -1221,6 +1576,38 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.sectionText,
     fontSize: 12,
     lineHeight: 18,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  relatedEventList: {
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+    marginTop: 14,
+    paddingTop: 12,
+    gap: 10,
+  },
+  relatedEventRow: {
+    backgroundColor: AppTheme.colors.softSurface,
+    borderRadius: 12,
+    padding: 12,
+  },
+  relatedEventTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "900",
+  },
+  relatedEventBody: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  relatedEventMeta: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
     fontWeight: "800",
     marginTop: 4,
   },

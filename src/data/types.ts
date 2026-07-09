@@ -81,7 +81,9 @@ export type LongitudinalObservationType =
   | 'seizure_frequency'
   | 'spasticity_episodes'
   | 'respiratory_suctioning_events'
-  | 'feeding_intolerance';
+  | 'feeding_intolerance'
+  | 'mobility_assistance_level'
+  | 'musculoskeletal_limitation_level';
 
 export interface PatientLongitudinalObservation {
   patientId: string;
@@ -95,6 +97,13 @@ export interface PatientLongitudinalObservation {
   sourceSystem?: string | null;
   sourceCode: string;
   sourceType: 'fhir';
+  sourceLabel?: string | null;
+  sourceFile?: string | null;
+  sourceSection?: string | null;
+  visitIndex?: number | null;
+  daysFromFirstVisit?: number | null;
+  confidence?: string | null;
+  rawExcerpt?: string | null;
 }
 
 export interface Threshold {
@@ -358,6 +367,26 @@ export interface PatientTimelineEvent {
   createdAt: string;
 }
 
+export interface PatientCareContextItem {
+  itemId: string;
+  patientId: string;
+  contextCategory: string;
+  plainTitle: string;
+  factualSummary: string;
+  sourceExcerpt: string;
+  sourceDocument: string;
+  sourceSection: string;
+  visitIndex?: number | null;
+  daysFromFirstVisit?: number | null;
+  sourcePath?: string | null;
+  relatedTimelineEvent?: string | null;
+  handling: string[];
+  confidence?: 'high' | 'medium' | 'low' | string | null;
+  limitations?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PatientCondition {
   conditionId: string;
   patientId: string;
@@ -366,6 +395,8 @@ export interface PatientCondition {
   /** Original SNOMED CT code (when the source provides SNOMED, e.g. CDA import). */
   snomedCode?: string;
   onsetDate?: string;
+  conditionRole?: PatientConditionRole;
+  sourceReferences?: PatientConditionSourceReference[];
   // M12 extensions — structured clinical metadata
   category?: string; // 'Respiratory' | 'Neurologic' | 'Cardiac' | 'Metabolic' | 'Cognitive' | 'Neurologic / Mobility' | ...
   isPrimary?: boolean;
@@ -373,6 +404,23 @@ export interface PatientCondition {
   sourceDocId?: string; // e.g. 'MLP-J44.9'
   retrievedAt?: string;
   needsReview?: boolean; // true for MedlinePlus-suggested comorbidities
+}
+
+export type PatientConditionRole =
+  | 'primary_diagnosis'
+  | 'active_comorbidity'
+  | 'history_context';
+
+export interface PatientConditionSourceReference {
+  rawLabel?: string;
+  sourceFile?: string;
+  sourceSection?: string;
+  visitIndex?: number;
+  daysFromFirstVisit?: number;
+  daysBeforeLatestVisit?: number;
+  sourceDate?: string;
+  dateKind?: 'diagnosed' | 'noted' | 'source_effective_time' | 'first_source_mention';
+  provenanceId?: string;
 }
 
 export type ConditionSource = 'onboarding' | 'medlineplus' | 'pubmed' | 'rxnorm' | 'ccda_import' | 'fhir_import';
@@ -721,11 +769,13 @@ export interface ThresholdRecommendation {
 }
 
 export interface Appointment {
-  appointmentid: string;
+  appointmentId: string;
+  appointmentid?: string;
   patientId: string;
   type: string;
   provider?: string;
   date: string; // ISO date yyyy-mm-dd
+  time?: string;
   starttime?: string;
   patientappointmenttypename?: string;
   location?: string;
