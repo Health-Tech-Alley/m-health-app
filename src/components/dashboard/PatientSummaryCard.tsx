@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useAppSelector } from '@/store/hooks';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-
+import { calculateAge } from '@/utils/commonFunctions';
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { confirmPendingCondition, deleteCondition } from '@/data';
@@ -74,7 +75,7 @@ export function PatientSummaryCard() {
   }
 
   const patientName = getPatientDisplayName(activePatient);
-  const patientAge = getPatientAgeDisplay(activePatient);
+  // const patientAge = getPatientAgeDisplay(activePatient);
   const caregiverName = getCaregiverDisplay(activePatient);
   const primaryCondition = activePatient?.primaryDiagnosis ?? null;
   const comorbidities = activePatient?.comorbidities ?? [];
