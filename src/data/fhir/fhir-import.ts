@@ -20,8 +20,9 @@ type SaveFHIRBundleOptions = {
 
 export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions = {}): string | null {
   const db = getDatabase();
-  const importedPatientId = getBundlePatientId(bundle, options.patientId);
-  if (!importedPatientId) return null;
+  const canonicalPatientId = getBundlePatientId(bundle, options.patientId);
+  if (!canonicalPatientId) return null;
+  const patientReferenceMap = buildPatientReferenceMap(bundle, canonicalPatientId);
   const practitionerDisplayByReference = buildPractitionerDisplayMap(bundle);
   const provenanceIdByConditionId = buildConditionProvenanceMap(bundle);
   const latestDaysFromFirstVisit = getLatestDaysFromFirstVisit(bundle);
@@ -33,29 +34,30 @@ export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions =
       // console.log('[FHIR Import] Processing resource: ', resource.resourceType, ', id: ', resource.id);
       switch (resource.resourceType) {
         case 'Patient':
-          upsertPatient(db, resource, importedPatientId);
+          upsertPatient(db, resource, canonicalPatientId);
           break;
         case 'Observation':
-          upsertObservation(db, resource, importedPatientId);
+          upsertObservation(db, resource, canonicalPatientId, patientReferenceMap);
           break;
         case 'MedicationRequest':
-          upsertMedication(db, resource, importedPatientId);
+          upsertMedication(db, resource, canonicalPatientId, patientReferenceMap);
           break;
         case 'Condition':
           upsertCondition(
             db,
             resource,
-            importedPatientId,
+            canonicalPatientId,
+            patientReferenceMap,
             provenanceIdByConditionId.get(resource.id),
             latestDaysFromFirstVisit,
           );
           break;
         case 'CarePlan':
-          upsertFHIRCarePlan(resource, importedPatientId, practitionerDisplayByReference);
+          upsertFHIRCarePlan(resource, canonicalPatientId, patientReferenceMap, practitionerDisplayByReference);
           break;
         case 'Basic':
-          upsertPatientTimelineEventFromBasic(resource, importedPatientId);
-          upsertPatientCareContextItemFromBasic(resource, importedPatientId);
+          upsertPatientTimelineEventFromBasic(resource, canonicalPatientId, patientReferenceMap);
+          upsertPatientCareContextItemFromBasic(resource, canonicalPatientId, patientReferenceMap);
           break;
         // add more resource types as needed
       }
@@ -63,7 +65,7 @@ export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions =
     }
   });
 
-  return importedPatientId;
+  return canonicalPatientId;
 }
 
 function calculateAge(birthdate: Date): number | null {
@@ -95,8 +97,63 @@ function normalizePatientId(patientId?: string): string | null {
   return normalized ? normalized : null;
 }
 
-function getImportedPatientId(resource: any, fallbackPatientId: string): string {
-  return normalizePatientReference(resource.subject?.reference) ?? fallbackPatientId;
+function buildPatientReferenceMap(bundle: any, canonicalPatientId: string): Map<string, string> {
+  const referenceMap = new Map<string, string>();
+  const addReference = (value?: string | null) => {
+    const normalized = normalizePatientId(value ?? undefined);
+    if (normalized) referenceMap.set(normalized, canonicalPatientId);
+  };
+
+  addReference(canonicalPatientId);
+  addReference(`Patient/${canonicalPatientId}`);
+
+  for (const entry of bundle.entry ?? []) {
+    const resource = entry.resource;
+    if (resource?.resourceType !== 'Patient') continue;
+
+    addReference(resource.id);
+    addReference(`Patient/${resource.id}`);
+    addReference(entry.fullUrl);
+
+    if (typeof entry.fullUrl === 'string' && entry.fullUrl.startsWith('urn:uuid:')) {
+      const urnId = entry.fullUrl.replace('urn:uuid:', '');
+      addReference(urnId);
+      addReference(`Patient/${urnId}`);
+    }
+  }
+
+  return referenceMap;
+}
+
+function resolvePatientReference(
+  reference: string | undefined,
+  referenceMap?: Map<string, string>,
+): string | null {
+  if (!reference) return null;
+  const directMatch = referenceMap?.get(reference);
+  if (directMatch) return directMatch;
+
+  const normalizedReference = normalizePatientReference(reference);
+  if (!normalizedReference) return null;
+
+  return (
+    referenceMap?.get(normalizedReference) ??
+    referenceMap?.get(`Patient/${normalizedReference}`) ??
+    normalizedReference
+  );
+}
+
+function getImportedPatientId(
+  resource: any,
+  fallbackPatientId: string,
+  referenceMap?: Map<string, string>,
+): string {
+  return (
+    resolvePatientReference(resource.subject?.reference, referenceMap) ??
+    resolvePatientReference(resource.patient?.reference, referenceMap) ??
+    resolvePatientReference(resource.beneficiary?.reference, referenceMap) ??
+    fallbackPatientId
+  );
 }
 
 function buildPractitionerDisplayMap(bundle: any): Map<string, string> {
@@ -244,12 +301,17 @@ function isExtensionSuffix(extension: any, suffix: string): boolean {
   return typeof url === 'string' && (url === suffix || url.endsWith(`/${suffix}`));
 }
 
-function upsertObservation(db: any, r: any, activePatientId: string): void {
+function upsertObservation(
+  db: any,
+  r: any,
+  activePatientId: string,
+  patientReferenceMap?: Map<string, string>,
+): void {
   // your health_samples table:
   // sample_id, patient_id, source, type, value, value_json, unit, recorded_at, received_at
   // console.log('[FHIR Import] Upserting Observation:', r.id, r.code?.coding?.[0]?.code, r.effectiveDateTime);
 
-  const patientId = getImportedPatientId(r, activePatientId);
+  const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   if (!patientId) return;
   const observationCode = getObservationCode(r);
   const loincCode = r.code?.coding?.[0]?.code;
@@ -395,10 +457,15 @@ function upsertObservation(db: any, r: any, activePatientId: string): void {
   );
 }
 
-function upsertMedication(db: any, r: any, activePatientId: string): void {
+function upsertMedication(
+  db: any,
+  r: any,
+  activePatientId: string,
+  patientReferenceMap?: Map<string, string>,
+): void {
   // your medications table:
   // medication_id, patient_id, name, dosage, frequency, route, indication, active, source
-  const patientId = getImportedPatientId(r, activePatientId);
+  const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   if (!patientId) return;
 
   db.runSync(
@@ -421,13 +488,14 @@ function upsertCondition(
   db: any,
   r: any,
   activePatientId: string,
+  patientReferenceMap?: Map<string, string>,
   provenanceId?: string,
   latestDaysFromFirstVisit?: number,
 ): void {
   // your patient_conditions table:
   // condition_id, patient_id, name, icd10, snomed_code, onset_date,
   // category, is_primary, source, needs_review, condition_role, source_references_json
-  const patientId = getImportedPatientId(r, activePatientId);
+  const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   if (!patientId) return;
 
   const coding = r.code?.coding ?? [];
@@ -549,11 +617,15 @@ const timelineEventTypes = new Set<PatientTimelineEventType>([
   'equipment_orthotics_support',
 ]);
 
-function upsertPatientTimelineEventFromBasic(r: any, activePatientId: string): void {
+function upsertPatientTimelineEventFromBasic(
+  r: any,
+  activePatientId: string,
+  patientReferenceMap?: Map<string, string>,
+): void {
   const code = r.code?.coding?.[0]?.code ?? r.code?.text;
   if (code !== 'patient-timeline-event') return;
 
-  const patientId = getImportedPatientId(r, activePatientId);
+  const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   const eventType = getStringExtension(r, 'timeline-event-type');
   const visitIndex = getIntegerExtension(r, 'visit-index');
   const daysFromFirstVisit = getIntegerExtension(r, 'days-from-first-visit');
@@ -597,11 +669,15 @@ function upsertPatientTimelineEventFromBasic(r: any, activePatientId: string): v
   });
 }
 
-function upsertPatientCareContextItemFromBasic(r: any, activePatientId: string): void {
+function upsertPatientCareContextItemFromBasic(
+  r: any,
+  activePatientId: string,
+  patientReferenceMap?: Map<string, string>,
+): void {
   const code = r.code?.coding?.[0]?.code ?? r.code?.text;
   if (code !== 'patient-care-context-item') return;
 
-  const patientId = getImportedPatientId(r, activePatientId);
+  const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   const contextCategory = getStringExtension(r, 'context-category');
   const plainTitle = getStringExtension(r, 'plain-title');
   const factualSummary = getStringExtension(r, 'factual-summary');
@@ -692,9 +768,10 @@ function getReferenceId(reference?: string): string | undefined {
 function upsertFHIRCarePlan(
   r: any,
   activePatientId: string,
+  patientReferenceMap: Map<string, string> | undefined,
   practitionerDisplayByReference: Map<string, string>,
 ): void {
-  const patientId = getImportedPatientId(r, activePatientId);
+  const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   if (!patientId || !r.id) return;
 
   const now = new Date().toISOString();
