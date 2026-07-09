@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useAppSelector } from '@/store/hooks';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { calculateAge } from '@/utils/commonFunctions';
 import { AppTheme } from '@/constants/theme';
@@ -24,6 +24,12 @@ export function PatientSummaryCard() {
   const activePatient = useActivePatientView();
   const { patient, loading, lastSynced } = useAppSelector(state => state.patient);
   const [patientProfile, setPatientProfile] = useState<any>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh]),
+  );
 
   useEffect(() => {
     const handle = setTimeout(() => {
