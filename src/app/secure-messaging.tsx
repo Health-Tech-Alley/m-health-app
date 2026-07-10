@@ -13,10 +13,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { AppTheme } from "@/constants/theme";
-import { ConversationList } from "@/features/messaging/ConversationList";
-import { MessageComposer } from "@/features/messaging/MessageComposer";
-import { MessageThread } from "@/features/messaging/MessageThread";
-import type { SecureConversation, SecureMessage } from "@/features/messaging/types";
+import { ConversationList } from "@/components/messaging/ConversationList";
+import { MessageComposer } from "@/components/messaging/MessageComposer";
+import { MessageThread } from "@/components/messaging/MessageThread";
+import type { SecureConversation, SecureMessage } from "@/components/messaging/types";
 
 const CONVERSATIONS: SecureConversation[] = [];
 const MESSAGES_BY_CONVERSATION_ID: Record<string, SecureMessage[]> = {};

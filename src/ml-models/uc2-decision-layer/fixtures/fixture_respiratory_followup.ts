@@ -2,7 +2,7 @@ import type {
     CaregiverHitlInput,
     PatientProfile,
     RawObservationInput,
-} from "../../";
+} from "../";
 
 export const fixtureRespiratoryRaw: RawObservationInput = {
     patient_id: "patient_resp_001",

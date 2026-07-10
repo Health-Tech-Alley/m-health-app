@@ -37,6 +37,7 @@ export {
   deleteCarePlanMedicationsForPatient,
   upsertCondition,
   getConditionsForPatient,
+  updatePatientConditionRoles,
   confirmPendingCondition,
   deleteCondition,
   deleteConditionsForPatient,
@@ -60,9 +61,10 @@ export * from './repositories/carePlanRepository';
 export * from './repositories/rehabilitationMeasurementRepository';
 export * from './repositories/patientLongitudinalObservationRepository';
 export * from './repositories/patientTimelineEventRepository';
+export * from './repositories/patientCareContextRepository';
 export * from './repositories/appointmentRepository';
 export * from './repositories/thresholdRecommendationRepository';
-export * from './repositories/SecureMessagingRepository';
+export * from './repositories/secureMessagingRepository';
 export * from './sensors';
 export { seedDatabaseFromProfile } from './seed/seedFromProfile';
 

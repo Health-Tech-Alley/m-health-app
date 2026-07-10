@@ -14,27 +14,31 @@ import {
 } from "@/services/onboarding/onboardingService";
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
+import {
+  exportPatientCcda,
+  getRecordConsentStatus,
+  setRecordConsent,
+  type RecordConsentScope,
+} from "@/services/records/recordsService";
 
 import { importCdaJsonString, importCdaZip } from '@/data/cda';
 import { dispatchImmediate } from '@/services/notifications';
-import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { addPatient } from '@/store/reducers/patientSlice';
+import { useAppDispatch } from '@/store/hooks';
+import { useActivePatientView } from '@/hooks/useActivePatientView';
 import {
   getCaregiverDisplay,
   getCaregiverRoleDisplay,
   getPatientAgeDisplay,
   getPatientDisplayName,
-} from '@/store/selectors/patientSelectors';
+} from '@/utils/patientDisplay';
 import { audit } from '@/services/audit/auditService';
-
-
 
 export default function MoreScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ focus?: string }>();
   const dispatch = useAppDispatch();
   const profile = getOnboardingProfile();
-  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const activePatient = useActivePatientView();
   const patientName = getPatientDisplayName(activePatient);
   const patientAge = getPatientAgeDisplay(activePatient);
   const caregiverName = getCaregiverDisplay(activePatient);
@@ -57,106 +61,7 @@ export default function MoreScreen() {
   }, [params.focus]);
 
   async function handleOpenEHRImport() {
-    setImporting(true);
-    try {
-      // 1. Let user pick a file. We accept both FHIR JSON and CDA JSON /
-      //    CDA zip — the picker below uses `*/*` and we dispatch by
-      //    extension or by content sniff.
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/json', 'application/zip', 'public.zip-archive', '*/*'],
-        copyToCacheDirectory: true,
-      });
-
-      if (result.canceled) return null;
-
-      const fileUri = result.assets[0].uri;
-      const fileName = result.assets[0].name ?? '';
-      const lowerName = fileName.toLowerCase();
-
-      // 2. Route to the right importer based on extension
-      if (lowerName.endsWith('.zip')) {
-        const summary = await importCdaZip(fileUri, {
-          patientId: patientId ?? 'default-patient',
-          isNewPatient: true,
-        });
-        refresh();
-        audit({
-          actor: 'caregiver',
-          action: 'cda_zip_import',
-          resourceType: 'cda_import',
-          resourceId: fileName,
-          patientId,
-          payload: {
-            filesDiscovered: summary.filesDiscovered,
-            filesImported: summary.filesImported,
-            filesSkipped: summary.filesSkipped,
-            totalConditions: summary.totalConditions,
-            totalNarrativeChunks: summary.totalNarrativeChunks,
-          },
-        });
-        await dispatchImmediate({
-          patientId,
-          scope: 'care_task',
-          title: 'EHR import complete',
-          body: `${summary.filesImported} of ${summary.filesDiscovered} documents imported.`,
-          severity: 1,
-        });
-        // Navigate to the post-import completion screen so the caregiver
-        // can fill in the redacted identity fields (planning/33 §6.4).
-        router.push('/ehr-complete');
-        return;
-      }
-
-      // 3. Single CDA JSON file (a single doc out of the zip)
-      if (/_deidentified\.json$/i.test(lowerName)) {
-        const file = new File(fileUri);
-        const contents = await file.text();
-        const result = importCdaJsonString(contents, {
-          patientId: patientId ?? 'default-patient',
-          isNewPatient: true,
-        });
-        refresh();
-        audit({
-          actor: 'caregiver',
-          action: 'cda_single_import',
-          resourceType: 'cda_import',
-          resourceId: result.docId,
-          patientId,
-          payload: {
-            conditions: result.conditions,
-            medications: result.medications,
-            narrativeChunks: result.narrativeChunks,
-            vitals: result.vitals,
-          },
-        });
-        await dispatchImmediate({
-          patientId,
-          scope: 'care_task',
-          title: 'EHR document imported',
-          body: `${result.conditions} conditions, ${result.medications} medications, ${result.narrativeChunks} narrative chunks.`,
-          severity: 1,
-        });
-        // Navigate to the post-import completion screen (planning/33 §6.4).
-        router.push('/ehr-complete');
-        return;
-      }
-
-      // 4. Fall back to FHIR Bundle import
-      const file = new File(fileUri);
-      const contents = await file.text();
-      const fhirBundle = JSON.parse(contents);
-      importFHIRBundle(fhirBundle);
-      dispatch(addPatient(fhirBundle));
-      await dispatchImmediate({
-        patientId: patientId,
-        scope: 'anomaly',
-        title: 'Health record imported',
-        body: 'Health record imported successfully',
-        severity: 1,
-      });
-    } finally {
-      setImporting(false);
-    }
+    router.push("/select-fhir-profile" as never);
   }
 
   return (

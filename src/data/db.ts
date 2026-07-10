@@ -122,6 +122,7 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS rehabilitation_measurements;
     DROP TABLE IF EXISTS patient_longitudinal_observations;
     DROP TABLE IF EXISTS patient_timeline_events;
+    DROP TABLE IF EXISTS patient_care_context_items;
     DROP TABLE IF EXISTS appointments;
     DROP TABLE IF EXISTS threshold_recommendations;
     DROP TABLE IF EXISTS __migrations;

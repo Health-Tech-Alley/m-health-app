@@ -5,8 +5,8 @@
  * No transport layer, no flush queue, no socket client.
  */
 import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import { SecureMessagingRepository } from './repositories/SecureMessagingRepository';
-import { SecureMessagingService, type EncryptedMessageBundle } from './SecureMessagingService';
+import { SecureMessagingRepository } from '@/data';
+import { SecureMessagingService, type EncryptedMessageBundle } from '@/services/messaging/secureMessagingService';
 
 export type MessageDirection = 'incoming' | 'outgoing';
 

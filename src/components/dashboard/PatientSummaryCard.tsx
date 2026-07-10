@@ -1,12 +1,12 @@
-import { useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useCallback, useState, useEffect } from 'react';
+import { useAppSelector } from '@/store/hooks';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-
+import { calculateAge } from '@/utils/commonFunctions';
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
-import { confirmPendingCondition, deleteCondition } from '@/data';
 import type { PatientCondition } from '@/data/types';
-import { useAppSelector } from '@/store/hooks';
+import { useActivePatientView } from '@/hooks/useActivePatientView';
 import {
   displayClinical,
   displayEntered,
@@ -15,13 +15,43 @@ import {
   getPatientDisplayName,
   getPrimaryDiagnosisDisplay,
   NOT_AVAILABLE,
-} from '@/store/selectors/patientSelectors';
+} from '@/utils/patientDisplay';
 
 export function PatientSummaryCard() {
   const router = useRouter();
   const { snapshot, ready, error, refresh } = usePatientRecord();
   const [expanded, setExpanded] = useState(false);
-  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const activePatient = useActivePatientView();
+  const { patient, loading, lastSynced } = useAppSelector(state => state.patient);
+  const [patientProfile, setPatientProfile] = useState<any>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh]),
+  );
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      if (patient) {
+        const patientData =  patient["entry"]?.map(
+              (entry: any) => {
+                return entry && entry.resource && entry.resource.resourceType === "Patient" ? entry : null;
+              }
+          );
+        setPatientProfile(patientData);
+      } else {
+        setPatientProfile(null);
+      }
+    }, 0);
+    return () => clearTimeout(handle);
+  }, [patient]);
+
+  const patientPersonalInfo = patientProfile?.filter((entry: any) => entry && entry.resource && entry.resource.resourceType === "Patient")[0]?.resource;
+  const patientFirstName = patientPersonalInfo?.name?.[0]?.given?.[0] || "Patient";
+  const patientFamilyName = patientPersonalInfo?.name?.[0]?.family || "Name";
+  const patientAge = patientPersonalInfo?.birthDate ? calculateAge(new Date(patientPersonalInfo.birthDate)) : "N/A";
+
 
   if (!ready) {
     return (
@@ -53,11 +83,10 @@ export function PatientSummaryCard() {
   }
 
   const patientName = getPatientDisplayName(activePatient);
-  const patientAge = getPatientAgeDisplay(activePatient);
+  // const patientAge = getPatientAgeDisplay(activePatient);
   const caregiverName = getCaregiverDisplay(activePatient);
   const primaryCondition = activePatient?.primaryDiagnosis ?? null;
   const comorbidities = activePatient?.comorbidities ?? [];
-  const pendingReview = activePatient?.pendingConditions ?? [];
   const sourceCount = countKnowledgeSources(snapshot.knowledgeStats.bySource);
   const cacheSummary = formatKnowledgeCacheSummary(
     snapshot.knowledgeStats.total,
@@ -67,21 +96,10 @@ export function PatientSummaryCard() {
     snapshot.knowledgeStats.bySource,
   );
 
-  const handleConfirm = (conditionId: string) => {
-    confirmPendingCondition(conditionId);
-    refresh();
-  };
-
-  const handleDismiss = (conditionId: string) => {
-    deleteCondition(conditionId);
-    refresh();
-  };
-
   const primaryDisplay = primaryCondition
     ? `${primaryCondition.icd10 ? `${primaryCondition.icd10} · ` : ''}${primaryCondition.name}`
     : getPrimaryDiagnosisDisplay(activePatient);
-  const needsClinicalImport =
-    primaryDisplay === NOT_AVAILABLE || pendingReview.length > 0;
+  const needsClinicalImport = primaryDisplay === NOT_AVAILABLE;
 
   return (
     <View style={styles.card}>
@@ -145,39 +163,6 @@ export function PatientSummaryCard() {
             </View>
           ) : null}
         </Pressable>
-      ) : null}
-
-      {pendingReview.length > 0 ? (
-        <View style={styles.reviewSection}>
-          <Text style={styles.reviewTitle}>Review suggested conditions</Text>
-          <Text style={styles.reviewSubtitle}>
-            MedlinePlus identified {pendingReview.length} possibly related {pendingReview.length === 1 ? 'condition' : 'conditions'}:
-          </Text>
-          {pendingReview.map((c, i) => (
-            <View key={c.conditionId ?? i} style={styles.reviewRow}>
-              <View style={styles.reviewText}>
-                <Text style={styles.reviewConditionName}>
-                  {c.icd10 ? `${c.icd10} · ` : ''}{c.name}
-                </Text>
-                {c.category ? <Text style={styles.reviewCategory}>{c.category}</Text> : null}
-              </View>
-              <View style={styles.reviewButtons}>
-                <Pressable
-                  style={styles.confirmButton}
-                  onPress={() => handleConfirm(c.conditionId)}
-                >
-                  <Text style={styles.confirmButtonText}>Confirm</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.dismissButton}
-                  onPress={() => handleDismiss(c.conditionId)}
-                >
-                  <Text style={styles.dismissButtonText}>Dismiss</Text>
-                </Pressable>
-              </View>
-            </View>
-          ))}
-        </View>
       ) : null}
 
       <View style={styles.infoGrid}>

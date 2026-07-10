@@ -1,4 +1,4 @@
-import type { SecureMessage } from '@/features/messaging/types';
+import type { SecureMessage } from '@/components/messaging/types';
 
 export type DemoStatus = 'idle' | 'encrypting' | 'stored' | 'decrypting' | 'displayed' | 'error';
 

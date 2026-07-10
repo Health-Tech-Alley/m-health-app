@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
-import type { SecureConversation } from "@/features/messaging/types";
+import type { SecureConversation } from "@/components/messaging/types";
 
 export function ConversationList({
   conversations,

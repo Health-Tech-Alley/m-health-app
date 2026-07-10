@@ -4,8 +4,8 @@ import { Pressable, StyleSheet, Text, useColorScheme, View } from "react-native"
 
 import { AppTheme, Colors } from "@/constants/theme";
 import type { HealthSampleType } from "@/data/types";
-import { useAppSelector } from "@/store/hooks";
-import type { NormalizedBloodPressurePair, NormalizedVitalMetric } from "@/store/reducers/patientSlice";
+import { useClinicalVitals } from "@/hooks/useActivePatientView";
+import type { NormalizedBloodPressurePair, NormalizedVitalMetric } from "@/data/types";
 
 type RangeKey = "6m" | "1y" | "2y";
 
@@ -65,7 +65,7 @@ type VitalMetric = {
 const CHART_HEIGHT = 112;
 const POINT_SIZE = 14;
 const CHART_HORIZONTAL_PADDING = 10;
-const SOURCE_BADGE = "Imported from EHR";
+const SOURCE_BADGE = "Recorded observations";
 
 const RANGE_OPTIONS: RangeOption[] = [
   { key: "6m", label: "6 months", encounterCount: 6 },
@@ -78,7 +78,7 @@ const VITAL_PRESENTATION: Record<string, Omit<VitalMetric, "value" | "unit" | "s
     key: "blood_pressure_systolic",
     tabIcon: "🩸",
     label: "Blood Pressure",
-    subtitle: "Paired systolic and diastolic readings from the EHR",
+    subtitle: "Paired systolic and diastolic readings from care records",
     helperText: "Blood pressure shows systolic and diastolic pressure in millimeters of mercury.",
     observedAt: undefined,
   },
@@ -86,7 +86,7 @@ const VITAL_PRESENTATION: Record<string, Omit<VitalMetric, "value" | "unit" | "s
     key: "heart_rate",
     tabIcon: "❤️",
     label: "Heart Rate",
-    subtitle: "Heart-rate readings from the EHR",
+    subtitle: "Heart-rate readings from care records",
     helperText: "Heart rate shows beats per minute compared with baseline.",
     observedAt: undefined,
   },
@@ -94,7 +94,7 @@ const VITAL_PRESENTATION: Record<string, Omit<VitalMetric, "value" | "unit" | "s
     key: "temperature",
     tabIcon: "🌡️",
     label: "Body Temperature",
-    subtitle: "Temperature readings from the EHR",
+    subtitle: "Temperature readings from care records",
     helperText: "Body temperature shows the latest recorded temperature.",
     observedAt: undefined,
   },
@@ -102,7 +102,7 @@ const VITAL_PRESENTATION: Record<string, Omit<VitalMetric, "value" | "unit" | "s
     key: "spo2",
     tabIcon: "🫁",
     label: "SpO2",
-    subtitle: "Oxygen saturation readings from the EHR",
+    subtitle: "Oxygen saturation readings from care records",
     helperText: "SpO2 estimates how much oxygen is in the blood.",
     observedAt: undefined,
   },
@@ -110,7 +110,7 @@ const VITAL_PRESENTATION: Record<string, Omit<VitalMetric, "value" | "unit" | "s
     key: "respiratory_rate",
     tabIcon: "💨",
     label: "Respiratory Rate",
-    subtitle: "Respiratory readings from the EHR",
+    subtitle: "Respiratory readings from care records",
     helperText: "Respiratory rate counts breaths per minute.",
     observedAt: undefined,
   },
@@ -120,7 +120,7 @@ export function ObservationVitalsCard() {
   const router = useRouter();
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
-  const clinicalVitals = useAppSelector((state) => state.patient.clinicalVitals);
+  const clinicalVitals = useClinicalVitals();
   const chartMetrics = useMemo(
     () => clinicalVitals.map(toVitalMetric).filter(isVitalMetric),
     [clinicalVitals],
@@ -140,12 +140,12 @@ export function ObservationVitalsCard() {
     return (
       <View style={[styles.card, isDark && styles.cardDark]}>
         <View style={styles.titleRow}>
-          <Text style={styles.sectionTitle}>Observation Baseline</Text>
+          <Text style={styles.sectionTitle}>Baseline Observations</Text>
           <Text style={styles.sourceBadge}>{SOURCE_BADGE}</Text>
         </View>
         <Text style={styles.emptyTitle}>No observations available</Text>
         <Text style={styles.emptyText}>
-          Import the latest EHR from Settings to add observations and vitals.
+          Import the latest care record from Settings to add observations and vitals.
         </Text>
         <Pressable
           style={styles.importButton}
@@ -161,7 +161,7 @@ export function ObservationVitalsCard() {
     <View style={[styles.card, isDark && styles.cardDark]}>
       <View style={styles.headerRow}>
         <View style={styles.titleRow}>
-          <Text style={styles.sectionTitle}>Baseline Vitals</Text>
+          <Text style={styles.sectionTitle}>Baseline Observations</Text>
           <Text style={styles.sourceBadge}>{SOURCE_BADGE}</Text>
         </View>
         <Text style={styles.subtitle}>{selectedMetric.subtitle}</Text>
@@ -377,7 +377,7 @@ function TrendChart({ chart }: { chart: ChartModel }) {
     return (
       <View style={styles.noRangeData}>
         <Text style={styles.noRangeTitle}>No readings in this range</Text>
-        <Text style={styles.noRangeText}>Try a longer range or import a newer EHR record.</Text>
+        <Text style={styles.noRangeText}>Try a longer range or import a newer care record.</Text>
       </View>
     );
   }

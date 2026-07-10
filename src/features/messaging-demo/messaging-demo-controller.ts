@@ -1,6 +1,6 @@
 import { SecureMessagingRepository } from '@/data';
-import { SecureMessagingService } from '@/data/SecureMessagingService';
-import type { SecureMessage } from '@/features/messaging/types';
+import { SecureMessagingService } from '@/services/messaging/secureMessagingService';
+import type { SecureMessage } from '@/components/messaging/types';
 
 const DEMO_PATIENT_ID = 'demo-patient-001';
 const DEMO_PROVIDER_ID = 'provider-martinez';

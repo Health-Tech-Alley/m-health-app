@@ -121,6 +121,7 @@ export default function MedicationsScreen() {
   const [editDose, setEditDose] = useState("");
   const [editInstructions, setEditInstructions] = useState("");
   const [editTime, setEditTime] = useState("");
+  const [showOtherCurrentMedications, setShowOtherCurrentMedications] = useState(false);
   const [showMedicationHistory, setShowMedicationHistory] = useState(false);
   const [slmCheckMed, setSlmCheckMed] = useState<Medication | null>(null);
 
@@ -141,6 +142,8 @@ export default function MedicationsScreen() {
   }, [patientId, snapshot?.lastRefreshedAt, snapshot?.medications.length]);
 
   const nextDue = rows.find((r) => r.confirmationRequired && r.status === "pending");
+  const confirmationRequiredRows = rows.filter((row) => row.confirmationRequired);
+  const otherActiveRows = rows.filter((row) => !row.confirmationRequired);
   const medicationCandidates =
     snapshot?.medicationCandidates.filter(
       (candidate) => !rows.some((row) => row.med.medicationId === candidate.candidateId),
@@ -325,27 +328,62 @@ export default function MedicationsScreen() {
           </Pressable>
 
           <Text style={styles.sectionLabel}>Active medications</Text>
-          <Text style={styles.candidateIntro}>
-            FHIR MedicationRequest rows marked active by the EHR stay available for medication
-            preferences and reminders. Reminders are only created when you add a schedule.
-          </Text>
 
           {rows.length === 0 ? (
             <Text style={styles.emptyText}>No medications yet. Add one below.</Text>
           ) : (
-            rows.map((row) => (
-              <MedicationCard
-                key={row.med.medicationId}
-                row={row}
-                timeLabel={formatTimeLabel(row)}
-                onToggleConfirm={() => toggleConfirm(row.med.medicationId)}
-                onEdit={() => openEdit(row)}
-                onDelete={
-                  row.med.source === "custom" ? () => handleDelete(row) : undefined
-                }
-                onSlmCheck={() => setSlmCheckMed(getMedicationById(row.med.medicationId))}
-              />
-            ))
+            <>
+              {confirmationRequiredRows.length > 0 ? (
+                <>
+                  <Text style={styles.sectionLabel}>Confirmation required</Text>
+                  {confirmationRequiredRows.map((row) => (
+                    <MedicationCard
+                      key={row.med.medicationId}
+                      row={row}
+                      timeLabel={formatTimeLabel(row)}
+                      onToggleConfirm={() => toggleConfirm(row.med.medicationId)}
+                      onEdit={() => openEdit(row)}
+                      onDelete={
+                        row.med.source === "custom" ? () => handleDelete(row) : undefined
+                      }
+                      onSlmCheck={() => setSlmCheckMed(getMedicationById(row.med.medicationId))}
+                    />
+                  ))}
+                </>
+              ) : null}
+
+              {otherActiveRows.length > 0 ? (
+                <>
+                  <Pressable
+                    style={styles.historyToggle}
+                    onPress={() => setShowOtherCurrentMedications((current) => !current)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: showOtherCurrentMedications }}
+                  >
+                    <Text style={styles.historyToggleText}>Other current medications</Text>
+                    <Text style={styles.historyToggleCount}>{otherActiveRows.length}</Text>
+                  </Pressable>
+                  {showOtherCurrentMedications ? (
+                    <>
+                      <Text style={styles.sectionLabel}>Other current medications</Text>
+                      {otherActiveRows.map((row) => (
+                        <MedicationCard
+                          key={row.med.medicationId}
+                          row={row}
+                          timeLabel={formatTimeLabel(row)}
+                          onToggleConfirm={() => toggleConfirm(row.med.medicationId)}
+                          onEdit={() => openEdit(row)}
+                          onDelete={
+                            row.med.source === "custom" ? () => handleDelete(row) : undefined
+                          }
+                          onSlmCheck={() => setSlmCheckMed(getMedicationById(row.med.medicationId))}
+                        />
+                      ))}
+                    </>
+                  ) : null}
+                </>
+              ) : null}
+            </>
           )}
 
           <Pressable style={styles.addMedicationButton} onPress={openAdd}>
@@ -368,8 +406,7 @@ export default function MedicationsScreen() {
                 <>
                   <Text style={styles.sectionLabel}>Medication history / review candidates</Text>
                   <Text style={styles.candidateIntro}>
-                    Imported Basic resources are history or review context only. They are not
-                    active, not current, and do not create reminders.
+                    Saved for medication review. These are separate from current medications.
                   </Text>
                   {medicationCandidates.map((candidate) => (
                     <MedicationCandidateCard
@@ -569,6 +606,8 @@ function MedicationCandidateCard({
       : undefined,
   ].filter(Boolean).join(" · ");
 
+  void sourceDetail;
+
   return (
     <View style={[styles.medicationCard, styles.candidateCard]}>
       <View style={styles.medicationHeader}>
@@ -583,14 +622,11 @@ function MedicationCandidateCard({
           <Text style={styles.medicationDose}>
             {candidate.category} - historical/review context
           </Text>
-          {sourceDetail ? (
-            <Text style={styles.candidateSource}>{sourceDetail}</Text>
-          ) : null}
         </View>
       </View>
 
       <Text style={styles.candidateIntro}>
-        Historical context for future medication review; not part of the active medication workflow.
+        Saved for review. No reminders are set from this item.
       </Text>
 
       <View style={styles.reviewAction}>

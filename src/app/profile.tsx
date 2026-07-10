@@ -9,7 +9,7 @@ import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import { upsertCaregiver } from "@/data";
 import type { Medication } from "@/data/types";
-import { useAppSelector } from "@/store/hooks";
+import { useActivePatientView } from "@/hooks/useActivePatientView";
 import {
   displayClinical,
   displayEntered,
@@ -19,7 +19,7 @@ import {
   getPatientAgeDisplay,
   getPatientDisplayName,
   getPrimaryDiagnosisDisplay,
-} from "@/store/selectors/patientSelectors";
+} from "@/utils/patientDisplay";
 import {
   getOnboardingProfile,
   saveOnboardingProfile,
@@ -33,7 +33,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const [profile, setProfile] = useState(() => getOnboardingProfile());
   const { snapshot, refresh } = usePatientRecord();
-  const activePatient = useAppSelector((state) => state.patient.activePatient);
+  const activePatient = useActivePatientView();
 
   const caregiver = profile.caregiver;
   const provider = profile.primaryCareProvider;

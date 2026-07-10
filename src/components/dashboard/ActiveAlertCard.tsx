@@ -20,7 +20,7 @@ import {
   acknowledgeCareAlert,
   resolveCareAlert,
 } from "@/services/care/careService";
-import { useActiveAlert } from "@/services/care/useActiveAlert";
+import { useActiveAlert } from "@/hooks/useActiveAlert";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 /**

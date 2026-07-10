@@ -19,21 +19,183 @@ import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import {
   deleteAppointment,
-  getUpcomingAppointments,
   insertAppointment,
   updateAppointment,
-  type Appointment,
+  type Appointment
 } from "@/data";
 import { audit } from "@/services/audit/auditService";
+import { dispatchImmediate } from "@/services/notifications/notificationService";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
+import { useAppSelector } from '@/store/hooks';
+
+/* ---------------------------------------------------------------------- */
+/* athenahealth — inline, minimal setup                                    */
+/* ---------------------------------------------------------------------- */
+// TODO: fill these in with your sandbox app credentials.
+// NOTE: embedding a client secret in a shipped mobile app is not safe for
+// production — fine for local sandbox testing only. For a real app, get
+// the token from your own backend instead.
+const ATHENA_BASE_URL = "https://api.preview.platform.athenahealth.com/v1";
+const ATHENA_PRACTICE_ID = "195900";
+const ATHENA_DEPARTMENT_ID = "1";
+const ATHENA_PROVIDER_ID = "71"; // confirmed working provider in sandbox
+const ATHENA_REASON_ID = "1285"; // "Follow-Up" — confirmed valid for provider 71 / department 1
+const ATHENA_CLIENT_ID = "0oa105tul7l4hR4d5298";
+const ATHENA_CLIENT_SECRET = "LkwklKnYAgw8-nBxfvhq38_RcLdUpPZwrojd3AbwCldnPPpM3qGEgrgAKhTmX6Mv";
+
+let cachedToken: { value: string; expiresAt: number } | null = null;
+
+/** Fetches (and caches) an OAuth2 client_credentials token. */
+async function getAthenaToken(): Promise<string> {
+  if (cachedToken && cachedToken.expiresAt > Date.now()) {
+    return cachedToken.value;
+  }
+  const response = await fetch("https://api.preview.platform.athenahealth.com/oauth2/v1/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: "Basic " + btoa(`${ATHENA_CLIENT_ID}:${ATHENA_CLIENT_SECRET}`),
+    },
+    body: "grant_type=client_credentials&scope=athena/service/Athenanet.MDP.*",
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error_description ?? "Failed to get athenahealth token");
+  }
+  cachedToken = { value: data.access_token, expiresAt: Date.now() + (data.expires_in - 60) * 1000 };
+  return cachedToken.value;
+}
+
+/** Simple authenticated request helper against the practice-scoped API. */
+async function athenaRequest<T>(
+  path: string,
+  method: "GET" | "POST" | "PUT",
+  params?: Record<string, string>,
+  body?: Record<string, string>,
+): Promise<T> {
+  const token = await getAthenaToken();
+  const url = new URL(`${ATHENA_BASE_URL}/${ATHENA_PRACTICE_ID}${path}`);
+  if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+
+  const response = await fetch(url.toString(), {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      ...(body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+    },
+    body: body ? new URLSearchParams(body).toString() : undefined,
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) {
+    throw new Error(data?.error ?? `athenahealth error ${response.status} on ${method} ${path}`);
+  }
+  return data as T;
+}
+
+/** MM/DD/YYYY, the format athenahealth's scheduling API expects. */
+function toAthenaDate(isoDate: string): string {
+  const [year, month, day] = isoDate.split("-");
+  return `${month}/${day}/${year}`;
+}
+
+/** Converts a 24-hour "HH:MM" (or "H:MM") time string to "h:mm AM/PM". */
+function to12Hour(time24: string): string {
+  const match = time24.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return time24;
+  let hours = parseInt(match[1], 10);
+  const minutes = match[2];
+  const period = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  return `${hours}:${minutes} ${period}`;
+}
+
+interface OpenSlot {
+  appointmentid: string;
+  date: string; // MM/DD/YYYY
+  starttime: string; // HH:MM
+  [key: string]: unknown;
+}
+
+/** Searches for open slots for the confirmed working provider/department/reason. */
+async function searchOpenSlots(startDate: string, endDate: string): Promise<OpenSlot[]> {
+  const result = await athenaRequest<{ appointments?: OpenSlot[] } | OpenSlot[]>(
+    "/appointments/open",
+    "GET",
+    {
+      departmentid: ATHENA_DEPARTMENT_ID,
+      providerid: ATHENA_PROVIDER_ID,
+      reasonid: ATHENA_REASON_ID,
+      startdate: toAthenaDate(startDate),
+      enddate: toAthenaDate(endDate),
+    },
+  );
+  const slots = Array.isArray(result) ? result : result.appointments ?? [];
+  return slots.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return a.starttime.localeCompare(b.starttime);
+  });
+}
+
+async function searchUpcomingAppointments(patientId: string, startDate: string, endDate: string): Promise<Appointment[]> {
+  const result = await athenaRequest<{ appointments?: Appointment[] } | Appointment[]>(
+    "/appointments/booked",
+    "GET",
+    {
+      departmentid: ATHENA_DEPARTMENT_ID,
+      providerid: ATHENA_PROVIDER_ID,
+      reasonid: ATHENA_REASON_ID,
+      startdate: toAthenaDate(startDate),
+      enddate: toAthenaDate(endDate),
+      patientid: patientId,
+    },
+  );
+  const slots = Array.isArray(result) ? result : result.appointments ?? [];
+  return slots.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return (a.date + a.time).localeCompare(b.date + b.time);
+  });
+}
+
+/** Books a specific slot for a patient. */
+async function bookSlot(appointmentId: string, patientId: string): Promise<any | null> {
+  const response = await athenaRequest(`/appointments/${appointmentId}`, "PUT", undefined, {
+    patientid: patientId,
+    departmentid: ATHENA_DEPARTMENT_ID,
+    providerid: ATHENA_PROVIDER_ID,
+    reasonid: ATHENA_REASON_ID,
+  });
+  return response ? (Array.isArray(response) ? response[0] : response) : null;
+}
+
+/** Cancels a booked appointment on athenahealth. */
+async function cancelAthenaAppointment(appointmentId: string, reason?: string): Promise<void> {
+  await athenaRequest(`/appointments/${appointmentId}/cancel`, "PUT", undefined, {
+    departmentid: ATHENA_DEPARTMENT_ID,
+    cancellationreason: reason ?? "Canceled by caregiver app",
+  });
+}
+
+function formatSlotLabel(slot: OpenSlot): string {
+  const [month, day, year] = slot.date.split("/");
+  const parsed = new Date(`${year}-${month}-${day}T00:00:00`);
+  const dateLabel = Number.isNaN(parsed.getTime())
+    ? slot.date
+    : parsed.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return `${dateLabel} · ${to12Hour(slot.starttime)}`;
+}
+
+/* ---------------------------------------------------------------------- */
 
 const appointmentTypes = [
   "Primary care",
-  "Pulmonology",
-  "Neurology",
-  "Physical therapy",
-  "Medication review",
 ];
+
+function formatAppointmentTypeLabel(type: string): string {
+  return type === "Primary care" ? "Primary Care" : type;
+}
 
 const reminderOptions = [
   "15 min before",
@@ -42,14 +204,20 @@ const reminderOptions = [
   "1 week before",
 ];
 
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDaysIso(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 function emptyForm(profile: ReturnType<typeof getOnboardingProfile>) {
-  const today = new Date();
-  today.setDate(today.getDate() + 1);
   return {
     appointmentType: "Primary care",
     providerName: profile.primaryCareProvider.name,
-    date: today.toISOString().slice(0, 10),
-    time: "10:30 AM",
     location: "Main clinic",
     reason: "Follow up on breathing episodes",
     reminder: "1 day before",
@@ -59,19 +227,54 @@ function emptyForm(profile: ReturnType<typeof getOnboardingProfile>) {
 export default function ScheduleScreen() {
   const profile = getOnboardingProfile();
   const { patientId } = usePatientRecord();
-
+  // let athenaPatientId = '-1';
+  const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
+  const [athenaPatientId, setAthenaPatientId] = useState<string>('-1');
   const [form, setForm] = useState(() => emptyForm(profile));
   const [upcoming, setUpcoming] = useState<Appointment[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [toastOpacity] = useState(new Animated.Value(0));
+  const [booking, setBooking] = useState(false);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [isCreateAppointmentVisible, setIsCreateAppointmentVisible] = useState(false);
+  const [isAppointmentDetailsOpen, setIsAppointmentDetailsOpen] = useState(false);
+  const [isReminderOpen, setIsReminderOpen] = useState(false);
+
+  // Slot search state
+  const [rangeStart, setRangeStart] = useState(() => todayIsoDate());
+  const [rangeEnd, setRangeEnd] = useState(() => addDaysIso(todayIsoDate(), 13));
+  const [slots, setSlots] = useState<OpenSlot[]>([]);
+  const [searchingSlots, setSearchingSlots] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<OpenSlot | null>(null);
 
   const [editing, setEditing] = useState<Appointment | null>(null);
   const [editForm, setEditForm] = useState(emptyForm(profile));
-  const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
+  const [todayIso] = useState(() => todayIsoDate());
+  const sortedUpcoming = [...upcoming].sort(compareAppointmentsByDateTime);
+  const todayStartMs = new Date(`${todayIso}T00:00:00`).getTime();
+  const nextAppointment =
+    sortedUpcoming.find((appt) => {
+      const appointmentMs = appointmentDateTimeMs(appt);
+      return Number.isFinite(appointmentMs) && appointmentMs >= todayStartMs;
+    }) ?? sortedUpcoming[0];
 
-  const reload = useCallback(() => {
-    if (patientId) setUpcoming(getUpcomingAppointments(patientId));
-  }, [patientId]);
+  const reload = useCallback(async () => {
+    setUpcoming([]); // clear while loading
+    // find patietn record
+    console.log('reloading appointments due to patient update: ', patient, athenaPatientId);
+    if (patient) {
+      const patientRecord =  patient?.entry?.filter((entry: any) => entry && entry.resource && entry.resource.resourceType === "Patient");
+      console.log('patient record: ', patientRecord);
+
+      setAthenaPatientId(patientRecord ? patientRecord[0].resource?.id : '-1');
+      const tempAthenaPaientId = patientRecord ? patientRecord[0].resource?.id : '-1'
+      console.log('Updated Athena Patient ID: ', athenaPatientId, tempAthenaPaientId);
+      if( tempAthenaPaientId !== '-1') {
+        console.log('Reloading appointments for Athena Patient ID: ', athenaPatientId, tempAthenaPaientId);
+        setUpcoming(await searchUpcomingAppointments(tempAthenaPaientId, todayIsoDate(), addDaysIso(todayIsoDate(), 90)));
+      }
+  }
+  }, [patient]);
 
   useEffect(() => {
     const handle = setTimeout(() => reload(), 0);
@@ -94,30 +297,69 @@ export default function ScheduleScreen() {
     });
   };
 
-  const handleSchedule = () => {
-    if (!patientId) return;
-    const appt = insertAppointment({
-      patientId,
-      type: form.appointmentType,
-      provider: form.providerName,
-      date: form.date,
-      time: form.time,
-      location: form.location,
-      reason: form.reason,
-      reminder: form.reminder,
-      status: "scheduled",
-    });
-    audit({
-      actor: "caregiver",
-      action: "schedule_appointment",
-      resourceType: "appointment",
-      resourceId: appt.appointmentId,
-      patientId,
-      payload: { type: appt.type, date: appt.date },
-    });
-    reload();
-    showToast("Appointment added — you'll be notified");
-    setForm(emptyForm(profile));
+  const handleFindTimes = async () => {
+    setSearchingSlots(true);
+    setSelectedSlot(null);
+    try {
+      const results = await searchOpenSlots(rangeStart, rangeEnd);
+      setSlots(results);
+      if (results.length === 0) {
+        Alert.alert("No open times", "No available slots in that date range. Try a wider range.");
+      }
+    } catch (err) {
+      Alert.alert("Couldn't load times", err instanceof Error ? err.message : String(err));
+      setSlots([]);
+    } finally {
+      setSearchingSlots(false);
+    }
+  };
+
+  const handleSchedule = async () => {
+    if (!patientId || !selectedSlot) return;
+    setBooking(true);
+
+    try {
+      const response = await bookSlot(selectedSlot.appointmentid, athenaPatientId);
+      if (response) {
+        await dispatchImmediate({
+          patientId: patientId,
+          scope: 'anomaly',
+          title: "Appointment booked",
+          body: 'Appointment booked with athenahealth',
+          severity: 1,
+        });
+      }
+      const appt = insertAppointment({
+        patientId,
+        type: form.appointmentType,
+        provider: form.providerName,
+        date: selectedSlot.date,
+        time: selectedSlot.starttime,
+        location: form.location,
+        reason: form.reason,
+        reminder: form.reminder,
+        status: "scheduled",
+        appointmentid: selectedSlot.date + " " + selectedSlot.starttime + Math.floor(Math.random() * 100),
+      });
+
+      audit({
+        actor: "caregiver",
+        action: "schedule_appointment",
+        resourceType: "appointment",
+        resourceId: appt.appointmentid,
+        patientId,
+        payload: { type: appt.type, date: appt.date, athenaAppointmentId: selectedSlot.appointmentid },
+      });
+
+      reload();
+      setForm(emptyForm(profile));
+      setSlots([]);
+      setSelectedSlot(null);
+    } catch (err) {
+      Alert.alert("Couldn't book appointment", err instanceof Error ? err.message : String(err));
+    } finally {
+      setBooking(false);
+    }
   };
 
   const openEdit = (appt: Appointment) => {
@@ -125,8 +367,6 @@ export default function ScheduleScreen() {
     setEditForm({
       appointmentType: appt.type,
       providerName: appt.provider ?? profile.primaryCareProvider.name,
-      date: appt.date,
-      time: appt.time ?? "10:00 AM",
       location: appt.location ?? "",
       reason: appt.reason ?? "",
       reminder: appt.reminder ?? "1 day before",
@@ -139,42 +379,53 @@ export default function ScheduleScreen() {
       ...editing,
       type: editForm.appointmentType,
       provider: editForm.providerName,
-      date: editForm.date,
-      time: editForm.time,
       location: editForm.location,
       reason: editForm.reason,
       reminder: editForm.reminder,
     });
+
     audit({
       actor: "caregiver",
       action: "edit_appointment",
       resourceType: "appointment",
-      resourceId: editing.appointmentId,
+      resourceId: editing.appointmentid,
       patientId,
     });
+
     setEditing(null);
     reload();
   };
 
   const handleDelete = (appt: Appointment) => {
     if (!patientId) return;
+    const appointmentId = appt.appointmentid ?? appt.appointmentId;
     Alert.alert(
       "Delete appointment",
-      `Delete the ${appt.type} appointment on ${appt.date}?`,
+      `Delete the ${appt.patientappointmenttypename} appointment on ${appt.date}?`,
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
-            deleteAppointment(appt.appointmentId);
+          onPress: async () => {
+            setCancelingId(appointmentId);
+            try {
+              await cancelAthenaAppointment(appointmentId);
+            } catch (err) {
+              Alert.alert(
+                "Couldn't cancel with athenahealth",
+                `${err instanceof Error ? err.message : String(err)}\n\nRemoving it locally anyway.`,
+              );
+            }
+            deleteAppointment(appointmentId);
             audit({
               actor: "caregiver",
               action: "delete_appointment",
               resourceType: "appointment",
-              resourceId: appt.appointmentId,
+              resourceId: appointmentId,
               patientId,
             });
+            setCancelingId(null);
             reload();
           },
         },
@@ -201,105 +452,39 @@ export default function ScheduleScreen() {
             }
           />
 
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Appointment type</Text>
-
-            <View style={styles.chipRow}>
-              {appointmentTypes.map((type) => {
-                const selected = form.appointmentType === type;
-                return (
-                  <Pressable
-                    key={type}
-                    style={[styles.chip, selected && styles.chipSelected]}
-                    onPress={() => setForm({ ...form, appointmentType: type })}
-                  >
-                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                      {type}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+          <View style={styles.nextAppointmentCard}>
+            <View style={styles.nextAppointmentMarker}>
+              <Text style={styles.nextAppointmentMarkerText}>01</Text>
             </View>
 
-            <Field
-              label="Provider"
-              value={form.providerName}
-              onChangeText={(v) => setForm({ ...form, providerName: v })}
-              placeholder="Dr. Smith"
-            />
-
-            <View style={styles.twoColumnFields}>
-              <Field
-                containerStyle={styles.twoColumnField}
-                label="Date"
-                value={form.date}
-                onChangeText={(v) => setForm({ ...form, date: v })}
-                placeholder="YYYY-MM-DD"
-              />
-              <Field
-                containerStyle={styles.twoColumnField}
-                label="Time"
-                value={form.time}
-                onChangeText={(v) => setForm({ ...form, time: v })}
-                placeholder="10:30 AM"
-              />
+            <View style={styles.nextAppointmentTextBlock}>
+              <Text style={styles.nextAppointmentLabel}>NEXT APPOINTMENT</Text>
+              <Text style={styles.nextAppointmentTitle}>Primary Care</Text>
+              <Text style={styles.nextAppointmentTime}>
+                {nextAppointment
+                  ? formatAppointmentDateTime(nextAppointment.date, getAppointmentTime(nextAppointment))
+                  : "No upcoming appointment scheduled"}
+              </Text>
             </View>
 
-            <Field
-              label="Location"
-              value={form.location}
-              onChangeText={(v) => setForm({ ...form, location: v })}
-              placeholder="Clinic name or address"
-            />
-
-            <LargeField
-              label="Reason for visit"
-              value={form.reason}
-              onChangeText={(v) => setForm({ ...form, reason: v })}
-              placeholder="What should the provider review?"
-            />
+            <View style={styles.nextAppointmentBadge}>
+              <Text style={styles.nextAppointmentBadgeText}>SCHEDULED / NEXT</Text>
+            </View>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Reminder</Text>
-            <Text style={styles.helperText}>
-              Choose when the caregiver should be reminded before the appointment.
-            </Text>
+            <Text style={styles.sectionTitle}>Scheduled appointments</Text>
 
-            <View style={styles.chipRow}>
-              {reminderOptions.map((option) => {
-                const selected = form.reminder === option;
-                return (
-                  <Pressable
-                    key={option}
-                    style={[styles.chip, selected && styles.chipSelected]}
-                    onPress={() => setForm({ ...form, reminder: option })}
-                  >
-                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                      {option}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <Pressable style={styles.scheduleButton} onPress={handleSchedule}>
-              <Text style={styles.scheduleButtonText}>Schedule appointment</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>APPOINTMENTS</Text>
-
-            {upcoming.length === 0 ? (
+            {sortedUpcoming.length === 0 ? (
               <Text style={styles.emptyText}>No upcoming appointments.</Text>
             ) : (
-              upcoming.map((appt) => {
+              sortedUpcoming.map((appt) => {
                 const statusLabel = appt.date === todayIso ? "TODAY" : "SCHEDULED";
-                const dateTimeLabel = formatAppointmentDateTime(appt.date, appt.time);
+                const dateTimeLabel = formatAppointmentDateTime(appt.date, getAppointmentTime(appt));
+                const isCanceling = cancelingId === appt.appointmentid;
 
                 return (
-                  <View key={appt.appointmentId} style={styles.appointmentCard}>
+                  <View key={appt.appointmentid} style={styles.appointmentCard}>
                     <View style={styles.appointmentAccent} />
 
                     <Pressable
@@ -310,7 +495,9 @@ export default function ScheduleScreen() {
                     >
                       <View style={styles.appointmentTextBlock}>
                         <View style={styles.appointmentTitleRow}>
-                          <Text style={styles.appointmentType}>{appt.type}</Text>
+                          <Text style={styles.appointmentType} numberOfLines={1}>
+                            {formatAppointmentTypeLabel(appt.type)}
+                          </Text>
                           <View
                             style={[
                               styles.statusBadge,
@@ -326,8 +513,15 @@ export default function ScheduleScreen() {
                               {statusLabel}
                             </Text>
                           </View>
+                          <View>
+                            <Text style={styles.appointmentType}>
+                              {appt.patientappointmenttypename ? ` ${appt.patientappointmenttypename}` : ""}
+                            </Text>
+                          </View>
                         </View>
-                        <Text style={styles.appointmentProvider}>{appt.provider}</Text>
+                        <Text style={styles.appointmentProvider} numberOfLines={1}>
+                          {appt.provider}
+                        </Text>
                         <View style={styles.appointmentMetaRow}>
                           <Text
                             style={styles.appointmentClockIcon}
@@ -336,7 +530,9 @@ export default function ScheduleScreen() {
                           >
                             🕒
                           </Text>
-                          <Text style={styles.appointmentDateTime}>{dateTimeLabel}</Text>
+                          <Text style={styles.appointmentDateTime} numberOfLines={1}>
+                            {dateTimeLabel}
+                          </Text>
                         </View>
                         <View style={styles.appointmentActions}>
                           <Pressable
@@ -350,14 +546,20 @@ export default function ScheduleScreen() {
                             <Text style={styles.editLink}>Edit</Text>
                           </Pressable>
                           <Pressable
-                            style={styles.appointmentActionButton}
+                            style={[
+                              styles.appointmentActionButton,
+                              isCanceling && styles.appointmentActionButtonDisabled,
+                            ]}
                             onPress={() => handleDelete(appt)}
                             hitSlop={8}
+                            disabled={isCanceling}
                             accessibilityRole="button"
                             accessibilityLabel={`Delete ${appt.type} appointment on ${appt.date}`}
                           >
                             <AppIcon name="delete" size={13} color={AppTheme.colors.danger} />
-                            <Text style={styles.deleteLink}>Delete</Text>
+                            <Text style={styles.deleteLink}>
+                              {isCanceling ? "Canceling…" : "Delete"}
+                            </Text>
                           </Pressable>
                         </View>
                       </View>
@@ -367,6 +569,194 @@ export default function ScheduleScreen() {
               })
             )}
           </View>
+
+          <Pressable
+            style={styles.createAppointmentButton}
+            onPress={() => setIsCreateAppointmentVisible((visible) => !visible)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: isCreateAppointmentVisible }}
+          >
+            <Text style={styles.createAppointmentButtonText}>Create appointment</Text>
+          </Pressable>
+
+          {isCreateAppointmentVisible ? (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Create appointment</Text>
+
+              <Pressable
+                style={styles.collapseRow}
+                onPress={() => setIsAppointmentDetailsOpen((open) => !open)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: isAppointmentDetailsOpen }}
+              >
+                <Text style={styles.collapseRowText}>Appointment details</Text>
+                <AppIcon
+                  name="chevronRight"
+                  size={22}
+                  color={AppTheme.colors.brand}
+                />
+              </Pressable>
+
+              {isAppointmentDetailsOpen ? (
+                <View style={styles.collapsibleContent}>
+                  <Text style={styles.sectionTitle}>Appointment type</Text>
+
+                  <View style={styles.chipRow}>
+                    {appointmentTypes.map((type) => {
+                      const selected = form.appointmentType === type;
+                      return (
+                        <Pressable
+                          key={type}
+                          style={[styles.chip, selected && styles.chipSelected]}
+                          onPress={() => setForm({ ...form, appointmentType: type })}
+                        >
+                          <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                            {formatAppointmentTypeLabel(type)}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <Field
+                    label="Provider"
+                    value={form.providerName}
+                    onChangeText={(v) => setForm({ ...form, providerName: v })}
+                    placeholder="Dr. Adam Bricker"
+                  />
+
+                  <Field
+                    label="Location"
+                    value={form.location}
+                    onChangeText={(v) => setForm({ ...form, location: v })}
+                    placeholder="Clinic name or address"
+                  />
+
+                  <LargeField
+                    label="Reason for visit"
+                    value={form.reason}
+                    onChangeText={(v) => setForm({ ...form, reason: v })}
+                    placeholder="What should the provider review?"
+                  />
+
+                  <Text style={styles.sectionTitle}>Find a time</Text>
+                  <Text style={styles.helperText}>Search open slots within a date range, then pick one.</Text>
+
+                  <View style={styles.twoColumnFields}>
+                    <Field
+                      containerStyle={styles.twoColumnField}
+                      label="From"
+                      value={rangeStart}
+                      onChangeText={setRangeStart}
+                      placeholder="YYYY-MM-DD"
+                    />
+                    <Field
+                      containerStyle={styles.twoColumnField}
+                      label="To"
+                      value={rangeEnd}
+                      onChangeText={setRangeEnd}
+                      placeholder="YYYY-MM-DD"
+                    />
+                  </View>
+
+                  <Pressable
+                    style={[styles.scheduleButton, searchingSlots && styles.scheduleButtonDisabled]}
+                    onPress={handleFindTimes}
+                    disabled={searchingSlots}
+                  >
+                    <Text style={styles.scheduleButtonText}>
+                      {searchingSlots ? "Searching…" : "Find available times"}
+                    </Text>
+                  </Pressable>
+
+                  {slots.length > 0 ? (
+                    <View style={styles.slotList}>
+                      {slots.map((slot) => {
+                        const selected = selectedSlot?.appointmentid === slot.appointmentid;
+                        return (
+                          <Pressable
+                            key={slot.appointmentid}
+                            style={[styles.slotRow, selected && styles.slotRowSelected]}
+                            onPress={() => setSelectedSlot(slot)}
+                          >
+                            <Text style={[styles.slotRowText, selected && styles.slotRowTextSelected]}>
+                              {formatSlotLabel(slot)}
+                            </Text>
+                            {selected ? <AppIcon name="edit" size={14} color={AppTheme.colors.white} /> : null}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
+              <Pressable
+                style={styles.collapseRow}
+                onPress={() => setIsReminderOpen((open) => !open)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: isReminderOpen }}
+              >
+                <Text style={styles.collapseRowText}>Reminder</Text>
+                <AppIcon
+                  name="chevronRight"
+                  size={22}
+                  color={AppTheme.colors.brand}
+                />
+              </Pressable>
+
+              {isReminderOpen ? (
+                <View style={styles.collapsibleContent}>
+                  <Text style={styles.sectionTitle}>Reminder</Text>
+
+                  <View style={styles.chipRow}>
+                    {reminderOptions.map((option) => {
+                      const selected = form.reminder === option;
+                      return (
+                        <Pressable
+                          key={option}
+                          style={[styles.chip, selected && styles.chipSelected]}
+                          onPress={() => setForm({ ...form, reminder: option })}
+                        >
+                          <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                            {option}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+
+              <Pressable
+                style={[
+                  styles.scheduleButton,
+                  (!selectedSlot || booking) && styles.scheduleButtonDisabled,
+                ]}
+                onPress={handleSchedule}
+                disabled={!selectedSlot || booking}
+              >
+                <Text style={styles.scheduleButtonText}>
+                  {booking
+                    ? "Booking…"
+                    : selectedSlot
+                      ? `Book ${formatSlotLabel(selectedSlot)}`
+                      : "Pick a time above first"}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.scheduleButton
+                ]}
+                onPress={reload}
+              >
+                <Text style={styles.scheduleButtonText}>
+                  {"Reload Appointments"}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
         </ScrollView>
 
         {/* Fading toast */}
@@ -402,7 +792,7 @@ export default function ScheduleScreen() {
                         onPress={() => setEditForm({ ...editForm, appointmentType: type })}
                       >
                         <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                          {type}
+                          {formatAppointmentTypeLabel(type)}
                         </Text>
                       </Pressable>
                     );
@@ -415,22 +805,6 @@ export default function ScheduleScreen() {
                   onChangeText={(v) => setEditForm({ ...editForm, providerName: v })}
                   placeholder="Dr. Smith"
                 />
-                <View style={styles.twoColumnFields}>
-                  <Field
-                    containerStyle={styles.twoColumnField}
-                    label="Date"
-                    value={editForm.date}
-                    onChangeText={(v) => setEditForm({ ...editForm, date: v })}
-                    placeholder="YYYY-MM-DD"
-                  />
-                  <Field
-                    containerStyle={styles.twoColumnField}
-                    label="Time"
-                    value={editForm.time}
-                    onChangeText={(v) => setEditForm({ ...editForm, time: v })}
-                    placeholder="10:30 AM"
-                  />
-                </View>
                 <Field
                   label="Location"
                   value={editForm.location}
@@ -443,6 +817,9 @@ export default function ScheduleScreen() {
                   onChangeText={(v) => setEditForm({ ...editForm, reason: v })}
                   placeholder="Reason for visit"
                 />
+                <Text style={styles.helperText}>
+                  To change the date/time, delete this appointment and book a new slot instead.
+                </Text>
               </ScrollView>
 
               <View style={styles.modalActions}>
@@ -521,7 +898,12 @@ function LargeField({
 }
 
 function formatAppointmentDateTime(date: string, time?: string): string {
-  const parsed = new Date(`${date}T00:00:00`);
+  // athenahealth-returned dates are MM/DD/YYYY; locally-created ones may be
+  // YYYY-MM-DD, so handle both.
+  const isoLike = date.includes("/")
+    ? date.replace(/^(\d{2})\/(\d{2})\/(\d{4})$/, "$3-$1-$2")
+    : date;
+  const parsed = new Date(`${isoLike}T00:00:00`);
   const dateLabel = Number.isNaN(parsed.getTime())
     ? date
     : parsed.toLocaleDateString(undefined, {
@@ -529,8 +911,42 @@ function formatAppointmentDateTime(date: string, time?: string): string {
         month: "short",
         day: "numeric",
       });
+  return time ? `${dateLabel} at ${to12Hour(time)}` : dateLabel;
+}
 
-  return time ? `${dateLabel} at ${time}` : dateLabel;
+function getAppointmentTime(appt: Appointment): string | undefined {
+  return appt.starttime ?? appt.time;
+}
+
+function normalizeAppointmentDate(date: string): string {
+  if (!date.includes("/")) return date;
+  return date.replace(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, (_match, month, day, year) => {
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  });
+}
+
+function normalizeAppointmentTime(time?: string): string {
+  const match = time?.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return "00:00:00";
+  return `${match[1].padStart(2, "0")}:${match[2]}:00`;
+}
+
+function appointmentDateTimeMs(appt: Appointment): number {
+  const parsed = new Date(
+    `${normalizeAppointmentDate(appt.date)}T${normalizeAppointmentTime(getAppointmentTime(appt))}`,
+  );
+  return parsed.getTime();
+}
+
+function compareAppointmentsByDateTime(a: Appointment, b: Appointment): number {
+  const aMs = appointmentDateTimeMs(a);
+  const bMs = appointmentDateTimeMs(b);
+  if (Number.isNaN(aMs) && Number.isNaN(bMs)) {
+    return (a.appointmentid ?? a.appointmentId).localeCompare(b.appointmentid ?? b.appointmentId);
+  }
+  if (Number.isNaN(aMs)) return 1;
+  if (Number.isNaN(bMs)) return -1;
+  return aMs - bMs;
 }
 
 const styles = StyleSheet.create({
@@ -553,6 +969,67 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 20,
     ...AppTheme.shadow,
+  },
+  nextAppointmentCard: {
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: 22,
+    padding: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+  nextAppointmentMarker: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 16,
+  },
+  nextAppointmentMarkerText: {
+    color: AppTheme.colors.white,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  nextAppointmentTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  nextAppointmentLabel: {
+    color: AppTheme.colors.white,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+    opacity: 0.9,
+    marginBottom: 4,
+  },
+  nextAppointmentTitle: {
+    color: AppTheme.colors.white,
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "900",
+  },
+  nextAppointmentTime: {
+    color: AppTheme.colors.white,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 5,
+  },
+  nextAppointmentBadge: {
+    flexShrink: 0,
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginLeft: 12,
+  },
+  nextAppointmentBadgeText: {
+    color: AppTheme.colors.white,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.7,
   },
   sectionTitle: {
     color: AppTheme.colors.sectionText,
@@ -624,10 +1101,79 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 6,
   },
+  scheduleButtonDisabled: {
+    opacity: 0.6,
+  },
   scheduleButtonText: {
     color: AppTheme.colors.white,
     fontSize: 16,
     fontWeight: "900",
+  },
+  createAppointmentButton: {
+    minHeight: 56,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+    ...AppTheme.shadow,
+  },
+  createAppointmentButtonText: {
+    color: AppTheme.colors.brand,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  collapseRow: {
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.softSurface,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  collapseRowText: {
+    color: AppTheme.colors.brand,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  collapsibleContent: {
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.colors.border,
+    marginBottom: 12,
+    paddingBottom: 16,
+  },
+  slotList: {
+    marginTop: 16,
+    gap: 8,
+  },
+  slotRow: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.softSurface,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  slotRowSelected: {
+    backgroundColor: AppTheme.colors.brand,
+    borderColor: AppTheme.colors.brand,
+  },
+  slotRowText: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  slotRowTextSelected: {
+    color: AppTheme.colors.white,
   },
   emptyText: {
     color: AppTheme.colors.textSoft,
@@ -638,45 +1184,46 @@ const styles = StyleSheet.create({
   },
   appointmentCard: {
     position: "relative",
+    flexDirection: "row",
+    alignItems: "stretch",
     overflow: "hidden",
     backgroundColor: AppTheme.colors.surface,
     borderRadius: 22,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
-    paddingVertical: 10,
-    paddingLeft: 16,
-    paddingRight: 12,
+    paddingVertical: 14,
+    paddingLeft: 12,
+    paddingRight: 14,
     marginBottom: 10,
     ...AppTheme.shadow,
   },
   appointmentAccent: {
-    position: "absolute",
-    top: 10,
-    bottom: 10,
-    left: 0,
     width: 4,
-    borderTopRightRadius: 4,
-    borderBottomRightRadius: 4,
+    borderRadius: 4,
     backgroundColor: AppTheme.colors.brand,
+    marginRight: 12,
+    alignSelf: "stretch",
   },
   appointmentMain: {
-    minHeight: 0,
+    flex: 1,
+    minWidth: 0,
   },
   appointmentTextBlock: {
     flex: 1,
     minWidth: 0,
   },
   appointmentType: {
-    flex: 1,
+    flexShrink: 1,
     color: AppTheme.colors.text,
     fontSize: 16,
     fontWeight: "900",
     lineHeight: 21,
+    marginRight: 8,
   },
   appointmentTitleRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   appointmentProvider: {
     color: AppTheme.colors.textSoft,
@@ -702,6 +1249,8 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   statusBadge: {
+    flexShrink: 0,
+    alignSelf: "flex-start",
     borderRadius: AppTheme.radius.pill,
     backgroundColor: AppTheme.colors.brandSoft,
     paddingHorizontal: 10,
@@ -721,13 +1270,12 @@ const styles = StyleSheet.create({
   },
   appointmentActions: {
     flexDirection: "row",
-    justifyContent: "flex-end",
     gap: 8,
-    marginTop: 7,
+    marginTop: 10,
   },
   appointmentActionButton: {
-    minHeight: 32,
-    minWidth: 64,
+    flex: 1,
+    minHeight: 34,
     borderRadius: 12,
     backgroundColor: AppTheme.colors.softSurface,
     paddingHorizontal: 10,
@@ -735,6 +1283,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
+  },
+  appointmentActionButtonDisabled: {
+    opacity: 0.5,
   },
   editLink: {
     color: AppTheme.colors.brand,

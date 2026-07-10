@@ -1,15 +1,15 @@
 import { configureStore } from '@reduxjs/toolkit';
-import messagesReducer from '@/data/messagesSlice';
+import messagesReducer from './reducers/messagesSlice';
 import nonEmergencyDecisionReducer from './reducers/nonEmergencyDecisionSlice';
 import patientReducer from './reducers/patientSlice';
 import vitalsReducer from './reducers/vitalsSlice';
 
 export const store = configureStore({
   reducer: {
-    patient: patientReducer,
     nonEmergencyDecision: nonEmergencyDecisionReducer,
     messages: messagesReducer,
     vitals: vitalsReducer,
+    patient: patientReducer
   },
 });
 

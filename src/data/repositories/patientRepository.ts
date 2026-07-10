@@ -6,7 +6,7 @@
  */
 
 import { getDatabase } from '../db';
-import type { Caregiver, Medication, Patient, PatientCondition } from '../types';
+import type { Caregiver, Medication, Patient, PatientCondition, PatientConditionRole } from '../types';
 
 export function upsertPatient(patient: Patient): void {
   const db = getDatabase();
@@ -207,8 +207,9 @@ export function upsertCondition(condition: PatientCondition): void {
   db.runSync(
     `INSERT OR REPLACE INTO patient_conditions
       (condition_id, patient_id, name, icd10, snomed_code, onset_date,
-       category, is_primary, source, source_doc_id, retrieved_at, needs_review)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+       category, is_primary, source, source_doc_id, retrieved_at, needs_review,
+       condition_role, source_references_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     condition.conditionId,
     condition.patientId,
     condition.name,
@@ -221,22 +222,77 @@ export function upsertCondition(condition: PatientCondition): void {
     condition.sourceDocId ?? null,
     condition.retrievedAt ?? null,
     condition.needsReview ? 1 : 0,
+    condition.conditionRole ?? null,
+    condition.sourceReferences ? JSON.stringify(condition.sourceReferences) : null,
   );
 }
 
+type PatientConditionRow = PatientCondition & {
+  isPrimary?: number | boolean;
+  needsReview?: number | boolean;
+  sourceReferencesJson?: string | null;
+};
+
 export function getConditionsForPatient(patientId: string): PatientCondition[] {
   const db = getDatabase();
-  return db.getAllSync<PatientCondition>(
+  const rows = db.getAllSync<PatientConditionRow>(
     `SELECT condition_id AS conditionId, patient_id AS patientId, name, icd10,
             snomed_code AS snomedCode,
             onset_date AS onsetDate, category, is_primary AS isPrimary,
             source, source_doc_id AS sourceDocId, retrieved_at AS retrievedAt,
-            needs_review AS needsReview
+            needs_review AS needsReview, condition_role AS conditionRole,
+            source_references_json AS sourceReferencesJson
      FROM patient_conditions
      WHERE patient_id = ?
-     ORDER BY is_primary DESC, needs_review ASC, name;`,
+     ORDER BY is_primary DESC,
+              CASE WHEN lower(name) LIKE '%cerebral palsy%' THEN 0 ELSE 1 END,
+              needs_review ASC,
+              name;`,
     patientId,
   );
+  return rows.map((row) => {
+    const { sourceReferencesJson, ...condition } = row;
+    return {
+      ...condition,
+      isPrimary: Boolean(row.isPrimary),
+      needsReview: Boolean(row.needsReview),
+      sourceReferences: parseConditionSourceReferences(sourceReferencesJson),
+    };
+  });
+}
+
+export function updatePatientConditionRoles(
+  patientId: string,
+  rolesByConditionId: Record<string, PatientConditionRole>,
+): void {
+  const db = getDatabase();
+  db.withTransactionSync(() => {
+    const conditions = getConditionsForPatient(patientId);
+    for (const condition of conditions) {
+      db.runSync(
+        `UPDATE patient_conditions
+         SET condition_role = ?,
+             is_primary = ?
+         WHERE patient_id = ? AND condition_id = ?;`,
+        rolesByConditionId[condition.conditionId] ?? 'history_context',
+        rolesByConditionId[condition.conditionId] === 'primary_diagnosis' ? 1 : 0,
+        patientId,
+        condition.conditionId,
+      );
+    }
+  });
+}
+
+function parseConditionSourceReferences(
+  value?: string | null,
+): PatientCondition['sourceReferences'] {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Mark a MedlinePlus-suggested comorbidity as confirmed by the caregiver. */
