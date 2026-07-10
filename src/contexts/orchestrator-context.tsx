@@ -12,7 +12,7 @@
  * caregiver actions + the current non-emergency decision.
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'react-redux';
 
 import { useSLM } from '@/contexts/slm-context';
@@ -20,7 +20,11 @@ import { usePatientRecord, getCurrentPatientSnapshot } from '@/contexts/patient-
 import type { FusedRetriever } from '@/knowledge';
 import { CachedFusedRetriever } from '@/knowledge';
 import { Orchestrator, TOOL_SCHEMAS } from '@/orchestration';
-import { MockAlertAutoencoder } from '@/ml-models/alert-autoencoder';
+import {
+  AlertAutoencoder,
+  MockAlertAutoencoder,
+  type AlertMlModel,
+} from '@/ml-models/alert-autoencoder';
 import { makePriorDecisionsProvider } from '@/store/selectors/priorDecisionsSelector';
 import type { RootState } from '@/store';
 
@@ -74,21 +78,54 @@ export function OrchestratorProvider({ children }: { children: ReactNode }) {
     });
   }, [snapshot, patientId]);
 
+  // Prefer real TFLite AE when loadable (dev build); mock fallback for Expo Go.
+  const [alertMlModel, setAlertMlModel] = useState<AlertMlModel>(() => new MockAlertAutoencoder());
+  const alertMlReleaseRef = useRef<AlertMlModel | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const real = new AlertAutoencoder();
+    real
+      .load()
+      .then(() => {
+        if (cancelled) {
+          void real.release();
+          return;
+        }
+        alertMlReleaseRef.current = real;
+        setAlertMlModel(real);
+        console.log('[OrchestratorProvider] AlertAutoencoder (TFLite) loaded');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn(
+          '[OrchestratorProvider] TFLite AE unavailable, using MockAlertAutoencoder:',
+          err instanceof Error ? err.message : err,
+        );
+        setAlertMlModel(new MockAlertAutoencoder());
+      });
+    return () => {
+      cancelled = true;
+      const current = alertMlReleaseRef.current;
+      alertMlReleaseRef.current = null;
+      void current?.release().catch(() => {});
+    };
+  }, []);
+
   const orchestrator = useMemo(() => {
     if (!retriever) {
       return null;
     }
 
-    const alertMl = new MockAlertAutoencoder();
     return new Orchestrator({
       slm: slm.provider,
       slmTasks: slm.taskQueue,
       retriever,
-      alertMl,
+      alertMl: alertMlModel,
       snapshotProvider: getCurrentPatientSnapshot,
       priorDecisionsProvider,
     });
-  }, [slm, retriever, priorDecisionsProvider]);
+  }, [slm, retriever, priorDecisionsProvider, alertMlModel]);
 
   useEffect(() => {
     if (!orchestrator) return;

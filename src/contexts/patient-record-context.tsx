@@ -249,6 +249,7 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
     if (!importedPatientId) return null;
     setPatientId(importedPatientId);        // selects imported patient and triggers useSyncExternalStore -> all screens update
     setInitState({ patientId: importedPatientId, error: null, initialized: true });
+    hydrateLiveVitals(importedPatientId);
     return importedPatientId;
   }, []);
 

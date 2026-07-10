@@ -96,7 +96,7 @@ export function clearLiveVitals(dispatch: AppDispatch = store.dispatch): void {
   dispatch(clearVitalsForPatient(undefined));
 }
 
-function normalizeActivePatient(
+export function normalizeActivePatient(
   snapshot: NonNullable<ReturnType<typeof usePatientRecord>['snapshot']>,
   patientId: string,
 ): NormalizedActivePatient {
@@ -123,6 +123,13 @@ function normalizeActivePatient(
         (condition) => condition !== primaryDiagnosis && condition.source !== 'fhir_import',
       );
 
+  const caregiver: NormalizedActivePatient['caregiver'] = snapshot.caregiver
+    ? {
+        name: snapshot.caregiver.name,
+        relationship: snapshot.caregiver.relationship,
+      }
+    : null;
+
   return {
     patientId,
     firstName: nameParts[0] ?? '',
@@ -130,12 +137,7 @@ function normalizeActivePatient(
     displayName,
     preferredName,
     age: clean(patient?.age),
-    caregiver: snapshot.caregiver
-      ? {
-          name: snapshot.caregiver.name,
-          relationship: snapshot.caregiver.relationship,
-        }
-      : null,
+    caregiver,
     primaryDiagnosis,
     comorbidities,
     pendingConditions: snapshot.pendingReviewConditions,

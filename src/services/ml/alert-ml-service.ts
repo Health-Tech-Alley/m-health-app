@@ -34,14 +34,18 @@ import {
   patientProfileFromPlainObject,
   runEmergencyRuleEngine,
   runUC2DecisionLayerV2,
+  shouldShowCaregiverPrompt,
 } from '@/ml-models/uc2-decision-layer';
 import type { AlertAutoencoder } from '@/ml-models/alert-autoencoder/alert-autoencoder';
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
 import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
+import { normalizeSpo2Percent } from '@/utils/spo2';
 import { toRawObservationInput } from './uc2-runtime-service';
 
 const MIN_SAMPLE_TYPES = 3;
+/** HITL / fallback: need at least one of SpO2 or HR (imputation fills the rest). */
+const MIN_HITL_CORE_VITALS = 1;
 
 type InputProvenance = MlRawVitalsInputEnvelope['provenance'];
 
@@ -165,6 +169,32 @@ export class AlertMlService {
   }
 
   /**
+   * Public wrapper for HITL re-runs and chat tooling that need a PatientProfile
+   * without going through ambient `evaluate()`.
+   */
+  profileFromSnapshot(
+    patientId: string,
+    snapshot: PatientRecordSnapshot | null,
+  ): PatientProfile | undefined {
+    return this.buildProfileFromSnapshot(patientId, snapshot);
+  }
+
+  /**
+   * Build UC2 input from latest SQLite samples. Ambient path requires
+   * MIN_SAMPLE_TYPES distinct vitals; HITL fallback accepts SpO2 and/or HR only.
+   */
+  tryBuildInputFromRecentSamples(
+    patientId: string,
+    options?: { minTypes?: number; requireCoreVital?: boolean },
+  ): AppleWatchVitalsInput | null {
+    const built = this.buildInputFromRecentSamples(patientId, new Date(), {
+      minTypes: options?.minTypes ?? MIN_HITL_CORE_VITALS,
+      requireCoreVital: options?.requireCoreVital ?? true,
+    });
+    return built?.input ?? null;
+  }
+
+  /**
    * Build a `PatientProfile` for the v2 decision layer from the active
    * PatientRecordSnapshot. Returns undefined if no snapshot is available —
    * the v2 layer tolerates an absent profile (it just skips personalized
@@ -211,6 +241,7 @@ export class AlertMlService {
   async runDecisionLayer(
     input: AppleWatchVitalsInput,
     profile?: PatientProfile,
+    caregiverSelectedCodes: string[] = [],
   ): Promise<UC2DecisionResult | null> {
     if (!this.model.isLoaded) {
       await this.load();
@@ -233,6 +264,13 @@ export class AlertMlService {
     const v2Result = await runUC2DecisionLayerV2({
       raw: toRawObservationInput(input),
       profile,
+      caregiverInput:
+        caregiverSelectedCodes.length > 0
+          ? {
+              selected_codes: caregiverSelectedCodes as import('@/ml-models/uc2-decision-layer').CaregiverObservationCode[],
+              confirmed_at_iso: new Date().toISOString(),
+            }
+          : undefined,
       scaler: { mean: scaler.mean, scale: scaler.scale },
       interpreter: createTfliteInterpreterAdapter(ae),
       aeThreshold: this.model.threshold,
@@ -248,6 +286,12 @@ export class AlertMlService {
         direction: 'unknown',
         source: 'ae_reconstruction_contribution',
       })) ?? [];
+    const promptShown = shouldShowCaregiverPrompt({
+      emergency: Boolean(
+        v2Result.emergency.is_emergency ?? v2Result.emergency.emergency,
+      ),
+      isAnomaly: Boolean(isAnomaly),
+    });
 
     return {
       emergencyResult: v2Result.emergency,
@@ -256,7 +300,7 @@ export class AlertMlService {
       aeScore,
       threshold: this.model.threshold,
       isAnomaly,
-      promptShown: false,
+      promptShown,
       initialAnomalyType: v2Result.sensor_classification?.sensor_anomaly_type ?? 'NORMAL_PATTERN',
       postHitlAnomalyType: finalDec.post_hitl_anomaly_type ?? 'NORMAL_PATTERN',
       topFeatureEvidence,
@@ -276,9 +320,9 @@ export class AlertMlService {
       sensor_anomaly_type: v2Result.sensor_classification?.sensor_anomaly_type ?? 'NORMAL_PATTERN',
       post_hitl_anomaly_type: (finalDec.post_hitl_anomaly_type ?? 'NORMAL_PATTERN') as UC2DecisionResult['post_hitl_anomaly_type'],
       anomaly_family: v2Result.caregiver_hitl?.anomaly_family,
-      caregiver_selected_codes: [],
-      max_matrix_delta: 0,
-      critical_route_triggered: false,
+      caregiver_selected_codes: v2Result.caregiver_hitl?.caregiver_selected_codes ?? [],
+      max_matrix_delta: v2Result.caregiver_hitl?.max_matrix_delta ?? 0,
+      critical_route_triggered: v2Result.caregiver_hitl?.critical_route_triggered ?? false,
       personalized_threshold_severity_floor:
         v2Result.personalized_thresholds?.personalized_threshold_severity_floor ?? 0,
       recurrence_severity_floor: v2Result.recurrence?.recurrence_severity_floor ?? 0,
@@ -401,6 +445,7 @@ export class AlertMlService {
   private buildInputFromRecentSamples(
     patientId: string,
     timestamp: Date,
+    options?: { minTypes?: number; requireCoreVital?: boolean },
   ): BuiltMlInput | null {
     const get = (type: HealthSampleType) => getLatestHealthSample(patientId, type);
 
@@ -416,11 +461,17 @@ export class AlertMlService {
     const presentTypes = [spo2, heartRate, bpSys, bpDia, temp, glucose, resp].filter(
       (sample) => sample !== null,
     ).length;
-    if (presentTypes < MIN_SAMPLE_TYPES) return null;
+    const minTypes = options?.minTypes ?? MIN_SAMPLE_TYPES;
+    if (presentTypes < minTypes) return null;
+
+    if (options?.requireCoreVital) {
+      const hasCore = spo2 !== null || heartRate !== null;
+      if (!hasCore) return null;
+    }
 
     // Convert SpO2 fraction to percentage for the UC2 model (trained on 0-100).
     const spo2Percent =
-      spo2 === null ? undefined : spo2.value <= 1.0 ? spo2.value * 100 : spo2.value;
+      spo2 === null ? undefined : normalizeSpo2Percent(spo2.value);
 
     const input: AppleWatchVitalsInput = {
       patient_id: patientId,

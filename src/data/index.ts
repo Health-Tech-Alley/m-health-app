@@ -18,6 +18,7 @@ export {
   getAlertById,
   getAlertsForLog,
   updateAlertStatus,
+  updateAlertMlFields,
   dismissAlert,
   removeAlert,
   insertCaregiverAction,

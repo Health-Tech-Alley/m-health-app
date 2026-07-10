@@ -155,13 +155,14 @@ export default function AcuteAnomalyScreen() {
     }
 
     const now = new Date().toISOString();
+    // Publish SpO2 as 0–100 percent (canonical on bus + thresholds).
     const spo2Event: Extract<OrchestrationEvent, { type: 'vitals_sample' }> = {
       type: 'vitals_sample',
       patientId,
       sampleId: `sample-${Date.now()}`,
       sampleType: 'spo2',
-      value: Number(spo2) / 100,
-      unit: 'fraction',
+      value: Number(spo2),
+      unit: '%',
       recordedAt: now,
     };
     getEventBus().publish(spo2Event);
@@ -178,6 +179,19 @@ export default function AcuteAnomalyScreen() {
     };
     getEventBus().publish(hrEvent);
     log(`Published HR ${heartRate} bpm event`);
+
+    // Ambient ML needs ≥3 sample types; include RR so evaluate can run.
+    const rrEvent: Extract<OrchestrationEvent, { type: 'vitals_sample' }> = {
+      type: 'vitals_sample',
+      patientId,
+      sampleId: `sample-${Date.now() + 2}`,
+      sampleType: 'respiratory_rate',
+      value: 28,
+      unit: 'rpm',
+      recordedAt: now,
+    };
+    getEventBus().publish(rrEvent);
+    log('Published RR 28 rpm event');
 
     setTimeout(() => refreshAlerts(patientId), 50);
   }, [patientId, spo2, heartRate, log, refreshAlerts]);

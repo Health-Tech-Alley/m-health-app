@@ -2,6 +2,7 @@ import { AlertAutoencoder } from '@/ml-models/alert-autoencoder';
 import {
   createTfliteInterpreterAdapter,
   runUC2DecisionLayerV2,
+  shouldShowCaregiverPrompt,
   type AppleWatchVitalsInput,
   type CaregiverFinalAction,
   type CaregiverHitlInput,
@@ -152,7 +153,14 @@ export function createUC2ApplicationRuntime(
         aeThreshold: mlModel.threshold,
       });
 
-      return mapV2ToCompatResult(result, mlModel.threshold, caregiverInput !== undefined);
+      // Caregiver prompt is for non-emergency anomalies only — not "codes already
+      // supplied" (that made first-run HITL UI never appear in Care Analysis).
+      const promptShown = shouldShowCaregiverPrompt({
+        emergency: Boolean(result.emergency.is_emergency ?? result.emergency.emergency),
+        isAnomaly: Boolean(result.ae?.is_anomaly),
+      });
+
+      return mapV2ToCompatResult(result, mlModel.threshold, promptShown);
     },
   };
 }

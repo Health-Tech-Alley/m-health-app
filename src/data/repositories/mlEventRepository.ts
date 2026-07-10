@@ -147,6 +147,34 @@ export function parseCaregiverBlock(event: MlEvent): MlCaregiverBlock | null {
   }
 }
 
+/** Persist post-HITL caregiver observations + classification onto an ml_event. */
+export function updateMlEventPostHitl(
+  eventId: string,
+  fields: {
+    caregiverJson?: string;
+    postHitlAnomalyType?: string;
+    reconstructionError?: number;
+    scoreRatio?: number;
+  },
+): void {
+  const db = getDatabase();
+  const existing = getMlEvent(eventId);
+  if (!existing) return;
+  db.runSync(
+    `UPDATE ml_events SET
+       caregiver_json = ?,
+       post_hitl_anomaly_type = ?,
+       reconstruction_error = ?,
+       score_ratio = ?
+     WHERE event_id = ?;`,
+    fields.caregiverJson ?? existing.caregiverJson ?? null,
+    fields.postHitlAnomalyType ?? existing.postHitlAnomalyType ?? null,
+    fields.reconstructionError ?? existing.reconstructionError ?? null,
+    fields.scoreRatio ?? existing.scoreRatio ?? null,
+    eventId,
+  );
+}
+
 export function parseRawVitals(event: MlEvent): MlRawVitalsPayload | null {
   if (!event.rawVitalsJson) return null;
   try {

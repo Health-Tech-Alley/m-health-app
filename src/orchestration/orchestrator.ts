@@ -20,6 +20,7 @@ import {
   insertCaregiverAction,
   insertHealthSample,
   insertSlmTurn,
+  updateAlertMlFields,
   type Alert,
   type CaregiverAction,
   type HealthSample,
@@ -34,6 +35,7 @@ import {
   parseCaregiverBlock,
   parseRawVitals,
   getAnomalyConfidenceRatio,
+  updateMlEventPostHitl,
 } from '@/data/repositories/mlEventRepository';
 import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
 import type { InferenceProvider } from '@/inference/inference-provider';
@@ -83,6 +85,7 @@ import {
 import { CONCIERGE_GENERATION_EXPLAIN, REASONING_FORMAT_EXPLAIN } from '@/constants/concierge';
 import { filterToolsForSkill, getSkillPromptFragment, type SkillId } from './skills';
 import type { MlRawVitalsPayload, NextStep, NextStepActionId } from '@/data/types';
+import { normalizeVitalForThreshold } from '@/utils/spo2';
 import {
   patientBlock,
   thresholdsBlock,
@@ -259,6 +262,19 @@ export class Orchestrator {
       return;
     }
 
+    // CEP promote_spo2_drop: force an immediate ML eval (still after thresholds).
+    const forceImmediateMl = cepAction?.type === 'promote_to_alert_ml';
+    if (forceImmediateMl) {
+      audit({
+        actor: 'orchestrator',
+        action: 'cep_promote_to_alert_ml',
+        resourceType: 'sample',
+        resourceId: event.sampleId,
+        patientId: event.patientId,
+        payload: { reason: cepAction.reason },
+      });
+    }
+
     // Always check thresholds; severity-3 violations short-circuit to the fast path.
     const check = await this.client.callTool('check_threshold_violation', {
       patientId: event.patientId,
@@ -282,31 +298,50 @@ export class Orchestrator {
     }
 
     // Run the Alert ML model asynchronously after threshold handling.
-    // Use debouncing: only run ML once per debounce window per patient.
+    // Debounce by default; CEP promote_spo2_drop flushes ML immediately.
     if (this.alertMlService) {
-      const debounceEntry = this.vitalsDebounce.get(event.patientId);
-      if (debounceEntry) {
-        clearTimeout(debounceEntry.timer);
-        debounceEntry.timer = setTimeout(async () => {
-          const batch = debounceEntry.events;
-          this.vitalsDebounce.delete(event.patientId);
-          try {
-            const latest = batch[batch.length - 1];
-            if (latest.type === 'vitals_sample') {
-              // Pass the patient record snapshot so the v2 layer can compute
-              // personalized severity floors (CP GMFCS Level V, etc.).
-              const snapshot = this.snapshotProvider?.() ?? null;
-              await this.alertMlService?.evaluate(
-                latest.patientId,
-                latest as Extract<OrchestrationEvent, { type: 'vitals_sample' }>,
-                snapshot,
-              );
-            }
-          } catch (err) {
-            console.error('[Orchestrator] Alert ML evaluation failed:', err);
-          }
-        }, Orchestrator.DEBOUNCE_MS);
+      if (forceImmediateMl) {
+        await this.flushAlertMlForPatient(event.patientId);
+      } else {
+        this.scheduleAlertMlDebounce(event.patientId);
       }
+    }
+  }
+
+  /** Debounced Alert ML eval (one run per patient per DEBOUNCE_MS window). */
+  private scheduleAlertMlDebounce(patientId: string): void {
+    const debounceEntry = this.vitalsDebounce.get(patientId);
+    if (!debounceEntry || !this.alertMlService) return;
+    clearTimeout(debounceEntry.timer);
+    debounceEntry.timer = setTimeout(() => {
+      void this.flushAlertMlForPatient(patientId);
+    }, Orchestrator.DEBOUNCE_MS);
+  }
+
+  /**
+   * Run Alert ML for the latest debounced vitals batch (or the most recent
+   * sample if the batch was already cleared). Used by the normal debounce
+   * timer and by CEP `promote_to_alert_ml`.
+   */
+  private async flushAlertMlForPatient(patientId: string): Promise<void> {
+    if (!this.alertMlService) return;
+    const debounceEntry = this.vitalsDebounce.get(patientId);
+    let latest: Extract<OrchestrationEvent, { type: 'vitals_sample' }> | null = null;
+    if (debounceEntry) {
+      clearTimeout(debounceEntry.timer);
+      const batch = debounceEntry.events;
+      this.vitalsDebounce.delete(patientId);
+      const last = batch[batch.length - 1];
+      if (last?.type === 'vitals_sample') {
+        latest = last;
+      }
+    }
+    if (!latest) return;
+    try {
+      const snapshot = this.snapshotProvider?.() ?? null;
+      await this.alertMlService.evaluate(patientId, latest, snapshot);
+    } catch (err) {
+      console.error('[Orchestrator] Alert ML evaluation failed:', err);
     }
   }
 
@@ -418,12 +453,16 @@ export class Orchestrator {
     event: Extract<OrchestrationEvent, { type: 'vitals_sample' }>,
     violations: { thresholdId: string; severity: number }[],
   ): Promise<void> {
+    // Display SpO2 as percent even if a legacy fraction sample arrived.
+    const displayValue = normalizeVitalForThreshold(event.sampleType, event.value);
+    const displayUnit =
+      event.sampleType === 'spo2' || event.unit === 'fraction' ? '%' : event.unit;
     const alert: Alert = {
       alertId: `alert-${Date.now()}`,
       patientId: event.patientId,
       severity: 3,
       status: 'open',
-      title: `Emergency: ${event.sampleType} ${event.value}${event.unit}`,
+      title: `Emergency: ${event.sampleType} ${displayValue}${displayUnit}`,
       body: `Severe threshold violation detected. Immediate attention required.`,
       createdAt: new Date().toISOString(),
     };
@@ -1151,9 +1190,123 @@ export class Orchestrator {
     return steps;
   }
 
+  /**
+   * Re-run UC2 with caregiver observation codes (alert-detail HITL).
+   * Updates alert + ml_events so explain uses post-HITL context.
+   *
+   * Vitals source order:
+   *   1) raw vitals envelope on the ml_event (best — same snapshot as original ML)
+   *   2) latest health_samples for the patient (threshold-only / legacy alerts)
+   */
+  async reRunHitlForAlert(
+    alertId: string,
+    observationCodes: string[],
+  ): Promise<UC2DecisionResult | null> {
+    if (!this.alertMlService) return null;
+    const alert = getAlertById(alertId);
+    if (!alert) return null;
+    const mlEvent = getMlEventForAlert(alertId);
+    const raw = mlEvent ? parseRawVitals(mlEvent) : null;
+
+    let input: AppleWatchVitalsInput | null = null;
+    if (raw && typeof raw === 'object') {
+      const envelope = raw as { input?: AppleWatchVitalsInput; contract?: string };
+      if (envelope.input && typeof envelope.input === 'object') {
+        input = {
+          ...envelope.input,
+          patient_id: alert.patientId,
+          timestamp: envelope.input.timestamp ?? new Date().toISOString(),
+        };
+      } else {
+        const vitals = raw as Record<string, number | undefined>;
+        input = {
+          patient_id: alert.patientId,
+          timestamp: new Date().toISOString(),
+          heart_rate: vitals.heart_rate,
+          blood_oxygen: vitals.blood_oxygen,
+          blood_pressure_systolic: vitals.blood_pressure_systolic,
+          blood_pressure_diastolic: vitals.blood_pressure_diastolic,
+          glucose_level: vitals.glucose_level,
+          body_temperature: vitals.body_temperature,
+          respiratory_rate: vitals.respiratory_rate,
+        };
+      }
+    }
+
+    if (!input || (input.blood_oxygen == null && input.heart_rate == null)) {
+      input = this.alertMlService.tryBuildInputFromRecentSamples(alert.patientId, {
+        minTypes: 1,
+        requireCoreVital: true,
+      });
+    }
+
+    if (!input || (input.blood_oxygen == null && input.heart_rate == null)) {
+      return null;
+    }
+
+    // Normalize SpO2 if a legacy fraction snuck into stored raw vitals.
+    if (input.blood_oxygen != null) {
+      input = {
+        ...input,
+        blood_oxygen: normalizeVitalForThreshold('spo2', input.blood_oxygen),
+      };
+    }
+
+    const snapshot = this.snapshotProvider?.() ?? null;
+    const profile = this.alertMlService.profileFromSnapshot(alert.patientId, snapshot);
+
+    const result = await this.alertMlService.runDecisionLayer(
+      input,
+      profile,
+      observationCodes,
+    );
+    if (!result) return null;
+
+    const postType = result.postHitlAnomalyType ?? result.post_hitl_anomaly_type;
+    const severity = (result.finalDecision?.final_severity ??
+      result.post_hitl_severity ??
+      alert.severity) as 1 | 2 | 3;
+    const aeScore = result.aeScore ?? result.ae_score_mse ?? undefined;
+    const scoreRatio =
+      aeScore != null && result.threshold
+        ? aeScore / result.threshold
+        : undefined;
+
+    updateAlertMlFields(alertId, {
+      severity: severity >= 1 && severity <= 3 ? severity : alert.severity,
+      postHitlAnomalyType: typeof postType === 'string' ? postType : undefined,
+      mlScore: aeScore ?? undefined,
+      scoreRatio,
+      aeScore: aeScore ?? undefined,
+      title: result.finalDecision?.final_notification_title || alert.title,
+      body: result.finalDecision?.final_notification_body || alert.body,
+    });
+
+    if (mlEvent) {
+      updateMlEventPostHitl(mlEvent.eventId, {
+        caregiverJson: JSON.stringify({
+          action: 'confirm_concern',
+          confirmed: true,
+          observations: observationCodes,
+        }),
+        postHitlAnomalyType: typeof postType === 'string' ? postType : undefined,
+        reconstructionError: aeScore ?? undefined,
+        scoreRatio,
+      });
+    }
+
+    this.addTrace({
+      agent: 'orchestrator',
+      thought: `HITL re-run for ${alertId}: postType=${String(postType)}, severity=${severity}, codes=${observationCodes.join(',')}`,
+    });
+
+    return result;
+  }
+
   async executeHypotheticalEval(
     action: { tool: string; args: Record<string, unknown>; rationale: string },
     patientId: string,
+    options?: { caregiverSelectedCodes?: string[] },
   ): Promise<{ mlResult: UC2DecisionResult | null; evalBlock: string }> {
     if (action.tool !== 'evaluate_hypothetical_vitals') return { mlResult: null, evalBlock: '' };
     if (!this.alertMlService) return { mlResult: null, evalBlock: '' };
@@ -1171,11 +1324,14 @@ export class Orchestrator {
       steps_count: undefined,
     };
 
-    const mlResult = await this.alertMlService.runDecisionLayer(input);
+    const snapshot = this.snapshotProvider?.() ?? null;
+    const profile = this.alertMlService.profileFromSnapshot(patientId, snapshot);
+    const codes = options?.caregiverSelectedCodes ?? [];
+    const mlResult = await this.alertMlService.runDecisionLayer(input, profile, codes);
     const evalBlock = mlResult ? this.formatMlEvalForPrompt(mlResult) : '';
     this.addTrace({
       agent: 'orchestrator',
-      thought: `Ran hypothetical ML eval: severity=${mlResult?.finalDecision.final_severity}, aeScore=${mlResult?.aeScore?.toFixed(2)}.`,
+      thought: `Ran hypothetical ML eval: severity=${mlResult?.finalDecision.final_severity}, aeScore=${mlResult?.aeScore?.toFixed(2)}, codes=${codes.length}.`,
     });
 
     if (mlResult && mlResult.finalDecision.final_severity === 3) {
@@ -1262,14 +1418,61 @@ export class Orchestrator {
   }
 
   private formatMlEvalForPrompt(r: UC2DecisionResult): string {
+    const post =
+      r.postHitlAnomalyType ?? r.post_hitl_anomaly_type ?? r.initialAnomalyType;
+    const codes = r.caregiver_selected_codes ?? [];
+    const severity =
+      r.finalDecision?.final_severity ?? r.post_hitl_severity ?? 0;
+    const isEmergency = Boolean(
+      r.emergencyResult?.emergency || severity === 3,
+    );
+    const friendlyCodes = codes.map((c) =>
+      String(c)
+        .replace(/_/g, ' ')
+        .toLowerCase()
+        .replace(/\b\w/g, (ch) => ch.toUpperCase()),
+    );
+    const contributors = r.topFeatureEvidence
+      .slice(0, 5)
+      .map((f) =>
+        String(f.feature)
+          .replace(/_/g, ' ')
+          .replace(/\bblood oxygen\b/i, 'oxygen level')
+          .replace(/\bheart rate\b/i, 'heart rate')
+          .replace(/\bsteps count\b/i, 'activity / steps')
+          .replace(/\bhrv sdnn\b/i, 'heart-rate variability')
+          .replace(/\bactivity level\b/i, 'activity'),
+      )
+      .filter(Boolean);
+
+    const concernLevel =
+      isEmergency || severity === 3
+        ? 'urgent — treat as a possible emergency'
+        : severity === 2
+          ? 'moderate concern — not an automatic call-911 situation, but follow up soon'
+          : severity === 1
+            ? 'mild / watchful — unusual pattern, not an emergency by hard rules'
+            : 'no strong monitor alarm';
+
     return [
-      'ML_HYPOTHETICAL_EVAL (the Health Monitor decision on the vitals you asked to test)',
-      `Anomaly score: ${r.aeScore !== null ? r.aeScore.toFixed(3) : 'n/a'} (threshold ${r.threshold.toFixed(3)})`,
-      `Is anomaly: ${r.isAnomaly}. Emergency: ${r.emergencyResult.emergency} (severity ${r.emergencyResult.severity}).`,
-      `Initial classification: ${r.initialAnomalyType.replace(/_/g, ' ').toLowerCase()}.`,
-      `Final notification: ${r.finalDecision.final_notification_type.replace(/_/g, ' ').toLowerCase()} (severity ${r.finalDecision.final_severity}).`,
-      r.topFeatureEvidence.slice(0, 3).map((f) => `  - ${f.feature}: ${f.importance.toFixed(2)}`).join('\n'),
-      'Ground your next answer in this ML output. The ML verdict is authoritative; you contextualize it.',
-    ].filter(Boolean).join('\n');
+      'INTERNAL_HEALTH_MONITOR_RESULT (for you only — do NOT paste, quote, or list these lines to the caregiver)',
+      `Monitor alarm: ${r.isAnomaly ? 'unusual pattern detected' : 'no strong anomaly'}.`,
+      `Hard emergency rules: ${isEmergency ? 'triggered' : 'not triggered'}.`,
+      `Concern level: ${concernLevel} (internal severity ${severity}).`,
+      `Pattern before caregiver notes: ${String(r.initialAnomalyType).replace(/_/g, ' ').toLowerCase()}.`,
+      `Pattern after caregiver notes: ${String(post).replace(/_/g, ' ').toLowerCase()}.`,
+      friendlyCodes.length > 0
+        ? `Caregiver reported: ${friendlyCodes.join('; ')}.`
+        : 'Caregiver did not add observation codes.',
+      contributors.length > 0
+        ? `Main contributors (plain language): ${contributors.join(', ')}.`
+        : '',
+      r.aeScore !== null
+        ? `Internal score vs threshold: ${r.aeScore.toFixed(2)} vs ${r.threshold.toFixed(2)} (do not recite raw scores unless the caregiver asks for numbers).`
+        : '',
+      'Write a natural caregiver reply that uses this result. Never reproduce this block, snake_case labels, or feature dumps.',
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 }
