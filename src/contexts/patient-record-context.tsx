@@ -31,6 +31,7 @@ import {
 
 import {
   clearActivePatientId,
+  getCaregiverForPatient,
   getPatientRecordSnapshot,
   getActivePatientId,
   getPatient,
@@ -40,6 +41,7 @@ import {
 } from '@/data';
 import { saveFHIRBundleToDB } from '@/data/fhir/fhir-import';
 import { hydrateLiveVitals, clearLiveVitals } from '@/hooks/useActivePatientView';
+import { applyActiveCaregiverToOnboardingProfile } from '@/services/onboarding/onboardingService';
 
 // ---------------------------------------------------------------------------
 // Module-level store — useSyncExternalStore reads from here.
@@ -249,6 +251,9 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
     if (!importedPatientId) return null;
     setPatientId(importedPatientId);        // selects imported patient and triggers useSyncExternalStore -> all screens update
     setInitState({ patientId: importedPatientId, error: null, initialized: true });
+    // Keep onboarding singleton caregiver in sync (Profile/More still read it).
+    applyActiveCaregiverToOnboardingProfile(getCaregiverForPatient(importedPatientId));
+    hydrateLiveVitals(importedPatientId);
     return importedPatientId;
   }, []);
 

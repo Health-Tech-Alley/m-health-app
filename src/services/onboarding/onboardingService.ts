@@ -477,6 +477,66 @@ export function getOnboardingProfile(): OnboardingProfile {
   return savedOnboardingProfile ?? defaultOnboardingProfile;
 }
 
+/**
+ * After a FHIR profile switch (or any SQLite caregiver write for the active
+ * patient), patch the in-memory onboarding profile so screens that still read
+ * `getOnboardingProfile()` (Profile, More, Care, etc.) show the caregiver for
+ * the *current* patient — not a stale Luis default from first onboarding.
+ *
+ * Phone may arrive in SQLite as `availability: "Phone: …"` (FHIR contact
+ * telecom has no dedicated caregivers column).
+ */
+export function applyActiveCaregiverToOnboardingProfile(caregiver: {
+  name: string;
+  relationship?: string | null;
+  experience?: string | null;
+  availability?: string | null;
+  languagePreference?: string | null;
+  medicalComfortLevel?: string | null;
+  hobbiesOrRoutines?: string | null;
+  mainConcern?: string | null;
+  stressOrSupportNeeds?: string | null;
+  backupCaregiver?: string | null;
+} | null | undefined): void {
+  if (!caregiver?.name?.trim()) return;
+
+  const current = getOnboardingProfile();
+  const phoneFromAvailability = caregiver.availability?.match(
+    /^Phone:\s*(.+)$/i,
+  )?.[1]?.trim();
+
+  saveOnboardingProfile({
+    ...current,
+    caregiver: {
+      ...current.caregiver,
+      name: caregiver.name.trim(),
+      relationship:
+        caregiver.relationship?.trim() || current.caregiver.relationship,
+      phone: phoneFromAvailability || current.caregiver.phone,
+      // SQLite stores free-text; only overwrite when present (keep typed enums).
+      experience: (caregiver.experience as CaregiverProfile['experience'])
+        ?? current.caregiver.experience,
+      availability: phoneFromAvailability
+        ? current.caregiver.availability
+        : ((caregiver.availability as CaregiverProfile['availability'])
+          ?? current.caregiver.availability),
+      languagePreference:
+        (caregiver.languagePreference as CaregiverProfile['languagePreference'])
+        ?? current.caregiver.languagePreference,
+      medicalComfortLevel:
+        (caregiver.medicalComfortLevel as CaregiverProfile['medicalComfortLevel'])
+        ?? current.caregiver.medicalComfortLevel,
+      hobbiesOrRoutines:
+        caregiver.hobbiesOrRoutines ?? current.caregiver.hobbiesOrRoutines,
+      mainConcern: caregiver.mainConcern ?? current.caregiver.mainConcern,
+      stressOrSupportNeeds:
+        caregiver.stressOrSupportNeeds ?? current.caregiver.stressOrSupportNeeds,
+      backupCaregiver:
+        caregiver.backupCaregiver ?? current.caregiver.backupCaregiver,
+    },
+  });
+}
+
 export function getMockEhrPatientRecord(): MockEhrPatientRecord {
   const patient = defaultOnboardingProfile.patient;
 

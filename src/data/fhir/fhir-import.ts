@@ -4,9 +4,11 @@ import { getDatabase } from '../db';
 import { upsertCarePlan } from '../repositories/carePlanRepository';
 import { upsertPatientCareContextItem } from '../repositories/patientCareContextRepository';
 import { upsertPatientLongitudinalObservation } from '../repositories/patientLongitudinalObservationRepository';
+import { upsertCaregiver } from '../repositories/patientRepository';
 import { upsertPatientTimelineEvent } from '../repositories/patientTimelineEventRepository';
 import { upsertRehabilitationMeasurement } from '../repositories/rehabilitationMeasurementRepository';
 import type {
+  Caregiver,
   LongitudinalObservationType,
   PatientConditionRole,
   PatientConditionSourceReference,
@@ -35,6 +37,7 @@ export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions =
       switch (resource.resourceType) {
         case 'Patient':
           upsertPatient(db, resource, canonicalPatientId);
+          upsertCaregiverFromPatientContact(resource, canonicalPatientId);
           break;
         case 'Observation':
           upsertObservation(db, resource, canonicalPatientId, patientReferenceMap);
@@ -54,6 +57,9 @@ export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions =
           break;
         case 'CarePlan':
           upsertFHIRCarePlan(resource, canonicalPatientId, patientReferenceMap, practitionerDisplayByReference);
+          break;
+        case 'RelatedPerson':
+          upsertCaregiverFromRelatedPerson(resource, canonicalPatientId, patientReferenceMap);
           break;
         case 'Basic':
           upsertPatientTimelineEventFromBasic(resource, canonicalPatientId, patientReferenceMap);
@@ -284,6 +290,118 @@ function upsertPatient(db: any, r: any, activePatientId: string): void {
     now,
     now,
   );
+}
+
+const CAREGIVER_RELATIONSHIP_HINT =
+  /\b(caregiver|wife|husband|son|daughter|family|spouse|partner|parent|mother|father|sibling)\b/i;
+
+/** Prefer emergency-contact (v2-0131 `C`) or caregiver-like relationship text; else first contact. */
+export function pickPrimaryCaregiverContact(contacts: any[] | undefined): any | null {
+  if (!Array.isArray(contacts) || contacts.length === 0) return null;
+
+  const scored = contacts.map((contact, index) => {
+    let score = 0;
+    const relationships = Array.isArray(contact?.relationship) ? contact.relationship : [];
+    for (const rel of relationships) {
+      const codings = Array.isArray(rel?.coding) ? rel.coding : [];
+      for (const coding of codings) {
+        if (coding?.code === 'C') score += 100;
+        if (typeof coding?.display === 'string' && CAREGIVER_RELATIONSHIP_HINT.test(coding.display)) {
+          score += 40;
+        }
+      }
+      if (typeof rel?.text === 'string' && CAREGIVER_RELATIONSHIP_HINT.test(rel.text)) {
+        score += 50;
+      }
+    }
+    return { contact, score, index };
+  });
+
+  scored.sort((a, b) => b.score - a.score || a.index - b.index);
+  return scored[0]?.contact ?? null;
+}
+
+function formatHumanName(name: any): string | null {
+  if (!name) return null;
+  if (typeof name.text === 'string' && name.text.trim()) return name.text.trim();
+  const given = Array.isArray(name.given) ? name.given.filter(Boolean).join(' ') : '';
+  const family = typeof name.family === 'string' ? name.family : '';
+  const full = [given, family].filter(Boolean).join(' ').trim();
+  return full || null;
+}
+
+function contactRelationshipText(contact: any): string | undefined {
+  const relationships = Array.isArray(contact?.relationship) ? contact.relationship : [];
+  for (const rel of relationships) {
+    if (typeof rel?.text === 'string' && rel.text.trim()) return rel.text.trim();
+    const display = rel?.coding?.find((c: any) => typeof c?.display === 'string' && c.display.trim())?.display;
+    if (display) return display.trim();
+  }
+  return undefined;
+}
+
+function contactPhone(contact: any): string | undefined {
+  const telecom = Array.isArray(contact?.telecom) ? contact.telecom : [];
+  const phone = telecom.find(
+    (t: any) => t?.system === 'phone' && typeof t?.value === 'string' && t.value.trim(),
+  );
+  return phone?.value?.trim() || undefined;
+}
+
+/**
+ * Map a FHIR Patient.contact (or RelatedPerson-like) entry into a Caregiver row.
+ * Pure helper for import + unit tests.
+ */
+export function mapContactToCaregiver(
+  contact: any,
+  patientId: string,
+  createdAt: string = new Date().toISOString(),
+): Caregiver | null {
+  if (!contact || !patientId) return null;
+  const name = formatHumanName(contact.name);
+  if (!name) return null;
+
+  const relationship = contactRelationshipText(contact);
+  const phone = contactPhone(contact);
+
+  return {
+    caregiverId: `cg-${patientId}`,
+    patientId,
+    name,
+    relationship,
+    // Phone is not a dedicated Caregiver column; surface via mainConcern-adjacent
+    // availability only when present so UI still shows name/relationship primarily.
+    availability: phone ? `Phone: ${phone}` : undefined,
+    createdAt,
+  };
+}
+
+function upsertCaregiverFromPatientContact(patientResource: any, activePatientId: string): void {
+  const patientId = getImportedPatientId(patientResource, activePatientId);
+  if (!patientId) return;
+  const contact = pickPrimaryCaregiverContact(patientResource.contact);
+  const caregiver = mapContactToCaregiver(contact, patientId);
+  if (!caregiver) return;
+  upsertCaregiver(caregiver);
+}
+
+function upsertCaregiverFromRelatedPerson(
+  resource: any,
+  activePatientId: string,
+  patientReferenceMap?: Map<string, string>,
+): void {
+  const patientId = getImportedPatientId(resource, activePatientId, patientReferenceMap);
+  if (!patientId) return;
+  const nameObj = Array.isArray(resource.name) ? resource.name[0] : resource.name;
+  const syntheticContact = {
+    name: nameObj,
+    relationship: resource.relationship,
+    telecom: resource.telecom,
+  };
+  const caregiver = mapContactToCaregiver(syntheticContact, patientId);
+  if (!caregiver) return;
+  // RelatedPerson wins over Patient.contact when present (same caregiverId).
+  upsertCaregiver(caregiver);
 }
 
 function getStringExtension(resource: any, suffix: string): string | null {

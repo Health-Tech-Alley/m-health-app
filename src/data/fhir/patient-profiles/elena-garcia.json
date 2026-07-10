@@ -18,7 +18,36 @@
             ]
           }
         ],
-        "gender": "male",
+        "contact": [
+          {
+            "relationship": [
+              {
+                "coding": [
+                  {
+                    "system": "http://terminology.hl7.org/CodeSystem/v2-0131",
+                    "code": "C",
+                    "display": "Emergency Contact"
+                  }
+                ],
+                "text": "Son / primary caregiver"
+              }
+            ],
+            "name": {
+              "family": "Garcia",
+              "given": [
+                "Luis"
+              ],
+              "text": "Luis Garcia"
+            },
+            "telecom": [
+              {
+                "system": "phone",
+                "value": "555-123-4567"
+              }
+            ]
+          }
+        ],
+        "gender": "female",
         "address": [
           {
             "country": "USA",

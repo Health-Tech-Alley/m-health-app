@@ -11,6 +11,7 @@ import type {
   NormalizedVitalReading,
   PatientCondition,
 } from '@/data/types';
+import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
 import { store, type AppDispatch } from '@/store';
 import {
   clearVitalsForPatient,
@@ -123,6 +124,25 @@ function normalizeActivePatient(
         (condition) => condition !== primaryDiagnosis && condition.source !== 'fhir_import',
       );
 
+  // Prefer SQLite caregiver for the active patient. If FHIR import had no
+  // Patient.contact (older Elena bundles), fall back to the onboarding
+  // singleton so More/Dashboard match Profile instead of "Not provided".
+  let caregiver: NormalizedActivePatient['caregiver'] = snapshot.caregiver
+    ? {
+        name: snapshot.caregiver.name,
+        relationship: snapshot.caregiver.relationship,
+      }
+    : null;
+  if (!caregiver?.name?.trim()) {
+    const onboard = getOnboardingProfile().caregiver;
+    if (onboard?.name?.trim()) {
+      caregiver = {
+        name: onboard.name.trim(),
+        relationship: onboard.relationship,
+      };
+    }
+  }
+
   return {
     patientId,
     firstName: nameParts[0] ?? '',
@@ -130,12 +150,7 @@ function normalizeActivePatient(
     displayName,
     preferredName,
     age: clean(patient?.age),
-    caregiver: snapshot.caregiver
-      ? {
-          name: snapshot.caregiver.name,
-          relationship: snapshot.caregiver.relationship,
-        }
-      : null,
+    caregiver,
     primaryDiagnosis,
     comorbidities,
     pendingConditions: snapshot.pendingReviewConditions,

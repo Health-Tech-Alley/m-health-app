@@ -16,16 +16,20 @@ import { downloadModel } from "@/services/model-download";
 import { isModelInstalled } from "@/services/model-storage";
 import type { PatientRecordSnapshot } from "@/data/repositories/patientRecordRepository";
 import { CONCIERGE_GENERATION_DEEP } from "@/constants/concierge";
-import { getSkillPromptFragment } from "@/orchestration/skills";
+import { TOOL_SCHEMAS } from "@/orchestration/mcp/tool-registry";
+import { filterToolsForSkill, getSkillPromptFragment } from "@/orchestration/skills";
 import { stripControlTokens } from "@/utils/stripControlTokens";
 import {
   caregiverToneInstruction,
   escalationBlock,
+  healthMonitorToolInstruction,
   patientBlock,
   personaPreamble,
   sensitiveTopicsInstruction,
+  toolsBlock,
   type PriorDecisionEntry,
 } from "@/orchestration/prompt-fragments";
+import type { McpToolSummary } from "@/knowledge";
 
 export { DEFAULT_SLM_MODEL_ID };
 export const CAREGIVER_SLM_MODEL_ID = DEFAULT_SLM_MODEL_ID;
@@ -304,9 +308,31 @@ export function buildCaregiverSystemContext(
   }
   const ctx = ctxLines.join("\n");
 
-  const skillFragment = getSkillPromptFragment(options?.skillId ?? '');
+  // Chat path defaults to caregiver-chat (tools + Health Monitor rules).
+  // Explicit non-chat skills keep their own fragment without chat tool block.
+  const skillId = options?.skillId;
+  const skillFragment = getSkillPromptFragment(skillId ?? '');
+  const toolsSkillId = !skillId || skillId === 'caregiver-chat' ? 'caregiver-chat' : null;
 
   const prior = options?.priorDecisions ?? [];
 
-  return `${preamble}\n${pBlock}\n\n${ctx}\n${prior.length > 0 ? `\nPRIOR DECISIONS\n${prior.map((e) => `- ${e.at.slice(0, 10)} · ${e.verb} · ${e.summary}`).join('\n')}\n` : ''}${skillFragment ? `\n${skillFragment}\n` : ''}`;
+  let toolsSection = '';
+  if (toolsSkillId) {
+    const visibleTools = filterToolsForSkill(toolsSkillId, TOOL_SCHEMAS);
+    const toolSummaries: McpToolSummary[] = visibleTools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      params: Object.fromEntries(
+        Object.entries(t.params).map(([name, p]) => [
+          name,
+          { type: p.type, required: p.required ?? false },
+        ]),
+      ),
+    }));
+    if (toolSummaries.length > 0) {
+      toolsSection = `\n${toolsBlock(toolSummaries)}\n\n${healthMonitorToolInstruction()}\n`;
+    }
+  }
+
+  return `${preamble}\n${pBlock}\n\n${ctx}\n${prior.length > 0 ? `\nPRIOR DECISIONS\n${prior.map((e) => `- ${e.at.slice(0, 10)} · ${e.verb} · ${e.summary}`).join('\n')}\n` : ''}${skillFragment ? `\n${skillFragment}\n` : ''}${toolsSection}`;
 }

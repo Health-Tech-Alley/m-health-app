@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
 import type { ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
@@ -21,6 +21,7 @@ import {
   getPrimaryDiagnosisDisplay,
 } from "@/utils/patientDisplay";
 import {
+  applyActiveCaregiverToOnboardingProfile,
   getOnboardingProfile,
   saveOnboardingProfile,
 } from "@/services/onboarding/onboardingService";
@@ -29,17 +30,58 @@ type DetailValue = string | number | boolean | null | undefined;
 
 type EditableField = "name" | "relationship" | "phone" | "mainConcern";
 
+function phoneFromCaregiverAvailability(availability?: string | null): string | undefined {
+  return availability?.match(/^Phone:\s*(.+)$/i)?.[1]?.trim();
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
   const [profile, setProfile] = useState(() => getOnboardingProfile());
   const { snapshot, refresh } = usePatientRecord();
   const activePatient = useActivePatientView();
 
-  const caregiver = profile.caregiver;
+  // Prefer SQLite caregiver for the *active* patient over the global onboarding
+  // singleton (which stays Luis after Elena seed until a profile switch syncs it).
+  useEffect(() => {
+    const cg = snapshot?.caregiver;
+    if (!cg?.name) return;
+    applyActiveCaregiverToOnboardingProfile(cg);
+    setProfile(getOnboardingProfile());
+  }, [
+    snapshot?.patient?.patientId,
+    snapshot?.caregiver?.caregiverId,
+    snapshot?.caregiver?.name,
+    snapshot?.caregiver?.relationship,
+    snapshot?.caregiver?.mainConcern,
+    snapshot?.lastRefreshedAt,
+  ]);
+
+  const caregiver = useMemo(() => {
+    const base = profile.caregiver;
+    const cg = snapshot?.caregiver;
+    if (!cg) return base;
+    const phone = phoneFromCaregiverAvailability(cg.availability) ?? base.phone;
+    return {
+      ...base,
+      name: cg.name || base.name,
+      relationship: cg.relationship ?? base.relationship,
+      phone,
+      experience: cg.experience ?? base.experience,
+      availability: phoneFromCaregiverAvailability(cg.availability)
+        ? base.availability
+        : (cg.availability ?? base.availability),
+      languagePreference: cg.languagePreference ?? base.languagePreference,
+      mainConcern: cg.mainConcern ?? base.mainConcern,
+    };
+  }, [profile.caregiver, snapshot?.caregiver]);
+
   const provider = profile.primaryCareProvider;
   const safety = profile.safety;
-  const caregiverName = getCaregiverDisplay(activePatient);
-  const caregiverRole = getCaregiverRoleDisplay(activePatient);
+  const caregiverName =
+    (activePatient?.caregiver?.name?.trim() || caregiver.name) || "Not provided";
+  const caregiverRole =
+    (activePatient?.caregiver?.relationship?.trim() || caregiver.relationship) ||
+    "Not provided";
   const patientName = getPatientDisplayName(activePatient);
   const patientAge = getPatientAgeDisplay(activePatient);
   const medicationSummary = formatMedicationSummary(snapshot?.medications ?? []);
@@ -53,19 +95,41 @@ export default function ProfileScreen() {
   };
 
   const saveEdit = () => {
-    if (!editing || !snapshot?.caregiver) {
+    if (!editing) {
       setEditing(null);
       return;
     }
+    const trimmed = draft.trim();
+    const nextCaregiver = {
+      ...profile.caregiver,
+      name: editing === "name" ? trimmed : caregiver.name,
+      relationship:
+        editing === "relationship" ? trimmed : caregiver.relationship,
+      phone: editing === "phone" ? trimmed : caregiver.phone,
+      mainConcern:
+        editing === "mainConcern" ? trimmed : caregiver.mainConcern,
+    };
     const updatedProfile = {
       ...profile,
-      caregiver: { ...profile.caregiver, [editing]: draft.trim() },
+      caregiver: nextCaregiver,
     };
     saveOnboardingProfile(updatedProfile);
     setProfile(updatedProfile);
-    // Persist to SQLite so the patient record snapshot stays in sync.
-    upsertCaregiver({ ...snapshot.caregiver, [editing]: draft.trim() } as any);
-    refresh();
+
+    // Persist to SQLite for the active patient when we have a caregiver row.
+    if (snapshot?.caregiver) {
+      const nextSqlite = { ...snapshot.caregiver };
+      if (editing === "name") nextSqlite.name = trimmed;
+      else if (editing === "relationship") nextSqlite.relationship = trimmed;
+      else if (editing === "mainConcern") nextSqlite.mainConcern = trimmed;
+      else if (editing === "phone") {
+        nextSqlite.availability = trimmed
+          ? `Phone: ${trimmed}`
+          : snapshot.caregiver.availability;
+      }
+      upsertCaregiver(nextSqlite);
+      refresh();
+    }
     setEditing(null);
     setDraft("");
   };

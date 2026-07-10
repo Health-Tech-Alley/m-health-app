@@ -41,8 +41,16 @@ export default function MoreScreen() {
   const activePatient = useActivePatientView();
   const patientName = getPatientDisplayName(activePatient);
   const patientAge = getPatientAgeDisplay(activePatient);
-  const caregiverName = getCaregiverDisplay(activePatient);
-  const caregiverRole = getCaregiverRoleDisplay(activePatient);
+  // Prefer active-patient view (SQLite + onboarding fallback); never leave More
+  // stuck on "Not provided" when Profile already knows the caregiver.
+  const caregiverName =
+    getCaregiverDisplay(activePatient) !== 'Not provided'
+      ? getCaregiverDisplay(activePatient)
+      : (profile.caregiver?.name?.trim() || 'Not provided');
+  const caregiverRole =
+    getCaregiverRoleDisplay(activePatient) !== 'Not provided'
+      ? getCaregiverRoleDisplay(activePatient)
+      : (profile.caregiver?.relationship?.trim() || 'Not provided');
   const scrollRef = useRef<ScrollView | null>(null);
   const ehrImportYRef = useRef(0);
   const patientId = useOrchestratorPatientId();

@@ -63,6 +63,35 @@
             "url": "http://example.org/fhir/edacs",
             "valueString": "Not assessed"
           }
+        ],
+        "contact": [
+          {
+            "relationship": [
+              {
+                "coding": [
+                  {
+                    "system": "http://terminology.hl7.org/CodeSystem/v2-0131",
+                    "code": "C",
+                    "display": "Emergency Contact"
+                  }
+                ],
+                "text": "Son / primary caregiver"
+              }
+            ],
+            "name": {
+              "family": "Garcia",
+              "given": [
+                "Luis"
+              ],
+              "text": "Luis Garcia"
+            },
+            "telecom": [
+              {
+                "system": "phone",
+                "value": "555-123-4567"
+              }
+            ]
+          }
         ]
       }
     },

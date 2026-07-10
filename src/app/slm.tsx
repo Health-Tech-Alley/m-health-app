@@ -31,6 +31,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
+  buildChatRetrievalQuery,
   formatCitationsForPrompt,
   messageHasClinicalKeywords,
   retrieveClinicalChunksViaBm25,
@@ -62,10 +63,156 @@ import {
   isCaregiverSLMModelInstalled,
   type CaregiverAssistantContext,
 } from '@/services/slm/slmService';
+import {
+  formatVitalsArgsSummary,
+  resolveHypotheticalVitalsCandidate,
+  stripEvaluateHypotheticalAction,
+  type HypotheticalVitalsArgs,
+} from '@/services/slm/vitals-tool-nlp';
+import {
+  publishUc2ResultAsAlert,
+  vitalsArgsToAppleWatchInput,
+} from '@/services/ml/publish-uc2-alert';
+import type { UC2DecisionResult } from '@/ml-models/uc2-decision-layer';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 import type { Medication, PatientCondition } from '@/data/types';
+import { ObservationPicker } from '@/components/ObservationPicker';
+import {
+  InChatScheduleAppointmentCard,
+  type InChatScheduleResult,
+} from '@/components/concierge/InChatScheduleAppointmentCard';
 
 type MessageStatus = 'streaming' | 'done' | 'stopped' | 'error';
+
+/** After Health Monitor (sev 1–2): caregiver observations before Concierge grounds. */
+export type PendingCaregiverReview = {
+  vitals: HypotheticalVitalsArgs;
+  severity: number;
+  evalBlock: string;
+  summaryLine: string;
+  /** Pre-HITL result — used when caregiver skips observations (final decision unchanged). */
+  mlResult: UC2DecisionResult;
+};
+
+/**
+ * Persist Health Monitor final decision to Dashboard alerts (same bus path as
+ * Care Analysis "Publish to Concierge").
+ */
+function publishChatHealthMonitorAlert(params: {
+  patientId: string | null | undefined;
+  vitals: HypotheticalVitalsArgs;
+  result: UC2DecisionResult;
+  observationCodes?: string[];
+}): void {
+  const pid = params.patientId?.trim();
+  if (!pid) return;
+  const published = publishUc2ResultAsAlert({
+    patientId: pid,
+    result: params.result,
+    input: vitalsArgsToAppleWatchInput(pid, params.vitals),
+    alertIdPrefix: 'chat-hm',
+    caregiverBlock:
+      params.observationCodes && params.observationCodes.length > 0
+        ? {
+            action: 'confirm_concern',
+            confirmed: true,
+            observations: params.observationCodes,
+          }
+        : {
+            action: 'no_additional_observations',
+            confirmed: true,
+            observations: [],
+          },
+  });
+  if (published) {
+    console.log(
+      '[SLM Chat] Published Health Monitor result to Dashboard alerts',
+      params.result.finalDecision?.final_severity,
+    );
+  }
+}
+
+/** After monitor (and optional HITL): schedule follow-up before final Concierge reply. */
+export type PendingScheduleFollowUp = {
+  evalBlock: string;
+  severity: number;
+  summaryLine: string;
+  defaultReason: string;
+};
+
+function needsChatCaregiverReview(ml: {
+  emergencyResult?: { emergency?: boolean };
+  isAnomaly?: boolean;
+  promptShown?: boolean;
+  finalDecision?: { final_severity?: number };
+  post_hitl_severity?: number;
+} | null): boolean {
+  if (!ml) return false;
+  const severity =
+    ml.finalDecision?.final_severity ?? ml.post_hitl_severity ?? 0;
+  if (ml.emergencyResult?.emergency || severity === 3) return false;
+  return (
+    !!ml.promptShown ||
+    !!ml.isAnomaly ||
+    severity === 1 ||
+    severity === 2
+  );
+}
+
+/** Non-emergency professional follow-up (sev 1–2) → offer in-chat scheduling. */
+function shouldOfferScheduleFollowUp(ml: {
+  emergencyResult?: { emergency?: boolean };
+  isAnomaly?: boolean;
+  finalDecision?: {
+    final_severity?: number;
+    final_notification_type?: string;
+    final_notification_level?: string | null;
+  };
+  post_hitl_severity?: number;
+  final_notification_type?: string;
+  final_notification_level?: string | null;
+} | null): boolean {
+  if (!ml) return false;
+  const severity =
+    ml.finalDecision?.final_severity ?? ml.post_hitl_severity ?? 0;
+  if (ml.emergencyResult?.emergency || severity === 3 || severity === 0) {
+    return false;
+  }
+  if (severity !== 1 && severity !== 2) return false;
+  const type =
+    ml.finalDecision?.final_notification_type ?? ml.final_notification_type;
+  const level =
+    ml.finalDecision?.final_notification_level ?? ml.final_notification_level;
+  return (
+    !!ml.isAnomaly ||
+    type === 'SLM_SUMMARY_AND_PROVIDER_NOTE' ||
+    type === 'MONITORING_ADVICE' ||
+    level === 'follow_up' ||
+    level === 'monitor'
+  );
+}
+
+function formatScheduleOutcomeForPrompt(result: InChatScheduleResult): string {
+  if (result.action === 'dismissed') {
+    return (
+      'CAREGIVER SCHEDULING OUTCOME: The caregiver dismissed scheduling for now. ' +
+      'Acknowledge that, still explain the monitor result, and remind them they can book later in Schedule.'
+    );
+  }
+  const when = [result.date, result.time].filter(Boolean).join(' ');
+  return [
+    'CAREGIVER SCHEDULING OUTCOME: The caregiver scheduled a follow-up appointment.',
+    `Type: ${result.type}.`,
+    when ? `When: ${when}.` : '',
+    result.provider ? `Provider: ${result.provider}.` : '',
+    result.location ? `Location: ${result.location}.` : '',
+    result.reason ? `Reason: ${result.reason}.` : '',
+    result.reminder ? `Reminder: ${result.reminder}.` : '',
+    'Confirm the booking briefly in plain language and tie it to the Health Monitor guidance.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
 
 const PROMPT_INPUT_MIN_HEIGHT = 44;
 const PROMPT_INPUT_MAX_HEIGHT = 180;
@@ -103,6 +250,20 @@ interface ChatMessage {
   phase: 0 | 1 | 2 | 3;
   /** Whether the answer (not reasoning) channel has started streaming. */
   answerStarted: boolean;
+  /** Pending Health Monitor tool args awaiting caregiver confirm (never auto-run). */
+  pendingHealthMonitor?: HypotheticalVitalsArgs | null;
+  /**
+   * After Health Monitor ran with severity 1–2: optional caregiver observations
+   * before Concierge writes the grounded answer. Severity 3 skips this.
+   */
+  pendingCaregiverReview?: PendingCaregiverReview | null;
+  /**
+   * After monitor (and optional HITL), when professional follow-up is recommended:
+   * schedule or dismiss, then final Concierge answer.
+   */
+  pendingScheduleFollowUp?: PendingScheduleFollowUp | null;
+  /** User message that triggered this assistant turn (for turn-2 grounding). */
+  sourceUserText?: string;
 }
 
 interface ChatState {
@@ -118,6 +279,10 @@ type ChatAction =
         assistantId: string;
         finalText: string;
         reasoningContent?: string | null;
+        pendingHealthMonitor?: HypotheticalVitalsArgs | null;
+        pendingCaregiverReview?: PendingCaregiverReview | null;
+        pendingScheduleFollowUp?: PendingScheduleFollowUp | null;
+        sourceUserText?: string;
       };
     }
   | { type: 'send-stopped'; payload: { assistantId: string } }
@@ -127,6 +292,26 @@ type ChatAction =
   | { type: 'set-phase'; payload: { assistantId: string; phase: 0 | 1 | 2 | 3 } }
   | { type: 'mark-answer-started'; payload: { assistantId: string } }
   | { type: 'mark-tools-phase'; payload: { assistantId: string } }
+  | {
+      type: 'clear-pending-health-monitor';
+      payload: { assistantId: string; note?: string };
+    }
+  | {
+      type: 'set-pending-caregiver-review';
+      payload: {
+        assistantId: string;
+        review: PendingCaregiverReview | null;
+        interimText?: string;
+      };
+    }
+  | {
+      type: 'set-pending-schedule-follow-up';
+      payload: {
+        assistantId: string;
+        schedule: PendingScheduleFollowUp | null;
+        interimText?: string;
+      };
+    }
   | { type: 'new-conversation' };
 
 function generateId(): string {
@@ -147,7 +332,7 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
       };
 
     case 'send-success': {
-      const { finalText, reasoningContent } = action.payload;
+      const { finalText, reasoningContent, pendingHealthMonitor, sourceUserText } = action.payload;
       const parsed = stripControlTokens(finalText);
       const thinking = reasoningContent || parsed.thinking;
       // If the answer channel came back empty (model was cut off mid-thought,
@@ -175,6 +360,16 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
                 finishedAt: Date.now(),
                 answerStarted: true,
                 phase: 3,
+                pendingHealthMonitor: pendingHealthMonitor ?? null,
+                pendingCaregiverReview:
+                  action.payload.pendingCaregiverReview !== undefined
+                    ? action.payload.pendingCaregiverReview
+                    : null,
+                pendingScheduleFollowUp:
+                  action.payload.pendingScheduleFollowUp !== undefined
+                    ? action.payload.pendingScheduleFollowUp
+                    : null,
+                sourceUserText: sourceUserText ?? m.sourceUserText,
               }
             : m,
         ),
@@ -263,6 +458,67 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         ),
       };
 
+    case 'clear-pending-health-monitor':
+      return {
+        ...state,
+        messages: state.messages.map((m) =>
+          m.id === action.payload.assistantId
+            ? {
+                ...m,
+                pendingHealthMonitor: null,
+                text: action.payload.note
+                  ? `${m.finalText ?? m.text}\n\n${action.payload.note}`
+                  : m.text,
+                finalText: action.payload.note
+                  ? `${m.finalText ?? m.text}\n\n${action.payload.note}`
+                  : m.finalText,
+              }
+            : m,
+        ),
+      };
+
+    case 'set-pending-caregiver-review':
+      return {
+        ...state,
+        runStatus: 'done',
+        messages: state.messages.map((m) =>
+          m.id === action.payload.assistantId
+            ? {
+                ...m,
+                status: 'done' as const,
+                finishedAt: Date.now(),
+                answerStarted: true,
+                phase: 3,
+                pendingCaregiverReview: action.payload.review,
+                pendingScheduleFollowUp: null,
+                text: action.payload.interimText ?? m.text,
+                finalText: action.payload.interimText ?? m.finalText,
+              }
+            : m,
+        ),
+      };
+
+    case 'set-pending-schedule-follow-up':
+      return {
+        ...state,
+        runStatus: 'done',
+        messages: state.messages.map((m) =>
+          m.id === action.payload.assistantId
+            ? {
+                ...m,
+                status: 'done' as const,
+                finishedAt: Date.now(),
+                answerStarted: true,
+                phase: 3,
+                pendingCaregiverReview: null,
+                pendingScheduleFollowUp: action.payload.schedule,
+                text: action.payload.interimText ?? m.text,
+                finalText: action.payload.interimText ?? m.finalText,
+              }
+            : m,
+        ),
+      };
+
     case 'new-conversation':
       return initialState();
 
@@ -298,6 +554,26 @@ export default function SLMScreen({
   }, []);
   const abortControllerRef = useRef<AbortController | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  /** Stash prose/userText across Health Monitor → optional caregiver review → ground. */
+  const pendingGroundingRef = useRef<
+    Record<
+      string,
+      { userText: string; prose: string; historyMessages: ChatMessage[] }
+    >
+  >({});
+  /** Latest Health Monitor pipeline (filled after useCallback defines it). */
+  const runHealthMonitorPipelineRef = useRef<
+    | ((params: {
+        args: HypotheticalVitalsArgs;
+        userText: string;
+        prose: string;
+        historyMessages: ChatMessage[];
+      }) => Promise<void>)
+    | null
+  >(null);
+  const [reviewCodesByMessage, setReviewCodesByMessage] = useState<
+    Record<string, string[]>
+  >({});
   const memoryInfo = useMemoryInfo(2000);
   const hasNativeMemory = isNativeMemoryAvailable();
 
@@ -450,33 +726,57 @@ export default function SLMScreen({
 
     const systemContext = buildCaregiverSystemContext(contextForRequest);
 
-    // Opt-in clinical knowledge retrieval: only when the user's message
-    // contains a condition or medication keyword. Avoids latency on
-    // non-clinical questions.
+    // Clinical knowledge retrieval: structural intent (question shape +
+    // condition/med token overlap + domain stems) — not a hard-coded phrase list.
+    // Use all confirmed conditions from the snapshot (FHIR import included).
     const conditionNames = snapshot
       ? [
-          snapshot.primaryCondition?.name,
-          ...snapshot.comorbidities.map((condition: PatientCondition) => condition.name),
-        ].filter((name): name is string => Boolean(name))
+          ...new Set(
+            [
+              snapshot.primaryCondition?.name,
+              ...snapshot.comorbidities.map((c: PatientCondition) => c.name),
+              ...snapshot.conditions
+                .filter((c: PatientCondition) => !c.needsReview)
+                .map((c: PatientCondition) => c.name),
+            ].filter((name): name is string => Boolean(name?.trim())),
+          ),
+        ]
       : [];
     const medNames = medicationNames;
 
     let userContent = trimmed;
-    const hasKeywords = messageHasClinicalKeywords(trimmed, conditionNames, medNames);
-    if (hasKeywords) {
+    const hasClinicalIntent = messageHasClinicalKeywords(
+      trimmed,
+      conditionNames,
+      medNames,
+    );
+    if (hasClinicalIntent) {
+      const retrievalQuery = buildChatRetrievalQuery(
+        trimmed,
+        conditionNames,
+        medNames,
+      );
       const citations = await retrieveClinicalChunksViaBm25(
         retriever,
-        [trimmed, ...conditionNames, ...medNames].join(' '),
+        retrievalQuery || [trimmed, ...conditionNames].join(' '),
         5,
       );
-      console.log(`[SLM Chat] Keyword match detected. Retrieved ${citations.length} clinical chunks.`);
+      console.log(
+        `[SLM Chat] Clinical intent detected. Query tokens: "${retrievalQuery}". Retrieved ${citations.length} clinical chunks. Conditions: [${conditionNames.join(', ')}]`,
+      );
       const citationBlock = formatCitationsForPrompt(citations);
       if (citationBlock) {
         console.log(`[SLM Chat] Citation block added (${citationBlock.length} chars)`);
         userContent = `${trimmed}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above where relevant. Add the source label in brackets after relevant statements (e.g., "Common side effects include nausea [Drug Label]" or "Studies show improved outcomes [PubMed]").`;
+      } else {
+        console.log(
+          '[SLM Chat] Clinical intent true but 0 chunks — knowledge cache may be empty for this patient; try rebundling conditions.',
+        );
       }
     } else {
-      console.log(`[SLM Chat] No clinical keywords detected. Conditions: [${conditionNames.join(', ')}], Meds: [${medNames.join(', ')}]`);
+      console.log(
+        `[SLM Chat] No clinical intent. Conditions: [${conditionNames.join(', ')}], Meds: [${medNames.join(', ')}]`,
+      );
     }
 
     const messages: ProviderChatMessage[] = [
@@ -539,42 +839,9 @@ export default function SLMScreen({
       }
       console.log('[SLM Chat] === END RESPONSE ===');
 
-      const actionMatch = result.text.match(/ACTION:\s*evaluate_hypothetical_vitals\(([\s\S]*?)\)/);
-      if (actionMatch && orchestrator) {
-        dispatch({ type: 'mark-tools-phase', payload: { assistantId: assistantMessage.id } });
-        try {
-          const args = JSON.parse(actionMatch[1]);
-          const { evalBlock } = await orchestrator.executeHypotheticalEval(
-            { tool: 'evaluate_hypothetical_vitals', args, rationale: 'chat follow-up' },
-            patientId ?? '',
-          );
-          if (evalBlock) {
-            const turn2Messages: ProviderChatMessage[] = [
-              { role: 'system', content: `${systemContext}\n\n${evalBlock}` },
-              ...state.messages.map((m) => ({ role: m.role, content: m.text })),
-              { role: 'user', content: trimmed },
-              { role: 'assistant', content: result.text.replace(/ACTION:.*\n?/g, '').trim() },
-              { role: 'user', content: 'Now ground your answer in the ML hypothetical evaluation above.' },
-            ];
-            const turn2Abort = new AbortController();
-            abortControllerRef.current = turn2Abort;
-            dispatch({ type: 'set-phase', payload: { assistantId: assistantMessage.id, phase: 2 } });
-            const turn2Result = await slm.chat(
-              turn2Messages,
-              (token) => {
-                dispatch({ type: 'mark-answer-started', payload: { assistantId: assistantMessage.id } });
-                dispatch({ type: 'append-token', payload: { assistantId: assistantMessage.id, token } });
-              },
-              turn2Abort.signal,
-              CONCIERGE_GENERATION_DEEP,
-            );
-            finalText = turn2Result.text;
-            finalReasoning = turn2Result.reasoningContent ?? finalReasoning;
-          }
-        } catch {
-          // Hypothetical eval failed — fall through with the original answer.
-        }
-      }
+      // Health Monitor: auto-run when vitals/what-if are detected (no confirm menu).
+      const monitorArgs = resolveHypotheticalVitalsCandidate(trimmed, result.text);
+      finalText = stripEvaluateHypotheticalAction(finalText);
 
       dispatch({
         type: 'send-success',
@@ -582,8 +849,49 @@ export default function SLMScreen({
           assistantId: assistantMessage.id,
           finalText,
           reasoningContent: finalReasoning,
+          pendingHealthMonitor: null,
+          sourceUserText: trimmed,
         },
       });
+
+      if (monitorArgs && orchestrator && runHealthMonitorPipelineRef.current) {
+        // Auto-run Health Monitor (no confirm). Sev 1–2 may still show
+        // caregiver observation review; sev 3 skips that.
+        void runHealthMonitorPipelineRef.current({
+          args: monitorArgs,
+          userText: trimmed,
+          prose: finalText,
+          historyMessages: [
+            ...state.messages,
+            {
+              id: userMessage.id,
+              role: 'user' as const,
+              text: trimmed,
+              finalText: trimmed,
+              thinking: null,
+              status: 'done' as const,
+              startedAt: Date.now(),
+              finishedAt: Date.now(),
+              reasoningStartedAt: null,
+              phase: 0 as const,
+              answerStarted: false,
+            },
+            {
+              id: assistantMessage.id,
+              role: 'assistant' as const,
+              text: finalText,
+              finalText,
+              thinking: finalReasoning ?? null,
+              status: 'done' as const,
+              startedAt: Date.now(),
+              finishedAt: Date.now(),
+              reasoningStartedAt: null,
+              phase: 3 as const,
+              answerStarted: true,
+            },
+          ],
+        });
+      }
     } catch (error) {
       if (
         error instanceof DOMException &&
@@ -605,13 +913,667 @@ export default function SLMScreen({
     } finally {
       abortControllerRef.current = null;
     }
-  }, [inputText, state.runStatus, state.messages, slm, caregiverContext, snapshot, medicationNames, retriever, orchestrator, patientId]);
+  }, [
+    inputText,
+    state.runStatus,
+    state.messages,
+    slm,
+    caregiverContext,
+    snapshot,
+    medicationNames,
+    retriever,
+    orchestrator,
+  ]);
 
   const handleStop = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
   }, []);
+
+  const groundAnswerAfterHealthMonitor = useCallback(
+    async (params: {
+      assistantId: string;
+      evalBlock: string;
+      userText: string;
+      prose: string;
+      historyMessages: ChatMessage[];
+      /** Outcome of the in-chat schedule step (if offered). */
+      scheduleOutcome?: InChatScheduleResult | null;
+    }) => {
+      const contextForRequest: CaregiverAssistantContext = caregiverContext ?? {};
+      const systemContext = buildCaregiverSystemContext(contextForRequest);
+      const scheduleBlock = params.scheduleOutcome
+        ? `\n\n${formatScheduleOutcomeForPrompt(params.scheduleOutcome)}`
+        : '';
+      const groundingInstruction = [
+        'Health Monitor has finished. An INTERNAL_HEALTH_MONITOR_RESULT block is in the system context for you only.',
+        '',
+        'HOW TO REPLY (required):',
+        '- Speak to the family caregiver in calm, plain language — same voice as normal Concierge chat.',
+        '- Lead with the bottom line: what looks off (if anything), how urgent it is in everyday words, and what to do next.',
+        '- Weave in any caregiver observations they selected (e.g. bathroom changes, reduced intake) as human context — not as code names.',
+        '- For moderate/mild findings: suggest check-in, monitoring, or contacting the care team — not automatic 911 unless this is truly urgent.',
+        '- For urgent/emergency findings: clear, action-oriented guidance (Call 911 / ER) without dumping technical fields.',
+        '- If a CAREGIVER SCHEDULING OUTCOME is provided below, acknowledge it (scheduled details or dismissed) in plain language.',
+        '',
+        'NEVER do this:',
+        '- Do NOT paste, quote, or paraphrase the internal block line-by-line.',
+        '- Do NOT list "Anomaly score", "threshold", snake_case labels, or bullet dumps of feature names with numbers.',
+        '- Do NOT invent vitals or scores that are not in the monitor result.',
+        '',
+        'Markdown is fine. Short prose plus light action bullets only. Never invent scores.',
+        scheduleBlock,
+      ].join('\n');
+
+      const looksLikeRawDump = (text: string): boolean => {
+        const t = text.trim();
+        if (!t) return true;
+        if (/^Anomaly score\s*:/i.test(t)) return true;
+        if (/ML_HYPOTHETICAL_EVAL|INTERNAL_HEALTH_MONITOR_RESULT/i.test(t)) return true;
+        if (/Initial classification\s*:/i.test(t) && /Post-review classification\s*:/i.test(t)) {
+          return true;
+        }
+        if (/Final notification\s*:/i.test(t) && /Is anomaly\s*:/i.test(t)) return true;
+        // Heavy snake_case feature dump
+        if ((t.match(/[a-z]+_[a-z]+/g) ?? []).length >= 4) return true;
+        return false;
+      };
+
+      const runGroundingTurn = async (
+        assistantId: string,
+        userContent: string,
+        history: ChatMessage[],
+      ) => {
+        const turn2Messages: ProviderChatMessage[] = [
+          { role: 'system', content: `${systemContext}\n\n${params.evalBlock}` },
+          ...history.map((m) => ({
+            role: m.role,
+            content: m.finalText ?? m.text,
+          })),
+          { role: 'user', content: params.userText },
+          { role: 'assistant', content: params.prose },
+          { role: 'user', content: userContent },
+        ];
+        const turn2Abort = new AbortController();
+        abortControllerRef.current = turn2Abort;
+        dispatch({ type: 'set-phase', payload: { assistantId, phase: 2 } });
+        return slm.chat(
+          turn2Messages,
+          (token) => {
+            dispatch({
+              type: 'mark-answer-started',
+              payload: { assistantId },
+            });
+            dispatch({
+              type: 'append-token',
+              payload: { assistantId, token },
+            });
+          },
+          turn2Abort.signal,
+          CONCIERGE_GENERATION_DEEP,
+        );
+      };
+
+      let turn2Result = await runGroundingTurn(
+        params.assistantId,
+        groundingInstruction,
+        params.historyMessages,
+      );
+      let finalText = turn2Result.text;
+      let finalReasoning = turn2Result.reasoningContent;
+
+      if (looksLikeRawDump(finalText)) {
+        // One retry: model echoed the internal block — force plain-language rewrite.
+        const rewriteId = params.assistantId;
+        const retryMessages: ProviderChatMessage[] = [
+          { role: 'system', content: systemContext },
+          {
+            role: 'user',
+            content:
+              'Rewrite the following Health Monitor explanation for a family caregiver. ' +
+              'Use warm, plain language. Do NOT include anomaly scores, thresholds, snake_case, ' +
+              'or feature dumps. Explain what it means and what to do next.\n\n---\n' +
+              finalText,
+          },
+        ];
+        const retryAbort = new AbortController();
+        abortControllerRef.current = retryAbort;
+        // Clear the bad stream by replacing with rewrite (new tokens append; we replace on success).
+        const retryResult = await slm.chat(
+          retryMessages,
+          () => {
+            // Ignore streaming partials on rewrite; we only keep final text.
+          },
+          retryAbort.signal,
+          CONCIERGE_GENERATION_DEEP,
+        );
+        if (retryResult.text?.trim() && !looksLikeRawDump(retryResult.text)) {
+          finalText = retryResult.text;
+          finalReasoning = retryResult.reasoningContent ?? finalReasoning;
+        } else if (looksLikeRawDump(finalText)) {
+          finalText =
+            'The Health Monitor noticed an unusual pattern in the vitals you described. ' +
+            'With your notes, treat this as something to watch closely and follow your care plan — ' +
+            'contact the care team if things worsen, and use emergency services only if breathing, ' +
+            'alertness, or other red-flag symptoms are serious. I can go into more detail if you tell me what you are seeing now.';
+        }
+        void rewriteId;
+      }
+
+      dispatch({
+        type: 'send-success',
+        payload: {
+          assistantId: params.assistantId,
+          finalText,
+          reasoningContent: finalReasoning,
+          pendingCaregiverReview: null,
+          pendingScheduleFollowUp: null,
+        },
+      });
+    },
+    [caregiverContext, slm],
+  );
+
+  /**
+   * After Health Monitor (+ optional HITL): if professional follow-up is
+   * recommended (sev 1–2), pause for in-chat schedule/dismiss; otherwise
+   * ground the Concierge answer immediately.
+   */
+  const maybeOfferScheduleOrGround = useCallback(
+    async (params: {
+      assistantId: string;
+      evalBlock: string;
+      mlResult: {
+        emergencyResult?: { emergency?: boolean };
+        isAnomaly?: boolean;
+        finalDecision?: {
+          final_severity?: number;
+          final_notification_type?: string;
+          final_notification_level?: string | null;
+          final_notification_body?: string;
+        };
+        post_hitl_severity?: number;
+        postHitlAnomalyType?: string;
+        post_hitl_anomaly_type?: string;
+        initialAnomalyType?: string;
+        final_notification_type?: string;
+        final_notification_level?: string | null;
+      } | null;
+      userText: string;
+      prose: string;
+      historyMessages: ChatMessage[];
+    }) => {
+      const { assistantId, evalBlock, mlResult, userText, prose, historyMessages } =
+        params;
+      if (!mlResult) {
+        await groundAnswerAfterHealthMonitor({
+          assistantId,
+          evalBlock,
+          userText,
+          prose,
+          historyMessages,
+        });
+        return;
+      }
+
+      if (shouldOfferScheduleFollowUp(mlResult)) {
+        const severity =
+          mlResult.finalDecision?.final_severity ?? mlResult.post_hitl_severity ?? 1;
+        const summaryLine = [
+          `Severity ${severity}`,
+          mlResult.isAnomaly ? 'anomaly' : 'pattern',
+          String(
+            mlResult.postHitlAnomalyType ??
+              mlResult.post_hitl_anomaly_type ??
+              mlResult.initialAnomalyType ??
+              '',
+          )
+            .replace(/_/g, ' ')
+            .toLowerCase(),
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        const defaultReason =
+          mlResult.finalDecision?.final_notification_body?.trim() ||
+          `Follow-up after Health Monitor (${summaryLine})`;
+        dispatch({
+          type: 'set-pending-schedule-follow-up',
+          payload: {
+            assistantId,
+            schedule: {
+              evalBlock,
+              severity: Number(severity) || 1,
+              summaryLine,
+              defaultReason,
+            },
+            interimText:
+              `Professional follow-up recommended (${summaryLine}).\n\n` +
+              `Schedule an appointment below, or choose Not now — then I’ll wrap up with guidance.`,
+          },
+        });
+        pendingGroundingRef.current[assistantId] = {
+          userText,
+          prose,
+          historyMessages,
+        };
+        return;
+      }
+
+      await groundAnswerAfterHealthMonitor({
+        assistantId,
+        evalBlock,
+        userText,
+        prose,
+        historyMessages,
+      });
+    },
+    [groundAnswerAfterHealthMonitor],
+  );
+
+  const runHealthMonitorPipeline = useCallback(
+    async (params: {
+      args: HypotheticalVitalsArgs;
+      userText: string;
+      prose: string;
+      historyMessages: ChatMessage[];
+    }) => {
+      if (!orchestrator) return;
+      const { args, userText, prose, historyMessages } = params;
+
+      const vitalsSummary = formatVitalsArgsSummary(args);
+      const followUpUser: ChatMessage = {
+        id: generateId(),
+        role: 'user',
+        text: `Vitals detected (${vitalsSummary}) — activating Health Monitor`,
+        finalText: `Vitals detected (${vitalsSummary}) — activating Health Monitor`,
+        thinking: null,
+        status: 'done',
+        startedAt: Date.now(),
+        finishedAt: Date.now(),
+        reasoningStartedAt: null,
+        phase: 0,
+        answerStarted: false,
+      };
+      const assistantMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        text: 'Running Health Monitor…',
+        finalText: null,
+        thinking: null,
+        status: 'streaming',
+        startedAt: Date.now(),
+        finishedAt: null,
+        reasoningStartedAt: null,
+        phase: 2,
+        answerStarted: true,
+      };
+      dispatch({ type: 'send-start', payload: { userMessage: followUpUser, assistantMessage } });
+
+      try {
+        dispatch({ type: 'mark-tools-phase', payload: { assistantId: assistantMessage.id } });
+        const { evalBlock, mlResult } = await orchestrator.executeHypotheticalEval(
+          {
+            tool: 'evaluate_hypothetical_vitals',
+            args: args as Record<string, unknown>,
+            rationale: 'auto chat Health Monitor',
+          },
+          patientId ?? '',
+        );
+
+        if (!evalBlock || !mlResult) {
+          dispatch({
+            type: 'send-error',
+            payload: {
+              assistantId: assistantMessage.id,
+              error: 'Health Monitor did not return a result. Try again or rephrase the vitals.',
+            },
+          });
+          return;
+        }
+
+        // Sev 1–2: pause for caregiver observations before Concierge grounds.
+        // Sev 3 / emergency: skip HITL (hard threshold path).
+        if (needsChatCaregiverReview(mlResult)) {
+          const severity =
+            mlResult.finalDecision?.final_severity ?? mlResult.post_hitl_severity ?? 1;
+          const summaryLine = [
+            `Severity ${severity}`,
+            mlResult.isAnomaly ? 'anomaly' : 'pattern',
+            String(mlResult.initialAnomalyType ?? '').replace(/_/g, ' ').toLowerCase(),
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          dispatch({
+            type: 'set-pending-caregiver-review',
+            payload: {
+              assistantId: assistantMessage.id,
+              review: {
+                vitals: args,
+                severity: Number(severity) || 1,
+                evalBlock,
+                summaryLine,
+                mlResult,
+              },
+              interimText:
+                `Health Monitor result (${summaryLine}).\n\n` +
+                `Add anything you observed below, then continue — or skip review to use the monitor result only.`,
+            },
+          });
+          pendingGroundingRef.current[assistantMessage.id] = {
+            userText,
+            prose,
+            historyMessages,
+          };
+          return;
+        }
+
+        // No HITL step (e.g. severity 3): publish final decision to Dashboard now.
+        publishChatHealthMonitorAlert({
+          patientId,
+          vitals: args,
+          result: mlResult,
+        });
+
+        await maybeOfferScheduleOrGround({
+          assistantId: assistantMessage.id,
+          evalBlock,
+          mlResult,
+          userText,
+          prose,
+          historyMessages,
+        });
+      } catch (error) {
+        dispatch({
+          type: 'send-error',
+          payload: {
+            assistantId: assistantMessage.id,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Health Monitor failed. You can still ask Concierge without it.',
+          },
+        });
+      } finally {
+        abortControllerRef.current = null;
+      }
+    },
+    [orchestrator, patientId, maybeOfferScheduleOrGround],
+  );
+  runHealthMonitorPipelineRef.current = runHealthMonitorPipeline;
+
+  const handleSkipCaregiverReview = useCallback(
+    async (sourceMessage: ChatMessage) => {
+      const review = sourceMessage.pendingCaregiverReview;
+      if (!review || state.runStatus === 'streaming') return;
+      const grounding = pendingGroundingRef.current[sourceMessage.id];
+      dispatch({
+        type: 'set-pending-caregiver-review',
+        payload: { assistantId: sourceMessage.id, review: null },
+      });
+      const followUpUser: ChatMessage = {
+        id: generateId(),
+        role: 'user',
+        text: 'Continue without extra observations',
+        finalText: 'Continue without extra observations',
+        thinking: null,
+        status: 'done',
+        startedAt: Date.now(),
+        finishedAt: Date.now(),
+        reasoningStartedAt: null,
+        phase: 0,
+        answerStarted: false,
+      };
+      const assistantMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        text: '',
+        finalText: null,
+        thinking: null,
+        status: 'streaming',
+        startedAt: Date.now(),
+        finishedAt: null,
+        reasoningStartedAt: null,
+        phase: 2,
+        answerStarted: false,
+      };
+      dispatch({ type: 'send-start', payload: { userMessage: followUpUser, assistantMessage } });
+      try {
+        // Final ML decision = pre-HITL result (caregiver made no observation changes).
+        publishChatHealthMonitorAlert({
+          patientId,
+          vitals: review.vitals,
+          result: review.mlResult,
+          observationCodes: [],
+        });
+
+        // Sev 1–2: offer schedule; otherwise ground immediately.
+        if (review.severity === 1 || review.severity === 2) {
+          await maybeOfferScheduleOrGround({
+            assistantId: assistantMessage.id,
+            evalBlock: review.evalBlock,
+            mlResult: review.mlResult,
+            userText: grounding?.userText ?? '',
+            prose: grounding?.prose ?? sourceMessage.finalText ?? sourceMessage.text,
+            historyMessages: grounding?.historyMessages ?? state.messages,
+          });
+          delete pendingGroundingRef.current[sourceMessage.id];
+          return;
+        }
+        await groundAnswerAfterHealthMonitor({
+          assistantId: assistantMessage.id,
+          evalBlock: review.evalBlock,
+          userText: grounding?.userText ?? '',
+          prose: grounding?.prose ?? sourceMessage.finalText ?? sourceMessage.text,
+          historyMessages: grounding?.historyMessages ?? state.messages,
+        });
+      } catch (error) {
+        dispatch({
+          type: 'send-error',
+          payload: {
+            assistantId: assistantMessage.id,
+            error:
+              error instanceof Error ? error.message : 'Failed to finish explanation.',
+          },
+        });
+      } finally {
+        delete pendingGroundingRef.current[sourceMessage.id];
+        abortControllerRef.current = null;
+      }
+    },
+    [
+      groundAnswerAfterHealthMonitor,
+      maybeOfferScheduleOrGround,
+      patientId,
+      state.messages,
+      state.runStatus,
+    ],
+  );
+
+  const handleApplyCaregiverReview = useCallback(
+    async (sourceMessage: ChatMessage) => {
+      const review = sourceMessage.pendingCaregiverReview;
+      if (!review || !orchestrator || state.runStatus === 'streaming') return;
+      const codes = reviewCodesByMessage[sourceMessage.id] ?? [];
+      const grounding = pendingGroundingRef.current[sourceMessage.id];
+
+      dispatch({
+        type: 'set-pending-caregiver-review',
+        payload: { assistantId: sourceMessage.id, review: null },
+      });
+
+      const followUpUser: ChatMessage = {
+        id: generateId(),
+        role: 'user',
+        text:
+          codes.length > 0
+            ? `Apply caregiver review: ${codes.join(', ')}`
+            : 'Apply caregiver review (no codes)',
+        finalText:
+          codes.length > 0
+            ? `Apply caregiver review: ${codes.join(', ')}`
+            : 'Apply caregiver review (no codes)',
+        thinking: null,
+        status: 'done',
+        startedAt: Date.now(),
+        finishedAt: Date.now(),
+        reasoningStartedAt: null,
+        phase: 0,
+        answerStarted: false,
+      };
+      const assistantMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        text: '',
+        finalText: null,
+        thinking: null,
+        status: 'streaming',
+        startedAt: Date.now(),
+        finishedAt: null,
+        reasoningStartedAt: null,
+        phase: 2,
+        answerStarted: false,
+      };
+      dispatch({ type: 'send-start', payload: { userMessage: followUpUser, assistantMessage } });
+
+      try {
+        dispatch({ type: 'mark-tools-phase', payload: { assistantId: assistantMessage.id } });
+        const { evalBlock, mlResult } = await orchestrator.executeHypotheticalEval(
+          {
+            tool: 'evaluate_hypothetical_vitals',
+            args: review.vitals as Record<string, unknown>,
+            rationale: 'chat caregiver HITL re-run',
+          },
+          patientId ?? '',
+          { caregiverSelectedCodes: codes },
+        );
+        if (!evalBlock || !mlResult) {
+          dispatch({
+            type: 'send-error',
+            payload: {
+              assistantId: assistantMessage.id,
+              error: 'Health Monitor re-run failed after caregiver review.',
+            },
+          });
+          return;
+        }
+        // Final post-HITL decision → Dashboard alerts (Care Analysis publish path).
+        publishChatHealthMonitorAlert({
+          patientId,
+          vitals: review.vitals,
+          result: mlResult,
+          observationCodes: codes,
+        });
+        await maybeOfferScheduleOrGround({
+          assistantId: assistantMessage.id,
+          evalBlock,
+          mlResult,
+          userText: grounding?.userText ?? '',
+          prose: grounding?.prose ?? '',
+          historyMessages: grounding?.historyMessages ?? state.messages,
+        });
+      } catch (error) {
+        dispatch({
+          type: 'send-error',
+          payload: {
+            assistantId: assistantMessage.id,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Caregiver review failed.',
+          },
+        });
+      } finally {
+        delete pendingGroundingRef.current[sourceMessage.id];
+        setReviewCodesByMessage((prev) => {
+          const next = { ...prev };
+          delete next[sourceMessage.id];
+          return next;
+        });
+        abortControllerRef.current = null;
+      }
+    },
+    [
+      orchestrator,
+      patientId,
+      reviewCodesByMessage,
+      maybeOfferScheduleOrGround,
+      state.messages,
+      state.runStatus,
+    ],
+  );
+
+  const handleScheduleFollowUpComplete = useCallback(
+    async (sourceMessage: ChatMessage, result: InChatScheduleResult) => {
+      const schedule = sourceMessage.pendingScheduleFollowUp;
+      if (!schedule || state.runStatus === 'streaming') return;
+      const grounding = pendingGroundingRef.current[sourceMessage.id];
+
+      dispatch({
+        type: 'set-pending-schedule-follow-up',
+        payload: { assistantId: sourceMessage.id, schedule: null },
+      });
+
+      const outcomeLabel =
+        result.action === 'scheduled'
+          ? `Scheduled ${result.type} on ${result.date}${result.time ? ` at ${result.time}` : ''}`
+          : 'Dismissed scheduling for now';
+
+      const followUpUser: ChatMessage = {
+        id: generateId(),
+        role: 'user',
+        text: outcomeLabel,
+        finalText: outcomeLabel,
+        thinking: null,
+        status: 'done',
+        startedAt: Date.now(),
+        finishedAt: Date.now(),
+        reasoningStartedAt: null,
+        phase: 0,
+        answerStarted: false,
+      };
+      const assistantMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        text: '',
+        finalText: null,
+        thinking: null,
+        status: 'streaming',
+        startedAt: Date.now(),
+        finishedAt: null,
+        reasoningStartedAt: null,
+        phase: 2,
+        answerStarted: false,
+      };
+      dispatch({ type: 'send-start', payload: { userMessage: followUpUser, assistantMessage } });
+
+      try {
+        await groundAnswerAfterHealthMonitor({
+          assistantId: assistantMessage.id,
+          evalBlock: schedule.evalBlock,
+          userText: grounding?.userText ?? '',
+          prose: grounding?.prose ?? sourceMessage.finalText ?? sourceMessage.text,
+          historyMessages: grounding?.historyMessages ?? state.messages,
+          scheduleOutcome: result,
+        });
+      } catch (error) {
+        dispatch({
+          type: 'send-error',
+          payload: {
+            assistantId: assistantMessage.id,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Failed to finish after scheduling.',
+          },
+        });
+      } finally {
+        delete pendingGroundingRef.current[sourceMessage.id];
+        abortControllerRef.current = null;
+      }
+    },
+    [groundAnswerAfterHealthMonitor, state.messages, state.runStatus],
+  );
 
   const handleNewConversation = useCallback(() => {
     if (abortControllerRef.current) {
@@ -739,7 +1701,6 @@ export default function SLMScreen({
     const displayText = isExpanded || !item.finalText
       ? item.finalText ?? item.text
       : truncateForQuickAnswer(item.finalText ?? item.text);
-
     return (
       <View style={styles.assistantBubble}>
         {item.status === 'streaming' && !item.answerStarted && (
@@ -784,6 +1745,69 @@ export default function SLMScreen({
             ) : (
               <Text style={[styles.answerText, { color: theme.text }]}>{item.text}</Text>
             )}
+
+            {item.pendingCaregiverReview && item.status === 'done' ? (
+              <View style={styles.healthMonitorConfirmCard}>
+                <Text style={styles.healthMonitorConfirmTitle}>
+                  Caregiver review (severity {item.pendingCaregiverReview.severity})
+                </Text>
+                <Text style={styles.healthMonitorConfirmBody}>
+                  {item.pendingCaregiverReview.summaryLine}. Select anything you
+                  observed, then continue. Severity 3 emergencies skip this step.
+                </Text>
+                <ObservationPicker
+                  selected={reviewCodesByMessage[item.id] ?? []}
+                  onChange={(codes) =>
+                    setReviewCodesByMessage((prev) => ({ ...prev, [item.id]: codes }))
+                  }
+                  enabled={state.runStatus !== 'streaming'}
+                />
+                <View style={styles.healthMonitorConfirmRow}>
+                  <Pressable
+                    style={[styles.healthMonitorButton, styles.healthMonitorButtonPrimary]}
+                    onPress={() => void handleApplyCaregiverReview(item)}
+                    disabled={state.runStatus === 'streaming'}
+                  >
+                    <Text style={styles.healthMonitorButtonPrimaryText}>
+                      Apply review & continue
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.healthMonitorButton, styles.healthMonitorButtonSecondary]}
+                    onPress={() => void handleSkipCaregiverReview(item)}
+                    disabled={state.runStatus === 'streaming'}
+                  >
+                    <Text style={styles.healthMonitorButtonSecondaryText}>
+                      Skip review
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+
+            {item.pendingScheduleFollowUp && item.status === 'done' && patientId ? (
+              <InChatScheduleAppointmentCard
+                patientId={patientId}
+                defaultReason={item.pendingScheduleFollowUp.defaultReason}
+                enabled={state.runStatus !== 'streaming'}
+                onComplete={(result) => void handleScheduleFollowUpComplete(item, result)}
+              />
+            ) : null}
+            {item.pendingScheduleFollowUp && item.status === 'done' && !patientId ? (
+              <View style={styles.healthMonitorConfirmCard}>
+                <Text style={styles.healthMonitorConfirmBody}>
+                  No active patient — open a profile, then ask again to schedule.
+                </Text>
+                <Pressable
+                  style={[styles.healthMonitorButton, styles.healthMonitorButtonSecondary]}
+                  onPress={() =>
+                    void handleScheduleFollowUpComplete(item, { action: 'dismissed' })
+                  }
+                >
+                  <Text style={styles.healthMonitorButtonSecondaryText}>Continue without scheduling</Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             {showReasoningToggle ? (
               <View style={styles.reasoningSection}>
@@ -1058,7 +2082,26 @@ export default function SLMScreen({
             <Text style={styles.tagline}>The Concierge suggests. You decide.</Text>
           </View>
 
-          {state.messages.length > 0 ? (
+          {state.messages.length === 0 ? (
+            <View style={styles.howToCard}>
+              <Text style={styles.howToTitle}>How Health Monitor works in chat</Text>
+              <Text style={styles.howToBody}>
+                1. Ask a vitals or what-if question (e.g. “What if SpO2 is 86% and heart rate is 118?”).
+              </Text>
+              <Text style={styles.howToBody}>
+                2. When vitals are detected, you’ll see “activating Health Monitor” and it runs right away.
+              </Text>
+              <Text style={styles.howToBody}>
+                3. Severity 1–2 may ask for observations, then offer to schedule a follow-up appointment (or dismiss).
+              </Text>
+              <Text style={styles.howToBody}>
+                4. After you finish, Concierge explains with that context. Severity 3 skips review/scheduling and may show a critical banner — never auto-calls 911.
+              </Text>
+              <Text style={styles.howToFootnote}>
+                SpO2 is percent (86, not 0.86). Pure med/schedule questions skip Health Monitor.
+              </Text>
+            </View>
+          ) : (
             <View style={styles.card}>
               <FlatList
                 ref={flatListRef}
@@ -1069,7 +2112,7 @@ export default function SLMScreen({
                 scrollEnabled={false}
               />
             </View>
-          ) : null}
+          )}
 
           <View style={styles.safetyCard}>
             <Text style={styles.safetyNote}>
@@ -1235,6 +2278,80 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 18,
     marginBottom: 16,
+  },
+  howToCard: {
+    backgroundColor: '#F0F7F6',
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#C5DDD9',
+  },
+  howToTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#123433',
+    marginBottom: 10,
+  },
+  howToBody: {
+    color: '#526866',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  howToFootnote: {
+    color: '#0E6F68',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  healthMonitorConfirmCard: {
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: '#F0F7F6',
+    borderWidth: 1,
+    borderColor: '#0E6F68',
+  },
+  healthMonitorConfirmTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#123433',
+    marginBottom: 6,
+  },
+  healthMonitorConfirmBody: {
+    fontSize: 13,
+    color: '#526866',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  healthMonitorConfirmRow: {
+    flexDirection: 'row',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  healthMonitorButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+  },
+  healthMonitorButtonPrimary: {
+    backgroundColor: '#0E6F68',
+  },
+  healthMonitorButtonPrimaryText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  healthMonitorButtonSecondary: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#0E6F68',
+  },
+  healthMonitorButtonSecondaryText: {
+    color: '#0E6F68',
+    fontWeight: '700',
+    fontSize: 13,
   },
   safetyCard: {
     backgroundColor: '#FFFFFF',
