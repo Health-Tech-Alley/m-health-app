@@ -67,7 +67,9 @@ export function getActiveCarePlanForPatient(patientId: string): CarePlan | null 
             description, period_start AS periodStart, period_end AS periodEnd,
             care_team_display_json AS careTeamDisplayJson, created_at AS createdAt
      FROM care_plans
-     WHERE patient_id = ? AND COALESCE(status, 'active') = 'active'
+     WHERE patient_id = ?
+       AND COALESCE(status, 'active') = 'active'
+       AND COALESCE(intent, '') <> 'hedis-aligned'
      ORDER BY COALESCE(period_start, effective_date) DESC, version DESC
      LIMIT 1;`,
     patientId,

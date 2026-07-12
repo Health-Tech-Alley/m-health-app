@@ -54,6 +54,9 @@ jest.mock('../repositories/patientRepository', () => ({
 const { upsertCaregiver } = jest.requireMock('../repositories/patientRepository') as {
   upsertCaregiver: jest.Mock;
 };
+const { upsertCarePlan } = jest.requireMock('../repositories/carePlanRepository') as {
+  upsertCarePlan: jest.Mock;
+};
 
 function relationshipBundle(patientId: string) {
   return {
@@ -81,6 +84,69 @@ function relationshipBundle(patientId: string) {
           patient: { reference: `Patient/${patientId}` },
           relationship: [{ text: 'Caregiver' }],
           name: [{ text: 'FHIR Related Person' }],
+        },
+      },
+    ],
+  };
+}
+
+function carePlanBundle(patientId: string) {
+  return {
+    resourceType: 'Bundle',
+    type: 'collection',
+    entry: [
+      {
+        resource: {
+          resourceType: 'Patient',
+          id: patientId,
+          name: [{ given: ['Test'], family: 'Patient' }],
+        },
+      },
+      {
+        resource: {
+          resourceType: 'CarePlan',
+          id: 'source-care-context',
+          status: 'active',
+          intent: 'plan',
+          title: 'Care Planning Context',
+          description: 'Source-backed planning context from the imported record.',
+          subject: { reference: `Patient/${patientId}` },
+          period: { start: '2026-07-10' },
+          activity: [
+            {
+              detail: {
+                status: 'in-progress',
+                description: 'Imported context activity',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  };
+}
+
+function observationBundle(patientId: string) {
+  return {
+    resourceType: 'Bundle',
+    type: 'collection',
+    entry: [
+      {
+        resource: {
+          resourceType: 'Patient',
+          id: patientId,
+          name: [{ given: ['Test'], family: 'Patient' }],
+        },
+      },
+      {
+        resource: {
+          resourceType: 'Observation',
+          id: 'heart-rate-observation',
+          status: 'final',
+          subject: { reference: `Patient/${patientId}` },
+          code: { coding: [{ code: '8867-4' }] },
+          valueQuantity: { value: 88, unit: 'beats/min' },
+          effectiveDateTime: '2026-07-10T12:00:00.000Z',
         },
       },
     ],
@@ -116,6 +182,7 @@ describe('FHIR relationship import caregiver boundary', () => {
   beforeEach(() => {
     mockRunSync.mockClear();
     upsertCaregiver.mockClear();
+    upsertCarePlan.mockClear();
     mockRawResources.length = 0;
   });
 
@@ -143,6 +210,41 @@ describe('FHIR relationship import caregiver boundary', () => {
 
     expect(JSON.parse(patientResource?.payloadJson ?? '{}').contact).toHaveLength(1);
     expect(JSON.parse(relatedResource?.payloadJson ?? '{}').resourceType).toBe('RelatedPerson');
+  });
+
+  it('keeps valid imported CarePlan resources on the existing care-plan path', () => {
+    const patientId = saveFHIRBundleToDB(carePlanBundle('patient-care-context'));
+
+    expect(patientId).toBe('patient-care-context');
+    expect(upsertCarePlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        planId: 'source-care-context',
+        patientId: 'patient-care-context',
+        title: 'Care Planning Context',
+        activities: [
+          expect.objectContaining({
+            description: 'Imported context activity',
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('persists imported baseline observations to repository-backed health samples', () => {
+    const patientId = saveFHIRBundleToDB(observationBundle('patient-observations'));
+
+    expect(patientId).toBe('patient-observations');
+    expect(
+      mockRunSync.mock.calls.some((call) => {
+        const sql = String(call[0]);
+        return (
+          sql.includes('health_samples') &&
+          call.includes('heart-rate-observation') &&
+          call.includes('patient-observations') &&
+          call.includes('heart_rate')
+        );
+      }),
+    ).toBe(true);
   });
 
   it('does not expose another patient caregiver when the active snapshot has none', () => {

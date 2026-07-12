@@ -364,6 +364,10 @@ export function seedDatabaseFromProfile(
     // appointment seeding is best-effort
   }
 
+  if (!profile.clinicalImport) {
+    return patientId;
+  }
+
   // -- Mark bundle as pending so the clinical-evidence bundler can run -----
   setBundlePending(patientId, true);
   setBundleStatus(patientId, { state: 'in_flight', chunksAdded: 0 });
@@ -374,25 +378,28 @@ export function seedDatabaseFromProfile(
   // (See planning/22_clinical-data-gathering.md §9a)
   void import('@/clinical-evidence/condition-bundler').then(({ bundleConditionPack, bundleMedicationPack, bundleSdohPack, bundleMeasurePack }) => {
     void bundleConditionPack(patientId).catch((err) => {
-      console.error('[seedFromProfile] bundleConditionPack failed:', err);
-      // Leave bundlePending = true so the app retries on next launch
+      console.error('[seedFromProfile] condition bundle failed:', err);
     });
     void bundleMedicationPack(patientId).catch((err) => {
-      console.error('[seedFromProfile] bundleMedicationPack failed:', err);
+      console.error('[seedFromProfile] medication bundle failed:', err);
     });
-    // D5: SDOH bundle (CDC PLACES) keyed off patient.location.
     void bundleSdohPack(patientId, profile.patient.location).catch((err) => {
-      console.error('[seedFromProfile] bundleSdohPack failed:', err);
+      console.error('[seedFromProfile] SDOH bundle failed:', err);
     });
-    // D7: HEDIS measure-driven care-gap bundle.
-    void bundleMeasurePack(patientId).catch((err) => {
-      console.error('[seedFromProfile] bundleMeasurePack failed:', err);
-    });
+    if (shouldBundleHedisMeasures(profile)) {
+      void bundleMeasurePack(patientId).catch((err) => {
+        console.error('[seedFromProfile] HEDIS bundle failed:', err);
+      });
+    }
   }).catch((err) => {
     console.error('[seedFromProfile] Failed to load condition-bundler:', err);
   });
 
   return patientId;
+}
+
+export function shouldBundleHedisMeasures(profile: OnboardingProfile): boolean {
+  return Boolean(profile.clinicalImport);
 }
 
 /**

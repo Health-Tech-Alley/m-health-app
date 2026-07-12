@@ -336,7 +336,11 @@ export function AdvancedDeveloperSettingsScreen() {
   } = useSettings();
   const slm = useSLM();
   const patientId = useOrchestratorPatientId();
-  const { snapshot, refresh } = usePatientRecord();
+  const {
+    patientId: patientRecordPatientId,
+    snapshot,
+    refresh,
+  } = usePatientRecord();
   const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
   const [ncbiKeyInput, setNcbiKeyInput] = useState('');
   const [openfdaKeyInput, setOpenfdaKeyInput] = useState('');
@@ -1056,7 +1060,7 @@ export function AdvancedDeveloperSettingsScreen() {
         {isDeveloper ? (
           <Section title="Diagnosis curation">
             <DiagnosisCurationSettings
-              patientId={patientId}
+              patientId={patientRecordPatientId ?? ''}
               snapshot={snapshot}
               refresh={refresh}
             />

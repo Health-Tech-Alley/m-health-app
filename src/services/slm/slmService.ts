@@ -84,8 +84,17 @@ export function buildCaregiverAssistantContextFromSnapshot(
   snapshot: PatientRecordSnapshot,
 ): CaregiverAssistantContext {
   const confirmedConditions = snapshot.conditions.filter((c) => !c.needsReview);
-  const primary = confirmedConditions.find((c) => c.isPrimary) ?? confirmedConditions[0];
-  const comorbidities = confirmedConditions.filter((c) => c !== primary);
+  const hasCuratedConditionRoles = confirmedConditions.some((condition) =>
+    Boolean(condition.conditionRole),
+  );
+  const primary =
+    confirmedConditions.find((c) => c.conditionRole === 'primary_diagnosis') ??
+    snapshot.primaryCondition ??
+    confirmedConditions.find((c) => c.isPrimary) ??
+    confirmedConditions[0];
+  const comorbidities = hasCuratedConditionRoles
+    ? confirmedConditions.filter((c) => c.conditionRole === 'active_comorbidity')
+    : confirmedConditions.filter((c) => c !== primary);
 
   return {
     patientName: snapshot.patient?.name,

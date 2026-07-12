@@ -36,9 +36,10 @@ import {
   type WearableDeviceType,
 } from "@/services/onboarding/onboardingService";
 import {
-  getElenaGarciaFhirOnboardingImport,
-  type OnboardingFhirImportResult,
-} from "@/services/onboarding/fhirDemoImport";
+  applyDemoOnboardingPreset,
+  getDemoOnboardingOptions,
+  type DemoOnboardingProfileId,
+} from "@/services/onboarding/demoOnboardingPresets";
 import { refreshPatientRecord } from "@/contexts/patient-record-context";
 import { ALL_HEALTHKIT_READ_TYPES } from "@/data/sensors/healthkit-type-map";
 import { AppleHealthSource } from "@/data/sensors/apple-health-source";
@@ -349,6 +350,9 @@ export default function OnboardingScreen() {
 
   const [stepIndex, setStepIndex] = useState(0);
   const [expandedSelect, setExpandedSelect] = useState<ExpandedSelect>(null);
+  const [selectedDemoProfileId, setSelectedDemoProfileId] = useState<
+    DemoOnboardingProfileId | null
+  >((existingProfile.demoProfileId as DemoOnboardingProfileId | undefined) ?? null);
 
   const [caregiverName, setCaregiverName] = useState(
     existingProfile.caregiver.name,
@@ -504,65 +508,58 @@ export default function OnboardingScreen() {
   const [patientLocation, setPatientLocation] = useState(
     existingProfile.patient.location ?? "",
   );
-  const [ehrRecordApplied, setEhrRecordApplied] = useState(false);
-  const [clinicalImport, setClinicalImport] = useState<
-    OnboardingFhirImportResult["clinicalImport"] | undefined
-  >(existingProfile.clinicalImport);
+  function handleSelectDemoProfile(profileId: DemoOnboardingProfileId) {
+    const nextProfile = applyDemoOnboardingPreset(existingProfile, profileId);
+    const caregiver = nextProfile.caregiver;
 
-  function handleApplyEhrRecord() {
-    if (ehrRecordApplied) return;
-    const { onboardingPatch, clinicalImport: importedClinicalPackage } =
-      getElenaGarciaFhirOnboardingImport();
-    const primaryDiagnosis = getInitialPrimaryDiagnosisText({
-      code: onboardingPatch.primaryCondition?.code,
-      label: onboardingPatch.primaryCondition?.label,
-    });
-
-    if (onboardingPatch.officialFirstName) {
-      setOfficialFirstName(onboardingPatch.officialFirstName);
+    setSelectedDemoProfileId(profileId);
+    setCaregiverName(caregiver.name);
+    setRelationship(caregiver.relationship);
+    setCaregiverPhone(caregiver.phone);
+    if (caregiver.experience) setExperience(caregiver.experience);
+    if (caregiver.availability) setAvailability(caregiver.availability);
+    if (caregiver.languagePreference) {
+      setLanguagePreference(caregiver.languagePreference);
     }
-    if (onboardingPatch.officialLastName) {
-      setOfficialLastName(onboardingPatch.officialLastName);
+    if (caregiver.medicalComfortLevel) {
+      setMedicalComfortLevel(caregiver.medicalComfortLevel);
     }
-    if (onboardingPatch.officialDisplayName) {
-      setOfficialDisplayName(onboardingPatch.officialDisplayName);
-    }
-    if (onboardingPatch.patientAge) {
-      setPatientAge(onboardingPatch.patientAge);
-    }
-    if (primaryDiagnosis) {
-      setPrimaryDiagnosisText(primaryDiagnosis);
-    }
-    if (onboardingPatch.comorbidities.length) {
-      setComorbidities(onboardingPatch.comorbidities);
-    }
-    if (onboardingPatch.baselineDailyRoutine) {
-      setBaselineDailyRoutine(onboardingPatch.baselineDailyRoutine);
-    }
-    if (onboardingPatch.currentMedications) {
-      setCurrentMedications(onboardingPatch.currentMedications);
-    }
-    if (onboardingPatch.spo2Cutoff) {
-      setSpo2Cutoff(onboardingPatch.spo2Cutoff);
-    }
-    if (onboardingPatch.baselineHeartRate) {
-      setBaselineHeartRate(onboardingPatch.baselineHeartRate);
-    }
-    if (onboardingPatch.gmfcsLevel) {
-      setGmfcsLevel(normalizeClassificationValue(onboardingPatch.gmfcsLevel));
-    }
-    setFmsScore((current) => current || "Not assessed");
-    if (onboardingPatch.macsLevel) {
-      setMacsLevel(normalizeClassificationValue(onboardingPatch.macsLevel));
-    }
-    if (onboardingPatch.cfcsLevel) {
-      setCfcsLevel(normalizeClassificationValue(onboardingPatch.cfcsLevel));
-    }
-    if (onboardingPatch.edacsLevel) {
-      setEdacsLevel(normalizeClassificationValue(onboardingPatch.edacsLevel));
-    }
-    setClinicalImport(importedClinicalPackage);
-    setEhrRecordApplied(true);
+    setHobbiesOrRoutines(caregiver.hobbiesOrRoutines ?? "");
+    setMainConcern(caregiver.mainConcern ?? "");
+    setStressOrSupportNeeds(caregiver.stressOrSupportNeeds ?? "");
+    setBackupCaregiver(caregiver.backupCaregiver ?? "");
+    setPatientPreferredName(nextProfile.patient.preferredName ?? nextProfile.patient.name);
+    setOfficialFirstName("");
+    setOfficialLastName("");
+    setOfficialDisplayName("");
+    setPatientAge("");
+    setPrimaryDiagnosisText("");
+    setComorbidities([]);
+    setSelectedSymptoms([]);
+    setOtherSymptoms("");
+    setBaselineDailyRoutine(nextProfile.patient.baselineDailyRoutine ?? "");
+    setCurrentMedications("");
+    setSpo2Cutoff("");
+    setBaselineHeartRate("");
+    setBaselineBloodOxygen("");
+    setBaselineRespiratoryRate("");
+    setBaselineBloodPressureSystolic("");
+    setBaselineBloodPressureDiastolic("");
+    setBaselineGlucoseLevel("");
+    setBaselineBodyTemperature("");
+    setGmfcsLevel("");
+    setFmsScore("");
+    setMacsLevel("");
+    setCfcsLevel("");
+    setEdacsLevel("");
+    setProviderName(nextProfile.primaryCareProvider.name);
+    setProviderPhone(nextProfile.primaryCareProvider.phone);
+    setProviderEmail(nextProfile.primaryCareProvider.email);
+    setEmergencyContact(nextProfile.safety?.emergencyContact ?? "");
+    setSafetyNotes(nextProfile.safety?.safetyNotes ?? "");
+    setEmergencyDisclaimerAccepted(
+      nextProfile.safety?.emergencyDisclaimerAccepted ?? true,
+    );
   }
 
   const [providerName, setProviderName] = useState(
@@ -672,6 +669,7 @@ export default function OnboardingScreen() {
       .join(", ");
 
     const profile: OnboardingProfile = {
+      demoProfileId: selectedDemoProfileId ?? undefined,
       caregiver: {
         name: caregiverName,
         relationship,
@@ -738,7 +736,7 @@ export default function OnboardingScreen() {
         safetyNotes,
         emergencyDisclaimerAccepted,
       },
-      clinicalImport,
+      clinicalImport: existingProfile.clinicalImport,
       completedAt: new Date().toISOString(),
     };
 
@@ -872,7 +870,12 @@ export default function OnboardingScreen() {
               </>
             ) : null}
 
-            {stepIndex === 0 ? <WelcomeStep /> : null}
+            {stepIndex === 0 ? (
+              <WelcomeStep
+                selectedDemoProfileId={selectedDemoProfileId}
+                onSelectDemoProfile={handleSelectDemoProfile}
+              />
+            ) : null}
 
             {stepIndex === 1 ? (
               <StepShell
@@ -1032,34 +1035,9 @@ export default function OnboardingScreen() {
                 <SectionLabel title="Clinical information" />
 
                 <Text style={styles.diagnosisHelper}>
-                  Use information from the health record to help complete the
-                  patient profile, or enter the information manually.
+                  Add these details manually during onboarding, or import a
+                  bundled EHR after onboarding is complete.
                 </Text>
-
-                <Pressable
-                  style={[styles.ehrPlaceholderButton, ehrRecordApplied && styles.ehrAppliedButton]}
-                  onPress={handleApplyEhrRecord}
-                  disabled={ehrRecordApplied}
-                >
-                  <View style={styles.ehrIconCircle}>
-                    <AppIcon
-                      name="plus"
-                      size={18}
-                      color={AppTheme.colors.brand}
-                    />
-                  </View>
-
-                  <View style={styles.ehrTextBlock}>
-                    <Text style={styles.ehrTitle}>
-                      {ehrRecordApplied ? "Health record imported" : "Import from health record"}
-                    </Text>
-                    <Text style={styles.ehrSubtitle}>
-                      {ehrRecordApplied
-                        ? "Official and clinical details are ready for review"
-                        : "Use the local Elena Garcia demo Bundle"}
-                    </Text>
-                  </View>
-                </Pressable>
 
                 <View style={styles.twoColumnFields}>
                   <Field
@@ -1584,7 +1562,15 @@ export default function OnboardingScreen() {
   );
 }
 
-function WelcomeStep() {
+function WelcomeStep({
+  selectedDemoProfileId,
+  onSelectDemoProfile,
+}: {
+  selectedDemoProfileId: DemoOnboardingProfileId | null;
+  onSelectDemoProfile: (profileId: DemoOnboardingProfileId) => void;
+}) {
+  const demoOptions = getDemoOnboardingOptions();
+
   return (
     <View style={styles.welcome}>
       <View style={styles.heroLogoCard}>
@@ -1610,6 +1596,38 @@ function WelcomeStep() {
         <SummaryRow text="Keep emergency decisions human-controlled" />
         <SummaryRow text="Reduce guessing with structured health context" />
         <SummaryRow text="Prepare data for future EHR and wearable integration" />
+      </View>
+
+      <View style={styles.demoProfileBlock}>
+        <Text style={styles.previewTitle}>Demo onboarding case</Text>
+        {demoOptions.map((option) => {
+          const selected = selectedDemoProfileId === option.id;
+
+          return (
+            <Pressable
+              key={option.id}
+              style={[
+                styles.demoProfileRow,
+                selected && styles.demoProfileRowSelected,
+              ]}
+              onPress={() => onSelectDemoProfile(option.id)}
+            >
+              <View style={styles.demoProfileTextBlock}>
+                <Text style={styles.demoProfileTitle}>{option.label}</Text>
+                <Text style={styles.demoProfileSubtitle}>
+                  {option.caregiver.name} - {option.caregiver.relationship}
+                </Text>
+              </View>
+              {selected ? (
+                <AppIcon
+                  name="check"
+                  size={18}
+                  color={AppTheme.colors.brand}
+                />
+              ) : null}
+            </Pressable>
+          );
+        })}
       </View>
 
       <Text style={styles.privacyText}>
@@ -2284,6 +2302,46 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: 20,
     textAlign: "center",
+  },
+  demoProfileBlock: {
+    width: "100%",
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.card,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    padding: 16,
+    marginTop: 14,
+    gap: 8,
+  },
+  demoProfileRow: {
+    minHeight: 58,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.softSurface,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  demoProfileRowSelected: {
+    borderColor: AppTheme.colors.brand,
+    backgroundColor: AppTheme.colors.brandSoft,
+  },
+  demoProfileTextBlock: {
+    flex: 1,
+  },
+  demoProfileTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  demoProfileSubtitle: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 2,
   },
 
   stepShell: {

@@ -22,7 +22,7 @@ import {
   getKnowledgeChunk,
   type BundleStatus,
 } from '@/data';
-import type { KnowledgeChunk, PatientEnrichmentLogEntry } from '@/data/types';
+import type { KnowledgeChunk, PatientCondition, PatientEnrichmentLogEntry } from '@/data/types';
 import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
 import { deidentifyQuery, buildPubMedQuery } from './deidentify';
 import { searchPubMed, fetchAbstracts } from './pubmed-client';
@@ -93,6 +93,24 @@ function logEnrichment(
   insertEnrichmentLogEntry(entry);
 }
 
+function selectConditionsForBundling(patientId: string): PatientCondition[] {
+  const conditions = getConditionsForPatient(patientId).filter((condition) => !condition.needsReview);
+  const hasCuratedRoles = conditions.some((condition) => Boolean(condition.conditionRole));
+  if (!hasCuratedRoles) return conditions;
+
+  const selected = new Map<string, PatientCondition>();
+  const primary = conditions.find((condition) => condition.conditionRole === 'primary_diagnosis');
+  if (primary) {
+    selected.set(primary.conditionId, primary);
+  }
+  for (const condition of conditions) {
+    if (condition.conditionRole === 'active_comorbidity') {
+      selected.set(condition.conditionId, condition);
+    }
+  }
+  return [...selected.values()];
+}
+
 /**
  * Bundle condition packs for a patient: PubMed abstracts + MedlinePlus topics
  * for each confirmed condition. Fire-and-forget — caller does not await.
@@ -106,7 +124,7 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
   setBundlePending(patientId, true);
   setBundleStatus(patientId, { state: 'in_flight', chunksAdded: 0 });
 
-  const conditions = getConditionsForPatient(patientId).filter((c) => !c.needsReview);
+  const conditions = selectConditionsForBundling(patientId);
   const profile = getOnboardingProfile();
 
   const pii = {
@@ -381,7 +399,7 @@ async function bundleOneMeasure(patientId: string, measure: HedisMeasure): Promi
  * surfaces them in deep mode only.
  */
 export async function bundleSystematicReviewPack(patientId: string): Promise<void> {
-  const conditions = getConditionsForPatient(patientId).filter((c) => !c.needsReview);
+  const conditions = selectConditionsForBundling(patientId);
   const profile = getOnboardingProfile();
   const pii = {
     patientName: profile.patient.name,

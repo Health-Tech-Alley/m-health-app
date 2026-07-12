@@ -1,8 +1,6 @@
-import { useCallback, useState, useEffect } from 'react';
-import { useAppSelector } from '@/store/hooks';
+import { useCallback, useState } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { calculateAge } from '@/utils/commonFunctions';
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import type { PatientCondition } from '@/data/types';
@@ -22,36 +20,12 @@ export function PatientSummaryCard() {
   const { snapshot, ready, error, refresh } = usePatientRecord();
   const [expanded, setExpanded] = useState(false);
   const activePatient = useActivePatientView();
-  const { patient, loading, lastSynced } = useAppSelector(state => state.patient);
-  const [patientProfile, setPatientProfile] = useState<any>(null);
 
   useFocusEffect(
     useCallback(() => {
       refresh();
     }, [refresh]),
   );
-
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      if (patient) {
-        const patientData =  patient["entry"]?.map(
-              (entry: any) => {
-                return entry && entry.resource && entry.resource.resourceType === "Patient" ? entry : null;
-              }
-          );
-        setPatientProfile(patientData);
-      } else {
-        setPatientProfile(null);
-      }
-    }, 0);
-    return () => clearTimeout(handle);
-  }, [patient]);
-
-  const patientPersonalInfo = patientProfile?.filter((entry: any) => entry && entry.resource && entry.resource.resourceType === "Patient")[0]?.resource;
-  const patientFirstName = patientPersonalInfo?.name?.[0]?.given?.[0] || "Patient";
-  const patientFamilyName = patientPersonalInfo?.name?.[0]?.family || "Name";
-  const patientAge = patientPersonalInfo?.birthDate ? calculateAge(new Date(patientPersonalInfo.birthDate)) : "N/A";
-
 
   if (!ready) {
     return (
@@ -83,15 +57,12 @@ export function PatientSummaryCard() {
   }
 
   const patientName = getPatientDisplayName(activePatient);
-  // const patientAge = getPatientAgeDisplay(activePatient);
+  const patientAge = getPatientAgeDisplay(activePatient);
   const caregiverName = getCaregiverDisplay(activePatient);
   const primaryCondition = activePatient?.primaryDiagnosis ?? null;
   const comorbidities = activePatient?.comorbidities ?? [];
   const sourceCount = countKnowledgeSources(snapshot.knowledgeStats.bySource);
-  const cacheSummary = formatKnowledgeCacheSummary(
-    snapshot.knowledgeStats.total,
-    sourceCount,
-  );
+  const cacheSummary = formatKnowledgeCacheSummary(snapshot.knowledgeStats.total, sourceCount);
   const sourceBreakdown = formatKnowledgeSourceBreakdown(
     snapshot.knowledgeStats.bySource,
   );
@@ -225,7 +196,7 @@ function countKnowledgeSources(bySource: Record<string, number>): number {
   return Object.values(bySource).filter((count) => count > 0).length;
 }
 
-function formatKnowledgeCacheSummary(
+export function formatKnowledgeCacheSummary(
   total: number,
   sourceCount: number,
 ): string | null {
