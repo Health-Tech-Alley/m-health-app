@@ -9,7 +9,7 @@
  *   5. Caregiver answers the question; orchestrator re-runs with the new fact.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   PanResponder,
@@ -25,7 +25,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { severityColor } from '@/constants/user-terms';
 import { ThinkingIndicator } from '@/components/concierge/ThinkingIndicator';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
-import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
 import {
   useOrchestrator,
   useOrchestratorPatientId,
@@ -34,6 +33,7 @@ import { useSLM } from '@/contexts/slm-context';
 import { getActiveAlerts, resolveAllAlerts, updateAlertStatus } from '@/data';
 import type { Alert } from '@/data/types';
 import { getEventBus, type OrchestrationEvent, type AgentProposal } from '@/orchestration';
+import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
 
 const SWIPE_THRESHOLD = 80;
 
@@ -109,7 +109,9 @@ function SwipeableAlertRow({
 
 export default function AcuteAnomalyScreen() {
   const orchestrator = useOrchestrator();
-  const slm = useSLM();
+  const { acquireSlm } = useSLM();
+  /** Screen-scoped explain lease so demo uses task queue (doc 34), not raw loadModel. */
+  const explainLeaseRef = useRef<SlmTaskLease | null>(null);
 
   const patientId = useOrchestratorPatientId();
   const [alerts, setAlerts] = useState<Alert[]>(() => getActiveAlerts(patientId));
@@ -196,24 +198,42 @@ export default function AcuteAnomalyScreen() {
     setTimeout(() => refreshAlerts(patientId), 50);
   }, [patientId, spo2, heartRate, log, refreshAlerts]);
 
+  const releaseExplainLease = useCallback(() => {
+    explainLeaseRef.current?.release();
+    explainLeaseRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      releaseExplainLease();
+    };
+  }, [releaseExplainLease]);
+
   const explainAlert = useCallback(
     async (alertId: string) => {
       setLoading(true);
       setProposal(null);
       try {
-        if (slm.loadStatus !== 'ready') {
-          await slm.loadModel(CAREGIVER_SLM_MODEL_ID);
+        // Doc 34: lease-driven load (RAM gate + refcount), not raw loadModel.
+        if (!explainLeaseRef.current) {
+          explainLeaseRef.current = await acquireSlm('explain_alert');
+          log('Concierge lease acquired for explain.');
         }
         const result = await orchestrator.explainAlert(alertId, 'caregiver-1');
         setProposal(result);
         log(`Concierge explanation received. Citations: ${result.citations.length}`);
+        // Keep lease while clarifying UI is open; release if no follow-up question.
+        if (!result.clarifyingQuestion) {
+          releaseExplainLease();
+        }
       } catch (err) {
         log(`Explain failed: ${err instanceof Error ? err.message : String(err)}`);
+        releaseExplainLease();
       } finally {
         setLoading(false);
       }
     },
-    [orchestrator, slm, log],
+    [orchestrator, acquireSlm, log, releaseExplainLease],
   );
 
   const answerQuestion = useCallback(
@@ -223,6 +243,9 @@ export default function AcuteAnomalyScreen() {
       try {
         const alertId = alerts[0]?.alertId;
         if (!alertId) return;
+        if (!explainLeaseRef.current) {
+          explainLeaseRef.current = await acquireSlm('explain_alert');
+        }
         const result = await orchestrator.answerClarifyingQuestion(
           alertId,
           'caregiver-1',
@@ -231,13 +254,17 @@ export default function AcuteAnomalyScreen() {
         );
         setProposal(result);
         log('Clarifying question answered; Concierge re-ran.');
+        if (!result.clarifyingQuestion) {
+          releaseExplainLease();
+        }
       } catch (err) {
         log(`Answer failed: ${err instanceof Error ? err.message : String(err)}`);
+        releaseExplainLease();
       } finally {
         setLoading(false);
       }
     },
-    [proposal, alerts, orchestrator, log],
+    [proposal, alerts, orchestrator, log, acquireSlm, releaseExplainLease],
   );
 
   const dismissAlert = useCallback(
@@ -253,8 +280,9 @@ export default function AcuteAnomalyScreen() {
     resolveAllAlerts(patientId);
     setAlerts([]);
     setProposal(null);
+    releaseExplainLease();
     log('All alerts cleared');
-  }, [patientId, log]);
+  }, [patientId, log, releaseExplainLease]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -372,8 +400,6 @@ export default function AcuteAnomalyScreen() {
     </SafeAreaView>
   );
 }
-
-const CAREGIVER_SLM_MODEL_ID = DEFAULT_SLM_MODEL_ID;
 
 const styles = StyleSheet.create({
   safeArea: {

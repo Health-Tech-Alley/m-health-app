@@ -19,6 +19,13 @@ import type {
   RetrievalResult,
   RetrievedChunk,
 } from '@/knowledge/types';
+<<<<<<< HEAD
+=======
+import {
+  getAllClinicalFixtures,
+  getPatientPlanFixtures,
+} from '@/knowledge/corpora/fixtures';
+>>>>>>> 2ed5e76 (Optimize SLM prompt engineering and dynamic load behavior)
 import { mergeByParent } from '@/nlu/section-chunker';
 
 export type FusedRetrieverOptions = {

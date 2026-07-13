@@ -219,9 +219,10 @@ Track A (no `llama.rn`) or when no model is installed, it falls back to a
 dumping the whole answer at once. On close the lease is released and the task
 queue's auto-unload timer unloads the model (auto policy); if the sheet loaded
 the model itself without a queue lease, it unloads it on close (auto policy
-only — in Developer/manual policy the developer manages the model). The default
-model is configurable in **Settings → Developer → Default SLM Model**
-(`demoDefaultModelId` in `app_settings`).
+only — in Developer/manual policy the developer manages the model). In dynamic
+mode (doc 34), the model unloads **immediately** when the last lease ends
+(`autoUnloadMs = 0`). The default model is configurable in **Settings →
+Developer → Default SLM Model** (`demoDefaultModelId` in `app_settings`).
 
 ### Clinical-evidence bundle status
 
@@ -546,13 +547,45 @@ The `ccda_export` consent scope gates egress.
 ### Settings & Developer/Demo mode (`src/contexts/settings-context.tsx`)
 
 `SettingsContext` persists the mode (demo/developer, demo default), theme,
-and notification preferences to the `app_settings` SQLite table. In **Demo
-mode**, the SLM auto-loads on "Ask the assistant" and auto-unloads after
-60s idle or on app background; dev routes are hidden. In **Developer mode**,
-full manual SLM load/unload, audit log viewer with hash-chain verification,
-and all diagnostic surfaces are available in Settings → Developer. The
-`SlmPolicySync` component in the root layout syncs the SLM policy with
-the mode.
+notification preferences, and the **Dynamic Concierge Loading** toggle to the
+`app_settings` SQLite table. In **Demo mode**, the SLM auto-loads on "Ask the
+assistant" and auto-unloads after 60s idle or on app background; dev routes are
+hidden. In **Developer mode**, full manual SLM load/unload, audit log viewer
+with hash-chain verification, and all diagnostic surfaces are available in
+Settings → Developer. The `SlmPolicySync` component in the root layout syncs
+the SLM policy with the mode.
+
+#### Dynamic Concierge Loading (doc 34)
+
+**Concierge chat grace (10s):** Leaving the Concierge tab does **not** immediately
+unload the model. A 10-second cool-down keeps the chat lease alive so mid-stream
+generation can finish and accidental tab taps do not kill the answer. The header
+status icon shows a depleting ring while the cool-down is active; returning to
+Concierge cancels the cool-down and keeps the model loaded.
+
+The **Dynamic SLM Loading** toggle (default: ON) controls how the Concierge
+model is loaded and unloaded:
+
+| Mode | Behavior |
+|------|----------|
+| **ON (default)** | No cold-start load. No foreground auto-reload. Load only when the Concierge tab is focused, an explain/insight task runs, or a warm pin fires. Immediate unload when the last lease ends. |
+| **OFF (legacy)** | Load at startup (500ms delay). Reload on foreground return. 30s background unload grace. Both paths include a free-RAM gate and one delayed OOM retry. |
+
+**Where the toggle lives:** Settings → Developer → Advanced Developer Settings
+→ Concierge Management → Dynamic Concierge Loading.
+
+**Warm pins:** When Dynamic is ON, the model speculatively loads when:
+- The alert detail screen is focused (`preload_warm` lease)
+- A severity-3 critical popup appears (1.5s delayed warm pin)
+
+**Emergency short-circuit:** Severity-3 emergency actions (Call 911, Go to ER)
+never wait on the SLM load. The warm pin is purely for optional follow-up
+explanation.
+
+**OOM fix (shared by both modes):** Before attempting a load, a RAM gate
+checks `freeMB >= modelSize × 1.25` (or `freeMB >= modelMB + 500`). If the
+gate fails, one delayed retry (4s) fires if free RAM improved by 100+ MB.
+After that, the user must tap to retry manually.
 
 ---
 
@@ -612,3 +645,75 @@ the mode.
 
 See [`MARKDOWN_GUIDE.md`](./MARKDOWN_GUIDE.md) for how to author and
 render Markdown in the app.
+
+---
+
+## 7. Pre-SLM NLU (planning/35)
+
+The **Pre-SLM NLU** pipeline runs *before* the Concierge SLM on every chat
+and explain turn. It classifies caregiver intent, links entities, and
+assembles a budgeted packet of tools + clinical evidence chunks.
+
+### Pipeline
+
+```
+prompt → EntityLinker → leaf-ir embed (TFLite) → IntentHead (JS)
+      → skill/tool filter → BM25+dense RRF → BudgetAssembler → PreSlmPacket → SLM
+```
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `src/nlu/` | NLU module (types, facade, entity linker, intent head, section chunker, budget assembler) |
+| `src/nlu/pre-slm-nlu.ts` | Main facade — orchestrates the full pipeline |
+| `src/nlu/entity-linker.ts` | Dictionary-based entity extraction |
+| `src/nlu/intent-head.ts` | Linear classifier on 768-d leaf-ir embeddings |
+| `src/nlu/section-chunker.ts` | Splits long knowledge rows into section-aware children |
+| `src/nlu/budget-assembler.ts` | Enforces per-intent tool/chunk budgets |
+| `src/nlu/patient-nlu-context.ts` | Builds NLU context from patient snapshot + static lexicon |
+| `src/nlu/lexicons/entity-lexicon.json` | Static entity dictionaries from use-cases tracker |
+| `src/knowledge/embedder.ts` | TfliteEmbedder (mdbr-leaf-ir, 768-d) + HashMockEmbedder (Track A) |
+| `assets/models/nlu/mdbr-leaf-ir-int8.tflite` | Primary embedder model (~59 MB, weight-only INT8) |
+| `assets/models/nlu/intent-head.json` | Trained intent classifier coefficients |
+| `training/nlu/` | Offline Python training + eval scripts |
+| `planning/nlu-training/` | Authoritative training corpus (utterances-800.json, retrieval-qrels.json, use-cases-and-conditions.md) |
+
+### Intent labels (14)
+
+`knowledge_qa`, `vitals_what_if`, `med_check`, `explain_anomaly`,
+`clarifying_qa`, `next_steps`, `schedule_care`, `visit_prep`,
+`portal_draft`, `summarize_ehr`, `detect_care_gaps`, `draft_care_plan`,
+`caregiver_chat_general`, `other`
+
+### Track A vs Track B
+
+| Feature | Track A (Expo Go) | Track B (dev build) |
+|---------|-------------------|---------------------|
+| Embedder | HashMockEmbedder (128-d) | TfliteEmbedder (768-d, leaf-ir INT8) |
+| Intent classifier | Keyword fallback | Trained linear head on embeddings |
+| Entity linker | Dictionary-based | Same |
+| Retrieval | BM25-only | BM25 + dense RRF |
+
+### Training
+
+```bash
+# Prefer project venv (sentence-transformers + sklearn)
+planning/python-testing/.venv/bin/python training/nlu/train_intent_head.py
+planning/python-testing/.venv/bin/python training/nlu/eval_intent.py
+planning/python-testing/.venv/bin/python training/nlu/eval_retrieval.py
+planning/python-testing/.venv/bin/python training/nlu/build_entity_lexicon.py
+```
+
+### Latest offline metrics (2026-07-13)
+
+| Gate | Result |
+|------|--------|
+| Intent holdout accuracy | **0.96** (≥ 0.85) |
+| Macro-F1 | **0.97** (≥ 0.80) |
+| `vitals_what_if` precision | **0.91** (≥ 0.90) |
+| `knowledge_qa` recall | **0.91** (≥ 0.80) |
+| Hybrid vs BM25 Recall@5 | **0.75 > 0.63** (PASS) |
+| Hybrid vs BM25 MRR | **0.89 > 0.84** (PASS) |
+
+Watch Metro logs for: `[PreSlmNlu] intent=… conf=…` and `[SLM Chat] NLU: …`.

@@ -1,8 +1,28 @@
 import {
   buildChatRetrievalQuery,
   extractContentTokens,
+  formatCitationTag,
+  formatCitationsForPrompt,
   messageHasClinicalKeywords,
 } from './retrieval-helper';
+
+describe('formatCitationTag / formatCitationsForPrompt', () => {
+  it('tags sources with 1-based index', () => {
+    expect(formatCitationTag('pubmed', 1)).toBe('[PubMed #1]');
+    expect(formatCitationTag('patient-plan', 3)).toBe('[Care Plan #3]');
+    expect(formatCitationTag('dailymed', 2)).toBe('[Drug Label #2]');
+  });
+
+  it('formats prompt block with indexed tags', () => {
+    const block = formatCitationsForPrompt([
+      { docId: 'a', source: 'pubmed', text: 'Abstract one.' },
+      { docId: 'b', source: 'patient-plan', text: 'Plan note.' },
+    ]);
+    expect(block).toContain('[PubMed #1] Abstract one.');
+    expect(block).toContain('[Care Plan #2] Plan note.');
+    expect(block).toContain('exact tag');
+  });
+});
 
 describe('messageHasClinicalKeywords (structural)', () => {
   const spinaConditions = [
