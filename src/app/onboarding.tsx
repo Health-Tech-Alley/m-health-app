@@ -1570,9 +1570,28 @@ function WelcomeStep({
   onSelectDemoProfile: (profileId: DemoOnboardingProfileId) => void;
 }) {
   const demoOptions = getDemoOnboardingOptions();
+  const [isDemoCasesExpanded, setIsDemoCasesExpanded] = useState(false);
 
   return (
     <View style={styles.welcome}>
+      <Pressable
+        style={styles.demoDisclosure}
+        onPress={() => setIsDemoCasesExpanded((expanded) => !expanded)}
+        accessibilityRole="button"
+        accessibilityLabel={
+          isDemoCasesExpanded
+            ? "Hide demo onboarding cases"
+            : "Show demo onboarding cases"
+        }
+        accessibilityState={{ expanded: isDemoCasesExpanded }}
+      >
+        <AppIcon
+          name="chevronRight"
+          size={24}
+          color={AppTheme.colors.textMuted}
+        />
+      </Pressable>
+
       <View style={styles.heroLogoCard}>
         <Image
           source={require("@/assets/images/hta-logo.png")}
@@ -1593,46 +1612,46 @@ function WelcomeStep({
         <Text style={styles.previewTitle}>Designed for family caregivers</Text>
 
         <SummaryRow text="Understand what is happening quickly" />
-        <SummaryRow text="Keep emergency decisions human-controlled" />
-        <SummaryRow text="Reduce guessing with structured health context" />
-        <SummaryRow text="Prepare data for future EHR and wearable integration" />
-      </View>
-
-      <View style={styles.demoProfileBlock}>
-        <Text style={styles.previewTitle}>Demo onboarding case</Text>
-        {demoOptions.map((option) => {
-          const selected = selectedDemoProfileId === option.id;
-
-          return (
-            <Pressable
-              key={option.id}
-              style={[
-                styles.demoProfileRow,
-                selected && styles.demoProfileRowSelected,
-              ]}
-              onPress={() => onSelectDemoProfile(option.id)}
-            >
-              <View style={styles.demoProfileTextBlock}>
-                <Text style={styles.demoProfileTitle}>{option.label}</Text>
-                <Text style={styles.demoProfileSubtitle}>
-                  {option.caregiver.name} - {option.caregiver.relationship}
-                </Text>
-              </View>
-              {selected ? (
-                <AppIcon
-                  name="check"
-                  size={18}
-                  color={AppTheme.colors.brand}
-                />
-              ) : null}
-            </Pressable>
-          );
-        })}
+        <SummaryRow text="Follow confident care pathways while keeping human judgment at the center" />
+        <SummaryRow text="Reduce uncertainty with structured health context" />
       </View>
 
       <Text style={styles.privacyText}>
         Takes about 3 minutes · You can update this later
       </Text>
+
+      {isDemoCasesExpanded ? (
+        <View style={styles.demoProfileBlock}>
+          {demoOptions.map((option) => {
+            const selected = selectedDemoProfileId === option.id;
+
+            return (
+              <Pressable
+                key={option.id}
+                style={[
+                  styles.demoProfileRow,
+                  selected && styles.demoProfileRowSelected,
+                ]}
+                onPress={() => onSelectDemoProfile(option.id)}
+              >
+                <View style={styles.demoProfileTextBlock}>
+                  <Text style={styles.demoProfileTitle}>{option.label}</Text>
+                  <Text style={styles.demoProfileSubtitle}>
+                    {option.caregiver.name} - {option.caregiver.relationship}
+                  </Text>
+                </View>
+                {selected ? (
+                  <AppIcon
+                    name="check"
+                    size={18}
+                    color={AppTheme.colors.brand}
+                  />
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -2312,6 +2331,18 @@ const styles = StyleSheet.create({
     padding: 16,
     marginTop: 14,
     gap: 8,
+  },
+  demoDisclosure: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    zIndex: 1,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    opacity: 0.55,
   },
   demoProfileRow: {
     minHeight: 58,
