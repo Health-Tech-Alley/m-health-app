@@ -5,7 +5,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
-import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
 import {
   refreshPatientRecord,
   usePatientRecord,
@@ -19,7 +18,7 @@ import {
 } from "@/data";
 import { mapFhirBundleToOnboardingImport } from "@/data/fhir/onboarding-import-mapper";
 import { shouldBundleHedisMeasures } from "@/data/seed/seedFromProfile";
-import { dispatchImmediate } from "@/services/notifications";
+import { emitInAppBanner } from "@/services/notifications";
 import {
   getOnboardingProfile,
   saveOnboardingProfile,
@@ -111,7 +110,6 @@ function startBundledEhrKnowledgeBundle(params: {
 export default function SelectFhirProfileScreen() {
   const router = useRouter();
   const dispatch = useAppDispatch();
-  const patientId = useOrchestratorPatientId();
   const { importFHIRBundle } = usePatientRecord();
   const [importingId, setImportingId] = useState<string | null>(null);
 
@@ -151,23 +149,22 @@ export default function SelectFhirProfileScreen() {
               updatedAt: new Date().toISOString(),
             });
           }
-          refreshPatientRecord(importedPatientId);
         }
+
+        refreshPatientRecord(importedPatientId);
 
         startBundledEhrKnowledgeBundle({
           patientId: importedPatientId,
           location: importedProfile.patient.location ?? importedPatient?.location,
           includeHedis: shouldBundleHedisMeasures(importedProfile),
         });
-      }
 
-      await dispatchImmediate({
-        patientId,
-        scope: "anomaly",
-        title: "EHR Import",
-        body: `FHIR bundle "${entry.label}" imported successfully`,
-        severity: 1,
-      });
+        emitInAppBanner({
+          title: "EHR Import",
+          body: `FHIR bundle "${entry.label}" imported successfully`,
+          severity: 1,
+        });
+      }
 
       router.back();
     } catch (error) {
