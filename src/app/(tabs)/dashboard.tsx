@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { useRef, useState } from "react";
 import {
   Pressable,
@@ -17,6 +18,7 @@ import { WeeklyVitalsCard } from "@/components/dashboard/WeeklyVitalsCard";
 import { AppTheme } from "@/constants/theme";
 import { timeOfDayGreeting } from "@/constants/user-terms";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
+import { usePatientRecord } from "@/contexts/patient-record-context";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
 import {
   getCaregiverDisplay,
@@ -26,12 +28,20 @@ import {
 export default function DashboardRoute() {
   const activePatient = useActivePatientView();
   const patientId = useOrchestratorPatientId();
+  const { snapshot } = usePatientRecord();
   const scrollRef = useRef<ScrollView | null>(null);
   const [alertsLogY, setAlertsLogY] = useState(0);
 
   const caregiverFirstName = getFirstName(getCaregiverDisplay(activePatient));
   const patientFirstName = getFirstName(getPatientDisplayName(activePatient));
   const greeting = `${timeOfDayGreeting()}, ${caregiverFirstName}`;
+  const hasDocumentedRehabPlan = Boolean(
+    snapshot?.carePlan &&
+      ((snapshot.carePlan.activities?.length ?? 0) > 0 ||
+        (snapshot.rehabPlanMetrics?.length ?? 0) > 0),
+  );
+  const showRehabReminder =
+    hasDocumentedRehabPlan && snapshot?.todayDailyCareEntry?.therapyCompleted !== true;
 
   const scrollToAlertsLog = () => {
     scrollRef.current?.scrollTo({
@@ -76,6 +86,12 @@ export default function DashboardRoute() {
             patientId={patientId}
             onReviewPress={scrollToAlertsLog}
           />
+          {showRehabReminder ? (
+            <View>
+              <Text style={styles.sectionTitle}>{"Today\u2019s care"}</Text>
+              <RehabReminderCard />
+            </View>
+          ) : null}
 
           <View
             onLayout={(event) => {
@@ -88,6 +104,35 @@ export default function DashboardRoute() {
         </ScrollView>
       </View>
     </SafeAreaView>
+  );
+}
+
+function RehabReminderCard() {
+  return (
+    <Pressable
+      style={styles.rehabCard}
+      onPress={() =>
+        router.push({
+          pathname: "/care",
+          params: { focus: "rehab-check-in" },
+        } as never)
+      }
+      accessibilityRole="button"
+      accessibilityLabel="Open today's rehab check-in"
+    >
+      <View style={styles.rehabCardHeader}>
+        <View>
+          <Text style={styles.rehabKicker}>{"Today\u2019s rehab check-in"}</Text>
+          <Text style={styles.rehabStatus}>
+            Therapy has not been completed today.
+          </Text>
+        </View>
+        <View style={styles.rehabIcon}>
+          <AppIcon name="walking" size={24} color={AppTheme.colors.brand} />
+        </View>
+      </View>
+      <Text style={styles.rehabActionText}>Open check-in</Text>
+    </Pressable>
   );
 }
 
@@ -142,5 +187,48 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1.1,
     textTransform: "uppercase",
+  },
+  rehabCard: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.card,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    padding: 18,
+    ...AppTheme.shadow,
+  },
+  rehabCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  rehabKicker: {
+    color: AppTheme.colors.sectionText,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  rehabStatus: {
+    color: AppTheme.colors.text,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "900",
+    marginTop: 6,
+  },
+  rehabActionText: {
+    color: AppTheme.colors.brand,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "900",
+    marginTop: 14,
+  },
+  rehabIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: AppTheme.colors.brandSoft,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
