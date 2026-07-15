@@ -52,14 +52,9 @@ function toLiveVitalReading(sample: HealthSample): LiveVitalReading {
 }
 
 function sortNewestFirst(readings: LiveVitalReading[]): LiveVitalReading[] {
-  return [...readings].sort((a, b) => {
-    const bTime = Date.parse(b.recordedAt);
-    const aTime = Date.parse(a.recordedAt);
-    const timeDelta =
-      (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
-
-    return timeDelta || b.sampleId.localeCompare(a.sampleId);
-  });
+  const withTime = readings.map((r) => ({ r, t: Date.parse(r.recordedAt) || 0 }));
+  withTime.sort((a, b) => b.t - a.t || b.r.sampleId.localeCompare(a.r.sampleId));
+  return withTime.map((x) => x.r);
 }
 
 function bounded(readings: LiveVitalReading[]): LiveVitalReading[] {
@@ -130,6 +125,28 @@ const vitalsSlice = createSlice({
       state.error = null;
       state.hydratedAt = new Date().toISOString();
     },
+    ingestSamplesBatch(state, action: PayloadAction<{ samples: LiveVitalReading[] }>) {
+      const incoming = action.payload.samples;
+      if (incoming.length === 0) return;
+
+      // Always align to the latest data's patientId, not just the first time.
+      state.activePatientId = incoming[0].patientId;
+
+      const dedupedMap = new Map<string, LiveVitalReading>();
+      for (const reading of incoming) {
+        dedupedMap.set(reading.sampleId, reading);
+      }
+      const deduped = Array.from(dedupedMap.values());
+
+      const existingIds = new Set(deduped.map((r) => r.sampleId));
+      state.readings = bounded([
+        ...deduped,
+        ...state.readings.filter((r) => !existingIds.has(r.sampleId)),
+      ]);
+
+      state.status = 'ready';
+      state.error = null;
+    },
   },
 });
 
@@ -140,6 +157,7 @@ export const {
   hydrationSucceeded,
   markVitalsUnavailable,
   projectHealthSample,
+  ingestSamplesBatch, // syncing vitals to the redux store
 } = vitalsSlice.actions;
 
 export default vitalsSlice.reducer;

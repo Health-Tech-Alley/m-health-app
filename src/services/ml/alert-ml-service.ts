@@ -40,6 +40,8 @@ import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
 import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
 import { toRawObservationInput } from './uc2-runtime-service';
+import { store } from '@/store';
+import { LiveVitalReading } from '@/store/reducers/vitalsSlice';
 
 const MIN_SAMPLE_TYPES = 3;
 
@@ -103,6 +105,12 @@ function sampleProvenance(
     metadataJson: sample.metadataJson,
   };
 }
+
+  export function getRecentReadingsFromRedux(patientId: string, type: HealthSampleType, sinceMs: number, limit: number): LiveVitalReading[] {
+    return store.getState().vitals.readings
+      .filter((r) => r.patientId === patientId && r.type === type && Date.parse(r.recordedAt) >= sinceMs)
+      .slice(0, limit);
+  }
 
 export class AlertMlService {
   private model: AlertMlModel;

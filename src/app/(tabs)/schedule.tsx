@@ -251,7 +251,7 @@ export default function ScheduleScreen() {
   const reload = useCallback(async () => {
     setUpcoming([]); // clear while loading
     // find patietn record
-    console.log('reloading appointments due to patient update: ', patient, athenaPatientId);
+    // console.log('reloading appointments due to patient update: ', patient, athenaPatientId);
     if (patient) {
       const patientRecord =  patient?.entry?.filter((entry: any) => entry && entry.resource && entry.resource.resourceType === "Patient");
       console.log('patient record: ', patientRecord);

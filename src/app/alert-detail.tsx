@@ -37,6 +37,7 @@ import {
 import { ObservationPicker } from '@/components/ObservationPicker';
 import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
+import {getRecentReadingsFromRedux} from '@/services/ml/alert-ml-service';
 
 const TEAL = AppTheme.colors.brand;
 const BG = AppTheme.colors.screen;
@@ -67,8 +68,8 @@ export default function AlertDetailScreen() {
   // the alert identity changes, not on every render.
   const { recentSpo2, recentHr } = useMemo(() => {
     if (!alert) return { recentSpo2: [], recentHr: [] };
-    const spo2 = getRecentHealthSamples(alert.patientId, 'spo2', since, 8).reverse();
-    const hr = getRecentHealthSamples(alert.patientId, 'heart_rate', since, 8).reverse();
+    const spo2 = getRecentReadingsFromRedux(alert.patientId, 'spo2', new Date(since).getTime(), 8).reverse();
+    const hr = getRecentReadingsFromRedux(alert.patientId, 'heart_rate', new Date(since).getTime(), 8).reverse();
     return { recentSpo2: spo2, recentHr: hr };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alert?.alertId, since]);

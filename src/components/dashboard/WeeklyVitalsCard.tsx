@@ -1,13 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
+import { useSensor } from "@/contexts/sensor-context";
+import { getLatestHealthSample } from "@/data/repositories/healthSampleRepository";
 import type { HealthSampleType } from "@/data/types";
+import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { useAppSelector } from "@/store/hooks";
 import type { LiveVitalReading } from "@/store/reducers/vitalsSlice";
 import { selectLiveVitalsState } from "@/store/reducers/vitalsSlice";
-import { useActivePatientView } from "@/hooks/useActivePatientView";
 
 type MetricTone = "critical" | "warning" | "good";
 
@@ -121,7 +123,7 @@ const PREFERRED_METRIC_ORDER: HealthSampleType[] = [
 
 const CHART_HEIGHT = 88;
 const POINT_SIZE = 13;
-const RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const RECENT_WINDOW_MS = 100 * 24 * 60 * 60 * 1000;
 
 export function WeeklyVitalsCard() {
   const [selectedKey, setSelectedKey] = useState<HealthSampleType>("spo2");
@@ -134,6 +136,18 @@ export function WeeklyVitalsCard() {
     [activePatientId, vitals.readings],
   );
 
+  const { isRealHealth } = useSensor();
+  useEffect(() => {
+    if (!activePatientId) return;
+    console.log('[DEBUG] isRealHealth:', isRealHealth);
+    console.log('[DEBUG] latest respiratory_rate in SQLite:', getLatestHealthSample(activePatientId, 'respiratory_rate'));
+    console.log('[DEBUG] latest heart_rate in SQLite:', getLatestHealthSample(activePatientId, 'heart_rate'));
+  }, [activePatientId, isRealHealth]);
+
+  useEffect(() => {
+    console.log('[DEBUG] Weekly vitals updated:', (vitals.readings.length), 'readings for patient', activePatientId);
+  }, [vitals]);
+
   const selectedMetric =
     metrics.find((metric) => metric.key === selectedKey) ?? metrics[0] ?? null;
   const summaryMetrics = getSummaryMetrics(metrics, selectedMetric);
@@ -145,7 +159,6 @@ export function WeeklyVitalsCard() {
       </CardShell>
     );
   }
-
   if (vitals.status === "error" || vitals.status === "unavailable" || !activePatientId) {
     return (
       <CardShell title="Recent monitoring">
@@ -325,9 +338,9 @@ function getSummaryMetrics(
   selectedMetric: VitalMetric | null,
 ): VitalMetric[] {
   return metrics
-    .filter((metric) => metric.key !== selectedMetric?.key)
-    .filter((metric) => metric.key === "heart_rate" || metric.key === "respiratory_rate")
-    .slice(0, 2);
+    // .filter((metric) => metric.key !== selectedMetric?.key)
+    // .filter((metric) => metric.key === "heart_rate" || metric.key === "respiratory_rate" || metric.key === "blood_pressure_systolic" || metric.key === "blood_pressure_diastolic" )
+    // .slice(0, 2);
 }
 
 function TrendChart({ readings }: { readings: LiveVitalReading[] }) {

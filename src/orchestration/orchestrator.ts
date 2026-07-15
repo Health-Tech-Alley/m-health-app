@@ -19,6 +19,7 @@ import {
   insertAlert,
   insertCaregiverAction,
   insertHealthSample,
+  insertHealthSamplesBatched,
   insertSlmTurn,
   type Alert,
   type CaregiverAction,
@@ -96,6 +97,8 @@ import {
   sensitiveTopicsInstruction,
   type PriorDecisionEntry,
 } from './prompt-fragments';
+import { runInBackground } from '@/utils/commonFunctions';
+import { ingestSamplesBatch, LiveVitalReading } from "@/store/reducers/vitalsSlice";
 
 export type OrchestratorConfig = {
   slm: InferenceProvider;
@@ -148,6 +151,19 @@ function formatScore(score: unknown): string {
   return typeof score === 'number' && Number.isFinite(score) ? score.toFixed(3) : 'n/a';
 }
 
+function toLiveVitalReading(sample: HealthSample): LiveVitalReading {
+  return {
+    patientId: sample.patientId,
+    sampleId: sample.sampleId,
+    type: sample.type,
+    value: sample.value,
+    unit: sample.unit,
+    source: sample.source,
+    recordedAt: sample.recordedAt,
+    receivedAt: sample.receivedAt,
+  };
+}
+
 export class Orchestrator {
   private slm: InferenceProvider;
   private slmTasks: SlmTaskQueue;
@@ -164,6 +180,7 @@ export class Orchestrator {
   private static readonly DEBOUNCE_MS = 3000;
   private snapshotProvider: () => PatientRecordSnapshot | null;
   private priorDecisionsProvider?: (args: { patientId: string; alertId?: string }) => PriorDecisionEntry[];
+  private vitalsWriteBuffer: Map<string, HealthSample[]> = new Map(); // per patient, or just one global array
 
   constructor(config: OrchestratorConfig) {
     this.slm = config.slm;
@@ -239,8 +256,13 @@ export class Orchestrator {
       recordedAt: event.recordedAt,
       receivedAt: event.receivedAt ?? new Date().toISOString(),
     };
-    insertHealthSample(sample);
-    store.dispatch(projectHealthSample(sample));
+    // Buffer instead of writing/dispatching per-event.
+    const buffer = this.vitalsWriteBuffer.get(event.patientId) ?? [];
+    buffer.push(sample);
+    this.vitalsWriteBuffer.set(event.patientId, buffer);
+
+    this.scheduleVitalsFlush(event.patientId); // debounced, batches insertHealthSample + dispatch
+
     writeSampleEdges(event.patientId, event.sampleId, event.sampleType as HealthSample['type']);
     auditSampleRead(event.patientId, event.sampleId, 'system');
 
@@ -308,6 +330,24 @@ export class Orchestrator {
         }, Orchestrator.DEBOUNCE_MS);
       }
     }
+  }
+
+  private flushTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+
+  private scheduleVitalsFlush(patientId: string): void {
+    if (this.flushTimers.has(patientId)) return;
+    const timer = setTimeout(() => {
+      this.flushTimers.delete(patientId);
+      const buffer = this.vitalsWriteBuffer.get(patientId) ?? [];
+      this.vitalsWriteBuffer.delete(patientId);
+      if (buffer.length === 0) return;
+
+      runInBackground(async () => {
+        await insertHealthSamplesBatched(buffer); // one transaction, not N runSync calls
+        store.dispatch(ingestSamplesBatch({ samples: buffer.map(toLiveVitalReading) }));
+      });
+    }, 500); // small debounce, batches whatever arrived in this window
+    this.flushTimers.set(patientId, timer);
   }
 
   private async handleMlAlert(event: Extract<OrchestrationEvent, { type: 'ml_alert_created' }>): Promise<void> {

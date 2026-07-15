@@ -2,23 +2,24 @@ import { Platform } from 'react-native';
 
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
+import { dispatchInChunks, runInBackground } from '@/utils/commonFunctions';
 
 import {
   getSyncCursor,
-  setSyncCursor,
   insertHealthSample,
+  setSyncCursor,
 } from '../repositories/healthSampleRepository';
 import {
   getPrimaryWearableForPatient,
   setWearableHealthKitSource,
 } from '../repositories/wearableDeviceRepository';
 import type { HealthSample, HealthSampleType } from '../types';
-import type { PermissionResult, SensorSample, SensorSource } from './sensor-source';
 import {
+  ALL_HEALTHKIT_READ_TYPES,
   HK_TYPE_BY_SAMPLE_TYPE,
   UNIT_BY_SAMPLE_TYPE,
-  ALL_HEALTHKIT_READ_TYPES,
 } from './healthkit-type-map';
+import type { PermissionResult, SensorSample, SensorSource } from './sensor-source';
 
 export type AppleHealthSourceOptions = {
   patientId: string;
@@ -150,14 +151,50 @@ export class AppleHealthSource implements SensorSource {
     };
   }
 
+  /**
+ * Primes the sync anchor to "now" for each type, without pulling any
+ * historical samples. After this, incrementalSync only sees samples
+ * recorded from this point forward — no backfill, no crawling through
+ * years of history.
+ */
+async primeAnchorsToNow(): Promise<void> {
+  const hk = await getHealthKitModule();
+  if (!hk) return;
+
+  for (const type of this.types) {
+    const cursorKey = 'apple-health';
+    const existingAnchor = getSyncCursor(cursorKey, type);
+    if (existingAnchor) continue; // already primed, don't reset
+
+    const hkType = HK_TYPE_BY_SAMPLE_TYPE[type];
+    if (!hkType) continue;
+
+    try {
+      const response = await hk.queryQuantitySamplesWithAnchor(
+        hkType as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[0],
+        { limit: 0 } as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[1], // limit 0 = anchor only, no data pulled
+      );
+      if (response.newAnchor) {
+        setSyncCursor(cursorKey, type, response.newAnchor);
+        console.log(`[AppleHealthSource] Primed anchor to now for ${type}`);
+      }
+    } catch (err) {
+      console.warn(`[AppleHealthSource] anchor priming failed for ${type}:`, err);
+    }
+  }
+}
+
   startPublishingToEventBus(): () => void {
     const bus = getEventBus();
+    let unsubscribe: () => void = () => {};
 
-    const unsubscribe = this.subscribe(this.types, (sample) => {
-      this.persistAndPublish(sample, bus);
+    // Prime anchors to "now" BEFORE subscribing, so no incrementalSync call
+    // can fire against an unprimed (null) anchor and crawl from history.
+    void this.primeAnchorsToNow().then(() => {
+      unsubscribe = this.subscribe(this.types, (sample) => {
+        this.persistAndPublish(sample, bus);
+      });
     });
-
-    this.initialCatchUpSync();
 
     return () => {
       unsubscribe();
@@ -179,10 +216,7 @@ export class AppleHealthSource implements SensorSource {
     try {
       const response = await hk.queryQuantitySamplesWithAnchor(
         hkType as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[0],
-        {
-          limit: 500,
-          anchor: lastAnchor ?? undefined,
-        } as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[1],
+        { limit: 10, anchor: lastAnchor ?? undefined } as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[1],
       );
 
       if (response.newAnchor) {
@@ -192,11 +226,36 @@ export class AppleHealthSource implements SensorSource {
       const sensorSamples: SensorSample[] = [];
       for (const s of response.samples) {
         const sensorSample = this.convertToSensorSample(s, type);
-        if (sensorSample) {
-          this.persistAndPublish(sensorSample, getEventBus());
-          sensorSamples.push(sensorSample);
-        }
+        if (sensorSample) sensorSamples.push(sensorSample);
       }
+
+      console.log(`[AppleHealthSource] incremental sync for ${type} returned ${sensorSamples.length} samples`);
+
+      if (sensorSamples.length > 0) {
+        const readings = sensorSamples.map((sample) => ({
+          patientId: sample.patientId,
+          sampleId: sample.sampleId,
+          type: sample.type,
+          value: typeof sample.value === 'number' ? sample.value : 0,
+          unit: sample.unit,
+          source: sample.source,
+          recordedAt: sample.recordedAt,
+          receivedAt: sample.receivedAt,
+        }));
+
+        // Defer the Redux dispatch + bus publish so they don't block the
+        // current frame/interaction. Chunked so even a full 500-sample
+        // batch doesn't lock up the JS thread in one go.
+        runInBackground(async () => {
+          await dispatchInChunks(readings);
+
+          const bus = getEventBus();
+          for (const sample of sensorSamples) {
+            this.publishVitalsEvent(sample, bus);
+          }
+        });
+      }
+
       return sensorSamples;
     } catch (err) {
       console.warn(`[AppleHealthSource] incremental sync failed for ${type}:`, err);
@@ -204,9 +263,29 @@ export class AppleHealthSource implements SensorSource {
     }
   }
 
-  async initialCatchUpSync(daysBack = 14): Promise<void> {
+  private publishVitalsEvent(
+    sample: SensorSample,
+    bus: ReturnType<typeof getEventBus>,
+  ): void {
+    const scalar = typeof sample.value === 'number' ? sample.value : 0;
+    const event: Extract<OrchestrationEvent, { type: 'vitals_sample' }> = {
+      type: 'vitals_sample',
+      patientId: sample.patientId,
+      sampleId: sample.sampleId,
+      sampleType: sample.type,
+      value: scalar,
+      unit: sample.unit,
+      recordedAt: sample.recordedAt,
+      source: 'apple-health',
+      receivedAt: sample.receivedAt,
+    };
+    bus.publish(event);
+  }
+
+  async initialCatchUpSync(daysBack = 1): Promise<void> {
     const since = new Date();
     since.setDate(since.getDate() - daysBack);
+    console.log(`[AppleHealthSource] Performing initial catch-up sync for ${daysBack} days back since ${since.toISOString()}`);
 
     for (const type of this.types) {
       const cursorKey = 'apple-health';
@@ -341,6 +420,7 @@ export class AppleHealthSource implements SensorSource {
       receivedAt: sample.receivedAt,
       metadataJson: sample.metadataJson,
     };
+    console.log(`[AppleHealthSource] Persisting sample: ${JSON.stringify(healthSample)}`);
     insertHealthSample(healthSample);
 
     const scalar = typeof sample.value === 'number' ? sample.value : 0;

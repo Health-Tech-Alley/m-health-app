@@ -122,3 +122,35 @@ export function clearSyncCursor(source: string, type: HealthSampleType): void {
     `${source}:${type}`,
   );
 }
+
+// healthSampleRepository.ts — add this alongside insertHealthSample
+export function insertHealthSamplesBatched(samples: HealthSample[]): void {
+  if (samples.length === 0) return;
+  const db = getDatabase();
+  db.withTransactionSync(() => {
+    for (const sample of samples) {
+      let value = sample.value;
+      let unit = sample.unit;
+      if (sample.type === 'spo2' && value <= 1.0) {
+        value = value * 100;
+        unit = '%';
+      }
+      db.runSync(
+        `INSERT OR REPLACE INTO health_samples
+          (sample_id, patient_id, source, type, value, value_json, unit, recorded_at, received_at, metadata_json, source_doc_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        sample.sampleId,
+        sample.patientId,
+        sample.source,
+        sample.type,
+        value,
+        sample.valueJson ?? null,
+        unit,
+        sample.recordedAt,
+        sample.receivedAt,
+        sample.metadataJson ?? null,
+        sample.sourceDocId ?? null,
+      );
+    }
+  });
+}

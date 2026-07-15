@@ -9,8 +9,8 @@ import {
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { usePatientRecord } from '@/contexts/patient-record-context';
-import { createSensorSource } from '@/data/sensors';
 import type { SensorSource } from '@/data/sensors';
+import { createSensorSource } from '@/data/sensors';
 
 interface SensorContextValue {
   sensor: SensorSource | null;
@@ -32,6 +32,13 @@ export function SensorProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!sensor) return;
+
+    // if (sensor.constructor.name === 'AppleHealthSource') {
+    //   for (const type of ALL_HEALTHKIT_READ_TYPES) {
+    //     clearSyncCursor('apple-health', type);
+    //   }
+    //   console.log('[DEBUG] Cleared all apple-health sync cursors');
+    // }
 
     const startIfForeground = (state: AppStateStatus) => {
       if (state === 'active') {
