@@ -16,8 +16,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
+import { refreshPatientRecord } from "@/contexts/patient-record-context";
+import { AppleHealthSource } from "@/data/sensors/apple-health-source";
+import { ALL_HEALTHKIT_READ_TYPES } from "@/data/sensors/healthkit-type-map";
 import {
-  COMMON_ICD_OPTIONS,
+  applyDemoOnboardingPreset,
+  getDemoOnboardingOptions,
+  type DemoOnboardingProfileId,
+} from "@/services/onboarding/demoOnboardingPresets";
+import {
   COMMON_SYMPTOM_OPTIONS,
   WEARABLE_DEVICE_OPTIONS,
   completeOnboardingProfile,
@@ -26,7 +33,6 @@ import {
   type Availability,
   type CaregivingExperience,
   type EmergencyComfortLevel,
-  type IcdConditionProfile,
   type LanguagePreference,
   type MedicalComfortLevel,
   type NotificationStyle,
@@ -35,14 +41,6 @@ import {
   type WearableBaselineStatus,
   type WearableDeviceType,
 } from "@/services/onboarding/onboardingService";
-import {
-  applyDemoOnboardingPreset,
-  getDemoOnboardingOptions,
-  type DemoOnboardingProfileId,
-} from "@/services/onboarding/demoOnboardingPresets";
-import { refreshPatientRecord } from "@/contexts/patient-record-context";
-import { ALL_HEALTHKIT_READ_TYPES } from "@/data/sensors/healthkit-type-map";
-import { AppleHealthSource } from "@/data/sensors/apple-health-source";
 
 const totalScreens = 6;
 const formStepCount = 5;
@@ -96,7 +94,6 @@ const emergencyComfortOptions: EmergencyComfortLevel[] = [
 ];
 
 type ExpandedSelect =
-  | "comorbidities"
   | "symptoms"
   | "gmfcs"
   | "fms"
@@ -413,16 +410,6 @@ export default function OnboardingScreen() {
   const [patientPreferredName, setPatientPreferredName] = useState(
     existingProfile.patient.preferredName ?? existingProfile.patient.name,
   );
-  const [officialFirstName, setOfficialFirstName] = useState(
-    existingProfile.patient.officialFirstName ?? "",
-  );
-  const [officialLastName, setOfficialLastName] = useState(
-    existingProfile.patient.officialLastName ?? "",
-  );
-  const [officialDisplayName, setOfficialDisplayName] = useState(
-    existingProfile.patient.officialDisplayName ?? "",
-  );
-  const [patientAge, setPatientAge] = useState(existingProfile.patient.age);
 
   const [patientAddressSameAsCaregiver, setPatientAddressSameAsCaregiver] =
     useState(existingProfile.patient.addressSameAsCaregiver ?? true);
@@ -436,22 +423,6 @@ export default function OnboardingScreen() {
     country: existingProfile.patient.address?.country ?? "United States",
   });
 
-  const [primaryDiagnosisText, setPrimaryDiagnosisText] = useState(() =>
-    getInitialPrimaryDiagnosisText({
-      code: existingProfile.patient.primaryIcdCode,
-      label: existingProfile.patient.primaryIcdLabel,
-      fallback: existingProfile.patient.conditions,
-    }),
-  );
-
-  const [comorbidities, setComorbidities] = useState<IcdConditionProfile[]>(
-    () =>
-      (existingProfile.patient.comorbidities ?? []).map((condition) => ({
-        ...condition,
-        isPrimary: false,
-      })),
-  );
-
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>(
     existingProfile.patient.symptoms ?? [],
   );
@@ -462,9 +433,6 @@ export default function OnboardingScreen() {
 
   const [baselineDailyRoutine, setBaselineDailyRoutine] = useState(
     existingProfile.patient.baselineDailyRoutine ?? "",
-  );
-  const [currentMedications, setCurrentMedications] = useState(
-    existingProfile.patient.currentMedications ?? "",
   );
   const [spo2Cutoff, setSpo2Cutoff] = useState(
     existingProfile.patient.spo2Cutoff ?? "",
@@ -504,10 +472,7 @@ export default function OnboardingScreen() {
   const [edacsLevel, setEdacsLevel] = useState(
     normalizeClassificationValue(existingProfile.patient.edacsLevel),
   );
-  // D5: free-text location for SDOH / CDC PLACES bundling.
-  const [patientLocation, setPatientLocation] = useState(
-    existingProfile.patient.location ?? "",
-  );
+
   function handleSelectDemoProfile(profileId: DemoOnboardingProfileId) {
     const nextProfile = applyDemoOnboardingPreset(existingProfile, profileId);
     const caregiver = nextProfile.caregiver;
@@ -529,16 +494,9 @@ export default function OnboardingScreen() {
     setStressOrSupportNeeds(caregiver.stressOrSupportNeeds ?? "");
     setBackupCaregiver(caregiver.backupCaregiver ?? "");
     setPatientPreferredName(nextProfile.patient.preferredName ?? nextProfile.patient.name);
-    setOfficialFirstName("");
-    setOfficialLastName("");
-    setOfficialDisplayName("");
-    setPatientAge("");
-    setPrimaryDiagnosisText("");
-    setComorbidities([]);
     setSelectedSymptoms([]);
     setOtherSymptoms("");
     setBaselineDailyRoutine(nextProfile.patient.baselineDailyRoutine ?? "");
-    setCurrentMedications("");
     setSpo2Cutoff("");
     setBaselineHeartRate("");
     setBaselineBloodOxygen("");
@@ -601,11 +559,6 @@ export default function OnboardingScreen() {
     string | undefined
   >(existingProfile.patient.wearableDevice?.baselineCompletedAt);
 
-  const matchedPrimaryCondition = useMemo(
-    () => findMatchingDiagnosis(primaryDiagnosisText),
-    [primaryDiagnosisText],
-  );
-
   const selectedSymptomLabels = useMemo(
     () =>
       selectedSymptoms
@@ -654,20 +607,6 @@ export default function OnboardingScreen() {
       ? caregiverAddress
       : patientAddress;
 
-    const primaryDiagnosis = parsePrimaryDiagnosisInput(primaryDiagnosisText);
-    const finalComorbidities = dedupeIcdConditions(
-      comorbidities,
-      primaryDiagnosis.code,
-      primaryDiagnosis.label,
-    );
-
-    const conditions = [
-      primaryDiagnosis.label,
-      ...finalComorbidities.map((condition) => condition.label),
-    ]
-      .filter(Boolean)
-      .join(", ");
-
     const profile: OnboardingProfile = {
       demoProfileId: selectedDemoProfileId ?? undefined,
       caregiver: {
@@ -689,20 +628,11 @@ export default function OnboardingScreen() {
       patient: {
         name: patientPreferredName,
         preferredName: patientPreferredName,
-        officialFirstName,
-        officialLastName,
-        officialDisplayName,
-        age: patientAge,
-        conditions,
         addressSameAsCaregiver: patientAddressSameAsCaregiver,
         address: finalPatientAddress,
-        primaryIcdCode: primaryDiagnosis.code,
-        primaryIcdLabel: primaryDiagnosis.label,
-        comorbidities: finalComorbidities,
         symptoms: selectedSymptoms,
         otherSymptoms,
         baselineDailyRoutine,
-        currentMedications,
         spo2Cutoff,
         baselineHeartRate,
         baselineBloodOxygen,
@@ -716,7 +646,6 @@ export default function OnboardingScreen() {
         macsLevel,
         cfcsLevel,
         edacsLevel,
-        location: patientLocation,
         wearableDevice: {
           deviceType,
           deviceLabel,
@@ -757,24 +686,6 @@ export default function OnboardingScreen() {
       ...current,
       [field]: value,
     }));
-  }
-
-  function toggleComorbidity(condition: IcdConditionProfile) {
-    setComorbidities((current) => {
-      const exists = current.some((item) => item.code === condition.code);
-
-      if (exists) {
-        return current.filter((item) => item.code !== condition.code);
-      }
-
-      return [
-        ...current,
-        {
-          ...condition,
-          isPrimary: false,
-        },
-      ];
-    });
   }
 
   function toggleSymptom(symptomId: string) {
@@ -886,7 +797,7 @@ export default function OnboardingScreen() {
                   label="Caregiver name"
                   value={caregiverName}
                   onChangeText={setCaregiverName}
-                  placeholder="Luis Garcia"
+                  placeholder="Caregiver name"
                 />
 
                 <Field
@@ -900,7 +811,7 @@ export default function OnboardingScreen() {
                   label="Phone"
                   value={caregiverPhone}
                   onChangeText={setCaregiverPhone}
-                  placeholder="(555) 010-2030"
+                  placeholder="Phone number"
                   keyboardType="phone-pad"
                 />
 
@@ -985,7 +896,7 @@ export default function OnboardingScreen() {
                   label="Backup caregiver"
                   value={backupCaregiver}
                   onChangeText={setBackupCaregiver}
-                  placeholder="Maria Garcia · (555) 020-3040"
+                  placeholder="Name and phone number"
                 />
               </StepShell>
             ) : null}
@@ -1031,115 +942,6 @@ export default function OnboardingScreen() {
                     onChange={updatePatientAddress}
                   />
                 ) : null}
-
-                <SectionLabel title="Clinical information" />
-
-                <Text style={styles.diagnosisHelper}>
-                  Add these details manually during onboarding, or import a
-                  bundled EHR after onboarding is complete.
-                </Text>
-
-                <View style={styles.twoColumnFields}>
-                  <Field
-                    label="First name"
-                    value={officialFirstName}
-                    onChangeText={setOfficialFirstName}
-                    placeholder="Imported from health record"
-                  />
-
-                  <Field
-                    label="Last name"
-                    value={officialLastName}
-                    onChangeText={setOfficialLastName}
-                    placeholder="Imported from health record"
-                  />
-                </View>
-
-                <Field
-                  label="Age"
-                  value={patientAge}
-                  onChangeText={setPatientAge}
-                  placeholder="Age"
-                  keyboardType="number-pad"
-                />
-
-                <SectionLabel title="Primary diagnosis" />
-
-                <Field
-                  label="ICD code or official diagnosis name"
-                  value={primaryDiagnosisText}
-                  onChangeText={setPrimaryDiagnosisText}
-                  placeholder="ICD code or diagnosis name"
-                />
-
-                <Text style={styles.diagnosisHelper}>
-                  Enter the main diagnosis exactly as it appears in paperwork if
-                  possible.
-                </Text>
-
-                <SectionLabel title="Comorbidities or other conditions" />
-
-                <SelectPanel
-                  title="Comorbidities"
-                  value={
-                    comorbidities.length > 0
-                      ? `${comorbidities.length} selected`
-                      : "No comorbidities selected"
-                  }
-                  expanded={expandedSelect === "comorbidities"}
-                  onToggle={() =>
-                    setExpandedSelect((current) =>
-                      current === "comorbidities" ? null : "comorbidities",
-                    )
-                  }
-                >
-                  {COMMON_ICD_OPTIONS.filter(
-                    (condition) =>
-                      condition.code !== matchedPrimaryCondition?.code,
-                  ).map((condition) => {
-                    const selected = comorbidities.some(
-                      (item) => item.code === condition.code,
-                    );
-
-                    return (
-                      <Pressable
-                        key={condition.code}
-                        style={[
-                          styles.optionRow,
-                          selected && styles.optionRowSelected,
-                        ]}
-                        onPress={() => toggleComorbidity(condition)}
-                      >
-                        <View
-                          style={[
-                            styles.checkCircle,
-                            selected && styles.checkCircleSelected,
-                          ]}
-                        >
-                          {selected ? (
-                            <AppIcon
-                              name="check"
-                              size={14}
-                              color={AppTheme.colors.white}
-                            />
-                          ) : null}
-                        </View>
-
-                        <View style={styles.optionTextBlock}>
-                          <Text style={styles.optionCode}>
-                            {condition.code}
-                          </Text>
-                          <Text style={styles.optionLabel}>
-                            {condition.label}
-                          </Text>
-                          <Text style={styles.optionCategory}>
-                            {condition.category}
-                          </Text>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </SelectPanel>
 
                 <SectionLabel title="Common symptoms" />
 
@@ -1206,17 +1008,10 @@ export default function OnboardingScreen() {
                 />
 
                 <LargeField
-                  label="Baseline daily routine"
+                  label="Daily routine"
                   value={baselineDailyRoutine}
                   onChangeText={setBaselineDailyRoutine}
                   placeholder="Describe the usual daily routine..."
-                />
-
-                <LargeField
-                  label="Current medications"
-                  value={currentMedications}
-                  onChangeText={setCurrentMedications}
-                  placeholder="List current medications..."
                 />
 
                 <View style={styles.clinicalGuidanceCard}>
@@ -1311,14 +1106,6 @@ export default function OnboardingScreen() {
                   />
                 </View>
 
-                <Field
-                  label="Location (county, state)"
-                  value={patientLocation}
-                  onChangeText={setPatientLocation}
-                  placeholder="e.g. Garrett County, Maryland"
-                  helper="Used to fetch community health context (CDC PLACES) and tailor rural/urban care guidance."
-                />
-
                 <SectionLabel title="Functional and communication classifications" />
 
                 <ClassificationSelect
@@ -1399,14 +1186,14 @@ export default function OnboardingScreen() {
                   label="Provider name"
                   value={providerName}
                   onChangeText={setProviderName}
-                  placeholder="Dr. Smith"
+                  placeholder="Provider name"
                 />
 
                 <Field
                   label="Provider phone"
                   value={providerPhone}
                   onChangeText={setProviderPhone}
-                  placeholder="(555) 800-1234"
+                  placeholder="Phone number"
                   keyboardType="phone-pad"
                 />
 
@@ -1414,7 +1201,7 @@ export default function OnboardingScreen() {
                   label="Provider email"
                   value={providerEmail}
                   onChangeText={setProviderEmail}
-                  placeholder="dr.smith@clinic.org"
+                  placeholder="Email address"
                   keyboardType="email-address"
                   autoCapitalize="none"
                 />
@@ -1425,7 +1212,7 @@ export default function OnboardingScreen() {
                   label="Emergency contact"
                   value={emergencyContact}
                   onChangeText={setEmergencyContact}
-                  placeholder="Maria Garcia · (555) 020-3040"
+                  placeholder="Name and phone number"
                 />
 
                 <LargeField
@@ -1494,7 +1281,7 @@ export default function OnboardingScreen() {
                   label="Device label"
                   value={deviceLabel}
                   onChangeText={setDeviceLabel}
-                  placeholder="Elena's Apple Watch"
+                  placeholder="Device label"
                 />
 
                 <View style={styles.deviceCard}>
@@ -1802,7 +1589,7 @@ function AddressFields({
         label="Street address"
         value={address.line1}
         onChangeText={(value) => onChange("line1", value)}
-        placeholder="1200 Cypress Ave"
+        placeholder="Street address"
       />
 
       <Field
@@ -1817,14 +1604,14 @@ function AddressFields({
           label="City"
           value={address.city}
           onChangeText={(value) => onChange("city", value)}
-          placeholder="Gaithersburg"
+          placeholder="City"
         />
 
         <Field
           label="State"
           value={address.state}
           onChangeText={(value) => onChange("state", value)}
-          placeholder="MD"
+          placeholder="State"
         />
       </View>
 
@@ -1833,7 +1620,7 @@ function AddressFields({
           label="ZIP"
           value={address.postalCode}
           onChangeText={(value) => onChange("postalCode", value)}
-          placeholder="20877"
+          placeholder="ZIP"
         />
 
         <Field
@@ -1926,7 +1713,7 @@ function ClassificationSelect({
   setExpandedSelect,
   onSelect,
 }: {
-  id: Exclude<ExpandedSelect, "comorbidities" | "symptoms" | null>;
+  id: Exclude<ExpandedSelect, "symptoms" | null>;
   title: string;
   value: string;
   displayValue: string;
@@ -2025,115 +1812,6 @@ function SummaryRow({ text }: { text: string }) {
       <Text style={styles.summaryText}>{text}</Text>
     </View>
   );
-}
-
-function getInitialPrimaryDiagnosisText({
-  code,
-  label,
-  fallback,
-}: {
-  code?: string;
-  label?: string;
-  fallback?: string;
-}): string {
-  if (code && label) {
-    return `${code} · ${label}`;
-  }
-
-  return code ?? label ?? fallback ?? "";
-}
-
-function normalizeDiagnosisText(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-function findMatchingDiagnosis(value: string): IcdConditionProfile | undefined {
-  const normalized = normalizeDiagnosisText(value);
-
-  return COMMON_ICD_OPTIONS.find((option) => {
-    const code = normalizeDiagnosisText(option.code);
-    const label = normalizeDiagnosisText(option.label);
-    const combined = normalizeDiagnosisText(`${option.code} · ${option.label}`);
-
-    return normalized === code || normalized === label || normalized === combined;
-  });
-}
-
-function normalizeIcdCodeForComparison(value: string | undefined): string {
-  const trimmed = value?.trim();
-  if (!trimmed) return "";
-  return trimmed.match(/[A-Z][0-9][A-Z0-9.]*/i)?.[0].toUpperCase() ?? "";
-}
-
-function normalizeConditionLabelForComparison(value: string | undefined): string {
-  return value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
-}
-
-function dedupeIcdConditions(
-  conditions: IcdConditionProfile[],
-  primaryCode?: string,
-  primaryLabel?: string,
-): IcdConditionProfile[] {
-  const seenCodes = new Set<string>();
-  const seenLabels = new Set<string>();
-  const primaryCodeKey = normalizeIcdCodeForComparison(primaryCode);
-  const primaryLabelKey = normalizeConditionLabelForComparison(primaryLabel);
-
-  if (primaryCodeKey) seenCodes.add(primaryCodeKey);
-  if (primaryLabelKey) seenLabels.add(primaryLabelKey);
-
-  return conditions.filter((condition) => {
-    const codeKey = normalizeIcdCodeForComparison(condition.code);
-    const labelKey = normalizeConditionLabelForComparison(condition.label);
-    const duplicate =
-      (codeKey && seenCodes.has(codeKey)) ||
-      (!codeKey && labelKey && seenLabels.has(labelKey));
-
-    if (duplicate) return false;
-    if (codeKey) seenCodes.add(codeKey);
-    if (labelKey) seenLabels.add(labelKey);
-    return true;
-  });
-}
-
-function parsePrimaryDiagnosisInput(value: string): {
-  code?: string;
-  label: string;
-} {
-  const trimmed = value.trim();
-
-  if (!trimmed) {
-    return {
-      code: undefined,
-      label: "",
-    };
-  }
-
-  const matched = findMatchingDiagnosis(trimmed);
-
-  if (matched) {
-    return {
-      code: matched.code,
-      label: matched.label,
-    };
-  }
-
-  const codedDisplayMatch = trimmed.match(
-    /^([A-Z][0-9][A-Z0-9.]*)\s*(?:[\u00B7-]+|\s+)\s*(.+)$/i,
-  );
-  if (codedDisplayMatch) {
-    return {
-      code: codedDisplayMatch[1].toUpperCase(),
-      label: codedDisplayMatch[2].trim(),
-    };
-  }
-
-  const looksLikeIcdCode = /^[A-Z][0-9][A-Z0-9.]*$/i.test(trimmed);
-
-  return {
-    code: looksLikeIcdCode ? trimmed.toUpperCase() : undefined,
-    label: trimmed,
-  };
 }
 
 function getBaselineStatusText(status: WearableBaselineStatus): string {

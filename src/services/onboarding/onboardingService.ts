@@ -129,13 +129,13 @@ export type PatientProfile = {
   officialFirstName?: string;
   officialLastName?: string;
   officialDisplayName?: string;
-  age: string;
+  age?: string;
 
   /**
    * Legacy display string used by current Dashboard/Profile/SLM.
    * Keep this until every screen reads structured ICD/comorbidity data.
    */
-  conditions: string;
+  conditions?: string;
 
   addressSameAsCaregiver?: boolean;
   address?: AddressProfile;
@@ -487,7 +487,7 @@ export function getMockEhrPatientRecord(): MockEhrPatientRecord {
     comorbidities: patient.comorbidities?.map((condition) => ({
       ...condition,
     })) ?? [],
-    conditions: patient.conditions,
+    conditions: patient.conditions ?? "",
   };
 }
 
@@ -505,7 +505,7 @@ export function clearOnboardingProfile(): void {
 }
 
 export function getPatientConditionSummary(patient: PatientProfile): string {
-  const primary = patient.primaryIcdLabel || patient.conditions;
+  const primary = patient.primaryIcdLabel || patient.conditions || "";
   const comorbidities = patient.comorbidities ?? [];
 
   if (comorbidities.length === 0) {
@@ -549,7 +549,7 @@ export function getPrimaryIcdDisplay(patient: PatientProfile): string {
     return patient.primaryIcdLabel;
   }
 
-  return patient.conditions;
+  return patient.conditions ?? "";
 }
 
 export function getWearableDeviceDisplay(patient: PatientProfile): string {

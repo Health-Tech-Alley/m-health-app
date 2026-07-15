@@ -32,7 +32,7 @@ type DemoCaregiverPreset = Pick<
 
 type DemoPatientPreset = Pick<
   PatientProfile,
-  'name' | 'preferredName' | 'age' | 'baselineDailyRoutine'
+  'name' | 'preferredName' | 'baselineDailyRoutine'
 >;
 
 export type DemoOnboardingPreset = {
@@ -53,13 +53,13 @@ const DEMO_PRIMARY_CARE_PROVIDER: ProviderProfile = {
 const JAMES_PRIMARY_CARE_PROVIDER: ProviderProfile = {
   name: 'Adam Bricker, MD',
   phone: '(555) 030-1100',
-  email: 'james.provider@example.com',
+  email: 'adam.bricker@example.com',
 };
 
 const SOFIA_PRIMARY_CARE_PROVIDER: ProviderProfile = {
   name: 'Adam Bricker, MD',
-  phone: '(555) 030-1200',
-  email: 'sofia.provider@example.com',
+  phone: '(555) 030-1100',
+  email: 'adam.bricker@example.com',
 };
 
 export const DEMO_ONBOARDING_PRESETS: Record<
@@ -72,7 +72,6 @@ export const DEMO_ONBOARDING_PRESETS: Record<
     patient: {
       name: 'Elena',
       preferredName: 'Elena',
-      age: '',
       baselineDailyRoutine:
         'I usually help Elena with breakfast, short walks when her energy allows, afternoon rest, and quiet family calls in the evening.',
     },
@@ -113,9 +112,8 @@ export const DEMO_ONBOARDING_PRESETS: Record<
     patient: {
       name: 'James',
       preferredName: 'James',
-      age: '',
       baselineDailyRoutine:
-        'James does his prescribed shoulder range-of-motion and grip exercises at home every day. I help him stay on schedule, record his progress, and watch for pain, fatigue, balance problems, or changes in how he moves.',
+        'James does caregiver-supported home rehabilitation each day. I help track his exercise repetitions, range of motion, walking activity, pain, and fatigue, and I keep notes for the rehabilitation team.',
     },
     caregiver: {
       name: 'Diane',
@@ -133,18 +131,18 @@ export const DEMO_ONBOARDING_PRESETS: Record<
       languagePreference: 'English',
       medicalComfortLevel: 'Moderate detail',
       hobbiesOrRoutines:
-        'James does his prescribed shoulder range-of-motion and grip exercises at home every day. I help him stay on schedule, record his progress, and watch for pain, fatigue, balance problems, or changes in how he moves.',
+        'James does caregiver-supported home rehabilitation each day. I help track his exercise repetitions, range of motion, walking activity, pain, and fatigue, and I keep notes for the rehabilitation team.',
       mainConcern:
-        'James has been doing his exercises every day, but I am worried that the numbers may look better than his actual recovery. I want to know whether he is truly improving or compensating with his shoulder.',
+        'I want to keep James on track with his daily rehabilitation exercises, repetitions, range of motion, and walking activity, and I need to understand when pain, fatigue, or stalled progress means I should contact the rehabilitation team.',
       stressOrSupportNeeds:
-        'I need help recognizing meaningful progress, making sure he exercises safely, and knowing when he may need to be reassessed.',
+        'I need clear guidance for tracking home exercises safely, noticing changes in walking or range of motion, and knowing when to ask the rehabilitation team for help.',
       backupCaregiver: 'Tunde Okafor, brother - (555) 016-4488',
     },
     primaryCareProvider: JAMES_PRIMARY_CARE_PROVIDER,
     safety: {
       emergencyContact: 'Tunde Okafor, brother - (555) 016-4488',
       safetyNotes:
-        'I am concerned that James may compensate with his shoulder or lose his balance during home exercises. I would stop the exercise and contact his care team if he develops new pain, marked weakness, dizziness, or worsening balance. I would seek urgent help for new facial droop, speech difficulty, or one-sided weakness.',
+        'I watch for new weakness, severe sudden pain, falls with injury, chest pain, or shortness of breath during James\'s home rehabilitation. I would stop activity and contact his care team for concerning changes, and seek urgent help for chest pain, shortness of breath, a fall with injury, new one-sided weakness, or speech trouble.',
       emergencyDisclaimerAccepted: true,
     },
   },
@@ -154,7 +152,6 @@ export const DEMO_ONBOARDING_PRESETS: Record<
     patient: {
       name: 'Sofia',
       preferredName: 'Sofi',
-      age: '',
       baselineDailyRoutine:
         'Sofi follows a regular medication, bladder, and bowel routine. She usually eats on a consistent schedule and stays as active as she comfortably can. She wears a watch that tracks her heart rate and movement. I check in with her during the day and help her keep up with medications and daily routines.',
     },
@@ -195,7 +192,6 @@ export const DEMO_ONBOARDING_PRESETS: Record<
     patient: {
       name: 'Mike',
       preferredName: 'Mike',
-      age: '32',
       baselineDailyRoutine:
         'Mike follows a regular schedule for medications, meals, personal care, stretching, positioning, and rest. I help him with transfers and daily activities, check his skin and any braces or splints, and keep track of changes in his breathing, swallowing, comfort, and energy.',
     },
@@ -260,18 +256,9 @@ export function applyDemoOnboardingPreset(
     patient: {
       ...profile.patient,
       ...preset.patient,
-      officialFirstName: '',
-      officialLastName: '',
-      officialDisplayName: '',
-      age: preset.patient.age,
-      conditions: '',
-      primaryIcdCode: undefined,
-      primaryIcdLabel: undefined,
-      comorbidities: [],
       symptoms: [],
       otherSymptoms: '',
       baselineDailyRoutine: preset.patient.baselineDailyRoutine,
-      currentMedications: '',
       spo2Cutoff: '',
       baselineHeartRate: '',
       baselineBloodOxygen: '',
