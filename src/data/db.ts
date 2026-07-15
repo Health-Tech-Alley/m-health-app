@@ -74,6 +74,7 @@ function migrate(db: SQLiteDatabase): void {
   // diagnosis, meds, symptoms) fails to save.
   const defensiveColumns: Array<{ table: string; col: string; type: string }> = [
     { table: 'patients', col: 'location', type: 'TEXT' },
+    { table: 'patients', col: 'safety_notes', type: 'TEXT' },
   ];
   for (const { table, col, type } of defensiveColumns) {
     try {

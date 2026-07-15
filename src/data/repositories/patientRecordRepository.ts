@@ -70,6 +70,7 @@ export interface BundleStatus {
 
 export interface PatientRecordSnapshot {
   patient: Patient | null;
+  safetyNotes: string;
   caregiver: Caregiver | null;
   conditions: PatientCondition[]; // structured, with icd10/category/isPrimary/source/needsReview
   comorbidities: PatientCondition[]; // subset where isPrimary === false (or source !== 'onboarding' for primary)
@@ -116,6 +117,7 @@ function getCarePlanGoals(patientId: string): CarePlanGoalSummary[] {
     return [];
   }
 }
+
 const UC3_REHAB_HISTORY_DAYS = 21;
 
 function toDateOnly(value?: string | null): string | null {
@@ -157,6 +159,7 @@ function getRehabDailyEntryWindow(carePlan: CarePlan | null): {
     limit: UC3_REHAB_HISTORY_DAYS,
   };
 }
+
 export function setBundlePending(patientId: string, pending: boolean): void {
   const db = getDatabase();
   const now = new Date().toISOString();
@@ -283,6 +286,7 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
 
   return {
     patient,
+    safetyNotes: patient?.safetyNotes ?? '',
     caregiver,
     conditions,
     comorbidities,

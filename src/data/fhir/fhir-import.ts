@@ -286,9 +286,34 @@ function getPractitionerDisplay(resource: any): string | null {
   return text ?? fullName ?? null;
 }
 
+function getHumanNameDisplay(name: any): string {
+  const text = typeof name?.text === 'string' ? name.text.trim() : '';
+  if (text) return text;
+
+  return [
+    Array.isArray(name?.prefix) ? name.prefix.join(' ') : undefined,
+    Array.isArray(name?.given) ? name.given.join(' ') : undefined,
+    name?.family,
+    Array.isArray(name?.suffix) ? name.suffix.join(' ') : undefined,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+}
+
+function getFirstGivenName(name: any): string | null {
+  const firstGiven = Array.isArray(name?.given)
+    ? name.given.find((part: unknown) => typeof part === 'string' && part.trim())
+    : undefined;
+  return typeof firstGiven === 'string' ? firstGiven.trim() : null;
+}
+
 function upsertPatient(db: any, r: any, activePatientId: string): void {
-  const name = r.name?.[0];
-  const fullName = [name?.given?.join(' '), name?.family].filter(Boolean).join(' ');
+  const name = Array.isArray(r.name)
+    ? r.name.find((entry: any) => entry?.use === 'official') ?? r.name[0]
+    : undefined;
+  const fullName = getHumanNameDisplay(name);
+  const importedPreferredName = getFirstGivenName(name);
   const now = new Date().toISOString();
   const patientId = getImportedPatientId(r, activePatientId);
   if (!patientId) return;
@@ -307,13 +332,14 @@ function upsertPatient(db: any, r: any, activePatientId: string): void {
   // baseline_heart_rate, created_at, updated_at
   db.runSync(
     `INSERT INTO patients (
-       patient_id, name, age, baseline_daily_routine, current_medications,
+       patient_id, name, preferred_name, age, baseline_daily_routine, current_medications,
        spo2_cutoff, baseline_heart_rate, gmfcs, fms, macs, cfcs, edacs,
        created_at, updated_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(patient_id) DO UPDATE SET
-       name = COALESCE(NULLIF(patients.name, ''), NULLIF(excluded.name, ''), patients.name),
+       name = COALESCE(NULLIF(excluded.name, ''), patients.name),
+       preferred_name = COALESCE(NULLIF(patients.preferred_name, ''), NULLIF(excluded.preferred_name, ''), patients.preferred_name),
        age  = COALESCE(NULLIF(patients.age, ''), excluded.age, patients.age),
        baseline_daily_routine = COALESCE(NULLIF(patients.baseline_daily_routine, ''), NULLIF(excluded.baseline_daily_routine, ''), patients.baseline_daily_routine),
        current_medications = COALESCE(NULLIF(patients.current_medications, ''), NULLIF(excluded.current_medications, ''), patients.current_medications),
@@ -327,6 +353,7 @@ function upsertPatient(db: any, r: any, activePatientId: string): void {
        updated_at = excluded.updated_at;`,
     patientId,
     fullName,
+    importedPreferredName,
     r.birthDate ? calculateAge(new Date(r.birthDate)) : null,
     baselineDailyRoutine,
     currentMedications,

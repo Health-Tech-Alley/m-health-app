@@ -8,6 +8,8 @@
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { useActivePatientView } from "@/hooks/useActivePatientView";
+import { getPatientDisplayName } from "@/utils/patientDisplay";
 import { getOnboardingProfile } from "../../services/onboarding/onboardingService";
 
 const teal = "#008573";
@@ -18,12 +20,14 @@ const cardBorder = "#E4E7EC";
 export function QuickActionsCard() {
   const router = useRouter();
   const profile = getOnboardingProfile();
+  const activePatient = useActivePatientView();
+  const patientName = getPatientDisplayName(activePatient);
 
   return (
     <View style={styles.card}>
       <Text style={styles.title}>Quick Actions</Text>
       <Text style={styles.subtitle}>
-        Common caregiver actions for {profile.patient.name}.
+        Common caregiver actions for {patientName}.
       </Text>
 
       <Pressable style={styles.actionButton} onPress={() => router.push("/care")}>

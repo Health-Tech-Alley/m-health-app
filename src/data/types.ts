@@ -289,6 +289,8 @@ export interface Patient {
   edacs?: string;
   /** Free-text location (county / state) used for SDOH bundling. */
   location?: string;
+  /** Caregiver-entered onboarding safety notes, scoped to this patient. */
+  safetyNotes?: string | null;
   createdAt: string;
   updatedAt: string;
 }

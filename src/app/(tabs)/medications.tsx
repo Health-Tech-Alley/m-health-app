@@ -17,6 +17,7 @@ import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
 import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
+import { useActivePatientView } from "@/hooks/useActivePatientView";
 import {
   deleteMedication,
   getActiveMedications,
@@ -33,6 +34,7 @@ import {
   type MedicationSchedule,
 } from "@/data";
 import { audit } from "@/services/audit/auditService";
+import { getPatientDisplayName } from "@/utils/patientDisplay";
 
 type MedStatus = "pending" | "confirmed";
 
@@ -107,9 +109,10 @@ function loadMedRows(patientId: string): MedRow[] {
 export default function MedicationsScreen() {
   const router = useRouter();
   const { patientId, snapshot, refresh } = usePatientRecord();
+  const activePatient = useActivePatientView();
 
   const patientFirstName =
-    snapshot?.patient?.name?.trim().split(/\s+/)[0] || "Patient";
+    getPatientDisplayName(activePatient).trim().split(/\s+/)[0] || "Patient";
 
   const [rows, setRows] = useState<MedRow[]>(() =>
     patientId ? loadMedRows(patientId) : [],

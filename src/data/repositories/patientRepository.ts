@@ -17,8 +17,8 @@ export function upsertPatient(patient: Patient): void {
        baseline_respiratory_rate, baseline_blood_pressure_systolic,
        baseline_blood_pressure_diastolic, baseline_glucose_level,
        baseline_body_temperature, preferred_name, gmfcs, fms, macs, cfcs,
-       edacs, location, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       edacs, location, safety_notes, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(patient_id) DO UPDATE SET
        name = COALESCE(NULLIF(excluded.name, ''), patients.name),
        age = COALESCE(NULLIF(excluded.age, ''), patients.age),
@@ -40,6 +40,7 @@ export function upsertPatient(patient: Patient): void {
        cfcs = COALESCE(NULLIF(excluded.cfcs, ''), patients.cfcs),
        edacs = COALESCE(NULLIF(excluded.edacs, ''), patients.edacs),
        location = COALESCE(NULLIF(excluded.location, ''), patients.location),
+       safety_notes = COALESCE(NULLIF(patients.safety_notes, ''), NULLIF(excluded.safety_notes, ''), patients.safety_notes),
        updated_at = excluded.updated_at;`,
     patient.patientId,
     patient.name,
@@ -62,6 +63,7 @@ export function upsertPatient(patient: Patient): void {
     patient.cfcs ?? null,
     patient.edacs ?? null,
     patient.location ?? null,
+    patient.safetyNotes ?? null,
     patient.createdAt,
     patient.updatedAt,
   );
@@ -80,7 +82,7 @@ export function getPatient(patientId: string): Patient | null {
               baseline_blood_pressure_diastolic AS baselineBloodPressureDiastolic,
               baseline_glucose_level AS baselineGlucoseLevel,
               baseline_body_temperature AS baselineBodyTemperature,
-              gmfcs, fms, macs, cfcs, edacs, location,
+              gmfcs, fms, macs, cfcs, edacs, location, safety_notes AS safetyNotes,
               created_at AS createdAt, updated_at AS updatedAt
        FROM patients WHERE patient_id = ?;`,
       patientId,

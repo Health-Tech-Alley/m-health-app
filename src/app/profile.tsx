@@ -63,6 +63,7 @@ export default function ProfileScreen() {
   const caregiverRole =
     activePatient?.caregiver?.relationship?.trim() || "Not provided";
   const patientName = getPatientDisplayName(activePatient);
+  const formalPatientName = snapshot?.patient?.name?.trim() || "Not provided";
   const patientAge = getPatientAgeDisplay(activePatient);
   const medicationSummary = formatMedicationSummary(snapshot?.medications ?? []);
 
@@ -168,7 +169,8 @@ export default function ProfileScreen() {
           </ProfileCard>
 
           <ProfileCard title="Patient" icon="care">
-            <DetailRow label="Name" value={patientName} />
+            <DetailRow label="Preferred name" value={patientName} />
+            <DetailRow label="Full name" value={formalPatientName} />
             <DetailRow label="Age" value={patientAge} />
             <DetailRow label="Primary diagnosis" value={getPrimaryDiagnosisDisplay(activePatient)} />
             <DetailRow label="Comorbidities" value={getComorbiditiesDisplay(activePatient)} />

@@ -11,11 +11,14 @@
         },
         "name": [
           {
+            "use": "official",
+            "family": "Thompson",
             "given": [
               "Mike"
             ]
           }
         ],
+        "birthDate": "1994-12-11",
         "resourceType": "Patient",
         "text": {
           "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\">Deidentified patient placeholder for internal app use.</div>",

@@ -21,7 +21,9 @@ import {
   resolveCareAlert,
 } from "@/services/care/careService";
 import { useActiveAlert } from "@/hooks/useActiveAlert";
+import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
+import { getPatientDisplayName } from "@/utils/patientDisplay";
 
 /**
  * Dashboard / Care active-alert card.
@@ -40,11 +42,12 @@ export function ActiveAlertCard() {
   const profile = getOnboardingProfile();
   const patientId = useOrchestratorPatientId();
   const activeAlert = useActiveAlert(patientId);
+  const activePatient = useActivePatientView();
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
 
-  const patientFirstName =
-    profile.patient.name.trim().split(/\s+/)[0] || "patient";
+  const patientDisplayName = getPatientDisplayName(activePatient);
+  const patientFirstName = patientDisplayName.trim().split(/\s+/)[0] || "patient";
 
   // Pull the structured ML event for this alert so we can surface the
   // contextual anomaly type + raw vitals. Re-reads when the alert changes.
@@ -75,9 +78,13 @@ export function ActiveAlertCard() {
   const title = activeAlert.title;
   const subtitle = `Severity ${activeAlert.severity} · ${capitalize(activeAlert.status)} · ${formatRelativeTime(activeAlert.createdAt)}`;
   const pillLabel = getSeverityLabel(activeAlert.severity);
-  const body = activeAlert.body
-    ? `${activeAlert.body} `
-    : `${profile.patient.name}'s recent vitals show an unusual pattern. `;
+  const visibleAlertBody =
+    activePatient && activeAlert.body
+      ? activeAlert.body.replace(/^([^']+)'s\b/, `${patientDisplayName}'s`)
+      : activeAlert.body;
+  const body = visibleAlertBody
+    ? `${visibleAlertBody} `
+    : `${patientDisplayName}'s recent vitals show an unusual pattern. `;
 
   const contextualType = mlEvent?.initialAnomalyType;
   const vitals = parseRawVitals(mlEvent);

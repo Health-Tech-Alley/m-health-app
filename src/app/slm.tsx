@@ -1984,7 +1984,7 @@ export default function SLMScreen({
                 <CollapsibleCareSection
                   id="patient"
                   title="Patient"
-                  summary={`${snapshot.patient.name} · age ${caregiverContext?.patientAge ?? 'Not provided'}`}
+                  summary={`${snapshot.patient.preferredName?.trim() || snapshot.patient.name} · age ${caregiverContext?.patientAge ?? 'Not provided'}`}
                   expanded={expandedCareSections.has('patient')}
                   onToggle={toggleCareSection}
                 >

@@ -32,7 +32,8 @@ import { useCriticalAlert } from '@/contexts/critical-alert-context';
 import { getMlEventForAlert, type MlEvent } from '@/data';
 import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
-import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
+import { useActivePatientView } from '@/hooks/useActivePatientView';
+import { getPatientDisplayName } from '@/utils/patientDisplay';
 
 function parseRawVitals(event: MlEvent | null): Record<string, number | undefined> {
   if (!event?.rawVitalsJson) return {};
@@ -65,7 +66,8 @@ export function CriticalAlertDialog() {
   const { alert, visible, closeForSession, dismiss } = useCriticalAlert();
   const [busy, setBusy] = useState(false);
 
-  const profile = getOnboardingProfile();
+  const activePatient = useActivePatientView();
+  const patientDisplayName = getPatientDisplayName(activePatient);
 
   const mlEvent = useMemo<MlEvent | null>(() => {
     if (!alert) return null;
@@ -85,6 +87,10 @@ export function CriticalAlertDialog() {
     { label: 'RR', value: formatMetric(vitals.respiratory_rate, '/min') },
   ];
   const contextualType = mlEvent?.initialAnomalyType;
+  const visibleAlertBody =
+    activePatient && alert.body
+      ? alert.body.replace(/^([^']+)'s\b/, `${patientDisplayName}'s`)
+      : alert.body;
 
   async function handleAction(actionId: NextStepActionId) {
     if (!alert) return;
@@ -165,9 +171,9 @@ export function CriticalAlertDialog() {
             )}
 
             <Text style={styles.bodyText}>
-              {alert.body
-                ? `${alert.body} `
-                : `${profile.patient.name}'s recent vitals show an unusual pattern. `}
+              {visibleAlertBody
+                ? `${visibleAlertBody} `
+                : `${patientDisplayName}'s recent vitals show an unusual pattern. `}
               <Text style={styles.boldText}>
                 You decide — the app never acts for you.
               </Text>

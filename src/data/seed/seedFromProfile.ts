@@ -122,6 +122,7 @@ export function seedDatabaseFromProfile(
     cfcs: profile.patient.cfcsLevel || 'Not assessed',
     edacs: profile.patient.edacsLevel || 'Not assessed',
     location: profile.patient.location,
+    safetyNotes: profile.safety?.safetyNotes,
     createdAt: profile.completedAt ?? now,
     updatedAt: now,
   });
@@ -183,7 +184,7 @@ export function seedDatabaseFromProfile(
     }
   } else {
     // Fallback: derive from the legacy comma-separated conditions string.
-    const fallbackNames = profile.patient.conditions
+    const fallbackNames = (profile.patient.conditions ?? '')
       .split(',')
       .map((c) => c.trim())
       .filter(Boolean);

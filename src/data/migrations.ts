@@ -830,6 +830,7 @@ export const MIGRATIONS: Migration[] = [
       db.execSync(`ALTER TABLE wearable_devices ADD COLUMN healthkit_source_name TEXT;`);
     }
   },
+
   // 33: caregiver-entered daily rehabilitation facts
   (db: SQLiteDatabase) => {
     const columns = db.getAllSync<{ name: string }>(
@@ -846,6 +847,7 @@ export const MIGRATIONS: Migration[] = [
     addColumn('walking_minutes', 'walking_minutes REAL');
     addColumn('symptoms_json', `symptoms_json TEXT NOT NULL DEFAULT '[]'`);
   },
+
   // 34: clinician-authored rehabilitation plan metrics from FHIR CarePlan goals
   `
   CREATE TABLE IF NOT EXISTS care_plan_rehab_metrics (
@@ -881,4 +883,14 @@ export const MIGRATIONS: Migration[] = [
 
   // 35: reserved by local development database state; intentionally no-op.
   ``,
+
+  // 36: caregiver-entered onboarding safety notes scoped to the patient row.
+  (db: SQLiteDatabase) => {
+    const columns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(patients);`,
+    );
+    if (!columns.some((column) => column.name === 'safety_notes')) {
+      db.execSync(`ALTER TABLE patients ADD COLUMN safety_notes TEXT;`);
+    }
+  },
 ];

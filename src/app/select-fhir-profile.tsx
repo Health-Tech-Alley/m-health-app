@@ -143,9 +143,15 @@ export default function SelectFhirProfileScreen() {
           if (importedPatient) {
             upsertPatient({
               ...importedPatient,
+              preferredName:
+                prepared.profile.patient.preferredName ??
+                importedPatient.preferredName,
               baselineDailyRoutine:
                 prepared.profile.patient.baselineDailyRoutine ??
                 importedPatient.baselineDailyRoutine,
+              safetyNotes:
+                prepared.profile.safety?.safetyNotes ??
+                importedPatient.safetyNotes,
               updatedAt: new Date().toISOString(),
             });
           }
