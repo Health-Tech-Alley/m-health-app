@@ -15,7 +15,9 @@ import {
   type HealthSampleType,
   type MlRawVitalsInputEnvelope,
 } from '@/data';
+import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
 import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
+import type { AlertAutoencoder } from '@/ml-models/alert-autoencoder/alert-autoencoder';
 import type {
   CoreVitals,
   ExtendedVitals,
@@ -35,15 +37,13 @@ import {
   runEmergencyRuleEngine,
   runUC2DecisionLayerV2,
 } from '@/ml-models/uc2-decision-layer';
-import type { AlertAutoencoder } from '@/ml-models/alert-autoencoder/alert-autoencoder';
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
-import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
-import { toRawObservationInput } from './uc2-runtime-service';
 import { store } from '@/store';
 import { LiveVitalReading } from '@/store/reducers/vitalsSlice';
+import { toRawObservationInput } from './uc2-runtime-service';
 
-const MIN_SAMPLE_TYPES = 3;
+const MIN_SAMPLE_TYPES = 2;
 
 type InputProvenance = MlRawVitalsInputEnvelope['provenance'];
 
@@ -142,20 +142,22 @@ export class AlertMlService {
     triggeringEvent: Extract<OrchestrationEvent, { type: 'vitals_sample' }>,
     snapshot: PatientRecordSnapshot | null = null,
   ): Promise<UC2DecisionResult | null> {
+    console.log('[ML] Evaluating vitals_sample for patientId=', patientId, 'sampleType=', triggeringEvent.sampleType);
     if (!this.model.isLoaded) {
       await this.load();
     }
-
+    console.log('[ML] Model loaded:', this.model.isLoaded, 'threshold:', this.model.threshold);
     const built = this.buildInputFromRecentSamples(patientId, new Date(triggeringEvent.recordedAt));
-    if (!built) return null;
 
+    if (!built) return null;
+    console.log('[ML] Built UC2 input for patientId=', patientId, 'input:', built.input, 'provenance:', built.provenance);
     const profile = this.buildProfileFromSnapshot(patientId, snapshot);
 
     // The UC2 layer needs a concrete AlertAutoencoder for the TFLite runner.
     // When the configured model is one, use it directly; otherwise fall back
     // to the legacy per-model inference path (kept for the mock provider).
     const result = await this.runDecisionLayer(built.input, profile);
-
+    console.log(`[ML] UC2 decision layer result for patientId=${patientId}:`, result);
     if (result && (result.isAnomaly || result.emergencyResult.emergency)) {
       this.emitAlert(
         patientId,

@@ -267,6 +267,7 @@ async primeAnchorsToNow(): Promise<void> {
     sample: SensorSample,
     bus: ReturnType<typeof getEventBus>,
   ): void {
+    console.log('[AppleHealthSource] Publishing to bus instance:', bus);
     const scalar = typeof sample.value === 'number' ? sample.value : 0;
     const event: Extract<OrchestrationEvent, { type: 'vitals_sample' }> = {
       type: 'vitals_sample',

@@ -18,36 +18,47 @@ import {
   getAlertById,
   insertAlert,
   insertCaregiverAction,
-  insertHealthSample,
   insertHealthSamplesBatched,
   insertSlmTurn,
   type Alert,
   type CaregiverAction,
   type HealthSample,
-  type SlmTurn,
   type MlEvent,
+  type SlmTurn
 } from '@/data';
 import {
-  insertMlEvent,
+  getAnomalyConfidenceRatio,
   getMlEventForAlert,
-  parseTopFeatures,
-  parseRuleEngine,
+  insertMlEvent,
   parseCaregiverBlock,
   parseRawVitals,
-  getAnomalyConfidenceRatio,
+  parseRuleEngine,
+  parseTopFeatures,
 } from '@/data/repositories/mlEventRepository';
 import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
 import type { InferenceProvider } from '@/inference/inference-provider';
 import type { FusedRetriever, RetrievedChunk } from '@/knowledge';
+import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
+import type { AppleWatchVitalsInput, UC2DecisionResult } from '@/ml-models/uc2-decision-layer';
 import { audit, auditAlertCreated, auditCaregiverAction, auditSampleRead, auditSlmTurn } from '@/services/audit/auditService';
 import { checkEgressConsent } from '@/services/consent/consentGate';
-import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
 import { AlertMlService } from '@/services/ml/alert-ml-service';
-import type { AppleWatchVitalsInput, UC2DecisionResult } from '@/ml-models/uc2-decision-layer';
 import type { SlmTaskQueue } from '@/services/slm/slm-task-queue';
 import { store } from '@/store';
-import { projectHealthSample } from '@/store/reducers/vitalsSlice';
 
+import { CONCIERGE_GENERATION_EXPLAIN, REASONING_FORMAT_EXPLAIN } from '@/constants/concierge';
+import type { MlRawVitalsPayload, NextStep, NextStepActionId } from '@/data/types';
+import {
+  GraphProjector,
+  buildContextSubgraph,
+  writeActionEdges,
+  writeAlertEdges,
+  writeSampleEdges,
+  writeSlmTurnEdges,
+  writeTriggerEdges,
+} from '@/knowledge/graph';
+import { LiveVitalReading, ingestSamplesBatch } from "@/store/reducers/vitalsSlice";
+import { runInBackground } from '@/utils/commonFunctions';
 import {
   CaregiverAgent,
   CoordinatorAgent,
@@ -60,18 +71,9 @@ import {
   type ProposedAction,
 } from './agents';
 import { createDefaultCepEngine, type CepEngine } from './cep';
+import { buildAggregatedContext, type AggregatedContext } from './context-aggregator';
 import { getEventBus, type EventBus } from './event-bus';
 import type { OrchestrationEvent } from './events';
-import { buildAggregatedContext, type AggregatedContext } from './context-aggregator';
-import {
-  GraphProjector,
-  buildContextSubgraph,
-  writeSampleEdges,
-  writeAlertEdges,
-  writeActionEdges,
-  writeSlmTurnEdges,
-  writeTriggerEdges,
-} from '@/knowledge/graph';
 import {
   createInProcessMcp,
   type InProcessMcpClient,
@@ -81,24 +83,20 @@ import {
   NEXT_STEP_TAXONOMY,
   isValidActionId,
 } from './next-steps';
-import { CONCIERGE_GENERATION_EXPLAIN, REASONING_FORMAT_EXPLAIN } from '@/constants/concierge';
-import { filterToolsForSkill, getSkillPromptFragment, type SkillId } from './skills';
-import type { MlRawVitalsPayload, NextStep, NextStepActionId } from '@/data/types';
 import {
-  patientBlock,
-  thresholdsBlock,
-  carePlanGoalsBlock,
-  recentVitalsBlock,
   budgetAwareCitationsBlock,
-  toolsBlock,
+  carePlanGoalsBlock,
+  patientBlock,
   personaPreamble,
   priorDecisionsBlock,
   progressMeasuresBlock,
+  recentVitalsBlock,
   sensitiveTopicsInstruction,
+  thresholdsBlock,
+  toolsBlock,
   type PriorDecisionEntry,
 } from './prompt-fragments';
-import { runInBackground } from '@/utils/commonFunctions';
-import { ingestSamplesBatch, LiveVitalReading } from "@/store/reducers/vitalsSlice";
+import { filterToolsForSkill, getSkillPromptFragment, type SkillId } from './skills';
 
 export type OrchestratorConfig = {
   slm: InferenceProvider;
@@ -202,7 +200,9 @@ export class Orchestrator {
     ];
 
     const bus = config.bus ?? getEventBus();
+    // console.log('[Orchestrator] Constructing, subscribing to vitals_sample. Bus instance:', bus);
     const unsubVitals = bus.subscribe('vitals_sample', (event) => {
+      // console.log('[Orchestrator] bus fired vitals_sample:', event.type === 'vitals_sample' ? event.sampleType : 'n/a');
       if (event.type === 'vitals_sample') {
         void this.handleVitalsSample(event);
       }
@@ -245,6 +245,7 @@ export class Orchestrator {
   }
 
   private async handleVitalsSample(event: Extract<OrchestrationEvent, { type: 'vitals_sample' }>): Promise<void> {
+    console.log(`[Orchestrator] Received vitals sample: ${event.sampleType}=${event.value}${event.unit} for patient ${event.patientId}`);
     // Persist the sample so later SLM explain paths can read it.
     const sample: HealthSample = {
       sampleId: event.sampleId,
@@ -329,6 +330,8 @@ export class Orchestrator {
           }
         }, Orchestrator.DEBOUNCE_MS);
       }
+    } else {
+      console.warn('[Orchestrator] Alert ML service not configured; skipping ML evaluation.');
     }
   }
 
