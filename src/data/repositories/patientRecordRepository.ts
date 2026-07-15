@@ -16,6 +16,7 @@ import { getDatabase } from '../db';
 import type {
   Caregiver,
   CarePlan,
+  CarePlanRehabMetric,
   DailyCareEntry,
   Medication,
   MedicationCandidate,
@@ -30,6 +31,7 @@ import type {
   WearableDevice,
 } from '../types';
 import { getActiveCarePlanForPatient, getCarePlansForPatient } from './carePlanRepository';
+import { getCarePlanRehabMetrics } from './carePlanRehabMetricRepository';
 import { getDailyCareEntries, getDailyCareEntry } from './dailyCareEntryRepository';
 import { getMedicationCandidatesForPatient } from './fhirResourceRepository';
 import { getKnowledgeCacheStats } from './knowledgeCacheRepository';
@@ -82,6 +84,7 @@ export interface PatientRecordSnapshot {
   thresholds: Threshold[];
   carePlan: CarePlan | null;
   carePlans: CarePlan[];
+  rehabPlanMetrics: CarePlanRehabMetric[];
   todayDailyCareEntry: DailyCareEntry | null;
   rehabDailyEntries: DailyCareEntry[];
   careContextItems: PatientCareContextItem[];
@@ -246,6 +249,9 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const thresholds = getActiveThresholds(patientId);
   const carePlan = getActiveCarePlanForPatient(patientId);
   const carePlans = getCarePlansForPatient(patientId);
+  const rehabPlanMetrics = carePlan
+    ? getCarePlanRehabMetrics(patientId, carePlan.planId)
+    : [];
   const todayDailyCareEntry = getDailyCareEntry(patientId);
   const rehabDailyEntries = getDailyCareEntries(
     patientId,
@@ -291,6 +297,7 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     thresholds,
     carePlan,
     carePlans,
+    rehabPlanMetrics,
     todayDailyCareEntry,
     rehabDailyEntries,
     careContextItems,

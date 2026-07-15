@@ -70,6 +70,31 @@ export interface RehabilitationMeasurement {
   createdAt: string;
 }
 
+export type CarePlanRehabMetricKey =
+  | 'romDegrees'
+  | 'exerciseReps'
+  | 'adherence'
+  | 'painScore'
+  | 'fatigueScore'
+  | 'walkingMinutes';
+
+export interface CarePlanRehabMetric {
+  id: string;
+  patientId: string;
+  carePlanId: string;
+  carePlanActivityId?: string | null;
+  metricKey: CarePlanRehabMetricKey;
+  displayName: string;
+  baselineValue?: number | null;
+  targetValue?: number | null;
+  unit: string;
+  durationDays: number;
+  sourceGoalId?: string | null;
+  sourceBaselineObservationId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type LongitudinalObservationType =
   | 'vomiting_episodes'
   | 'urinary_symptom_score'

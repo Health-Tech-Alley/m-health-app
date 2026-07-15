@@ -59,6 +59,7 @@ export * from './repositories/mlEventRepository';
 export * from './repositories/patientRecordRepository';
 export * from './repositories/dailyCareEntryRepository';
 export * from './repositories/carePlanRepository';
+export * from './repositories/carePlanRehabMetricRepository';
 export * from './repositories/rehabilitationMeasurementRepository';
 export * from './repositories/patientLongitudinalObservationRepository';
 export * from './repositories/patientTimelineEventRepository';

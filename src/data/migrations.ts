@@ -846,4 +846,39 @@ export const MIGRATIONS: Migration[] = [
     addColumn('walking_minutes', 'walking_minutes REAL');
     addColumn('symptoms_json', `symptoms_json TEXT NOT NULL DEFAULT '[]'`);
   },
+  // 34: clinician-authored rehabilitation plan metrics from FHIR CarePlan goals
+  `
+  CREATE TABLE IF NOT EXISTS care_plan_rehab_metrics (
+    id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    care_plan_id TEXT NOT NULL,
+    care_plan_activity_id TEXT,
+    metric_key TEXT NOT NULL CHECK (
+      metric_key IN (
+        'romDegrees',
+        'exerciseReps',
+        'adherence',
+        'painScore',
+        'fatigueScore',
+        'walkingMinutes'
+      )
+    ),
+    display_name TEXT NOT NULL,
+    baseline_value REAL,
+    target_value REAL,
+    unit TEXT NOT NULL,
+    duration_days INTEGER NOT NULL,
+    source_goal_id TEXT,
+    source_baseline_observation_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(patient_id, care_plan_id, metric_key)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_care_plan_rehab_metrics_plan
+    ON care_plan_rehab_metrics(patient_id, care_plan_id);
+  `,
+
+  // 35: reserved by local development database state; intentionally no-op.
+  ``,
 ];

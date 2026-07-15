@@ -2,11 +2,14 @@
 
 import { getDatabase } from '../db';
 import { upsertCarePlan } from '../repositories/carePlanRepository';
+import { replaceCarePlanRehabMetrics } from '../repositories/carePlanRehabMetricRepository';
 import { upsertPatientCareContextItem } from '../repositories/patientCareContextRepository';
 import { upsertPatientLongitudinalObservation } from '../repositories/patientLongitudinalObservationRepository';
 import { upsertPatientTimelineEvent } from '../repositories/patientTimelineEventRepository';
 import { upsertRehabilitationMeasurement } from '../repositories/rehabilitationMeasurementRepository';
 import type {
+  CarePlanRehabMetric,
+  CarePlanRehabMetricKey,
   LongitudinalObservationType,
   PatientConditionRole,
   PatientConditionSourceReference,
@@ -18,6 +21,18 @@ type SaveFHIRBundleOptions = {
   patientId?: string;
 };
 
+export const REHAB_PLAN_METRIC_CODE_SYSTEM =
+  'https://access-dp.local/fhir/CodeSystem/rehab-plan-metric';
+
+const rehabPlanMetricDefinitions: Record<CarePlanRehabMetricKey, { displayName: string }> = {
+  romDegrees: { displayName: 'Range of motion' },
+  exerciseReps: { displayName: 'Exercise repetitions' },
+  adherence: { displayName: 'Exercise participation' },
+  painScore: { displayName: 'Pain' },
+  fatigueScore: { displayName: 'Fatigue' },
+  walkingMinutes: { displayName: 'Walking time' },
+};
+
 export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions = {}): string | null {
   const db = getDatabase();
   const canonicalPatientId = getBundlePatientId(bundle, options.patientId);
@@ -26,6 +41,7 @@ export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions =
   const practitionerDisplayByReference = buildPractitionerDisplayMap(bundle);
   const provenanceIdByConditionId = buildConditionProvenanceMap(bundle);
   const latestDaysFromFirstVisit = getLatestDaysFromFirstVisit(bundle);
+  const rehabPlanResourceIndex = buildRehabPlanResourceIndex(bundle);
 
   db.withTransactionSync(() => {
     for (const entry of bundle.entry ?? []) {
@@ -53,7 +69,13 @@ export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions =
           );
           break;
         case 'CarePlan':
-          upsertFHIRCarePlan(resource, canonicalPatientId, patientReferenceMap, practitionerDisplayByReference);
+          upsertFHIRCarePlan(
+            resource,
+            canonicalPatientId,
+            patientReferenceMap,
+            practitionerDisplayByReference,
+            rehabPlanResourceIndex,
+          );
           break;
         case 'Basic':
           upsertPatientTimelineEventFromBasic(resource, canonicalPatientId, patientReferenceMap);
@@ -169,6 +191,40 @@ function buildPractitionerDisplayMap(bundle: any): Map<string, string> {
     }
   }
   return displayByReference;
+}
+
+type RehabPlanResourceIndex = {
+  goalsByReference: Map<string, any>;
+  baselineObservations: any[];
+};
+
+function buildRehabPlanResourceIndex(bundle: any): RehabPlanResourceIndex {
+  const goalsByReference = new Map<string, any>();
+  const baselineObservations: any[] = [];
+
+  const addResourceReference = (resourceType: string, resource: any, fullUrl?: string) => {
+    if (!resource?.id) return;
+    goalsByReference.set(resource.id, resource);
+    goalsByReference.set(`${resourceType}/${resource.id}`, resource);
+    if (fullUrl) {
+      goalsByReference.set(fullUrl, resource);
+    }
+  };
+
+  for (const entry of bundle.entry ?? []) {
+    const resource = entry.resource;
+    if (resource?.resourceType === 'Goal') {
+      addResourceReference('Goal', resource, entry.fullUrl);
+    } else if (
+      resource?.resourceType === 'Observation' &&
+      getRehabPlanMetricKey(resource.code) &&
+      typeof resource.valueQuantity?.value === 'number'
+    ) {
+      baselineObservations.push(resource);
+    }
+  }
+
+  return { goalsByReference, baselineObservations };
 }
 
 function buildConditionProvenanceMap(bundle: any): Map<string, string> {
@@ -765,11 +821,25 @@ function getReferenceId(reference?: string): string | undefined {
   return reference.split('/').pop() || reference;
 }
 
+function referenceMatchesResourceId(
+  reference: string | undefined,
+  resourceType: string,
+  resourceId: string,
+): boolean {
+  return (
+    reference === resourceId ||
+    reference === `${resourceType}/${resourceId}` ||
+    reference === `urn:uuid:${resourceId}` ||
+    getReferenceId(reference) === resourceId
+  );
+}
+
 function upsertFHIRCarePlan(
   r: any,
   activePatientId: string,
   patientReferenceMap: Map<string, string> | undefined,
   practitionerDisplayByReference: Map<string, string>,
+  rehabPlanResourceIndex: RehabPlanResourceIndex,
 ): void {
   const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   if (!patientId || !r.id) return;
@@ -802,6 +872,135 @@ function upsertFHIRCarePlan(
       sequence: index,
     })),
   });
+
+  replaceCarePlanRehabMetrics(
+    patientId,
+    r.id,
+    buildCarePlanRehabMetrics(
+      r,
+      patientId,
+      activePatientId,
+      patientReferenceMap,
+      rehabPlanResourceIndex,
+      now,
+    ),
+  );
+}
+
+function buildCarePlanRehabMetrics(
+  carePlan: any,
+  patientId: string,
+  activePatientId: string,
+  patientReferenceMap: Map<string, string> | undefined,
+  rehabPlanResourceIndex: RehabPlanResourceIndex,
+  now: string,
+): CarePlanRehabMetric[] {
+  const durationDays = getCarePlanDurationDays(carePlan.period);
+  if (!durationDays) return [];
+
+  const metrics: CarePlanRehabMetric[] = [];
+  const seenMetricKeys = new Set<CarePlanRehabMetricKey>();
+
+  for (const goalReference of carePlan.goal ?? []) {
+    const goal = rehabPlanResourceIndex.goalsByReference.get(goalReference?.reference);
+    if (!goal?.id) continue;
+
+    const goalPatientId = getImportedPatientId(goal, activePatientId, patientReferenceMap);
+    if (goalPatientId !== patientId) continue;
+
+    for (const target of goal.target ?? []) {
+      const metricKey = getRehabPlanMetricKey(target?.measure);
+      if (!metricKey || seenMetricKeys.has(metricKey)) continue;
+
+      const targetValue = target?.detailQuantity?.value;
+      if (typeof targetValue !== 'number') continue;
+
+      const baselineObservation = findBaselineObservationForMetric(
+        rehabPlanResourceIndex.baselineObservations,
+        carePlan.id,
+        patientId,
+        activePatientId,
+        patientReferenceMap,
+        metricKey,
+      );
+      const baselineValue = baselineObservation?.valueQuantity?.value;
+      const definition = rehabPlanMetricDefinitions[metricKey];
+
+      metrics.push({
+        id: `${patientId}:${carePlan.id}:${metricKey}`,
+        patientId,
+        carePlanId: carePlan.id,
+        carePlanActivityId: null,
+        metricKey,
+        displayName: definition.displayName,
+        baselineValue: typeof baselineValue === 'number' ? baselineValue : null,
+        targetValue,
+        unit:
+          target.detailQuantity?.unit ??
+          baselineObservation?.valueQuantity?.unit ??
+          target.detailQuantity?.code ??
+          baselineObservation?.valueQuantity?.code ??
+          '',
+        durationDays,
+        sourceGoalId: goal.id,
+        sourceBaselineObservationId: baselineObservation?.id ?? null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      seenMetricKeys.add(metricKey);
+    }
+  }
+
+  return metrics;
+}
+
+function findBaselineObservationForMetric(
+  observations: any[],
+  carePlanId: string,
+  patientId: string,
+  activePatientId: string,
+  patientReferenceMap: Map<string, string> | undefined,
+  metricKey: CarePlanRehabMetricKey,
+): any | null {
+  return (
+    observations.find((observation) => {
+      if (getRehabPlanMetricKey(observation.code) !== metricKey) return false;
+      if (getImportedPatientId(observation, activePatientId, patientReferenceMap) !== patientId) {
+        return false;
+      }
+      return (observation.basedOn ?? []).some(
+        (reference: any) =>
+          referenceMatchesResourceId(reference?.reference, 'CarePlan', carePlanId),
+      );
+    }) ?? null
+  );
+}
+
+function getRehabPlanMetricKey(codeableConcept: any): CarePlanRehabMetricKey | null {
+  const coding = codeableConcept?.coding;
+  if (!Array.isArray(coding)) return null;
+  const match = coding.find(
+    (item: any) =>
+      item?.system === REHAB_PLAN_METRIC_CODE_SYSTEM &&
+      Object.prototype.hasOwnProperty.call(rehabPlanMetricDefinitions, item?.code),
+  );
+  return match?.code ? (match.code as CarePlanRehabMetricKey) : null;
+}
+
+function getCarePlanDurationDays(period: any): number | null {
+  const start = parseFhirDate(period?.start);
+  const end = parseFhirDate(period?.end);
+  if (!start || !end || end.getTime() < start.getTime()) return null;
+  return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+}
+
+function parseFhirDate(value?: string): Date | null {
+  if (!value) return null;
+  const datePart = value.split('T')[0];
+  const match = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function resolveReferenceDisplay(
