@@ -16,6 +16,7 @@ import { getDatabase } from '../db';
 import type {
   Caregiver,
   CarePlan,
+  DailyCareEntry,
   Medication,
   MedicationCandidate,
   MedicationConfirmationRequirement,
@@ -29,6 +30,7 @@ import type {
   WearableDevice,
 } from '../types';
 import { getActiveCarePlanForPatient, getCarePlansForPatient } from './carePlanRepository';
+import { getDailyCareEntries, getDailyCareEntry } from './dailyCareEntryRepository';
 import { getMedicationCandidatesForPatient } from './fhirResourceRepository';
 import { getKnowledgeCacheStats } from './knowledgeCacheRepository';
 import { getMedicationConfirmationRequirementsForPatient } from './medicationConfirmationRequirementRepository';
@@ -80,6 +82,8 @@ export interface PatientRecordSnapshot {
   thresholds: Threshold[];
   carePlan: CarePlan | null;
   carePlans: CarePlan[];
+  todayDailyCareEntry: DailyCareEntry | null;
+  rehabDailyEntries: DailyCareEntry[];
   careContextItems: PatientCareContextItem[];
   timelineEvents: PatientTimelineEvent[];
   carePlanGoals: CarePlanGoalSummary[];
@@ -109,7 +113,47 @@ function getCarePlanGoals(patientId: string): CarePlanGoalSummary[] {
     return [];
   }
 }
+const UC3_REHAB_HISTORY_DAYS = 21;
 
+function toDateOnly(value?: string | null): string | null {
+  if (!value) return null;
+  const dateOnly = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateOnly) ? dateOnly : null;
+}
+
+function addDays(dateOnly: string, days: number): string {
+  const date = new Date(`${dateOnly}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function minDateOnly(a: string, b: string): string {
+  return a <= b ? a : b;
+}
+
+function getRehabDailyEntryWindow(carePlan: CarePlan | null): {
+  since: string;
+  until: string;
+  limit: number;
+} {
+  const today = new Date().toISOString().slice(0, 10);
+  const planStart = toDateOnly(carePlan?.periodStart ?? carePlan?.effectiveDate);
+  const planEnd = toDateOnly(carePlan?.periodEnd);
+
+  if (planStart) {
+    return {
+      since: planStart,
+      until: planEnd ? minDateOnly(planEnd, today) : today,
+      limit: UC3_REHAB_HISTORY_DAYS,
+    };
+  }
+
+  return {
+    since: addDays(today, -(UC3_REHAB_HISTORY_DAYS - 1)),
+    until: today,
+    limit: UC3_REHAB_HISTORY_DAYS,
+  };
+}
 export function setBundlePending(patientId: string, pending: boolean): void {
   const db = getDatabase();
   const now = new Date().toISOString();
@@ -202,6 +246,11 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const thresholds = getActiveThresholds(patientId);
   const carePlan = getActiveCarePlanForPatient(patientId);
   const carePlans = getCarePlansForPatient(patientId);
+  const todayDailyCareEntry = getDailyCareEntry(patientId);
+  const rehabDailyEntries = getDailyCareEntries(
+    patientId,
+    getRehabDailyEntryWindow(carePlan),
+  );
   const careContextItems = getPatientCareContextItems(patientId);
   const timelineEvents = getPatientTimelineEvents(patientId);
   const carePlanGoals = getCarePlanGoals(patientId);
@@ -242,6 +291,8 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     thresholds,
     carePlan,
     carePlans,
+    todayDailyCareEntry,
+    rehabDailyEntries,
     careContextItems,
     timelineEvents,
     carePlanGoals,

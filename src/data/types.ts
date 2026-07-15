@@ -793,22 +793,26 @@ export interface Appointment {
 export interface DailyCareEntry {
   entryId: string;
   patientId: string;
-  carePlanId?: string;
+  carePlanId?: string | null;
   entryDate: string; // ISO date (yyyy-mm-dd)
-  therapyDay?: number;
-  loggedByUserId?: string;
-  loggedByRole?: string;
+  therapyDay?: number | null;
+  loggedByUserId?: string | null;
+  loggedByRole?: string | null;
   therapyCompleted: boolean;
   setsCompleted: number;
   recommendedSets: number;
-  painBefore?: number;
-  painAfter?: number;
-  fatigue?: number;
-  assistanceRequired?: string;
+  exerciseRepetitions?: number | null;
+  romDegrees?: number | null;
+  walkingMinutes?: number | null;
+  painBefore?: number | null;
+  painAfter?: number | null;
+  fatigue?: number | null;
+  symptoms?: string[];
+  assistanceRequired?: string | null;
   caregiverConcern: boolean;
-  functionalTaskScore?: number;
-  guidedMovementScore?: number;
-  notes?: string;
+  functionalTaskScore?: number | null;
+  guidedMovementScore?: number | null;
+  notes?: string | null;
   createdAt: string;
   updatedAt: string;
 }

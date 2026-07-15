@@ -830,4 +830,20 @@ export const MIGRATIONS: Migration[] = [
       db.execSync(`ALTER TABLE wearable_devices ADD COLUMN healthkit_source_name TEXT;`);
     }
   },
+  // 33: caregiver-entered daily rehabilitation facts
+  (db: SQLiteDatabase) => {
+    const columns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(daily_care_entries);`,
+    );
+    const addColumn = (name: string, definition: string) => {
+      if (!columns.some((column) => column.name === name)) {
+        db.execSync(`ALTER TABLE daily_care_entries ADD COLUMN ${definition};`);
+      }
+    };
+
+    addColumn('exercise_repetitions', 'exercise_repetitions INTEGER');
+    addColumn('rom_degrees', 'rom_degrees REAL');
+    addColumn('walking_minutes', 'walking_minutes REAL');
+    addColumn('symptoms_json', `symptoms_json TEXT NOT NULL DEFAULT '[]'`);
+  },
 ];
