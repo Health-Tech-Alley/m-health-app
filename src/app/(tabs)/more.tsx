@@ -9,9 +9,7 @@ import { YourDecisionsSection } from "@/components/concierge/YourDecisionsSectio
 import { AppTheme } from "@/constants/theme";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
 import { usePatientRecord } from '@/contexts/patient-record-context';
-import {
-  getOnboardingProfile,
-} from "@/services/onboarding/onboardingService";
+import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import {

@@ -69,7 +69,11 @@ export async function initNotifications(): Promise<void> {
     }
     try {
       if (typeof mod.getPermissionsAsync === 'function') {
-        await mod.getPermissionsAsync();
+        const current = await mod.getPermissionsAsync();
+        const granted = current?.granted === true || current?.status === 'granted';
+        if (!granted && current?.canAskAgain === true) {
+          await requestNotificationPermission();
+        }
       }
       await setupNotificationChannels(mod);
       registerResponseListener(mod);

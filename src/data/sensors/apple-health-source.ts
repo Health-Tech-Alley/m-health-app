@@ -2,11 +2,10 @@ import { Platform } from 'react-native';
 
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
-import { dispatchInChunks, runInBackground } from '@/utils/commonFunctions';
 
 import {
   getSyncCursor,
-  insertHealthSample,
+  insertHealthSamplesBatched,
   setSyncCursor,
 } from '../repositories/healthSampleRepository';
 import {
@@ -28,6 +27,10 @@ export type AppleHealthSourceOptions = {
 
 type HealthKitModule = typeof import('@kingstinct/react-native-healthkit');
 let _hkModule: HealthKitModule | null | undefined;
+
+function shortPatientId(patientId: string): string {
+  return patientId.length > 6 ? `...${patientId.slice(-6)}` : patientId;
+}
 
 async function getHealthKitModule(): Promise<HealthKitModule | null> {
   if (_hkModule !== undefined) return _hkModule;
@@ -157,7 +160,7 @@ export class AppleHealthSource implements SensorSource {
  * recorded from this point forward — no backfill, no crawling through
  * years of history.
  */
-async primeAnchorsToNow(): Promise<void> {
+  async primeAnchorsToNow(): Promise<void> {
   const hk = await getHealthKitModule();
   if (!hk) return;
 
@@ -176,7 +179,11 @@ async primeAnchorsToNow(): Promise<void> {
       );
       if (response.newAnchor) {
         setSyncCursor(cursorKey, type, response.newAnchor);
-        console.log(`[AppleHealthSource] Primed anchor to now for ${type}`);
+        if (__DEV__) {
+          console.log(`[AppleHealthSource] Primed anchor to now for ${type}`, {
+            patient: shortPatientId(this.patientId),
+          });
+        }
       }
     } catch (err) {
       console.warn(`[AppleHealthSource] anchor priming failed for ${type}:`, err);
@@ -185,18 +192,22 @@ async primeAnchorsToNow(): Promise<void> {
 }
 
   startPublishingToEventBus(): () => void {
-    const bus = getEventBus();
     let unsubscribe: () => void = () => {};
+    let stopped = false;
 
     // Prime anchors to "now" BEFORE subscribing, so no incrementalSync call
     // can fire against an unprimed (null) anchor and crawl from history.
-    void this.primeAnchorsToNow().then(() => {
-      unsubscribe = this.subscribe(this.types, (sample) => {
-        this.persistAndPublish(sample, bus);
-      });
+    void this.primeAnchorsToNow().then(async () => {
+      if (stopped) return;
+      if (!this.watchSourceId) {
+        await this.captureWatchDeviceId();
+      }
+      if (stopped) return;
+      unsubscribe = this.subscribe(this.types, () => {});
     });
 
     return () => {
+      stopped = true;
       unsubscribe();
       for (const sub of this.subscriptions) sub();
       this.subscriptions = [];
@@ -219,41 +230,28 @@ async primeAnchorsToNow(): Promise<void> {
         { limit: 10, anchor: lastAnchor ?? undefined } as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[1],
       );
 
-      if (response.newAnchor) {
-        setSyncCursor(cursorKey, type, response.newAnchor);
-      }
-
       const sensorSamples: SensorSample[] = [];
       for (const s of response.samples) {
         const sensorSample = this.convertToSensorSample(s, type);
         if (sensorSample) sensorSamples.push(sensorSample);
       }
 
-      console.log(`[AppleHealthSource] incremental sync for ${type} returned ${sensorSamples.length} samples`);
+      if (sensorSamples.length > 0) {
+        this.persistBatch(sensorSamples);
+      }
+
+      if (response.newAnchor) {
+        setSyncCursor(cursorKey, type, response.newAnchor);
+      }
+
+      if (__DEV__) {
+        console.log(`[AppleHealthSource] incremental sync for ${type} returned ${sensorSamples.length} samples`, {
+          patient: shortPatientId(this.patientId),
+        });
+      }
 
       if (sensorSamples.length > 0) {
-        const readings = sensorSamples.map((sample) => ({
-          patientId: sample.patientId,
-          sampleId: sample.sampleId,
-          type: sample.type,
-          value: typeof sample.value === 'number' ? sample.value : 0,
-          unit: sample.unit,
-          source: sample.source,
-          recordedAt: sample.recordedAt,
-          receivedAt: sample.receivedAt,
-        }));
-
-        // Defer the Redux dispatch + bus publish so they don't block the
-        // current frame/interaction. Chunked so even a full 500-sample
-        // batch doesn't lock up the JS thread in one go.
-        runInBackground(async () => {
-          await dispatchInChunks(readings);
-
-          const bus = getEventBus();
-          for (const sample of sensorSamples) {
-            this.publishVitalsEvent(sample, bus);
-          }
-        });
+        this.publishVitalsBatch(sensorSamples, getEventBus());
       }
 
       return sensorSamples;
@@ -267,7 +265,6 @@ async primeAnchorsToNow(): Promise<void> {
     sample: SensorSample,
     bus: ReturnType<typeof getEventBus>,
   ): void {
-    console.log('[AppleHealthSource] Publishing to bus instance:', bus);
     const scalar = typeof sample.value === 'number' ? sample.value : 0;
     const event: Extract<OrchestrationEvent, { type: 'vitals_sample' }> = {
       type: 'vitals_sample',
@@ -281,12 +278,47 @@ async primeAnchorsToNow(): Promise<void> {
       receivedAt: sample.receivedAt,
     };
     bus.publish(event);
+    if (__DEV__) {
+      let sourceName: string | undefined = this.watchSourceName ?? undefined;
+      if (!sourceName && sample.metadataJson) {
+        try {
+          const metadata = JSON.parse(sample.metadataJson) as { hkSource?: unknown };
+          if (typeof metadata.hkSource === 'string' && metadata.hkSource.length > 0) {
+            sourceName = metadata.hkSource;
+          }
+        } catch {
+          // Ignore malformed metadata; the log is development-only.
+        }
+      }
+      const payload: {
+        patient: string;
+        type: HealthSampleType;
+        value: number;
+        unit: string;
+        timestamp: string;
+        source?: string;
+      } = {
+        patient: shortPatientId(sample.patientId),
+        type: sample.type,
+        value: scalar,
+        unit: sample.unit,
+        timestamp: sample.recordedAt,
+      };
+      if (sourceName) {
+        payload.source = sourceName;
+      }
+      console.log('[HealthKit] Published vital', payload);
+    }
   }
 
   async initialCatchUpSync(daysBack = 1): Promise<void> {
     const since = new Date();
     since.setDate(since.getDate() - daysBack);
-    console.log(`[AppleHealthSource] Performing initial catch-up sync for ${daysBack} days back since ${since.toISOString()}`);
+    if (__DEV__) {
+      console.log(`[AppleHealthSource] Performing initial catch-up sync for ${daysBack} days back since ${since.toISOString()}`, {
+        patient: shortPatientId(this.patientId),
+      });
+    }
 
     for (const type of this.types) {
       const cursorKey = 'apple-health';
@@ -296,9 +328,7 @@ async primeAnchorsToNow(): Promise<void> {
       } else {
         const samples = await this.query([type], since);
         const bus = getEventBus();
-        for (const s of samples) {
-          this.persistAndPublish(s, bus);
-        }
+        this.persistBatch(samples);
         const hk = await getHealthKitModule();
         if (!hk) continue;
         const hkType = HK_TYPE_BY_SAMPLE_TYPE[type];
@@ -314,6 +344,7 @@ async primeAnchorsToNow(): Promise<void> {
         } catch (err) {
           console.warn(`[AppleHealthSource] anchor init failed for ${type}:`, err);
         }
+        this.publishVitalsBatch(samples, bus);
       }
     }
 
@@ -359,7 +390,6 @@ async primeAnchorsToNow(): Promise<void> {
           if (wearable) {
             setWearableHealthKitSource(wearable.deviceId, this.watchSourceId, this.watchSourceName);
           }
-          console.log(`[AppleHealthSource] Captured watch device: ${this.watchSourceName} (${this.watchSourceId})`);
           return;
         }
       }
@@ -405,14 +435,11 @@ async primeAnchorsToNow(): Promise<void> {
     };
   }
 
-  private persistAndPublish(
-    sample: SensorSample,
-    bus: ReturnType<typeof getEventBus>,
-  ): void {
-    const healthSample: HealthSample = {
+  private toHealthSample(sample: SensorSample): HealthSample {
+    return {
       sampleId: sample.sampleId,
       patientId: sample.patientId,
-      source: 'apple-health',
+      source: sample.source,
       type: sample.type,
       value: typeof sample.value === 'number' ? sample.value : 0,
       valueJson: typeof sample.value === 'number' ? undefined : JSON.stringify(sample.value),
@@ -421,21 +448,28 @@ async primeAnchorsToNow(): Promise<void> {
       receivedAt: sample.receivedAt,
       metadataJson: sample.metadataJson,
     };
-    console.log(`[AppleHealthSource] Persisting sample: ${JSON.stringify(healthSample)}`);
-    insertHealthSample(healthSample);
+  }
 
-    const scalar = typeof sample.value === 'number' ? sample.value : 0;
-    const event: Extract<OrchestrationEvent, { type: 'vitals_sample' }> = {
-      type: 'vitals_sample',
-      patientId: sample.patientId,
-      sampleId: sample.sampleId,
-      sampleType: sample.type,
-      value: scalar,
-      unit: sample.unit,
-      recordedAt: sample.recordedAt,
-      source: 'apple-health',
-      receivedAt: sample.receivedAt,
-    };
-    bus.publish(event);
+  private persistAndPublishBatch(
+    samples: SensorSample[],
+    bus: ReturnType<typeof getEventBus>,
+  ): void {
+    if (samples.length === 0) return;
+    this.persistBatch(samples);
+    this.publishVitalsBatch(samples, bus);
+  }
+
+  private persistBatch(samples: SensorSample[]): void {
+    if (samples.length === 0) return;
+    insertHealthSamplesBatched(samples.map((sample) => this.toHealthSample(sample)));
+  }
+
+  private publishVitalsBatch(
+    samples: SensorSample[],
+    bus: ReturnType<typeof getEventBus>,
+  ): void {
+    for (const sample of samples) {
+      this.publishVitalsEvent(sample, bus);
+    }
   }
 }

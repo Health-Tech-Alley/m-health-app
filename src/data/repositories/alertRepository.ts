@@ -97,6 +97,43 @@ export function updateAlertStatus(
   );
 }
 
+/** Update ML-derived fields after a post-HITL UC2 re-run. */
+export function updateAlertMlFields(
+  alertId: string,
+  fields: {
+    severity?: Alert['severity'];
+    postHitlAnomalyType?: string;
+    mlScore?: number;
+    scoreRatio?: number;
+    aeScore?: number;
+    title?: string;
+    body?: string;
+  },
+): void {
+  const db = getDatabase();
+  const existing = getAlertById(alertId);
+  if (!existing) return;
+  db.runSync(
+    `UPDATE alerts SET
+       severity = ?,
+       post_hitl_anomaly_type = ?,
+       ml_score = ?,
+       score_ratio = ?,
+       ae_score = ?,
+       title = ?,
+       body = ?
+     WHERE alert_id = ?;`,
+    fields.severity ?? existing.severity,
+    fields.postHitlAnomalyType ?? existing.postHitlAnomalyType ?? null,
+    fields.mlScore ?? existing.mlScore ?? null,
+    fields.scoreRatio ?? existing.scoreRatio ?? null,
+    fields.aeScore ?? existing.aeScore ?? null,
+    fields.title ?? existing.title,
+    fields.body ?? existing.body ?? null,
+    alertId,
+  );
+}
+
 /**
  * Permanently suppress the critical-alert popup for this alert. The alert is
  * retained (status `dismissed`) and shows as inactive in the alerts log.

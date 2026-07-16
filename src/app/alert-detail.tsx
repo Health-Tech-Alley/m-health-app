@@ -35,9 +35,10 @@ import {
   updateAlertStatus,
 } from '@/data';
 import { ObservationPicker } from '@/components/ObservationPicker';
+import { useOrchestratorSafe } from '@/contexts/orchestrator-context';
 import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
-import {getRecentReadingsFromRedux} from '@/services/ml/alert-ml-service';
+import { getRecentReadingsFromRedux } from '@/services/ml/alert-ml-service';
 
 const TEAL = AppTheme.colors.brand;
 const BG = AppTheme.colors.screen;
@@ -48,6 +49,7 @@ const RED = AppTheme.colors.danger;
 export default function AlertDetailScreen() {
   const router = useRouter();
   const { alertId } = useLocalSearchParams<{ alertId: string }>();
+  const orchestrator = useOrchestratorSafe();
 
   const [version, setVersion] = useState(0);
   const [noteOpen, setNoteOpen] = useState(false);
@@ -68,8 +70,19 @@ export default function AlertDetailScreen() {
   // the alert identity changes, not on every render.
   const { recentSpo2, recentHr } = useMemo(() => {
     if (!alert) return { recentSpo2: [], recentHr: [] };
-    const spo2 = getRecentReadingsFromRedux(alert.patientId, 'spo2', new Date(since).getTime(), 8).reverse();
-    const hr = getRecentReadingsFromRedux(alert.patientId, 'heart_rate', new Date(since).getTime(), 8).reverse();
+    const sinceMs = new Date(since).getTime();
+    const spo2FromRedux = getRecentReadingsFromRedux(alert.patientId, 'spo2', sinceMs, 8);
+    const hrFromRedux = getRecentReadingsFromRedux(alert.patientId, 'heart_rate', sinceMs, 8);
+    const spo2 = (
+      spo2FromRedux.length > 0
+        ? spo2FromRedux
+        : getRecentHealthSamples(alert.patientId, 'spo2', since, 8)
+    ).reverse();
+    const hr = (
+      hrFromRedux.length > 0
+        ? hrFromRedux
+        : getRecentHealthSamples(alert.patientId, 'heart_rate', since, 8)
+    ).reverse();
     return { recentSpo2: spo2, recentHr: hr };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alert?.alertId, since]);
@@ -149,20 +162,43 @@ export default function AlertDetailScreen() {
     router.push({ pathname: '/slm-explain', params: { alertId: alert.alertId } });
   }, [alert, router]);
 
-  const saveObservations = useCallback(() => {
+  const saveObservations = useCallback(async () => {
     if (!alert || observationCodes.length === 0) return;
-    insertCaregiverAction({
-      actionId: `act-${Date.now()}`,
-      alertId: alert.alertId,
-      patientId: alert.patientId,
-      caregiverId: 'caregiver-1',
-      type: 'log_observation',
-      payloadJson: JSON.stringify({ observationCodes }),
-      createdAt: new Date().toISOString(),
-    });
-    setStatusMsg('Observations saved.');
-    bump();
-  }, [alert, observationCodes, bump]);
+    setBusy(true);
+    setStatusMsg(null);
+    try {
+      insertCaregiverAction({
+        actionId: `act-${Date.now()}`,
+        alertId: alert.alertId,
+        patientId: alert.patientId,
+        caregiverId: 'caregiver-1',
+        type: 'log_observation',
+        payloadJson: JSON.stringify({ observationCodes }),
+        createdAt: new Date().toISOString(),
+      });
+
+      // Full UC2 HITL re-run (not log-only) so explain uses post-HITL context.
+      if (orchestrator) {
+        const result = await orchestrator.reRunHitlForAlert(alert.alertId, observationCodes);
+        if (result) {
+          const post =
+            result.postHitlAnomalyType ?? result.post_hitl_anomaly_type ?? 'updated';
+          setStatusMsg(
+            `Observations saved · Health Monitor re-run: ${String(post).replace(/_/g, ' ').toLowerCase()} (severity ${result.finalDecision?.final_severity ?? result.post_hitl_severity ?? '—'}).`,
+          );
+        } else {
+          setStatusMsg('Observations saved. (No stored vitals for Health Monitor re-run.)');
+        }
+      } else {
+        setStatusMsg('Observations saved.');
+      }
+      bump();
+    } catch (err) {
+      setStatusMsg(err instanceof Error ? err.message : 'Failed to apply observations.');
+    } finally {
+      setBusy(false);
+    }
+  }, [alert, observationCodes, bump, orchestrator]);
 
   if (!alert) {
     return (

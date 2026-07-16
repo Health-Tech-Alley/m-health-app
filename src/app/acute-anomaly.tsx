@@ -148,6 +148,24 @@ export default function AcuteAnomalyScreen() {
     [],
   );
 
+  const publishWearablePathTestVital = useCallback(
+    (sampleType: string, value: number, unit: string, recordedAt: string, offset: number) => {
+      if (!patientId) return;
+      const event: Extract<OrchestrationEvent, { type: 'vitals_sample' }> = {
+        type: 'vitals_sample',
+        patientId,
+        sampleId: `uc2-wearable-test-${Date.now()}-${offset}`,
+        sampleType,
+        value,
+        unit,
+        recordedAt,
+        source: 'simulated',
+      };
+      getEventBus().publish(event);
+    },
+    [patientId],
+  );
+
   const simulateVitals = useCallback(() => {
     if (!patientId) {
       log('No patientId. Seed the database from onboarding first.');
@@ -155,14 +173,16 @@ export default function AcuteAnomalyScreen() {
     }
 
     const now = new Date().toISOString();
+    // Publish SpO2 as 0–100 percent (canonical on bus + thresholds).
     const spo2Event: Extract<OrchestrationEvent, { type: 'vitals_sample' }> = {
       type: 'vitals_sample',
       patientId,
       sampleId: `sample-${Date.now()}`,
       sampleType: 'spo2',
-      value: Number(spo2) / 100,
-      unit: 'fraction',
+      value: Number(spo2),
+      unit: '%',
       recordedAt: now,
+      source: 'simulated',
     };
     getEventBus().publish(spo2Event);
     log(`Published SpO2 ${spo2}% event`);
@@ -175,12 +195,43 @@ export default function AcuteAnomalyScreen() {
       value: Number(heartRate),
       unit: 'bpm',
       recordedAt: now,
+      source: 'simulated',
     };
     getEventBus().publish(hrEvent);
     log(`Published HR ${heartRate} bpm event`);
 
+    // Ambient ML needs ≥3 sample types; include RR so evaluate can run.
+    const rrEvent: Extract<OrchestrationEvent, { type: 'vitals_sample' }> = {
+      type: 'vitals_sample',
+      patientId,
+      sampleId: `sample-${Date.now() + 2}`,
+      sampleType: 'respiratory_rate',
+      value: 28,
+      unit: 'rpm',
+      recordedAt: now,
+      source: 'simulated',
+    };
+    getEventBus().publish(rrEvent);
+    log('Published RR 28 rpm event');
+
     setTimeout(() => refreshAlerts(patientId), 50);
   }, [patientId, spo2, heartRate, log, refreshAlerts]);
+
+  const runUc2WearablePathTest = useCallback(() => {
+    if (!__DEV__) return;
+    if (!patientId) {
+      log('No patientId. Seed the database from onboarding first.');
+      return;
+    }
+
+    const now = new Date().toISOString();
+    publishWearablePathTestVital('spo2', 91, '%', now, 0);
+    publishWearablePathTestVital('heart_rate', 92, 'bpm', now, 1);
+    publishWearablePathTestVital('respiratory_rate', 24, 'rpm', now, 2);
+    log('Published UC2 wearable-path test: SpO2 91%, HR 92 bpm, RR 24 rpm');
+
+    setTimeout(() => refreshAlerts(patientId), 50);
+  }, [patientId, publishWearablePathTestVital, log, refreshAlerts]);
 
   const explainAlert = useCallback(
     async (alertId: string) => {
@@ -276,6 +327,13 @@ export default function AcuteAnomalyScreen() {
           <Pressable style={styles.button} onPress={simulateVitals}>
             <Text style={styles.buttonText}>Send vitals to Concierge</Text>
           </Pressable>
+          {__DEV__ && (
+            <Pressable
+              style={[styles.button, styles.secondaryButton]}
+              onPress={runUc2WearablePathTest}>
+              <Text style={styles.secondaryButtonText}>Run UC2 wearable-path test</Text>
+            </Pressable>
+          )}
         </View>
 
         <View style={styles.card}>

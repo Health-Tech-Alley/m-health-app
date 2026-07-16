@@ -30,6 +30,7 @@ import {
 } from '@/data';
 import { audit } from '@/services/audit/auditService';
 import { dispatchImmediate, scheduleLocalNotification } from '@/services/notifications';
+import { normalizeVitalForThreshold } from '@/utils/spo2';
 
 import type { RegisteredTool, ToolResult } from '../mcp/tool-registry';
 
@@ -438,7 +439,9 @@ export function createSafetyReviewerAgent(): RegisteredTool[] {
       handler: async (args): Promise<ToolResult> => {
         const patientId = String(args.patientId);
         const vitalType = String(args.vitalType);
-        const value = Number(args.value);
+        const rawValue = Number(args.value);
+        // Canonical SpO2 on the bus is 0–100 percent; convert fraction samples.
+        const value = normalizeVitalForThreshold(vitalType, rawValue);
         const thresholds = getActiveThresholdsForVital(patientId, vitalType);
         const violations = thresholds.filter((t) => {
           if (t.direction === 'below') return value < t.value;
@@ -454,6 +457,7 @@ export function createSafetyReviewerAgent(): RegisteredTool[] {
             violations,
             maxSeverity,
             isEmergency: maxSeverity === 3,
+            normalizedValue: value,
           },
         };
       },

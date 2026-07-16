@@ -20,6 +20,7 @@ import {
   insertCaregiverAction,
   insertHealthSamplesBatched,
   insertSlmTurn,
+  updateAlertMlFields,
   type Alert,
   type CaregiverAction,
   type HealthSample,
@@ -34,6 +35,7 @@ import {
   parseRawVitals,
   parseRuleEngine,
   parseTopFeatures,
+  updateMlEventPostHitl,
 } from '@/data/repositories/mlEventRepository';
 import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
 import type { InferenceProvider } from '@/inference/inference-provider';
@@ -47,7 +49,13 @@ import type { SlmTaskQueue } from '@/services/slm/slm-task-queue';
 import { store } from '@/store';
 
 import { CONCIERGE_GENERATION_EXPLAIN, REASONING_FORMAT_EXPLAIN } from '@/constants/concierge';
-import type { MlRawVitalsPayload, NextStep, NextStepActionId } from '@/data/types';
+import type {
+  HealthSampleSource,
+  MlRawVitalsPayload,
+  NextStep,
+  NextStepActionId,
+  Threshold,
+} from '@/data/types';
 import {
   GraphProjector,
   buildContextSubgraph,
@@ -57,8 +65,14 @@ import {
   writeSlmTurnEdges,
   writeTriggerEdges,
 } from '@/knowledge/graph';
-import { LiveVitalReading, ingestSamplesBatch } from "@/store/reducers/vitalsSlice";
-import { runInBackground } from '@/utils/commonFunctions';
+import {
+  healthSampleToLiveVitalReading,
+  isProductionWearableSource,
+  isSimulatedHealthSampleSource,
+  selectProductionWearableReadingsForPatient,
+  selectSimulatedReadingsForPatient,
+  type LiveVitalReading,
+} from '@/store/reducers/vitalsSlice';
 import {
   CaregiverAgent,
   CoordinatorAgent,
@@ -83,6 +97,8 @@ import {
   NEXT_STEP_TAXONOMY,
   isValidActionId,
 } from './next-steps';
+import { normalizeVitalForThreshold } from '@/utils/spo2';
+import { dispatchInChunks, runInBackground } from '@/utils/commonFunctions';
 import {
   budgetAwareCitationsBlock,
   carePlanGoalsBlock,
@@ -149,18 +165,11 @@ function formatScore(score: unknown): string {
   return typeof score === 'number' && Number.isFinite(score) ? score.toFixed(3) : 'n/a';
 }
 
-function toLiveVitalReading(sample: HealthSample): LiveVitalReading {
-  return {
-    patientId: sample.patientId,
-    sampleId: sample.sampleId,
-    type: sample.type,
-    value: sample.value,
-    unit: sample.unit,
-    source: sample.source,
-    recordedAt: sample.recordedAt,
-    receivedAt: sample.receivedAt,
-  };
+function shortPatientId(patientId: string): string {
+  return patientId.length > 6 ? `...${patientId.slice(-6)}` : patientId;
 }
+
+type ThresholdViolation = Pick<Threshold, 'thresholdId' | 'severity'>;
 
 export class Orchestrator {
   private slm: InferenceProvider;
@@ -175,10 +184,12 @@ export class Orchestrator {
   private agents: Agent[];
   private safetyReviewer = new SafetyReviewerAgent();
   private vitalsDebounce: Map<string, { timer: ReturnType<typeof setTimeout>; events: OrchestrationEvent[] }> = new Map();
+  private vitalsStateBuffer: Map<string, LiveVitalReading[]> = new Map();
+  private vitalsStateFlushTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private static readonly DEBOUNCE_MS = 3000;
+  private static readonly VITALS_STATE_FLUSH_MS = 500;
   private snapshotProvider: () => PatientRecordSnapshot | null;
   private priorDecisionsProvider?: (args: { patientId: string; alertId?: string }) => PriorDecisionEntry[];
-  private vitalsWriteBuffer: Map<string, HealthSample[]> = new Map(); // per patient, or just one global array
 
   constructor(config: OrchestratorConfig) {
     this.slm = config.slm;
@@ -232,6 +243,11 @@ export class Orchestrator {
       clearTimeout(entry.timer);
     }
     this.vitalsDebounce.clear();
+    for (const [, timer] of this.vitalsStateFlushTimers) {
+      clearTimeout(timer);
+    }
+    this.vitalsStateFlushTimers.clear();
+    this.vitalsStateBuffer.clear();
   }
 
   private addTrace(step: TraceStep): void {
@@ -245,24 +261,35 @@ export class Orchestrator {
   }
 
   private async handleVitalsSample(event: Extract<OrchestrationEvent, { type: 'vitals_sample' }>): Promise<void> {
-    console.log(`[Orchestrator] Received vitals sample: ${event.sampleType}=${event.value}${event.unit} for patient ${event.patientId}`);
+    const source = event.source ?? 'simulated';
+    if (__DEV__) {
+      console.log('[Orchestrator] Received vitals sample', {
+        patient: shortPatientId(event.patientId),
+        type: event.sampleType,
+        value: event.value,
+        unit: event.unit,
+        source,
+        timestamp: event.recordedAt,
+      });
+    }
+
     // Persist the sample so later SLM explain paths can read it.
     const sample: HealthSample = {
       sampleId: event.sampleId,
       patientId: event.patientId,
-      source: event.source ?? 'mock',
+      source,
       type: event.sampleType as HealthSample['type'],
       value: event.value,
       unit: event.unit,
       recordedAt: event.recordedAt,
       receivedAt: event.receivedAt ?? new Date().toISOString(),
     };
-    // Buffer instead of writing/dispatching per-event.
-    const buffer = this.vitalsWriteBuffer.get(event.patientId) ?? [];
-    buffer.push(sample);
-    this.vitalsWriteBuffer.set(event.patientId, buffer);
+    const reading = healthSampleToLiveVitalReading(sample);
 
-    this.scheduleVitalsFlush(event.patientId); // debounced, batches insertHealthSample + dispatch
+    if (source !== 'apple-health' && source !== 'mock') {
+      insertHealthSamplesBatched([sample]);
+    }
+    this.queueVitalsStateFlush(event.patientId, reading);
 
     writeSampleEdges(event.patientId, event.sampleId, event.sampleType as HealthSample['type']);
     auditSampleRead(event.patientId, event.sampleId, 'system');
@@ -282,75 +309,222 @@ export class Orchestrator {
       return;
     }
 
-    // Always check thresholds; severity-3 violations short-circuit to the fast path.
-    const check = await this.client.callTool('check_threshold_violation', {
-      patientId: event.patientId,
-      vitalType: event.sampleType,
-      value: event.value,
-    });
-    if (!check.ok || !check.data) return;
+    // CEP promote_spo2_drop: force an immediate ML eval (still after thresholds).
+    const forceImmediateMl = cepAction?.type === 'promote_to_alert_ml';
+    if (forceImmediateMl) {
+      audit({
+        actor: 'orchestrator',
+        action: 'cep_promote_to_alert_ml',
+        resourceType: 'sample',
+        resourceId: event.sampleId,
+        patientId: event.patientId,
+        payload: { reason: cepAction.reason },
+      });
+    }
 
-    const { maxSeverity, violations } = check.data as {
-      maxSeverity: number;
-      violations: { thresholdId: string; severity: number }[];
-    };
+    // Always check snapshot thresholds; severity-3 violations short-circuit to the fast path.
+    const check = this.checkThresholdViolationFromSnapshot(reading);
+    const maxSeverity = check?.maxSeverity ?? 0;
+    const violations = check?.violations ?? [];
 
     if (maxSeverity === 3) {
-      await this.emergencyFastPath(event, violations);
+      await this.emergencyFastPath(reading, violations);
       return;
     }
 
     if (maxSeverity === 2 || maxSeverity === 1) {
-      await this.createAlert(event, maxSeverity as 1 | 2, violations);
+      await this.createAlert(reading, maxSeverity as 1 | 2, violations);
     }
 
     // Run the Alert ML model asynchronously after threshold handling.
-    // Use debouncing: only run ML once per debounce window per patient.
+    // Debounce by default; CEP promote_spo2_drop flushes ML immediately.
     if (this.alertMlService) {
-      const debounceEntry = this.vitalsDebounce.get(event.patientId);
-      if (debounceEntry) {
-        clearTimeout(debounceEntry.timer);
-        debounceEntry.timer = setTimeout(async () => {
-          const batch = debounceEntry.events;
-          this.vitalsDebounce.delete(event.patientId);
-          try {
-            const latest = batch[batch.length - 1];
-            if (latest.type === 'vitals_sample') {
-              // Pass the patient record snapshot so the v2 layer can compute
-              // personalized severity floors (CP GMFCS Level V, etc.).
-              const snapshot = this.snapshotProvider?.() ?? null;
-              await this.alertMlService?.evaluate(
-                latest.patientId,
-                latest as Extract<OrchestrationEvent, { type: 'vitals_sample' }>,
-                snapshot,
-              );
-            }
-          } catch (err) {
-            console.error('[Orchestrator] Alert ML evaluation failed:', err);
-          }
-        }, Orchestrator.DEBOUNCE_MS);
+      if (forceImmediateMl) {
+        await this.flushAlertMlForPatient(event.patientId);
+      } else {
+        this.scheduleAlertMlDebounce(event.patientId);
       }
     } else {
       console.warn('[Orchestrator] Alert ML service not configured; skipping ML evaluation.');
     }
   }
 
-  private flushTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private checkThresholdViolationFromSnapshot(
+    reading: LiveVitalReading,
+  ): { maxSeverity: number; violations: ThresholdViolation[]; normalizedValue: number } | null {
+    const snapshot = this.snapshotProvider?.() ?? null;
+    const snapshotPatientId = snapshot?.patient?.patientId;
+    if (!snapshotPatientId) {
+      if (__DEV__) {
+        console.log('[Orchestrator] Skipped threshold evaluation: patient snapshot unavailable', {
+          patient: shortPatientId(reading.patientId),
+          type: reading.type,
+        });
+      }
+      return null;
+    }
 
-  private scheduleVitalsFlush(patientId: string): void {
-    if (this.flushTimers.has(patientId)) return;
-    const timer = setTimeout(() => {
-      this.flushTimers.delete(patientId);
-      const buffer = this.vitalsWriteBuffer.get(patientId) ?? [];
-      this.vitalsWriteBuffer.delete(patientId);
-      if (buffer.length === 0) return;
+    if (snapshotPatientId !== reading.patientId) {
+      if (__DEV__) {
+        console.log('[Orchestrator] Skipped threshold evaluation: mismatched snapshot', {
+          patient: shortPatientId(reading.patientId),
+          snapshotPatient: shortPatientId(snapshotPatientId),
+          type: reading.type,
+        });
+      }
+      return null;
+    }
 
-      runInBackground(async () => {
-        await insertHealthSamplesBatched(buffer); // one transaction, not N runSync calls
-        store.dispatch(ingestSamplesBatch({ samples: buffer.map(toLiveVitalReading) }));
+    if (!Array.isArray(snapshot.thresholds)) {
+      if (__DEV__) {
+        console.log('[Orchestrator] Skipped threshold evaluation: thresholds not hydrated', {
+          patient: shortPatientId(reading.patientId),
+          type: reading.type,
+        });
+      }
+      return null;
+    }
+
+    const value = normalizeVitalForThreshold(reading.type, reading.value);
+    const violations = snapshot.thresholds
+      .filter((threshold) => threshold.vitalType === reading.type)
+      .filter((threshold) => {
+        if (threshold.direction === 'below') return value < threshold.value;
+        if (threshold.direction === 'above') return value > threshold.value;
+        return Math.abs(value - threshold.value) < 0.001;
+      })
+      .map((threshold) => ({
+        thresholdId: threshold.thresholdId,
+        severity: threshold.severity,
+      }));
+    const maxSeverity = violations.length
+      ? (Math.max(...violations.map((violation) => violation.severity)) as 1 | 2 | 3)
+      : 0;
+    return { maxSeverity, violations, normalizedValue: value };
+  }
+
+  private selectAlertMlReadingsForSource(
+    patientId: string,
+    source: HealthSampleSource,
+  ): LiveVitalReading[] {
+    const state = store.getState();
+    if (isSimulatedHealthSampleSource(source)) {
+      return selectSimulatedReadingsForPatient(state, patientId);
+    }
+    if (isProductionWearableSource(source)) {
+      return selectProductionWearableReadingsForPatient(state, patientId);
+    }
+    if (__DEV__) {
+      console.log('[Orchestrator] Skipped Alert ML evaluation for unsupported vital source', {
+        patient: shortPatientId(patientId),
+        source,
       });
-    }, 500); // small debounce, batches whatever arrived in this window
-    this.flushTimers.set(patientId, timer);
+    }
+    return [];
+  }
+
+  private queueVitalsStateFlush(patientId: string, reading: LiveVitalReading): void {
+    const buffer = this.vitalsStateBuffer.get(patientId) ?? [];
+    buffer.push(reading);
+    this.vitalsStateBuffer.set(patientId, buffer);
+
+    if (this.vitalsStateFlushTimers.has(patientId)) return;
+
+    const timer = setTimeout(() => {
+      runInBackground(() => this.flushVitalsStateBufferForPatient(patientId));
+    }, Orchestrator.VITALS_STATE_FLUSH_MS);
+    this.vitalsStateFlushTimers.set(patientId, timer);
+  }
+
+  private async flushVitalsStateBufferForPatient(patientId: string): Promise<void> {
+    const timer = this.vitalsStateFlushTimers.get(patientId);
+    if (timer) {
+      clearTimeout(timer);
+      this.vitalsStateFlushTimers.delete(patientId);
+    }
+
+    const readings = this.vitalsStateBuffer.get(patientId) ?? [];
+    this.vitalsStateBuffer.delete(patientId);
+    if (readings.length === 0) return;
+
+    const activePatientId = store.getState().vitals.activePatientId;
+    if (activePatientId && activePatientId !== patientId) {
+      if (__DEV__) {
+        console.log('[Orchestrator] Skipped vitals batch for inactive patient', {
+          patient: shortPatientId(patientId),
+          activePatient: shortPatientId(activePatientId),
+          count: readings.length,
+        });
+      }
+      return;
+    }
+
+    if (__DEV__) {
+      console.log('[Orchestrator] Flushing vitals batch', {
+        patient: shortPatientId(patientId),
+        count: readings.length,
+      });
+    }
+    await dispatchInChunks(readings);
+  }
+
+  /** Debounced Alert ML eval (one run per patient per DEBOUNCE_MS window). */
+  private scheduleAlertMlDebounce(patientId: string): void {
+    const debounceEntry = this.vitalsDebounce.get(patientId);
+    if (!debounceEntry || !this.alertMlService) return;
+    clearTimeout(debounceEntry.timer);
+    debounceEntry.timer = setTimeout(() => {
+      void this.flushAlertMlForPatient(patientId);
+    }, Orchestrator.DEBOUNCE_MS);
+  }
+
+  /**
+   * Run Alert ML for the latest debounced vitals batch (or the most recent
+   * sample if the batch was already cleared). Used by the normal debounce
+   * timer and by CEP `promote_to_alert_ml`.
+   */
+  private async flushAlertMlForPatient(patientId: string): Promise<void> {
+    if (!this.alertMlService) return;
+    const debounceEntry = this.vitalsDebounce.get(patientId);
+    let latest: Extract<OrchestrationEvent, { type: 'vitals_sample' }> | null = null;
+    if (debounceEntry) {
+      clearTimeout(debounceEntry.timer);
+      const batch = debounceEntry.events;
+      this.vitalsDebounce.delete(patientId);
+      const last = batch[batch.length - 1];
+      if (last?.type === 'vitals_sample') {
+        latest = last;
+      }
+    }
+    if (!latest) return;
+    try {
+      await this.flushVitalsStateBufferForPatient(patientId);
+      const snapshot = this.snapshotProvider?.() ?? null;
+      const snapshotPatientId = snapshot?.patient?.patientId;
+      if (snapshotPatientId && snapshotPatientId !== patientId) {
+        if (__DEV__) {
+          console.log('[Orchestrator] Skipped Alert ML evaluation for mismatched snapshot', {
+            patient: shortPatientId(patientId),
+            snapshotPatient: shortPatientId(snapshotPatientId),
+          });
+        }
+        return;
+      }
+      const source = latest.source ?? 'simulated';
+      const readings = this.selectAlertMlReadingsForSource(patientId, source);
+      if (readings.length === 0) {
+        if (__DEV__) {
+          console.log('[Orchestrator] Skipped Alert ML evaluation: no state readings for source cohort', {
+            patient: shortPatientId(patientId),
+            source,
+          });
+        }
+        return;
+      }
+      await this.alertMlService.evaluate(patientId, latest, snapshot, readings);
+    } catch (err) {
+      console.error('[Orchestrator] Alert ML evaluation failed:', err);
+    }
   }
 
   private async handleMlAlert(event: Extract<OrchestrationEvent, { type: 'ml_alert_created' }>): Promise<void> {
@@ -458,28 +632,32 @@ export class Orchestrator {
   }
 
   private async emergencyFastPath(
-    event: Extract<OrchestrationEvent, { type: 'vitals_sample' }>,
-    violations: { thresholdId: string; severity: number }[],
+    reading: LiveVitalReading,
+    violations: ThresholdViolation[],
   ): Promise<void> {
+    // Display SpO2 as percent even if a legacy fraction sample arrived.
+    const displayValue = normalizeVitalForThreshold(reading.type, reading.value);
+    const displayUnit =
+      reading.type === 'spo2' || reading.unit === 'fraction' ? '%' : reading.unit;
     const alert: Alert = {
       alertId: `alert-${Date.now()}`,
-      patientId: event.patientId,
+      patientId: reading.patientId,
       severity: 3,
       status: 'open',
-      title: `Emergency: ${event.sampleType} ${event.value}${event.unit}`,
+      title: `Emergency: ${reading.type} ${displayValue}${displayUnit}`,
       body: `Severe threshold violation detected. Immediate attention required.`,
       createdAt: new Date().toISOString(),
     };
     insertAlert(alert);
-    writeAlertEdges(event.patientId, alert.alertId);
+    writeAlertEdges(reading.patientId, alert.alertId);
     for (const v of violations) {
-      writeTriggerEdges(event.sampleId, v.thresholdId, alert.alertId);
+      writeTriggerEdges(reading.sampleId, v.thresholdId, alert.alertId);
     }
-    auditAlertCreated(event.patientId, alert.alertId, { source: 'threshold', violations });
+    auditAlertCreated(reading.patientId, alert.alertId, { source: 'threshold', violations });
 
     // Egress-bearing notification still goes through consent gate for audit; in
     // the severity-3 fast path the caregiver must still direct the action.
-    const consent = checkEgressConsent(event.patientId, 'dispatch_alert_notification');
+    const consent = checkEgressConsent(reading.patientId, 'dispatch_alert_notification');
     if (consent.allowed) {
       await this.client.callTool('dispatch_alert_notification', {
         alertId: alert.alertId,
@@ -491,25 +669,25 @@ export class Orchestrator {
   }
 
   private async createAlert(
-    event: Extract<OrchestrationEvent, { type: 'vitals_sample' }>,
+    reading: LiveVitalReading,
     severity: 1 | 2,
-    violations: { thresholdId: string; severity: number }[],
+    violations: ThresholdViolation[],
   ): Promise<void> {
     const alert: Alert = {
       alertId: `alert-${Date.now()}`,
-      patientId: event.patientId,
+      patientId: reading.patientId,
       severity,
       status: 'open',
-      title: `${event.sampleType} ${event.value}${event.unit}`,
+      title: `${reading.type} ${reading.value}${reading.unit}`,
       body: `Threshold violation: ${violations.map((v) => v.thresholdId).join(', ')}`,
       createdAt: new Date().toISOString(),
     };
     insertAlert(alert);
-    writeAlertEdges(event.patientId, alert.alertId);
+    writeAlertEdges(reading.patientId, alert.alertId);
     for (const v of violations) {
-      writeTriggerEdges(event.sampleId, v.thresholdId, alert.alertId);
+      writeTriggerEdges(reading.sampleId, v.thresholdId, alert.alertId);
     }
-    auditAlertCreated(event.patientId, alert.alertId, { source: 'threshold', violations });
+    auditAlertCreated(reading.patientId, alert.alertId, { source: 'threshold', violations });
 
     // Dispatch an OS / in-app banner notification for non-critical threshold
     // alerts (severity 1-2) so the caregiver is proactively notified —
@@ -517,7 +695,7 @@ export class Orchestrator {
     // Track A (no expo-notifications) this surfaces as the in-app banner so
     // the demo shows how notifications react to dynamic data.
     try {
-      const consent = checkEgressConsent(event.patientId, 'dispatch_alert_notification');
+      const consent = checkEgressConsent(reading.patientId, 'dispatch_alert_notification');
       if (consent.allowed) {
         await this.client.callTool('dispatch_alert_notification', {
           alertId: alert.alertId,
@@ -1194,9 +1372,123 @@ export class Orchestrator {
     return steps;
   }
 
+  /**
+   * Re-run UC2 with caregiver observation codes (alert-detail HITL).
+   * Updates alert + ml_events so explain uses post-HITL context.
+   *
+   * Vitals source order:
+   *   1) raw vitals envelope on the ml_event (best — same snapshot as original ML)
+   *   2) latest health_samples for the patient (threshold-only / legacy alerts)
+   */
+  async reRunHitlForAlert(
+    alertId: string,
+    observationCodes: string[],
+  ): Promise<UC2DecisionResult | null> {
+    if (!this.alertMlService) return null;
+    const alert = getAlertById(alertId);
+    if (!alert) return null;
+    const mlEvent = getMlEventForAlert(alertId);
+    const raw = mlEvent ? parseRawVitals(mlEvent) : null;
+
+    let input: AppleWatchVitalsInput | null = null;
+    if (raw && typeof raw === 'object') {
+      const envelope = raw as { input?: AppleWatchVitalsInput; contract?: string };
+      if (envelope.input && typeof envelope.input === 'object') {
+        input = {
+          ...envelope.input,
+          patient_id: alert.patientId,
+          timestamp: envelope.input.timestamp ?? new Date().toISOString(),
+        };
+      } else {
+        const vitals = raw as Record<string, number | undefined>;
+        input = {
+          patient_id: alert.patientId,
+          timestamp: new Date().toISOString(),
+          heart_rate: vitals.heart_rate,
+          blood_oxygen: vitals.blood_oxygen,
+          blood_pressure_systolic: vitals.blood_pressure_systolic,
+          blood_pressure_diastolic: vitals.blood_pressure_diastolic,
+          glucose_level: vitals.glucose_level,
+          body_temperature: vitals.body_temperature,
+          respiratory_rate: vitals.respiratory_rate,
+        };
+      }
+    }
+
+    if (!input || (input.blood_oxygen == null && input.heart_rate == null)) {
+      input = this.alertMlService.tryBuildInputFromRecentSamples(alert.patientId, {
+        minTypes: 1,
+        requireCoreVital: true,
+      });
+    }
+
+    if (!input || (input.blood_oxygen == null && input.heart_rate == null)) {
+      return null;
+    }
+
+    // Normalize SpO2 if a legacy fraction snuck into stored raw vitals.
+    if (input.blood_oxygen != null) {
+      input = {
+        ...input,
+        blood_oxygen: normalizeVitalForThreshold('spo2', input.blood_oxygen),
+      };
+    }
+
+    const snapshot = this.snapshotProvider?.() ?? null;
+    const profile = this.alertMlService.profileFromSnapshot(alert.patientId, snapshot);
+
+    const result = await this.alertMlService.runDecisionLayer(
+      input,
+      profile,
+      observationCodes,
+    );
+    if (!result) return null;
+
+    const postType = result.postHitlAnomalyType ?? result.post_hitl_anomaly_type;
+    const severity = (result.finalDecision?.final_severity ??
+      result.post_hitl_severity ??
+      alert.severity) as 1 | 2 | 3;
+    const aeScore = result.aeScore ?? result.ae_score_mse ?? undefined;
+    const scoreRatio =
+      aeScore != null && result.threshold
+        ? aeScore / result.threshold
+        : undefined;
+
+    updateAlertMlFields(alertId, {
+      severity: severity >= 1 && severity <= 3 ? severity : alert.severity,
+      postHitlAnomalyType: typeof postType === 'string' ? postType : undefined,
+      mlScore: aeScore ?? undefined,
+      scoreRatio,
+      aeScore: aeScore ?? undefined,
+      title: result.finalDecision?.final_notification_title || alert.title,
+      body: result.finalDecision?.final_notification_body || alert.body,
+    });
+
+    if (mlEvent) {
+      updateMlEventPostHitl(mlEvent.eventId, {
+        caregiverJson: JSON.stringify({
+          action: 'confirm_concern',
+          confirmed: true,
+          observations: observationCodes,
+        }),
+        postHitlAnomalyType: typeof postType === 'string' ? postType : undefined,
+        reconstructionError: aeScore ?? undefined,
+        scoreRatio,
+      });
+    }
+
+    this.addTrace({
+      agent: 'orchestrator',
+      thought: `HITL re-run for ${alertId}: postType=${String(postType)}, severity=${severity}, codes=${observationCodes.join(',')}`,
+    });
+
+    return result;
+  }
+
   async executeHypotheticalEval(
     action: { tool: string; args: Record<string, unknown>; rationale: string },
     patientId: string,
+    options?: { caregiverSelectedCodes?: string[] },
   ): Promise<{ mlResult: UC2DecisionResult | null; evalBlock: string }> {
     if (action.tool !== 'evaluate_hypothetical_vitals') return { mlResult: null, evalBlock: '' };
     if (!this.alertMlService) return { mlResult: null, evalBlock: '' };
@@ -1214,11 +1506,14 @@ export class Orchestrator {
       steps_count: undefined,
     };
 
-    const mlResult = await this.alertMlService.runDecisionLayer(input);
+    const snapshot = this.snapshotProvider?.() ?? null;
+    const profile = this.alertMlService.profileFromSnapshot(patientId, snapshot);
+    const codes = options?.caregiverSelectedCodes ?? [];
+    const mlResult = await this.alertMlService.runDecisionLayer(input, profile, codes);
     const evalBlock = mlResult ? this.formatMlEvalForPrompt(mlResult) : '';
     this.addTrace({
       agent: 'orchestrator',
-      thought: `Ran hypothetical ML eval: severity=${mlResult?.finalDecision.final_severity}, aeScore=${mlResult?.aeScore?.toFixed(2)}.`,
+      thought: `Ran hypothetical ML eval: severity=${mlResult?.finalDecision.final_severity}, aeScore=${mlResult?.aeScore?.toFixed(2)}, codes=${codes.length}.`,
     });
 
     if (mlResult && mlResult.finalDecision.final_severity === 3) {
@@ -1305,14 +1600,61 @@ export class Orchestrator {
   }
 
   private formatMlEvalForPrompt(r: UC2DecisionResult): string {
+    const post =
+      r.postHitlAnomalyType ?? r.post_hitl_anomaly_type ?? r.initialAnomalyType;
+    const codes = r.caregiver_selected_codes ?? [];
+    const severity =
+      r.finalDecision?.final_severity ?? r.post_hitl_severity ?? 0;
+    const isEmergency = Boolean(
+      r.emergencyResult?.emergency || severity === 3,
+    );
+    const friendlyCodes = codes.map((c) =>
+      String(c)
+        .replace(/_/g, ' ')
+        .toLowerCase()
+        .replace(/\b\w/g, (ch) => ch.toUpperCase()),
+    );
+    const contributors = r.topFeatureEvidence
+      .slice(0, 5)
+      .map((f) =>
+        String(f.feature)
+          .replace(/_/g, ' ')
+          .replace(/\bblood oxygen\b/i, 'oxygen level')
+          .replace(/\bheart rate\b/i, 'heart rate')
+          .replace(/\bsteps count\b/i, 'activity / steps')
+          .replace(/\bhrv sdnn\b/i, 'heart-rate variability')
+          .replace(/\bactivity level\b/i, 'activity'),
+      )
+      .filter(Boolean);
+
+    const concernLevel =
+      isEmergency || severity === 3
+        ? 'urgent — treat as a possible emergency'
+        : severity === 2
+          ? 'moderate concern — not an automatic call-911 situation, but follow up soon'
+          : severity === 1
+            ? 'mild / watchful — unusual pattern, not an emergency by hard rules'
+            : 'no strong monitor alarm';
+
     return [
-      'ML_HYPOTHETICAL_EVAL (the Health Monitor decision on the vitals you asked to test)',
-      `Anomaly score: ${r.aeScore !== null ? r.aeScore.toFixed(3) : 'n/a'} (threshold ${r.threshold.toFixed(3)})`,
-      `Is anomaly: ${r.isAnomaly}. Emergency: ${r.emergencyResult.emergency} (severity ${r.emergencyResult.severity}).`,
-      `Initial classification: ${r.initialAnomalyType.replace(/_/g, ' ').toLowerCase()}.`,
-      `Final notification: ${r.finalDecision.final_notification_type.replace(/_/g, ' ').toLowerCase()} (severity ${r.finalDecision.final_severity}).`,
-      r.topFeatureEvidence.slice(0, 3).map((f) => `  - ${f.feature}: ${f.importance.toFixed(2)}`).join('\n'),
-      'Ground your next answer in this ML output. The ML verdict is authoritative; you contextualize it.',
-    ].filter(Boolean).join('\n');
+      'INTERNAL_HEALTH_MONITOR_RESULT (for you only — do NOT paste, quote, or list these lines to the caregiver)',
+      `Monitor alarm: ${r.isAnomaly ? 'unusual pattern detected' : 'no strong anomaly'}.`,
+      `Hard emergency rules: ${isEmergency ? 'triggered' : 'not triggered'}.`,
+      `Concern level: ${concernLevel} (internal severity ${severity}).`,
+      `Pattern before caregiver notes: ${String(r.initialAnomalyType).replace(/_/g, ' ').toLowerCase()}.`,
+      `Pattern after caregiver notes: ${String(post).replace(/_/g, ' ').toLowerCase()}.`,
+      friendlyCodes.length > 0
+        ? `Caregiver reported: ${friendlyCodes.join('; ')}.`
+        : 'Caregiver did not add observation codes.',
+      contributors.length > 0
+        ? `Main contributors (plain language): ${contributors.join(', ')}.`
+        : '',
+      r.aeScore !== null
+        ? `Internal score vs threshold: ${r.aeScore.toFixed(2)} vs ${r.threshold.toFixed(2)} (do not recite raw scores unless the caregiver asks for numbers).`
+        : '',
+      'Write a natural caregiver reply that uses this result. Never reproduce this block, snake_case labels, or feature dumps.',
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 }

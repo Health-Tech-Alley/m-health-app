@@ -44,11 +44,15 @@ import {
   removeDemoMedicationConfirmationRequirement,
   resetDatabase,
   setDemoMedicationConfirmationRequired,
+  updatePatientConditionRoles,
   updateThresholdRecommendationStatus,
   verifyAuditChain,
+  type AuditLogEntry,
   type ConsentToken,
   type KnowledgeChunk,
   type PatientEnrichmentLogEntry,
+  type PatientCondition,
+  type PatientConditionRole,
   type ThresholdRecommendation,
 } from '@/data';
 import { importCdaJsonString, importCdaZip } from '@/data/cda';
@@ -110,6 +114,8 @@ const initialRecordConsentState: Record<RecordConsentScope, boolean> = {
   'pharmacy-communicator': false,
   'provider-message': false,
 };
+
+const EMPTY_CONDITIONS: PatientCondition[] = [];
 
 type ExpandableId =
   | 'anomaly'
@@ -330,7 +336,11 @@ export function AdvancedDeveloperSettingsScreen() {
   } = useSettings();
   const slm = useSLM();
   const patientId = useOrchestratorPatientId();
-  const { snapshot, refresh } = usePatientRecord();
+  const {
+    patientId: patientRecordPatientId,
+    snapshot,
+    refresh,
+  } = usePatientRecord();
   const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
   const [ncbiKeyInput, setNcbiKeyInput] = useState('');
   const [openfdaKeyInput, setOpenfdaKeyInput] = useState('');
@@ -741,13 +751,18 @@ export function AdvancedDeveloperSettingsScreen() {
               </Pressable>
               <Pressable
                 style={styles.actionButton}
+                onPress={() => router.push('/care-management')}>
+                <Text style={styles.actionButtonText}>Developer: ML Care Analysis</Text>
+              </Pressable>
+              <Pressable
+                style={styles.actionButton}
                 onPress={() => router.push('/acute-anomaly')}>
-                <Text style={styles.actionButtonText}>Acute Anomaly Demo</Text>
+                <Text style={styles.actionButtonText}>Developer: Acute Anomaly Demo</Text>
               </Pressable>
               <Pressable
                 style={styles.actionButton}
                 onPress={() => router.push('/health-monitor-demo')}>
-                <Text style={styles.actionButtonText}>Health Monitor Playground</Text>
+                <Text style={styles.actionButtonText}>Developer: Health Monitor Playground</Text>
               </Pressable>
               <Pressable
                 style={styles.actionButton}
@@ -1043,6 +1058,16 @@ export function AdvancedDeveloperSettingsScreen() {
         </Section>
 
         {isDeveloper ? (
+          <Section title="Diagnosis curation">
+            <DiagnosisCurationSettings
+              patientId={patientRecordPatientId ?? ''}
+              snapshot={snapshot}
+              refresh={refresh}
+            />
+          </Section>
+        ) : null}
+
+        {isDeveloper ? (
           <Section title="Simulate care-team-required confirmation">
             <DemoMedicationConfirmationSettings
               patientId={patientId}
@@ -1054,6 +1079,186 @@ export function AdvancedDeveloperSettingsScreen() {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function DiagnosisCurationSettings({
+  patientId,
+  snapshot,
+  refresh,
+}: {
+  patientId: string;
+  snapshot: ReturnType<typeof usePatientRecord>['snapshot'];
+  refresh: () => void;
+}) {
+  const conditions = snapshot?.conditions ?? EMPTY_CONDITIONS;
+  const [primaryConditionId, setPrimaryConditionId] = useState<string | null>(null);
+  const [activeConditionIds, setActiveConditionIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setPrimaryConditionId(
+        conditions.find((condition) => condition.conditionRole === 'primary_diagnosis')?.conditionId ??
+          snapshot?.primaryCondition?.conditionId ??
+          null,
+      );
+      setActiveConditionIds(
+        conditions
+          .filter((condition) => condition.conditionRole === 'active_comorbidity')
+          .map((condition) => condition.conditionId),
+      );
+    }, 0);
+
+    return () => clearTimeout(handle);
+  }, [conditions, snapshot?.primaryCondition?.conditionId]);
+
+  if (!patientId || !snapshot?.patient) {
+    return (
+      <View style={styles.devSection}>
+        <Text style={styles.thresholdMuted}>No active patient selected.</Text>
+      </View>
+    );
+  }
+
+  const toggleActiveCondition = (conditionId: string) => {
+    setActiveConditionIds((current) => {
+      if (current.includes(conditionId)) {
+        return current.filter((id) => id !== conditionId);
+      }
+      return [...current, conditionId].filter((id) => id !== primaryConditionId);
+    });
+  };
+
+  const handlePrimaryChange = (conditionId: string) => {
+    setPrimaryConditionId(conditionId);
+    setActiveConditionIds((current) => current.filter((id) => id !== conditionId));
+  };
+
+  const applyMikePreset = () => {
+    const primary = conditions.find((condition) => condition.name === 'Cerebral Palsy');
+    const activeNames = new Set([
+      'Contracture',
+      'Scoliosis',
+      'Constipation',
+      'Dysphagia',
+      'Esophagitis',
+      'Epilepsy',
+    ]);
+    setPrimaryConditionId(primary?.conditionId ?? null);
+    setActiveConditionIds(
+      conditions
+        .filter((condition) => activeNames.has(condition.name))
+        .map((condition) => condition.conditionId),
+    );
+  };
+
+  const handleSave = () => {
+    if (!primaryConditionId) {
+      Alert.alert('Primary diagnosis required', 'Choose one primary diagnosis before saving.');
+      return;
+    }
+
+    const activeIds = activeConditionIds.filter((id) => id !== primaryConditionId);
+    const rolesByConditionId = conditions.reduce<Record<string, PatientConditionRole>>(
+      (roles, condition) => {
+        roles[condition.conditionId] = 'history_context';
+        return roles;
+      },
+      {},
+    );
+    rolesByConditionId[primaryConditionId] = 'primary_diagnosis';
+    for (const conditionId of activeIds) {
+      rolesByConditionId[conditionId] = 'active_comorbidity';
+    }
+
+    updatePatientConditionRoles(patientId, rolesByConditionId);
+    refresh();
+    Alert.alert('Saved', 'Diagnosis roles updated for the active patient.');
+  };
+
+  return (
+    <View style={styles.devSection}>
+      <Text style={styles.thresholdMuted}>
+        Choose the app-level primary diagnosis and active comorbidities. Unselected conditions are saved as history context.
+      </Text>
+
+      {conditions.length === 0 ? (
+        <Text style={styles.thresholdMuted}>No conditions available.</Text>
+      ) : (
+        <>
+          <View style={styles.modelActions}>
+            <Pressable style={styles.smallButton} onPress={applyMikePreset}>
+              <Text style={styles.smallButtonText}>Apply Mike suggestion</Text>
+            </Pressable>
+            <Pressable style={styles.smallButton} onPress={handleSave}>
+              <Text style={styles.smallButtonText}>Save diagnosis roles</Text>
+            </Pressable>
+          </View>
+
+          {conditions.map((condition) => {
+            const sourceSummary = formatConditionSourceSummary(condition);
+            const isPrimary = primaryConditionId === condition.conditionId;
+            const isActive = activeConditionIds.includes(condition.conditionId);
+
+            return (
+              <View key={condition.conditionId} style={styles.conditionRoleRow}>
+                <View style={styles.thresholdTextBlock}>
+                  <Text style={styles.thresholdValue}>{condition.name}</Text>
+                  <Text style={styles.thresholdMuted}>
+                    {sourceSummary || 'Source timing unavailable'}
+                  </Text>
+                </View>
+                <View style={styles.conditionRoleActions}>
+                  <Pressable
+                    style={[styles.roleButton, isPrimary && styles.roleButtonActive]}
+                    onPress={() => handlePrimaryChange(condition.conditionId)}
+                  >
+                    <Text style={[styles.roleButtonText, isPrimary && styles.roleButtonTextActive]}>
+                      Primary
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.roleButton,
+                      isActive && styles.roleButtonActive,
+                      isPrimary && styles.disabledButton,
+                    ]}
+                    disabled={isPrimary}
+                    onPress={() => toggleActiveCondition(condition.conditionId)}
+                  >
+                    <Text style={[styles.roleButtonText, isActive && styles.roleButtonTextActive]}>
+                      Active
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })}
+        </>
+      )}
+    </View>
+  );
+}
+
+function formatConditionSourceSummary(condition: PatientCondition): string | null {
+  const references = condition.sourceReferences ?? [];
+  const source = references.reduce<NonNullable<PatientCondition['sourceReferences']>[number] | null>(
+    (latest, reference) => {
+      if (!latest) return reference;
+      return (reference.daysFromFirstVisit ?? -1) > (latest.daysFromFirstVisit ?? -1)
+        ? reference
+        : latest;
+    },
+    null,
+  );
+  if (!source) return null;
+
+  return [
+    source.sourceFile,
+    source.visitIndex !== undefined ? `visit ${source.visitIndex}` : null,
+    source.daysBeforeLatestVisit !== undefined
+      ? `${source.daysBeforeLatestVisit} days before latest`
+      : null,
+  ].filter(Boolean).join(' - ');
 }
 
 function DemoMedicationConfirmationSettings({
@@ -1176,7 +1381,7 @@ function ConsentManagement({ patientId }: { patientId: string }) {
 }
 
 function YourDecisionsSection({ patientId }: { patientId: string }) {
-  const [decisions, setDecisions] = useState<{ action: string; resourceId: string; timestamp: string; payload?: any }[]>(() => {
+  const [decisions, setDecisions] = useState<AuditLogEntry[]>(() => {
     if (!patientId) return [];
     try {
       return getAuditEntriesForResource('caregiver_action', patientId, 10);
@@ -1201,13 +1406,10 @@ function YourDecisionsSection({ patientId }: { patientId: string }) {
   if (decisions.length === 0) return null;
 
   return (
-    <Section
-      title="Your Decisions"
-      explanation="Recent decisions you've made about the Concierge's suggestions."
-    >
+    <Section title="Your Decisions">
       <View style={styles.subsection}>
         {decisions.map((d, i) => (
-          <View key={`${d.resourceId}-${i}`} style={styles.decisionRow}>
+          <View key={`${d.resourceId ?? d.auditId}-${i}`} style={styles.decisionRow}>
             <Text style={styles.decisionAction}>
               {d.action === 'override'
                 ? 'You overrode'
@@ -1216,8 +1418,8 @@ function YourDecisionsSection({ patientId }: { patientId: string }) {
                   : `You ${d.action}`}
             </Text>
             <Text style={styles.decisionTime}>
-              {d.timestamp
-                ? new Date(d.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              {d.createdAt
+                ? new Date(d.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                 : ''}
             </Text>
           </View>
@@ -2266,6 +2468,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingVertical: 4,
+  },
+  conditionRoleRow: {
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+  },
+  conditionRoleActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  roleButton: {
+    minHeight: 36,
+    justifyContent: 'center',
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.softSurface,
+    paddingHorizontal: 10,
+  },
+  roleButtonActive: {
+    borderColor: AppTheme.colors.brand,
+    backgroundColor: AppTheme.colors.brand,
+  },
+  roleButtonText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  roleButtonTextActive: {
+    color: AppTheme.colors.white,
   },
   thresholdTextBlock: {
     flex: 1,

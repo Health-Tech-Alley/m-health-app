@@ -191,11 +191,11 @@ function formatSlotLabel(slot: OpenSlot): string {
 
 const appointmentTypes = [
   "Primary care",
-  "Pulmonology",
-  "Neurology",
-  "Physical therapy",
-  "Medication review",
 ];
+
+function formatAppointmentTypeLabel(type: string): string {
+  return type === "Primary care" ? "Primary Care" : type;
+}
 
 const reminderOptions = [
   "15 min before",
@@ -236,6 +236,9 @@ export default function ScheduleScreen() {
   const [toastOpacity] = useState(new Animated.Value(0));
   const [booking, setBooking] = useState(false);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [isCreateAppointmentVisible, setIsCreateAppointmentVisible] = useState(false);
+  const [isAppointmentDetailsOpen, setIsAppointmentDetailsOpen] = useState(false);
+  const [isReminderOpen, setIsReminderOpen] = useState(false);
 
   // Slot search state
   const [rangeStart, setRangeStart] = useState(() => todayIsoDate());
@@ -247,6 +250,13 @@ export default function ScheduleScreen() {
   const [editing, setEditing] = useState<Appointment | null>(null);
   const [editForm, setEditForm] = useState(emptyForm(profile));
   const [todayIso] = useState(() => todayIsoDate());
+  const sortedUpcoming = [...upcoming].sort(compareAppointmentsByDateTime);
+  const todayStartMs = new Date(`${todayIso}T00:00:00`).getTime();
+  const nextAppointment =
+    sortedUpcoming.find((appt) => {
+      const appointmentMs = appointmentDateTimeMs(appt);
+      return Number.isFinite(appointmentMs) && appointmentMs >= todayStartMs;
+    }) ?? sortedUpcoming[0];
 
   const reload = useCallback(async () => {
     setUpcoming([]); // clear while loading
@@ -388,6 +398,7 @@ export default function ScheduleScreen() {
 
   const handleDelete = (appt: Appointment) => {
     if (!patientId) return;
+    const appointmentId = appt.appointmentid ?? appt.appointmentId;
     Alert.alert(
       "Delete appointment",
       `Delete the ${appt.patientappointmenttypename} appointment on ${appt.date}?`,
@@ -397,21 +408,21 @@ export default function ScheduleScreen() {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            setCancelingId(appt.appointmentid);
+            setCancelingId(appointmentId);
             try {
-              await cancelAthenaAppointment(appt.appointmentid);
+              await cancelAthenaAppointment(appointmentId);
             } catch (err) {
               Alert.alert(
                 "Couldn't cancel with athenahealth",
                 `${err instanceof Error ? err.message : String(err)}\n\nRemoving it locally anyway.`,
               );
             }
-            deleteAppointment(appt.appointmentid);
+            deleteAppointment(appointmentId);
             audit({
               actor: "caregiver",
               action: "delete_appointment",
               resourceType: "appointment",
-              resourceId: appt.appointmentid,
+              resourceId: appointmentId,
               patientId,
             });
             setCancelingId(null);
@@ -441,158 +452,35 @@ export default function ScheduleScreen() {
             }
           />
 
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Appointment type</Text>
-
-            <View style={styles.chipRow}>
-              {appointmentTypes.map((type) => {
-                const selected = form.appointmentType === type;
-                return (
-                  <Pressable
-                    key={type}
-                    style={[styles.chip, selected && styles.chipSelected]}
-                    onPress={() => setForm({ ...form, appointmentType: type })}
-                  >
-                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                      {type}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+          <View style={styles.nextAppointmentCard}>
+            <View style={styles.nextAppointmentMarker}>
+              <Text style={styles.nextAppointmentMarkerText}>01</Text>
             </View>
 
-            <Field
-              label="Provider"
-              value={form.providerName}
-              onChangeText={(v) => setForm({ ...form, providerName: v })}
-              placeholder="Dr. Adam Bricker"
-            />
+            <View style={styles.nextAppointmentTextBlock}>
+              <Text style={styles.nextAppointmentLabel}>NEXT APPOINTMENT</Text>
+              <Text style={styles.nextAppointmentTitle}>Primary Care</Text>
+              <Text style={styles.nextAppointmentTime}>
+                {nextAppointment
+                  ? formatAppointmentDateTime(nextAppointment.date, getAppointmentTime(nextAppointment))
+                  : "No upcoming appointment scheduled"}
+              </Text>
+            </View>
 
-            <Field
-              label="Location"
-              value={form.location}
-              onChangeText={(v) => setForm({ ...form, location: v })}
-              placeholder="Clinic name or address"
-            />
-
-            <LargeField
-              label="Reason for visit"
-              value={form.reason}
-              onChangeText={(v) => setForm({ ...form, reason: v })}
-              placeholder="What should the provider review?"
-            />
+            <View style={styles.nextAppointmentBadge}>
+              <Text style={styles.nextAppointmentBadgeText}>SCHEDULED / NEXT</Text>
+            </View>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Find a time</Text>
-            <Text style={styles.helperText}>Search open slots within a date range, then pick one.</Text>
+            <Text style={styles.sectionTitle}>Scheduled appointments</Text>
 
-            <View style={styles.twoColumnFields}>
-              <Field
-                containerStyle={styles.twoColumnField}
-                label="From"
-                value={rangeStart}
-                onChangeText={setRangeStart}
-                placeholder="YYYY-MM-DD"
-              />
-              <Field
-                containerStyle={styles.twoColumnField}
-                label="To"
-                value={rangeEnd}
-                onChangeText={setRangeEnd}
-                placeholder="YYYY-MM-DD"
-              />
-            </View>
-
-            <Pressable
-              style={[styles.scheduleButton, searchingSlots && styles.scheduleButtonDisabled]}
-              onPress={handleFindTimes}
-              disabled={searchingSlots}
-            >
-              <Text style={styles.scheduleButtonText}>
-                {searchingSlots ? "Searching…" : "Find available times"}
-              </Text>
-            </Pressable>
-
-            {slots.length > 0 ? (
-              <View style={styles.slotList}>
-                {slots.map((slot) => {
-                  const selected = selectedSlot?.appointmentid === slot.appointmentid;
-                  return (
-                    <Pressable
-                      key={slot.appointmentid}
-                      style={[styles.slotRow, selected && styles.slotRowSelected]}
-                      onPress={() => setSelectedSlot(slot)}
-                    >
-                      <Text style={[styles.slotRowText, selected && styles.slotRowTextSelected]}>
-                        {formatSlotLabel(slot)}
-                      </Text>
-                      {selected ? <AppIcon name="edit" size={14} color={AppTheme.colors.white} /> : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Reminder</Text>
-
-            <View style={styles.chipRow}>
-              {reminderOptions.map((option) => {
-                const selected = form.reminder === option;
-                return (
-                  <Pressable
-                    key={option}
-                    style={[styles.chip, selected && styles.chipSelected]}
-                    onPress={() => setForm({ ...form, reminder: option })}
-                  >
-                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                      {option}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <Pressable
-              style={[
-                styles.scheduleButton,
-                (!selectedSlot || booking) && styles.scheduleButtonDisabled,
-              ]}
-              onPress={handleSchedule}
-              disabled={!selectedSlot || booking}
-            >
-              <Text style={styles.scheduleButtonText}>
-                {booking
-                  ? "Booking…"
-                  : selectedSlot
-                    ? `Book ${formatSlotLabel(selectedSlot)}`
-                    : "Pick a time above first"}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              style={[
-                styles.scheduleButton
-              ]}
-              onPress={reload}
-            >
-              <Text style={styles.scheduleButtonText}>
-                {"Reload Appointments"}
-              </Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>APPOINTMENTS</Text>
-
-            {upcoming.length === 0 ? (
+            {sortedUpcoming.length === 0 ? (
               <Text style={styles.emptyText}>No upcoming appointments.</Text>
             ) : (
-              upcoming.map((appt) => {
+              sortedUpcoming.map((appt) => {
                 const statusLabel = appt.date === todayIso ? "TODAY" : "SCHEDULED";
-                const dateTimeLabel = formatAppointmentDateTime(appt.date, appt.starttime);
+                const dateTimeLabel = formatAppointmentDateTime(appt.date, getAppointmentTime(appt));
                 const isCanceling = cancelingId === appt.appointmentid;
 
                 return (
@@ -608,7 +496,7 @@ export default function ScheduleScreen() {
                       <View style={styles.appointmentTextBlock}>
                         <View style={styles.appointmentTitleRow}>
                           <Text style={styles.appointmentType} numberOfLines={1}>
-                            {appt.type}
+                            {formatAppointmentTypeLabel(appt.type)}
                           </Text>
                           <View
                             style={[
@@ -681,6 +569,194 @@ export default function ScheduleScreen() {
               })
             )}
           </View>
+
+          <Pressable
+            style={styles.createAppointmentButton}
+            onPress={() => setIsCreateAppointmentVisible((visible) => !visible)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: isCreateAppointmentVisible }}
+          >
+            <Text style={styles.createAppointmentButtonText}>Create appointment</Text>
+          </Pressable>
+
+          {isCreateAppointmentVisible ? (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Create appointment</Text>
+
+              <Pressable
+                style={styles.collapseRow}
+                onPress={() => setIsAppointmentDetailsOpen((open) => !open)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: isAppointmentDetailsOpen }}
+              >
+                <Text style={styles.collapseRowText}>Appointment details</Text>
+                <AppIcon
+                  name="chevronRight"
+                  size={22}
+                  color={AppTheme.colors.brand}
+                />
+              </Pressable>
+
+              {isAppointmentDetailsOpen ? (
+                <View style={styles.collapsibleContent}>
+                  <Text style={styles.sectionTitle}>Appointment type</Text>
+
+                  <View style={styles.chipRow}>
+                    {appointmentTypes.map((type) => {
+                      const selected = form.appointmentType === type;
+                      return (
+                        <Pressable
+                          key={type}
+                          style={[styles.chip, selected && styles.chipSelected]}
+                          onPress={() => setForm({ ...form, appointmentType: type })}
+                        >
+                          <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                            {formatAppointmentTypeLabel(type)}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <Field
+                    label="Provider"
+                    value={form.providerName}
+                    onChangeText={(v) => setForm({ ...form, providerName: v })}
+                    placeholder="Dr. Adam Bricker"
+                  />
+
+                  <Field
+                    label="Location"
+                    value={form.location}
+                    onChangeText={(v) => setForm({ ...form, location: v })}
+                    placeholder="Clinic name or address"
+                  />
+
+                  <LargeField
+                    label="Reason for visit"
+                    value={form.reason}
+                    onChangeText={(v) => setForm({ ...form, reason: v })}
+                    placeholder="What should the provider review?"
+                  />
+
+                  <Text style={styles.sectionTitle}>Find a time</Text>
+                  <Text style={styles.helperText}>Search open slots within a date range, then pick one.</Text>
+
+                  <View style={styles.twoColumnFields}>
+                    <Field
+                      containerStyle={styles.twoColumnField}
+                      label="From"
+                      value={rangeStart}
+                      onChangeText={setRangeStart}
+                      placeholder="YYYY-MM-DD"
+                    />
+                    <Field
+                      containerStyle={styles.twoColumnField}
+                      label="To"
+                      value={rangeEnd}
+                      onChangeText={setRangeEnd}
+                      placeholder="YYYY-MM-DD"
+                    />
+                  </View>
+
+                  <Pressable
+                    style={[styles.scheduleButton, searchingSlots && styles.scheduleButtonDisabled]}
+                    onPress={handleFindTimes}
+                    disabled={searchingSlots}
+                  >
+                    <Text style={styles.scheduleButtonText}>
+                      {searchingSlots ? "Searching…" : "Find available times"}
+                    </Text>
+                  </Pressable>
+
+                  {slots.length > 0 ? (
+                    <View style={styles.slotList}>
+                      {slots.map((slot) => {
+                        const selected = selectedSlot?.appointmentid === slot.appointmentid;
+                        return (
+                          <Pressable
+                            key={slot.appointmentid}
+                            style={[styles.slotRow, selected && styles.slotRowSelected]}
+                            onPress={() => setSelectedSlot(slot)}
+                          >
+                            <Text style={[styles.slotRowText, selected && styles.slotRowTextSelected]}>
+                              {formatSlotLabel(slot)}
+                            </Text>
+                            {selected ? <AppIcon name="edit" size={14} color={AppTheme.colors.white} /> : null}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
+              <Pressable
+                style={styles.collapseRow}
+                onPress={() => setIsReminderOpen((open) => !open)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: isReminderOpen }}
+              >
+                <Text style={styles.collapseRowText}>Reminder</Text>
+                <AppIcon
+                  name="chevronRight"
+                  size={22}
+                  color={AppTheme.colors.brand}
+                />
+              </Pressable>
+
+              {isReminderOpen ? (
+                <View style={styles.collapsibleContent}>
+                  <Text style={styles.sectionTitle}>Reminder</Text>
+
+                  <View style={styles.chipRow}>
+                    {reminderOptions.map((option) => {
+                      const selected = form.reminder === option;
+                      return (
+                        <Pressable
+                          key={option}
+                          style={[styles.chip, selected && styles.chipSelected]}
+                          onPress={() => setForm({ ...form, reminder: option })}
+                        >
+                          <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                            {option}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+
+              <Pressable
+                style={[
+                  styles.scheduleButton,
+                  (!selectedSlot || booking) && styles.scheduleButtonDisabled,
+                ]}
+                onPress={handleSchedule}
+                disabled={!selectedSlot || booking}
+              >
+                <Text style={styles.scheduleButtonText}>
+                  {booking
+                    ? "Booking…"
+                    : selectedSlot
+                      ? `Book ${formatSlotLabel(selectedSlot)}`
+                      : "Pick a time above first"}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.scheduleButton
+                ]}
+                onPress={reload}
+              >
+                <Text style={styles.scheduleButtonText}>
+                  {"Reload Appointments"}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
         </ScrollView>
 
         {/* Fading toast */}
@@ -716,7 +792,7 @@ export default function ScheduleScreen() {
                         onPress={() => setEditForm({ ...editForm, appointmentType: type })}
                       >
                         <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                          {type}
+                          {formatAppointmentTypeLabel(type)}
                         </Text>
                       </Pressable>
                     );
@@ -838,6 +914,41 @@ function formatAppointmentDateTime(date: string, time?: string): string {
   return time ? `${dateLabel} at ${to12Hour(time)}` : dateLabel;
 }
 
+function getAppointmentTime(appt: Appointment): string | undefined {
+  return appt.starttime ?? appt.time;
+}
+
+function normalizeAppointmentDate(date: string): string {
+  if (!date.includes("/")) return date;
+  return date.replace(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, (_match, month, day, year) => {
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  });
+}
+
+function normalizeAppointmentTime(time?: string): string {
+  const match = time?.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return "00:00:00";
+  return `${match[1].padStart(2, "0")}:${match[2]}:00`;
+}
+
+function appointmentDateTimeMs(appt: Appointment): number {
+  const parsed = new Date(
+    `${normalizeAppointmentDate(appt.date)}T${normalizeAppointmentTime(getAppointmentTime(appt))}`,
+  );
+  return parsed.getTime();
+}
+
+function compareAppointmentsByDateTime(a: Appointment, b: Appointment): number {
+  const aMs = appointmentDateTimeMs(a);
+  const bMs = appointmentDateTimeMs(b);
+  if (Number.isNaN(aMs) && Number.isNaN(bMs)) {
+    return (a.appointmentid ?? a.appointmentId).localeCompare(b.appointmentid ?? b.appointmentId);
+  }
+  if (Number.isNaN(aMs)) return 1;
+  if (Number.isNaN(bMs)) return -1;
+  return aMs - bMs;
+}
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: AppTheme.colors.screen },
   root: { flex: 1, backgroundColor: AppTheme.colors.screen },
@@ -858,6 +969,67 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 20,
     ...AppTheme.shadow,
+  },
+  nextAppointmentCard: {
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: 22,
+    padding: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+  nextAppointmentMarker: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 16,
+  },
+  nextAppointmentMarkerText: {
+    color: AppTheme.colors.white,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  nextAppointmentTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  nextAppointmentLabel: {
+    color: AppTheme.colors.white,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+    opacity: 0.9,
+    marginBottom: 4,
+  },
+  nextAppointmentTitle: {
+    color: AppTheme.colors.white,
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "900",
+  },
+  nextAppointmentTime: {
+    color: AppTheme.colors.white,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 5,
+  },
+  nextAppointmentBadge: {
+    flexShrink: 0,
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginLeft: 12,
+  },
+  nextAppointmentBadgeText: {
+    color: AppTheme.colors.white,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.7,
   },
   sectionTitle: {
     color: AppTheme.colors.sectionText,
@@ -936,6 +1108,45 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.white,
     fontSize: 16,
     fontWeight: "900",
+  },
+  createAppointmentButton: {
+    minHeight: 56,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+    ...AppTheme.shadow,
+  },
+  createAppointmentButtonText: {
+    color: AppTheme.colors.brand,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  collapseRow: {
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.softSurface,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  collapseRowText: {
+    color: AppTheme.colors.brand,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  collapsibleContent: {
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.colors.border,
+    marginBottom: 12,
+    paddingBottom: 16,
   },
   slotList: {
     marginTop: 16,

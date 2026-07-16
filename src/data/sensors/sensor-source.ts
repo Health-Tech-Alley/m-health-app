@@ -8,7 +8,12 @@
 
 import type { HealthSampleType } from '../types';
 
-export type SensorSampleSource = 'apple-health' | 'health-connect' | 'manual' | 'mock';
+export type SensorSampleSource =
+  | 'apple-health'
+  | 'health-connect'
+  | 'manual'
+  | 'mock'
+  | 'simulated';
 
 export type SensorScalarValue = number;
 export type BloodPressureValue = { systolic: number; diastolic: number };

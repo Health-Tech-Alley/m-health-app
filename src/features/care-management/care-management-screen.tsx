@@ -232,7 +232,7 @@ export function CareManagementScreen() {
   const slm = useSLM();
   const { model: mlModel, ready: mlModelLoaded, error: mlModelError } = useUC2Runtime();
   const retriever = useOrchestratorRetriever();
-  const { patientId } = usePatientRecord();
+  const { patientId, snapshot } = usePatientRecord();
   const [state, dispatch] = useReducer(reducer, initialState);
 
   const controller = useMemo(
@@ -283,6 +283,7 @@ export function CareManagementScreen() {
               slm.chat,
               (token) => dispatch({ type: 'slm-token', payload: { token } }),
               retriever,
+              snapshot,
             )
             .then((resultAction) => dispatch(resultAction));
         }
@@ -291,7 +292,7 @@ export function CareManagementScreen() {
 
       dispatch(action);
     },
-    [controller, mlModelError, patientId, state, slm.chat, retriever],
+    [controller, mlModelError, patientId, state, slm.chat, retriever, snapshot],
   );
 
   return (

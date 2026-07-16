@@ -50,7 +50,9 @@ export {
   retrieveClinicalChunks,
   formatCitationsForPrompt,
   buildRetrievalQuery,
+  buildChatRetrievalQuery,
   messageHasClinicalKeywords,
+  extractContentTokens,
 } from './retrieval-helper';
 export type { RetrievedCitation } from './retrieval-helper';
 

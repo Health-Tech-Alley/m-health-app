@@ -8,7 +8,6 @@
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
 
-import { insertHealthSample } from '../repositories/healthSampleRepository';
 import type { HealthSampleType } from '../types';
 import type { PermissionResult, SensorSample, SensorSource } from './sensor-source';
 
@@ -23,7 +22,7 @@ export type MockSensorOptions = {
 
 const PERSONA_BASELINES: Record<MockPersona, Record<string, { value: number; unit: string; variance: number }>> = {
   normal: {
-    spo2: { value: 0.97, unit: 'fraction', variance: 0.01 },
+    spo2: { value: 97, unit: '%', variance: 1 },
     heart_rate: { value: 72, unit: 'bpm', variance: 4 },
     respiratory_rate: { value: 16, unit: 'rpm', variance: 1 },
     temperature: { value: 37.0, unit: 'C', variance: 0.2 },
@@ -37,7 +36,7 @@ const PERSONA_BASELINES: Record<MockPersona, Record<string, { value: number; uni
     height: { value: 175, unit: 'cm', variance: 0 },
   },
   'spina-bifida': {
-    spo2: { value: 0.96, unit: 'fraction', variance: 0.015 },
+    spo2: { value: 96, unit: '%', variance: 1.5 },
     heart_rate: { value: 70, unit: 'bpm', variance: 5 },
     respiratory_rate: { value: 18, unit: 'rpm', variance: 2 },
     blood_pressure_systolic: { value: 125, unit: 'mmHg', variance: 8 },
@@ -53,7 +52,7 @@ const PERSONA_BASELINES: Record<MockPersona, Record<string, { value: number; uni
     height: { value: 155, unit: 'cm', variance: 0 },
   },
   'post-stroke': {
-    spo2: { value: 0.96, unit: 'fraction', variance: 0.015 },
+    spo2: { value: 96, unit: '%', variance: 1.5 },
     heart_rate: { value: 78, unit: 'bpm', variance: 6 },
     respiratory_rate: { value: 18, unit: 'rpm', variance: 2 },
     blood_pressure_systolic: { value: 140, unit: 'mmHg', variance: 10 },
@@ -69,7 +68,7 @@ const PERSONA_BASELINES: Record<MockPersona, Record<string, { value: number; uni
     height: { value: 170, unit: 'cm', variance: 0 },
   },
   'copd-tbi': {
-    spo2: { value: 0.91, unit: 'fraction', variance: 0.02 },
+    spo2: { value: 91, unit: '%', variance: 2 },
     heart_rate: { value: 88, unit: 'bpm', variance: 7 },
     respiratory_rate: { value: 24, unit: 'rpm', variance: 3 },
     temperature: { value: 37.2, unit: 'C', variance: 0.3 },
@@ -137,21 +136,6 @@ export class MockSensorSource implements SensorSource {
   startPublishingToEventBus(): () => void {
     const bus = getEventBus();
     return this.subscribe(this.types, (sample) => {
-      // Persist the sample to the local SQLite cache.
-      const healthSample = {
-        sampleId: sample.sampleId,
-        patientId: sample.patientId,
-        source: sample.source as 'mock',
-        type: sample.type,
-        value: typeof sample.value === 'number' ? sample.value : 0,
-        valueJson: typeof sample.value === 'number' ? undefined : JSON.stringify(sample.value),
-        unit: sample.unit,
-        recordedAt: sample.recordedAt,
-        receivedAt: sample.receivedAt,
-        metadataJson: sample.metadataJson,
-      };
-      insertHealthSample(healthSample);
-
       // Publish to the orchestration event bus.
       const scalar = typeof sample.value === 'number' ? sample.value : 0;
       const event: Extract<OrchestrationEvent, { type: 'vitals_sample' }> = {
@@ -162,6 +146,8 @@ export class MockSensorSource implements SensorSource {
         value: scalar,
         unit: sample.unit,
         recordedAt: sample.recordedAt,
+        source: 'simulated',
+        receivedAt: sample.receivedAt,
       };
       bus.publish(event);
     });
@@ -176,7 +162,8 @@ export class MockSensorSource implements SensorSource {
     let value: number;
     switch (type) {
       case 'spo2':
-        value = clamp(jitter(base, variance), 0.75, 1.0);
+        // Canonical SpO2 on the bus: 0–100 percent (not fraction).
+        value = clamp(jitter(base, variance), 75, 100);
         break;
       case 'heart_rate':
         value = clamp(Math.round(jitter(base, variance)), 45, 160);
@@ -224,7 +211,7 @@ export class MockSensorSource implements SensorSource {
     return {
       sampleId: `mock-${type}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 5)}`,
       patientId: this.patientId,
-      source: 'mock',
+      source: 'simulated',
       type,
       value,
       unit,

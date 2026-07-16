@@ -1,4 +1,4 @@
-import type { RawObservationInput, PatientProfile } from "../../";
+import type { RawObservationInput, PatientProfile } from "../";
 
 export const fixtureNormalRaw: RawObservationInput = {
     patient_id: "patient_normal_001",

@@ -3,7 +3,7 @@ import type {
     HistoricalAnomalyEvent,
     PatientProfile,
     RawObservationInput,
-} from "../../";
+} from "../";
 
 export const fixtureRecurrenceRaw: RawObservationInput = {
     patient_id: "patient_recur_001",

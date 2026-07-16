@@ -96,17 +96,29 @@ export async function buildAggregatedContext(
   // Use structured conditions from the snapshot — exclude pending-review
   // suggestions so the SLM only sees confirmed conditions.
   const confirmedConditions = snapshot.conditions.filter((c) => !c.needsReview);
-  const conditionNames = confirmedConditions.map((c) => c.name);
-  const comorbidityNames = confirmedConditions
-    .filter((c) => !c.isPrimary)
-    .map((c) => c.name);
-  const primaryCondition = confirmedConditions.find((c) => c.isPrimary) ?? confirmedConditions[0];
+  const hasCuratedConditionRoles = confirmedConditions.some((condition) =>
+    Boolean(condition.conditionRole),
+  );
+  const primaryCondition =
+    confirmedConditions.find((c) => c.conditionRole === 'primary_diagnosis') ??
+    snapshot.primaryCondition ??
+    confirmedConditions.find((c) => c.isPrimary) ??
+    confirmedConditions[0];
+  const activeComorbidities = hasCuratedConditionRoles
+    ? confirmedConditions.filter((c) => c.conditionRole === 'active_comorbidity')
+    : confirmedConditions.filter((c) => c !== primaryCondition);
+  const selectedConditions = hasCuratedConditionRoles
+    ? [primaryCondition, ...activeComorbidities].filter(
+        (condition): condition is NonNullable<typeof primaryCondition> => Boolean(condition),
+      )
+    : confirmedConditions;
+  const conditionNames = selectedConditions.map((c) => c.name);
+  const comorbidityNames = activeComorbidities.map((c) => c.name);
 
-  const medsList = snapshot.patient?.currentMedications ?? '';
-  const meds = medsList
-    .split(',')
-    .map((m) => m.trim())
+  const meds = snapshot.medications
+    .map((m) => m.name.trim())
     .filter(Boolean);
+  const medicationSummary = meds.join(', ');
 
   const retrieval = await retriever.retrieve({
     intent,
@@ -150,7 +162,7 @@ export async function buildAggregatedContext(
       age: snapshot.patient?.age,
       conditions: conditionNames,
       comorbidities: comorbidityNames,
-      medications: snapshot.patient?.currentMedications,
+      medications: medicationSummary,
       spo2Cutoff: snapshot.patient?.spo2Cutoff,
       baselineHeartRate: snapshot.patient?.baselineHeartRate,
       primaryCondition: primaryCondition
