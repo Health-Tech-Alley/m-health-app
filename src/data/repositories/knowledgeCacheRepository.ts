@@ -10,6 +10,7 @@
 
 import { getDatabase } from '../db';
 import type { KnowledgeChunk, KnowledgeSource } from '../types';
+import { deleteEdgesForChunks, clearAllKnowledgeChunkEdges } from './knowledgeChunkEdgeRepository';
 
 export function insertKnowledgeChunk(chunk: KnowledgeChunk): void {
   const db = getDatabase();
@@ -147,16 +148,24 @@ export function bumpChunkUseCount(chunkId: string): void {
 
 export function clearKnowledgeCache(): void {
   const db = getDatabase();
+  clearAllKnowledgeChunkEdges();
   db.runSync('DELETE FROM knowledge_cache;');
 }
 
 export function deleteKnowledgeChunk(chunkId: string): void {
-  const db = getDatabase();
-  db.runSync('DELETE FROM knowledge_cache WHERE chunk_id = ?;', chunkId);
+  deleteEdgesForChunks([chunkId]);
+  getDatabase().runSync('DELETE FROM knowledge_cache WHERE chunk_id = ?;', chunkId);
 }
 
 export function deleteKnowledgeChunksBySource(source: string): number {
   const db = getDatabase();
+  const ids = db
+    .getAllSync<{ chunk_id: string }>(
+      'SELECT chunk_id FROM knowledge_cache WHERE source = ?;',
+      source,
+    )
+    .map((r) => r.chunk_id);
+  if (ids.length) deleteEdgesForChunks(ids);
   const result = db.runSync('DELETE FROM knowledge_cache WHERE source = ?;', source);
   return result.changes;
 }
@@ -164,9 +173,17 @@ export function deleteKnowledgeChunksBySource(source: string): number {
 export function deleteKnowledgeChunksByCondition(condition: string): number {
   const db = getDatabase();
   // conditions is a CSV column — match anywhere in the list.
+  const like = `%,${condition},%`;
+  const ids = db
+    .getAllSync<{ chunk_id: string }>(
+      'SELECT chunk_id FROM knowledge_cache WHERE conditions LIKE ?;',
+      like,
+    )
+    .map((r) => r.chunk_id);
+  if (ids.length) deleteEdgesForChunks(ids);
   const result = db.runSync(
     'DELETE FROM knowledge_cache WHERE conditions LIKE ?;',
-    `%,${condition},%`,
+    like,
   );
   return result.changes;
 }
@@ -175,10 +192,18 @@ export function deleteKnowledgeChunksByDocumentType(
   documentType: string,
 ): number {
   const db = getDatabase();
+  const like = `%"documentType":"${documentType}"%`;
+  const ids = db
+    .getAllSync<{ chunk_id: string }>(
+      `SELECT chunk_id FROM knowledge_cache WHERE metadata_json LIKE ?;`,
+      like,
+    )
+    .map((r) => r.chunk_id);
+  if (ids.length) deleteEdgesForChunks(ids);
   const result = db.runSync(
     `DELETE FROM knowledge_cache
      WHERE metadata_json LIKE ?;`,
-    `%"documentType":"${documentType}"%`,
+    like,
   );
   return result.changes;
 }
@@ -190,6 +215,13 @@ export function getKnowledgeChunkForExport(chunkId: string): KnowledgeChunk | nu
 export function clearExpiredKnowledgeChunks(): number {
   const db = getDatabase();
   const now = new Date().toISOString();
+  const expired = db.getAllSync<{ chunk_id: string }>(
+    `SELECT chunk_id FROM knowledge_cache
+     WHERE expires_at IS NOT NULL AND expires_at < ?;`,
+    now,
+  );
+  const ids = expired.map((r) => r.chunk_id);
+  if (ids.length) deleteEdgesForChunks(ids);
   const result = db.runSync(
     'DELETE FROM knowledge_cache WHERE expires_at IS NOT NULL AND expires_at < ?;',
     now,

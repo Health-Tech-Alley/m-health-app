@@ -114,6 +114,7 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS notifications;
     DROP TABLE IF EXISTS notification_preferences;
     DROP TABLE IF EXISTS app_settings;
+    DROP TABLE IF EXISTS knowledge_chunk_edges;
     DROP TABLE IF EXISTS knowledge_cache;
     DROP TABLE IF EXISTS patient_enrichment_log;
     DROP TABLE IF EXISTS symptoms;
