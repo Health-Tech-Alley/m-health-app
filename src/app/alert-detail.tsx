@@ -35,10 +35,12 @@ import {
   updateAlertStatus,
 } from '@/data';
 import { ObservationPicker } from '@/components/ObservationPicker';
-import { useOrchestratorSafe } from '@/contexts/orchestrator-context';
+import {
+  useOrchestratorPatientId,
+  useOrchestratorSafe,
+} from '@/contexts/orchestrator-context';
 import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
-import { getRecentReadingsFromRedux } from '@/services/ml/alert-ml-service';
 
 const TEAL = AppTheme.colors.brand;
 const BG = AppTheme.colors.screen;
@@ -50,6 +52,7 @@ export default function AlertDetailScreen() {
   const router = useRouter();
   const { alertId } = useLocalSearchParams<{ alertId: string }>();
   const orchestrator = useOrchestratorSafe();
+  const activePatientId = useOrchestratorPatientId();
 
   const [version, setVersion] = useState(0);
   const [noteOpen, setNoteOpen] = useState(false);
@@ -58,7 +61,15 @@ export default function AlertDetailScreen() {
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [observationCodes, setObservationCodes] = useState<string[]>([]);
 
-  const alert = alertId ? getAlertById(alertId) : null;
+  const loadedAlert = alertId ? getAlertById(alertId) : null;
+  const alertUnavailableMessage = !alertId
+    ? 'No alert was selected.'
+    : !loadedAlert
+      ? 'Alert not found.'
+      : activePatientId && loadedAlert.patientId !== activePatientId
+        ? 'This alert belongs to a different patient. Switch back to that patient to view it.'
+        : null;
+  const alert = alertUnavailableMessage ? null : loadedAlert;
 
   // Compute the 24h-ago cutoff once (impure Date.now() allowed in a useState
   // initializer, not during render).
@@ -70,19 +81,8 @@ export default function AlertDetailScreen() {
   // the alert identity changes, not on every render.
   const { recentSpo2, recentHr } = useMemo(() => {
     if (!alert) return { recentSpo2: [], recentHr: [] };
-    const sinceMs = new Date(since).getTime();
-    const spo2FromRedux = getRecentReadingsFromRedux(alert.patientId, 'spo2', sinceMs, 8);
-    const hrFromRedux = getRecentReadingsFromRedux(alert.patientId, 'heart_rate', sinceMs, 8);
-    const spo2 = (
-      spo2FromRedux.length > 0
-        ? spo2FromRedux
-        : getRecentHealthSamples(alert.patientId, 'spo2', since, 8)
-    ).reverse();
-    const hr = (
-      hrFromRedux.length > 0
-        ? hrFromRedux
-        : getRecentHealthSamples(alert.patientId, 'heart_rate', since, 8)
-    ).reverse();
+    const spo2 = getRecentHealthSamples(alert.patientId, 'spo2', since, 8).reverse();
+    const hr = getRecentHealthSamples(alert.patientId, 'heart_rate', since, 8).reverse();
     return { recentSpo2: spo2, recentHr: hr };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alert?.alertId, since]);
@@ -92,7 +92,7 @@ export default function AlertDetailScreen() {
   const mlDetails = useMemo(() => {
     if (!alert) return null;
     const event = getMlEventForAlert(alert.alertId);
-    if (!event) return null;
+    if (!event || event.patientId !== alert.patientId) return null;
     return {
       event,
       topFeatures: parseTopFeatures(event),
@@ -159,7 +159,10 @@ export default function AlertDetailScreen() {
 
   const askAssistant = useCallback(() => {
     if (!alert) return;
-    router.push({ pathname: '/slm-explain', params: { alertId: alert.alertId } });
+    router.push({
+      pathname: '/slm-explain',
+      params: { alertId: alert.alertId, patientId: alert.patientId },
+    });
   }, [alert, router]);
 
   const saveObservations = useCallback(async () => {
@@ -204,7 +207,7 @@ export default function AlertDetailScreen() {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <View style={styles.missing}>
-          <Text style={styles.muted}>Alert not found.</Text>
+          <Text style={styles.muted}>{alertUnavailableMessage}</Text>
           <Pressable style={styles.button} onPress={() => router.back()}>
             <Text style={styles.buttonText}>Back</Text>
           </Pressable>

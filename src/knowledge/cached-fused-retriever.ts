@@ -65,13 +65,20 @@ export class CachedFusedRetriever implements FusedRetriever {
   private ready = false;
   private patientId?: string;
   private patientConditions: string[];
+  private options: CachedFusedRetrieverOptions;
   private buildPromise: Promise<void> | null = null;
 
   constructor(options: CachedFusedRetrieverOptions) {
+    this.options = {
+      ...options,
+      tools: [...options.tools],
+      patientConditions: [...(options.patientConditions ?? [])],
+      activeMeds: [...(options.activeMeds ?? [])],
+    };
     this.patientId = options.patientId;
     this.patientConditions = options.patientConditions ?? [];
     // Kick off async index building
-    this.buildPromise = this.buildIndexes(options);
+    this.buildPromise = this.buildIndexes(this.options);
   }
 
   private async buildIndexes(options: CachedFusedRetrieverOptions): Promise<void> {
@@ -244,9 +251,13 @@ export class CachedFusedRetriever implements FusedRetriever {
     this.ready = false;
     this.chunkMap.clear();
     this.clinicalBm25 = new Bm25Index();
+    this.toolBm25 = new Bm25Index();
+    this.toolMap.clear();
     this.buildPromise = this.buildIndexes({
-      tools: Array.from(this.toolMap.values()),
-      patientConditions: this.patientConditions,
+      ...this.options,
+      tools: [...this.options.tools],
+      patientConditions: [...(this.options.patientConditions ?? [])],
+      activeMeds: [...(this.options.activeMeds ?? [])],
     });
     await this.buildPromise;
   }
