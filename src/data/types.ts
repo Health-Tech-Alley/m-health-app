@@ -78,6 +78,37 @@ export type CarePlanRehabMetricKey =
   | 'fatigueScore'
   | 'walkingMinutes';
 
+export type SupportedUc3ConditionGroup = 'post_stroke_rehabilitation';
+
+export type RehabExerciseKey =
+  | 'supported_arm_reach'
+  | 'grasp_release'
+  | 'sit_to_stand'
+  | 'supported_weight_shift'
+  | 'assisted_walking';
+
+export type RehabExerciseAssignmentSource = 'developer_uc3_v2';
+
+export interface RehabExerciseDefinition {
+  key: RehabExerciseKey;
+  label: string;
+}
+
+export interface RehabExerciseAssignment {
+  patientId: string;
+  carePlanId: string;
+  exerciseKey: RehabExerciseKey;
+  active: boolean;
+  source: RehabExerciseAssignmentSource;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RehabExerciseAssignmentCounts {
+  exercisesAssigned: number;
+  exercisesCompleted: number;
+}
+
 export interface CarePlanRehabMetric {
   id: string;
   patientId: string;
@@ -168,6 +199,13 @@ export interface CarePlan {
   emergencyContact?: string;
   createdAt: string;
   activities: CarePlanActivity[];
+}
+
+export interface CarePlanGoalSummary {
+  goalId: string;
+  description: string;
+  targetDate?: string;
+  status: string;
 }
 
 export interface Alert {
@@ -831,9 +869,13 @@ export interface DailyCareEntry {
   exerciseRepetitions?: number | null;
   romDegrees?: number | null;
   walkingMinutes?: number | null;
+  assignedExerciseKeys?: RehabExerciseKey[];
+  completedExerciseKeys?: RehabExerciseKey[];
+  painScore?: number | null;
   painBefore?: number | null;
   painAfter?: number | null;
   fatigue?: number | null;
+  skippedReason?: string | null;
   symptoms?: string[];
   assistanceRequired?: string | null;
   caregiverConcern: boolean;
@@ -842,6 +884,48 @@ export interface DailyCareEntry {
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BundleStatus {
+  state: 'in_flight' | 'complete' | 'failed';
+  chunksAdded: number;
+  error?: string;
+  updatedAt?: string;
+}
+
+export interface PatientRecordSnapshot {
+  patient: Patient | null;
+  safetyNotes: string;
+  caregiver: Caregiver | null;
+  conditions: PatientCondition[];
+  comorbidities: PatientCondition[];
+  primaryCondition: PatientCondition | null;
+  pendingReviewConditions: PatientCondition[];
+  symptoms: Symptom[];
+  wearable: WearableDevice | null;
+  medications: Medication[];
+  medicationCandidates: MedicationCandidate[];
+  medicationConfirmationRequirements: Record<string, MedicationConfirmationRequirement>;
+  functionalObservations: PatientLongitudinalObservation[];
+  thresholds: Threshold[];
+  carePlan: CarePlan | null;
+  carePlans: CarePlan[];
+  rehabPlanMetrics: CarePlanRehabMetric[];
+  rehabExerciseAssignments: RehabExerciseAssignment[];
+  todayDailyCareEntry: DailyCareEntry | null;
+  rehabDailyEntries: DailyCareEntry[];
+  careContextItems: PatientCareContextItem[];
+  timelineEvents: PatientTimelineEvent[];
+  carePlanGoals: CarePlanGoalSummary[];
+  knowledgeStats: { total: number; bySource: Record<string, number> };
+  enrichmentStats: {
+    total: number;
+    bySource: Record<string, number>;
+    lastRunAt?: string;
+  };
+  bundlePending: boolean;
+  bundleStatus: BundleStatus;
+  lastRefreshedAt: string;
 }
 
 export type NormalizedVitalReading = {

@@ -60,6 +60,7 @@ export * from './repositories/patientRecordRepository';
 export * from './repositories/dailyCareEntryRepository';
 export * from './repositories/carePlanRepository';
 export * from './repositories/carePlanRehabMetricRepository';
+export * from './repositories/rehabExerciseAssignmentRepository';
 export * from './repositories/rehabilitationMeasurementRepository';
 export * from './repositories/patientLongitudinalObservationRepository';
 export * from './repositories/patientTimelineEventRepository';
@@ -68,6 +69,7 @@ export * from './repositories/appointmentRepository';
 export * from './repositories/thresholdRecommendationRepository';
 export * from './repositories/secureMessagingRepository';
 export * from './sensors';
+export * from './uc3RehabExercises';
 export { seedDatabaseFromProfile } from './seed/seedFromProfile';
 
 // FHIR resource layer (derived readers + C-CDA serializer).

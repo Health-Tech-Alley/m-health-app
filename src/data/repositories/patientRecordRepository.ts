@@ -14,8 +14,10 @@
 
 import { getDatabase } from '../db';
 import type {
+  BundleStatus,
   Caregiver,
   CarePlan,
+  CarePlanGoalSummary,
   CarePlanRehabMetric,
   DailyCareEntry,
   Medication,
@@ -26,9 +28,11 @@ import type {
   PatientCondition,
   PatientLongitudinalObservation,
   PatientTimelineEvent,
+  RehabExerciseAssignment,
   Symptom,
   Threshold,
   WearableDevice,
+  PatientRecordSnapshot,
 } from '../types';
 import { getActiveCarePlanForPatient, getCarePlansForPatient } from './carePlanRepository';
 import { getCarePlanRehabMetrics } from './carePlanRehabMetricRepository';
@@ -46,61 +50,12 @@ import {
   getConditionsForPatient,
   getPatient,
 } from './patientRepository';
+import { getRehabExerciseAssignments } from './rehabExerciseAssignmentRepository';
 import { getSymptomsForPatient } from './symptomRepository';
 import { getActiveThresholds } from './thresholdRepository';
 import { getPrimaryWearableForPatient } from './wearableDeviceRepository';
 
-export interface CarePlanGoalSummary {
-  goalId: string;
-  description: string;
-  targetDate?: string;
-  status: string;
-}
-
-export interface BundleStatus {
-  /** 'in_flight' while the bundle is running, 'complete' after a successful run, 'failed' if it errored. */
-  state: 'in_flight' | 'complete' | 'failed';
-  /** Number of knowledge chunks added by the last bundle run. */
-  chunksAdded: number;
-  /** Last error message (when state === 'failed'). */
-  error?: string;
-  /** ISO timestamp of the last status update. */
-  updatedAt?: string;
-}
-
-export interface PatientRecordSnapshot {
-  patient: Patient | null;
-  safetyNotes: string;
-  caregiver: Caregiver | null;
-  conditions: PatientCondition[]; // structured, with icd10/category/isPrimary/source/needsReview
-  comorbidities: PatientCondition[]; // subset where isPrimary === false (or source !== 'onboarding' for primary)
-  primaryCondition: PatientCondition | null;
-  pendingReviewConditions: PatientCondition[]; // needsReview === true (MedlinePlus suggestions)
-  symptoms: Symptom[];
-  wearable: WearableDevice | null;
-  medications: Medication[];
-  medicationCandidates: MedicationCandidate[];
-  medicationConfirmationRequirements: Record<string, MedicationConfirmationRequirement>;
-  functionalObservations: PatientLongitudinalObservation[];
-  thresholds: Threshold[];
-  carePlan: CarePlan | null;
-  carePlans: CarePlan[];
-  rehabPlanMetrics: CarePlanRehabMetric[];
-  todayDailyCareEntry: DailyCareEntry | null;
-  rehabDailyEntries: DailyCareEntry[];
-  careContextItems: PatientCareContextItem[];
-  timelineEvents: PatientTimelineEvent[];
-  carePlanGoals: CarePlanGoalSummary[];
-  knowledgeStats: { total: number; bySource: Record<string, number> };
-  enrichmentStats: {
-    total: number;
-    bySource: Record<string, number>;
-    lastRunAt?: string;
-  };
-  bundlePending: boolean;
-  bundleStatus: BundleStatus;
-  lastRefreshedAt: string;
-}
+export type { BundleStatus, CarePlanGoalSummary, PatientRecordSnapshot } from '../types';
 
 function getCarePlanGoals(patientId: string): CarePlanGoalSummary[] {
   try {
@@ -255,6 +210,9 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const rehabPlanMetrics = carePlan
     ? getCarePlanRehabMetrics(patientId, carePlan.planId)
     : [];
+  const rehabExerciseAssignments = carePlan
+    ? getRehabExerciseAssignments(patientId, carePlan.planId)
+    : [];
   const todayDailyCareEntry = getDailyCareEntry(patientId);
   const rehabDailyEntries = getDailyCareEntries(
     patientId,
@@ -302,6 +260,7 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     carePlan,
     carePlans,
     rehabPlanMetrics,
+    rehabExerciseAssignments,
     todayDailyCareEntry,
     rehabDailyEntries,
     careContextItems,

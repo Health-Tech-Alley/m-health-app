@@ -893,4 +893,145 @@ export const MIGRATIONS: Migration[] = [
       db.execSync(`ALTER TABLE patients ADD COLUMN safety_notes TEXT;`);
     }
   },
+
+  // 38: repair historical migration-index-30 collision across Rahal/Sebastian emulators.
+  (db: SQLiteDatabase) => {
+    const addColumnIfMissing = (
+      table: string,
+      existingColumns: { name: string }[],
+      name: string,
+      definition: string,
+    ) => {
+      if (!existingColumns.some((column) => column.name === name)) {
+        db.execSync(`ALTER TABLE ${table} ADD COLUMN ${definition};`);
+      }
+    };
+
+    const wearableColumns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(wearable_devices);`,
+    );
+    addColumnIfMissing(
+      'wearable_devices',
+      wearableColumns,
+      'healthkit_source_id',
+      'healthkit_source_id TEXT',
+    );
+    addColumnIfMissing(
+      'wearable_devices',
+      wearableColumns,
+      'healthkit_source_name',
+      'healthkit_source_name TEXT',
+    );
+
+    const observationColumns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(patient_longitudinal_observations);`,
+    );
+    addColumnIfMissing(
+      'patient_longitudinal_observations',
+      observationColumns,
+      'source_label',
+      'source_label TEXT',
+    );
+    addColumnIfMissing(
+      'patient_longitudinal_observations',
+      observationColumns,
+      'source_file',
+      'source_file TEXT',
+    );
+    addColumnIfMissing(
+      'patient_longitudinal_observations',
+      observationColumns,
+      'source_section',
+      'source_section TEXT',
+    );
+    addColumnIfMissing(
+      'patient_longitudinal_observations',
+      observationColumns,
+      'visit_index',
+      'visit_index INTEGER',
+    );
+    addColumnIfMissing(
+      'patient_longitudinal_observations',
+      observationColumns,
+      'days_from_first_visit',
+      'days_from_first_visit INTEGER',
+    );
+    addColumnIfMissing(
+      'patient_longitudinal_observations',
+      observationColumns,
+      'confidence',
+      'confidence TEXT',
+    );
+    addColumnIfMissing(
+      'patient_longitudinal_observations',
+      observationColumns,
+      'raw_excerpt',
+      'raw_excerpt TEXT',
+    );
+  },
+
+  // 40: development-only UC3 rehab exercise assignments and daily completions.
+  (db: SQLiteDatabase) => {
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS rehab_exercise_assignments (
+        patient_id TEXT NOT NULL,
+        care_plan_id TEXT NOT NULL,
+        exercise_key TEXT NOT NULL CHECK (
+          exercise_key IN (
+            'supported_arm_reach',
+            'grasp_release',
+            'sit_to_stand',
+            'supported_weight_shift',
+            'assisted_walking'
+          )
+        ),
+        active INTEGER NOT NULL DEFAULT 1,
+        source TEXT NOT NULL CHECK (source IN ('developer_uc3_v2')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (patient_id, care_plan_id, exercise_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_rehab_exercise_assignments_plan
+        ON rehab_exercise_assignments(patient_id, care_plan_id, active);
+    `);
+
+    const dailyCareColumns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(daily_care_entries);`,
+    );
+    if (!dailyCareColumns.some((column) => column.name === 'completed_exercise_keys_json')) {
+      db.execSync(
+        `ALTER TABLE daily_care_entries
+         ADD COLUMN completed_exercise_keys_json TEXT NOT NULL DEFAULT '[]';`,
+      );
+    }
+  },
+
+  // 41: safe UC3 v2 daily inputs for future adapter consumption.
+  (db: SQLiteDatabase) => {
+    const dailyCareColumns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(daily_care_entries);`,
+    );
+    const addColumn = (name: string, definition: string) => {
+      if (!dailyCareColumns.some((column) => column.name === name)) {
+        db.execSync(`ALTER TABLE daily_care_entries ADD COLUMN ${definition};`);
+      }
+    };
+
+    addColumn('pain_score', 'pain_score INTEGER');
+    addColumn('skipped_reason', 'skipped_reason TEXT');
+  },
+
+  // 42: preserve date-scoped UC3 rehab exercise assignments on daily entries.
+  (db: SQLiteDatabase) => {
+    const dailyCareColumns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(daily_care_entries);`,
+    );
+    if (!dailyCareColumns.some((column) => column.name === 'assigned_exercise_keys_json')) {
+      db.execSync(
+        `ALTER TABLE daily_care_entries
+         ADD COLUMN assigned_exercise_keys_json TEXT NOT NULL DEFAULT '[]';`,
+      );
+    }
+  },
 ];
