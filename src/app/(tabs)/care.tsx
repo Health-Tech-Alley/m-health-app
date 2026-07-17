@@ -20,7 +20,7 @@ import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
 import { AppTheme } from "@/constants/theme";
 import { useCriticalAlert } from "@/contexts/critical-alert-context";
-import { usePatientRecord } from "@/contexts/patient-record-context";
+import { getCurrentPatientSnapshot, usePatientRecord } from "@/contexts/patient-record-context";
 import {
   DAILY_CARE_SKIPPED_REASON_OPTIONS,
   DAILY_CARE_URGENT_SYMPTOM_OPTIONS,
@@ -56,8 +56,14 @@ import {
   type Uc3ResultDisplay,
 } from "@/services/uc3/uc3ResultPresenter";
 import {
+  evaluateAndPersistUc3Trajectory,
+  type Uc3EvaluationServiceResult,
+} from "@/services/uc3/uc3EvaluationService";
+import {
+  evaluateAndPersistUc4Priorities,
   submitUc4CaregiverResponse,
   type Uc4CardResponseAction,
+  type Uc4EvaluationServiceResult,
 } from "@/services/uc4/uc4EvaluationService";
 
 type DailyCareEditField =
@@ -183,13 +189,31 @@ export default function CareScreen() {
     () => new Set(selectedUrgentSymptomCodes),
     [selectedUrgentSymptomCodes],
   );
+  const skippedReasonSummary =
+    DAILY_CARE_SKIPPED_REASON_OPTIONS.find(
+      (option) => option.value === dailyEntry?.skippedReason,
+    )?.label ?? "Select a reason";
+  const assignedExercisesSummary =
+    activeAssignedExercises.length > 0
+      ? `${completedAssignedExerciseKeySet.size} of ${activeAssignedExercises.length} completed`
+      : "No exercises assigned.";
+  const urgentSymptomsSummary =
+    selectedUrgentSymptomCodes.length > 0
+      ? `${selectedUrgentSymptomCodes.length} selected`
+      : "None selected";
 
   const [editingField, setEditingField] = useState<null | DailyCareEditField>(null);
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [editError, setEditError] = useState("");
+  const [skippedReasonExpanded, setSkippedReasonExpanded] = useState(false);
+  const [assignedExercisesExpanded, setAssignedExercisesExpanded] = useState(false);
+  const [urgentSymptomsExpanded, setUrgentSymptomsExpanded] = useState(false);
   const scrollRef = useRef<ScrollView | null>(null);
   const [rehabCheckInY, setRehabCheckInY] = useState(0);
+  const [uc3CompletionRunning, setUc3CompletionRunning] = useState(false);
+  const [uc3CompletionStatus, setUc3CompletionStatus] = useState<string | null>(null);
+  const [therapyCompletionConfirmVisible, setTherapyCompletionConfirmVisible] = useState(false);
   const activeEditingField = editingPatientId === patientId ? editingField : null;
 
   useEffect(() => {
@@ -230,9 +254,9 @@ export default function CareScreen() {
     setEditDraft(String(dailyEntry?.[field] ?? ""));
   };
 
-  const saveDailyCarePatch = (patch: Partial<DailyCareEntry>) => {
-    if (!patientId) return;
-    upsertDailyCareEntry({
+  const saveDailyCarePatch = (patch: Partial<DailyCareEntry>): DailyCareEntry | null => {
+    if (!patientId) return null;
+    const savedEntry = upsertDailyCareEntry({
       ...(dailyEntry ?? {}),
       ...patch,
       patientId,
@@ -240,6 +264,86 @@ export default function CareScreen() {
       assignedExerciseKeys: activeAssignedExercises.map((exercise) => exercise.key),
     });
     refresh();
+    return savedEntry;
+  };
+
+  const confirmTherapyCompleted = async () => {
+    if (!patientId || uc3CompletionRunning) return;
+
+    setTherapyCompletionConfirmVisible(false);
+    setUc3CompletionRunning(true);
+    setUc3CompletionStatus("Concierge is updating rehabilitation progress...");
+
+    try {
+      const savedEntry = saveDailyCarePatch({
+        therapyCompleted: true,
+        skippedReason: null,
+      });
+      const refreshedSnapshot = getCurrentPatientSnapshot();
+
+      if (!savedEntry || !refreshedSnapshot?.patient) {
+        setUc3CompletionStatus("Rehabilitation progress is not ready to update yet.");
+        return;
+      }
+
+      const now = new Date();
+      const result = await evaluateAndPersistUc3Trajectory(refreshedSnapshot, {
+        evaluationKey: createTherapyCompletionUc3EvaluationKey(savedEntry.entryDate, now),
+        now,
+      });
+      setUc3CompletionStatus(getTherapyCompletionUc3StatusMessage(result));
+      if (result.status !== "success") {
+        refresh();
+        return;
+      }
+
+      refresh();
+      const uc4Snapshot = getCurrentPatientSnapshot();
+      if (!uc4Snapshot?.patient) {
+        setUc3CompletionStatus(
+          `${getTherapyCompletionUc3StatusMessage(result)} Care focus could not run because patient state is not ready.`,
+        );
+        return;
+      }
+
+      try {
+        const uc4Result = await evaluateAndPersistUc4Priorities(uc4Snapshot);
+        setUc3CompletionStatus(
+          `${getTherapyCompletionUc3StatusMessage(result)} ${getTherapyCompletionUc4StatusMessage(uc4Result)}`,
+        );
+        if (uc4Result.status === "success") {
+          refresh();
+        }
+      } catch (uc4Error) {
+        console.error("[CareScreen] UC4 care focus update failed:", uc4Error);
+        setUc3CompletionStatus(
+          `${getTherapyCompletionUc3StatusMessage(result)} Care focus could not be updated.`,
+        );
+      }
+    } catch (error) {
+      console.error("[CareScreen] UC3 therapy completion update failed:", error);
+      setUc3CompletionStatus("Rehabilitation progress could not be updated.");
+    } finally {
+      setUc3CompletionRunning(false);
+    }
+  };
+
+  const handleTherapyCompletionPress = () => {
+    if (uc3CompletionRunning) return;
+
+    const therapyCompleted = !dailyEntry?.therapyCompleted;
+    if (!therapyCompleted) {
+      setUc3CompletionStatus(null);
+      setSkippedReasonExpanded(true);
+      saveDailyCarePatch({
+        therapyCompleted,
+        skippedReason: dailyEntry?.skippedReason ?? null,
+      });
+      return;
+    }
+
+    setUc3CompletionStatus(null);
+    setTherapyCompletionConfirmVisible(true);
   };
 
   const toggleCompletedAssignedExercise = (exerciseKey: RehabExerciseKey) => {
@@ -454,35 +558,18 @@ export default function CareScreen() {
             >
               <Text style={styles.carePlanKicker}>{"Today\u2019s rehab check-in"}</Text>
 
-              <View style={styles.assignedExerciseBlock}>
-                <Text style={styles.assignedExerciseTitle}>Assigned exercises</Text>
-                {activeAssignedExercises.length > 0 ? (
-                  <View style={styles.exerciseChecklist}>
-                    {activeAssignedExercises.map((exercise) => (
-                      <ExerciseChecklistRow
-                        key={exercise.key}
-                        label={exercise.label}
-                        checked={completedAssignedExerciseKeySet.has(exercise.key)}
-                        onPress={() => toggleCompletedAssignedExercise(exercise.key)}
-                      />
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={styles.assignedExerciseEmpty}>No exercises assigned.</Text>
-                )}
-              </View>
-
               <Pressable
-                style={styles.completionRow}
-                onPress={() => {
-                  const therapyCompleted = !dailyEntry?.therapyCompleted;
-                  saveDailyCarePatch({
-                    therapyCompleted,
-                    skippedReason: therapyCompleted ? null : dailyEntry?.skippedReason ?? null,
-                  });
-                }}
+                style={[
+                  styles.completionRow,
+                  uc3CompletionRunning && styles.completionRowDisabled,
+                ]}
+                onPress={handleTherapyCompletionPress}
+                disabled={uc3CompletionRunning}
                 accessibilityRole="checkbox"
-                accessibilityState={{ checked: Boolean(dailyEntry?.therapyCompleted) }}
+                accessibilityState={{
+                  checked: Boolean(dailyEntry?.therapyCompleted),
+                  disabled: uc3CompletionRunning,
+                }}
                 accessibilityLabel="Therapy completed today"
               >
                 <View
@@ -503,39 +590,99 @@ export default function CareScreen() {
                 </View>
               </Pressable>
 
+              {uc3CompletionStatus ? (
+                <Text style={styles.uc3CompletionStatus}>{uc3CompletionStatus}</Text>
+              ) : null}
+
               {!dailyEntry?.therapyCompleted ? (
-                <View style={styles.skippedReasonBlock}>
-                  <Text style={styles.skippedReasonTitle}>
-                    {"Why wasn't the session completed?"}
-                  </Text>
-                  <View style={styles.reasonOptionGrid}>
-                    {DAILY_CARE_SKIPPED_REASON_OPTIONS.map((option) => {
-                      const selected = dailyEntry?.skippedReason === option.value;
-                      return (
-                        <Pressable
-                          key={option.value}
-                          style={[
-                            styles.reasonOption,
-                            selected && styles.reasonOptionSelected,
-                          ]}
-                          onPress={() => toggleSkippedReason(option.value)}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected }}
-                        >
-                          <Text
-                            style={[
-                              styles.reasonOptionText,
-                              selected && styles.reasonOptionTextSelected,
-                            ]}
-                          >
-                            {option.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
+                <View style={styles.checkInAccordionCard}>
+                  <Pressable
+                    style={styles.checkInAccordionHeader}
+                    onPress={() => setSkippedReasonExpanded((expanded) => !expanded)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: skippedReasonExpanded }}
+                    accessibilityLabel={`Why wasn't the session completed? ${skippedReasonSummary}`}
+                  >
+                    <View style={styles.checkInAccordionHeaderText}>
+                      <Text style={styles.checkInAccordionTitle}>
+                        {"Why wasn't the session completed?"}
+                      </Text>
+                      <Text style={styles.checkInAccordionSummary}>{skippedReasonSummary}</Text>
+                    </View>
+                    <Text style={styles.checkInAccordionChevron}>
+                      {skippedReasonExpanded ? "v" : ">"}
+                    </Text>
+                  </Pressable>
+                  {skippedReasonExpanded ? (
+                    <View style={styles.checkInAccordionBody}>
+                      <View style={styles.reasonOptionGrid}>
+                        {DAILY_CARE_SKIPPED_REASON_OPTIONS.map((option) => {
+                          const selected = dailyEntry?.skippedReason === option.value;
+                          return (
+                            <Pressable
+                              key={option.value}
+                              style={[
+                                styles.reasonOption,
+                                selected && styles.reasonOptionSelected,
+                              ]}
+                              onPress={() => toggleSkippedReason(option.value)}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected }}
+                            >
+                              <Text
+                                style={[
+                                  styles.reasonOptionText,
+                                  selected && styles.reasonOptionTextSelected,
+                                ]}
+                              >
+                                {option.label}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
+
+              <View style={styles.checkInAccordionCard}>
+                <Pressable
+                  style={styles.checkInAccordionHeader}
+                  onPress={() => setAssignedExercisesExpanded((expanded) => !expanded)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: assignedExercisesExpanded }}
+                  accessibilityLabel={`Assigned exercises. ${assignedExercisesSummary}`}
+                >
+                  <View style={styles.checkInAccordionHeaderText}>
+                    <Text style={styles.checkInAccordionTitle}>Assigned exercises</Text>
+                    <Text style={styles.checkInAccordionSummary}>
+                      {assignedExercisesSummary}
+                    </Text>
+                  </View>
+                  <Text style={styles.checkInAccordionChevron}>
+                    {assignedExercisesExpanded ? "v" : ">"}
+                  </Text>
+                </Pressable>
+                {assignedExercisesExpanded ? (
+                  <View style={styles.checkInAccordionBody}>
+                    {activeAssignedExercises.length > 0 ? (
+                      <View style={styles.exerciseChecklist}>
+                        {activeAssignedExercises.map((exercise) => (
+                          <ExerciseChecklistRow
+                            key={exercise.key}
+                            label={exercise.label}
+                            checked={completedAssignedExerciseKeySet.has(exercise.key)}
+                            onPress={() => toggleCompletedAssignedExercise(exercise.key)}
+                          />
+                        ))}
+                      </View>
+                    ) : (
+                      <Text style={styles.assignedExerciseEmpty}>No exercises assigned.</Text>
+                    )}
+                  </View>
+                ) : null}
+              </View>
 
               <Pressable style={styles.setsRow} onPress={() => openFieldEdit("setsCompleted")}>
                 <View>
@@ -598,18 +745,52 @@ export default function CareScreen() {
                 />
               </View>
 
-              <View style={styles.urgentSymptomBlock}>
-                <Text style={styles.urgentSymptomTitle}>Urgent symptoms</Text>
-                <View style={styles.exerciseChecklist}>
-                  {DAILY_CARE_URGENT_SYMPTOM_OPTIONS.map((option) => (
-                    <ExerciseChecklistRow
-                      key={option.value}
-                      label={option.label}
-                      checked={selectedUrgentSymptomKeySet.has(option.value)}
-                      onPress={() => toggleUrgentSymptom(option.value)}
-                    />
-                  ))}
-                </View>
+              <View
+                style={[
+                  styles.checkInAccordionCard,
+                  styles.checkInAccordionCardLast,
+                  selectedUrgentSymptomCodes.length > 0 && styles.checkInAccordionCardAlert,
+                ]}
+              >
+                <Pressable
+                  style={styles.checkInAccordionHeader}
+                  onPress={() => setUrgentSymptomsExpanded((expanded) => !expanded)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: urgentSymptomsExpanded }}
+                  accessibilityLabel={`Urgent symptoms. ${urgentSymptomsSummary}`}
+                >
+                  <View style={styles.checkInAccordionHeaderText}>
+                    <Text
+                      style={[
+                        styles.checkInAccordionTitle,
+                        selectedUrgentSymptomCodes.length > 0 &&
+                          styles.checkInAccordionTitleAlert,
+                      ]}
+                    >
+                      Urgent symptoms
+                    </Text>
+                    <Text style={styles.checkInAccordionSummary}>
+                      {urgentSymptomsSummary}
+                    </Text>
+                  </View>
+                  <Text style={styles.checkInAccordionChevron}>
+                    {urgentSymptomsExpanded ? "v" : ">"}
+                  </Text>
+                </Pressable>
+                {urgentSymptomsExpanded ? (
+                  <View style={styles.checkInAccordionBody}>
+                    <View style={styles.exerciseChecklist}>
+                      {DAILY_CARE_URGENT_SYMPTOM_OPTIONS.map((option) => (
+                        <ExerciseChecklistRow
+                          key={option.value}
+                          label={option.label}
+                          checked={selectedUrgentSymptomKeySet.has(option.value)}
+                          onPress={() => toggleUrgentSymptom(option.value)}
+                        />
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
               </View>
 
               <Uc3ResultCard
@@ -716,6 +897,47 @@ export default function CareScreen() {
             ))}
         </View>
       </ScrollView>
+
+      <Modal
+        visible={therapyCompletionConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!uc3CompletionRunning) {
+            setTherapyCompletionConfirmVisible(false);
+          }
+        }}
+      >
+        <Pressable
+          style={styles.confirmOverlay}
+          onPress={() => {
+            if (!uc3CompletionRunning) {
+              setTherapyCompletionConfirmVisible(false);
+            }
+          }}
+        >
+          <Pressable style={styles.confirmSheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.confirmTitle}>Confirm therapy completion</Text>
+            <Text style={styles.confirmMessage}>{"Was today\u2019s therapy session completed?"}</Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                style={[styles.confirmButton, styles.confirmCancelButton]}
+                onPress={() => setTherapyCompletionConfirmVisible(false)}
+                disabled={uc3CompletionRunning}
+              >
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.confirmButton, styles.confirmPrimaryButton]}
+                onPress={() => { void confirmTherapyCompleted(); }}
+                disabled={uc3CompletionRunning}
+              >
+                <Text style={styles.confirmPrimaryText}>Confirm</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Combined safety explanation dialog (safety note + reason + recommendation) */}
       <Modal
@@ -841,6 +1063,54 @@ function parseSafetyConsiderations(notes: string): string[] {
     .filter((s) => s.length > 2);
   const unique = Array.from(new Set(raw));
   return unique.length > 0 ? unique : ["No safety notes provided."];
+}
+
+function createTherapyCompletionUc3EvaluationKey(entryDate: string, now: Date): string {
+  return `therapy_completed:${entryDate}:${now.toISOString()}`;
+}
+
+function getTherapyCompletionUc3StatusMessage(result: Uc3EvaluationServiceResult): string {
+  if (result.status === "success") {
+    const persisted = result.persistedResult;
+    if (persisted.eventType === "INSUFFICIENT_DATA") {
+      return "Therapy completion saved. Concierge needs more rehabilitation data before it can summarize progress.";
+    }
+    if (persisted.emergencyThresholdBreach || persisted.severity === "urgent") {
+      return "Therapy completion saved. Rehabilitation progress updated with an urgent safety review result.";
+    }
+    if (persisted.requiresHumanReview) {
+      return "Therapy completion saved. Rehabilitation progress updated with a provider review result.";
+    }
+    return "Therapy completion saved. Rehabilitation progress updated.";
+  }
+
+  if (result.status === "not_ready") {
+    return "Therapy completion saved. Concierge needs more rehabilitation data before it can update progress.";
+  }
+
+  return "Therapy completion saved. Rehabilitation progress could not be updated.";
+}
+
+function getTherapyCompletionUc4StatusMessage(result: Uc4EvaluationServiceResult): string {
+  if (result.status === "success") {
+    if (result.runStatus === "completed") {
+      return result.cards.length > 0
+        ? "Care focus checklist updated."
+        : "Care focus ran with no new checklist cards.";
+    }
+    if (result.runStatus === "paused") {
+      return result.pauseReason
+        ? `Care focus paused: ${result.pauseReason}.`
+        : "Care focus paused.";
+    }
+    return "Care focus ran with no new checklist cards.";
+  }
+
+  if (result.status === "not_ready") {
+    return "Care focus is not ready to update yet.";
+  }
+
+  return "Care focus could not be updated.";
 }
 
 function ContextCard({ title, children }: { title: string; children: ReactNode }) {
@@ -1509,6 +1779,62 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     fontWeight: "700",
   },
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.46)",
+    justifyContent: "center",
+    padding: 20,
+  },
+  confirmSheet: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.card,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    ...AppTheme.shadow,
+  },
+  confirmTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "900",
+  },
+  confirmMessage: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "700",
+    marginTop: 8,
+  },
+  confirmActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 18,
+  },
+  confirmButton: {
+    minHeight: 44,
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmCancelButton: {
+    backgroundColor: AppTheme.colors.softSurface,
+  },
+  confirmPrimaryButton: {
+    backgroundColor: AppTheme.colors.brand,
+  },
+  confirmCancelText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  confirmPrimaryText: {
+    color: AppTheme.colors.white,
+    fontSize: 14,
+    fontWeight: "900",
+  },
   explainOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -2150,6 +2476,60 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: "800",
   },
+  checkInAccordionCard: {
+    backgroundColor: AppTheme.colors.softSurface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    marginBottom: 14,
+    overflow: "hidden",
+  },
+  checkInAccordionCardLast: {
+    marginBottom: 18,
+  },
+  checkInAccordionCardAlert: {
+    borderColor: AppTheme.colors.danger,
+    backgroundColor: "#FEF2F2",
+  },
+  checkInAccordionHeader: {
+    minHeight: 52,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  checkInAccordionHeaderText: {
+    flex: 1,
+  },
+  checkInAccordionTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  checkInAccordionTitleAlert: {
+    color: AppTheme.colors.danger,
+  },
+  checkInAccordionSummary: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  checkInAccordionChevron: {
+    width: 18,
+    color: AppTheme.colors.textMuted,
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  checkInAccordionBody: {
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+    padding: 14,
+  },
   skippedReasonBlock: {
     backgroundColor: AppTheme.colors.softSurface,
     borderRadius: 16,
@@ -2201,6 +2581,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  completionRowDisabled: {
+    opacity: 0.65,
+  },
   completionCheckbox: {
     width: 28,
     height: 28,
@@ -2233,6 +2616,14 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: "700",
     marginTop: 3,
+  },
+  uc3CompletionStatus: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "800",
+    marginTop: -6,
+    marginBottom: 14,
   },
   setsRow: {
     backgroundColor: AppTheme.colors.brandSoft,

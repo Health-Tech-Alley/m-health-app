@@ -114,24 +114,42 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
 
       {onRespond ? (
         <View style={styles.actions}>
-          <Pressable style={styles.primaryButton} onPress={() => submit('caregiver_response_submitted')}>
-            <Text style={styles.primaryButtonText}>Save log</Text>
-          </Pressable>
           <Pressable style={styles.secondaryButton} onPress={() => submit('acknowledged')}>
             <Text style={styles.secondaryButtonText}>Got it</Text>
           </Pressable>
           <Pressable style={styles.secondaryButton} onPress={() => submit('provider_review_requested')}>
             <Text style={styles.secondaryButtonText}>Provider review</Text>
           </Pressable>
-          <Pressable style={styles.dismissButton} onPress={() => submit('dismissed')}>
-            <Text style={styles.dismissButtonText}>Dismiss</Text>
-          </Pressable>
         </View>
       ) : null}
-      {onExplain ? (
-        <Pressable style={styles.explainButton} onPress={() => onExplain(card)}>
-          <Text style={styles.explainButtonText}>Explain this result</Text>
-        </Pressable>
+
+      {onRespond || onExplain ? (
+        <View style={styles.bottomActions}>
+          {onRespond ? (
+            <Pressable
+              style={[styles.primaryButton, styles.bottomActionButton]}
+              onPress={() => submit('caregiver_response_submitted')}
+            >
+              <Text style={styles.primaryButtonText}>Save log</Text>
+            </Pressable>
+          ) : null}
+          {onRespond ? (
+            <Pressable
+              style={[styles.dismissButton, styles.bottomActionButton]}
+              onPress={() => submit('dismissed')}
+            >
+              <Text style={styles.dismissButtonText}>Dismiss</Text>
+            </Pressable>
+          ) : null}
+          {onExplain ? (
+            <Pressable
+              style={[styles.explainButton, styles.bottomActionButton]}
+              onPress={() => onExplain(card)}
+            >
+              <Text style={styles.explainButtonText}>Explain this result</Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );
@@ -237,6 +255,18 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     paddingTop: 4,
+  },
+  bottomActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingTop: 4,
+  },
+  bottomActionButton: {
+    alignItems: 'center',
+    alignSelf: 'auto',
+    flexGrow: 1,
+    minWidth: 96,
   },
   primaryButton: {
     backgroundColor: AppTheme.colors.brand,
