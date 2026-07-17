@@ -73,6 +73,7 @@ import {
   isCaregiverSLMModelInstalled,
   type CaregiverAssistantContext,
 } from '@/services/slm/slmService';
+import { detectIdentityMismatches } from '@/services/slm/identity-guardrails';
 import {
   formatVitalsArgsSummary,
   resolveHypotheticalVitalsCandidate,
@@ -904,10 +905,26 @@ export default function SLMScreen({
     );
 
     // Skill fragment from NLU; toolsOverride injects only budgeted packet tools (planning/35).
-    const systemContext = buildCaregiverSystemContext(contextForRequest, {
+    let systemContext = buildCaregiverSystemContext(contextForRequest, {
       skillId: nluSkillId,
       toolsOverride: nluPacket ? nluPacket.tools : undefined,
     });
+
+    // Identity guardrails: wrong patient / wrong caregiver self-reference
+    const identityGuard = detectIdentityMismatches(trimmed, {
+      patientName: snapshot?.patient?.name ?? contextForRequest.patientName,
+      patientPreferredName:
+        snapshot?.patient?.preferredName ?? contextForRequest.patientName,
+      caregiverName:
+        snapshot?.caregiver?.name ?? contextForRequest.caregiverName,
+    });
+    if (identityGuard.hasMismatch) {
+      console.warn(
+        '[SLM Chat] Identity mismatch:',
+        identityGuard.findings.map((f) => f.reason).join(' | '),
+      );
+      systemContext = `${systemContext}\n\n${identityGuard.systemPromptBlock}`;
+    }
 
     // Use NLU chunks if available, otherwise fall back to keyword-based retrieval
     if (nluPacket && nluPacket.chunks.length > 0) {

@@ -1,4 +1,30 @@
-import { formatAnswerWithFootnotes } from './citation-display';
+import {
+  formatAnswerWithFootnotes,
+  normalizeAnswerWhitespace,
+} from './citation-display';
+
+describe('normalizeAnswerWhitespace', () => {
+  it('collapses horizontal spaces but preserves newlines', () => {
+    const input = 'Answer   with  spaces\n\nand a blank line';
+    const result = normalizeAnswerWhitespace(input);
+    expect(result).toBe('Answer with spaces\n\nand a blank line');
+  });
+
+  it('normalizes line-start bullet markers', () => {
+    const input = [
+      'Keep a log that includes:',
+      '',
+      '*   The time the fatigue starts.',
+      '*   The exact medication administered.',
+      '• Any concurrent changes.',
+    ].join('\n');
+    const result = normalizeAnswerWhitespace(input);
+    expect(result).toContain('- The time the fatigue starts.');
+    expect(result).toContain('- The exact medication administered.');
+    expect(result).toContain('- Any concurrent changes.');
+    expect(result.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(3);
+  });
+});
 
 describe('formatAnswerWithFootnotes', () => {
   const chunks = [
@@ -7,9 +33,22 @@ describe('formatAnswerWithFootnotes', () => {
     { docId: 'c', source: 'patient-plan', text: 'Care plan note for Mike: GMFCS Level V, spastic quadriplegic CP.' },
   ];
 
-  it('returns answer unchanged when no tags', () => {
+  it('returns answer with related-context footer when chunks exist but no tags', () => {
     const result = formatAnswerWithFootnotes('Plain answer with no citations.', chunks);
+    expect(result.displayText).toContain('Plain answer with no citations.');
+    expect(result.displayText).toContain(
+      'Related context available (not cited in this answer):',
+    );
+    expect(result.displayText).toContain('Medical literature');
+    expect(result.displayText).toContain('Drug label');
+    expect(result.displayText).toContain('Care plan');
+    expect(result.sources).toEqual([]);
+  });
+
+  it('does not add related-context footer when there are no chunks', () => {
+    const result = formatAnswerWithFootnotes('Plain answer with no citations.', []);
     expect(result.displayText).toBe('Plain answer with no citations.');
+    expect(result.displayText).not.toContain('Related context available');
     expect(result.sources).toEqual([]);
   });
 
@@ -21,6 +60,7 @@ describe('formatAnswerWithFootnotes', () => {
     expect(result.displayText).toContain('\u00B9');
     expect(result.displayText).not.toContain('[Drug Label #2]');
     expect(result.displayText).toContain('**Sources**');
+    expect(result.displayText).not.toContain('Related context available');
     expect(result.sources).toHaveLength(1);
     expect(result.sources[0].index).toBe(1);
     expect(result.sources[0].label).toBe('Drug label');
@@ -84,12 +124,22 @@ describe('formatAnswerWithFootnotes', () => {
     expect(result.sources[0].snippet.length).toBeLessThanOrEqual(53);
   });
 
-  it('collapses multiple spaces', () => {
-    const result = formatAnswerWithFootnotes(
-      'Answer   with  spaces    [PubMed #1]',
-      chunks,
-    );
-    expect(result.displayText).not.toContain('   ');
+  it('collapses horizontal spaces but preserves list newlines', () => {
+    const answer = [
+      'Keep a log that includes:',
+      '',
+      '*   The time the fatigue starts.',
+      '*   The exact medication administered.',
+      '*   Any concurrent changes.',
+    ].join('\n');
+    const result = formatAnswerWithFootnotes(answer, chunks);
+    expect(result.displayText).toContain('\n- The time the fatigue starts.');
+    expect(result.displayText).toContain('\n- The exact medication administered.');
+    expect(result.displayText).toContain('\n- Any concurrent changes.');
+    // Must not flatten into a single line of "* " markers
+    expect(result.displayText).not.toMatch(/starts\.\s+\*\s+The exact/);
+    expect(result.displayText).toContain('Related context available');
+    expect(result.sources).toEqual([]);
   });
 
   it('returns empty sources for unrecognized source label', () => {
@@ -98,5 +148,21 @@ describe('formatAnswerWithFootnotes', () => {
       [{ docId: 'u', source: 'unknown-source', text: 'Content.' }],
     );
     expect(result.sources[0].label).toBe('unknown-source');
+  });
+
+  it('caps related-context labels at 4 unique types', () => {
+    const many = [
+      { docId: '1', source: 'pubmed', text: 'a' },
+      { docId: '2', source: 'dailymed', text: 'b' },
+      { docId: '3', source: 'patient-plan', text: 'c' },
+      { docId: '4', source: 'openfda', text: 'd' },
+      { docId: '5', source: 'medlineplus', text: 'e' },
+    ];
+    const result = formatAnswerWithFootnotes('No tags here.', many);
+    const footer = result.displayText.split('Related context available')[1] ?? '';
+    const commaCount = (footer.match(/,/g) ?? []).length;
+    // 4 labels → 3 commas between them
+    expect(commaCount).toBe(3);
+    expect(result.displayText).not.toContain('Health topic summary');
   });
 });
