@@ -11,7 +11,7 @@
  *     explicitly loads an installed model when available so the UX works on a
  *     dev build (Track B) regardless of mode. A persistent status line shows the
  *     current phase (loading model / thinking / generating / done / error) plus
- *     the model id or a "(mock)" tag.
+ *     the model id when available.
  *   - As tokens stream, the raw token stream is shown live (like the SLM prompt
  *     demo screen). When generation completes, the streamed text is replaced by
  *     the rendered Markdown answer.
@@ -21,8 +21,8 @@
  *     sheet itself never owns the model beyond this task.
  *
  * Renders with the caregiver system context (patient record) so answers are
- * personalized. Falls back to a streaming mock when the native SLM is
- * unavailable (Track A) so the UX is always demonstrable.
+ * personalized. If no native model is available, the sheet reports an
+ * unavailable/error state instead of generating replacement text.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -51,7 +51,6 @@ import { isModelInstalled } from '@/services/model-storage';
 import {
   buildCaregiverAssistantContextFromSnapshot,
   buildCaregiverSystemContext,
-  askCaregiverAssistantMock,
 } from '@/services/slm/slmService';
 import {
   retrieveClinicalChunksViaBm25,
@@ -73,9 +72,6 @@ export interface SlmInsightSheetProps {
 }
 
 type Phase = 'idle' | 'loading' | 'thinking' | 'streaming' | 'done' | 'error';
-type Source = 'native' | 'mock';
-
-const MOCK_STREAM_DELAY_MS = 25;
 
 // Points-based cap for the scrollable answer area. A definite (non-percentage)
 // maxHeight guarantees the ScrollView bounds + scrolls regardless of the
@@ -110,7 +106,6 @@ export function SlmInsightSheet({
   const [answer, setAnswer] = useState('');
   const [finalText, setFinalText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [source, setSource] = useState<Source | null>(null);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const leaseRef = useRef<SlmTaskLease | null>(null);
   // True when the sheet loaded the model itself (not via the task queue's
@@ -135,8 +130,8 @@ export function SlmInsightSheet({
    *    any installed model and load it explicitly, then acquire a lease so the
    *    queue still tracks auto-unload. A microtask flush lets the queue's config
    *    effect run before the second acquire.
-   * 3. If no model can be loaded, returns a null lease — caller falls back to
-   *    the streaming mock.
+   * 3. If no model can be loaded, returns a null lease and the caller reports
+   *    Concierge as unavailable.
    */
   const ensureModelAndLease = useCallback(async (): Promise<SlmTaskLease | null> => {
     loadedBySheetRef.current = false;
@@ -179,30 +174,11 @@ export function SlmInsightSheet({
     }
   }, [acquireSlm, reason, defaultModelId, slmLoadModel]);
 
-  const streamMock = useCallback(
-    async (text: string): Promise<void> => {
-      setPhase('thinking');
-      const words = text.split(' ');
-      let first = true;
-      for (const word of words) {
-        if (cancelRef.current) return;
-        if (first) {
-          first = false;
-          setPhase('streaming');
-        }
-        setAnswer((prev) => (prev ? `${prev} ${word}` : word));
-        await new Promise((r) => setTimeout(r, MOCK_STREAM_DELAY_MS));
-      }
-    },
-    [],
-  );
-
   const runExplain = useCallback(async () => {
     setPhase('loading');
     setAnswer('');
     setFinalText(null);
     setError(null);
-    setSource(null);
     setActiveModelId(currentModelId);
     cancelRef.current = false;
 
@@ -236,7 +212,6 @@ export function SlmInsightSheet({
     // re-renders, so slm.loadStatus may still read 'loading'. A loaded provider
     // implies the model is ready.
     if (provider.getModelInfo()) {
-      setSource('native');
       setPhase('thinking');
 
       const controller = new AbortController();
@@ -282,31 +257,15 @@ export function SlmInsightSheet({
       return;
     }
 
-    // No native model available — fall back to a streaming mock so the UX
-    // matches the SLM prompt demo screen (tokens stream, then the answer is
-    // rendered as Markdown when done).
-    setSource('mock');
-    try {
-      const mock = await askCaregiverAssistantMock(enrichedPrompt, context);
-      if (cancelRef.current) return;
-      await streamMock(mock.answer);
-      if (cancelRef.current) return;
-      const cleaned = stripControlTokens(mock.answer).answer;
-      setAnswer(cleaned);
-      setFinalText(cleaned);
-      setPhase('done');
-    } catch (err) {
-      if (cancelRef.current) return;
-      setError(err instanceof Error ? err.message : String(err));
-      setPhase('error');
-    }
+    // No native model available; do not synthesize replacement text.
+    setError('Concierge is unavailable because no native SLM model is loaded.');
+    setPhase('error');
   }, [
     ensureModelAndLease,
     provider,
     snapshot,
     prompt,
     currentModelId,
-    streamMock,
     retriever,
   ]);
 
@@ -408,7 +367,6 @@ export function SlmInsightSheet({
 
   const statusLabel = deriveStatusLabel(
     phase,
-    source,
     activeModelId,
     currentModelId,
     error,
@@ -513,13 +471,11 @@ export function SlmInsightSheet({
 
 function deriveStatusLabel(
   phase: Phase,
-  source: Source | null,
   activeModelId: string | null,
   currentModelId: string | null,
   error: string | null,
 ): string {
   const modelId = activeModelId ?? currentModelId;
-  const mockSuffix = source === 'mock' ? ' (mock)' : '';
   const modelTag = modelId ? ` · ${modelId}` : '';
   switch (phase) {
     case 'idle':
@@ -527,11 +483,11 @@ function deriveStatusLabel(
     case 'loading':
       return modelId ? `Loading model · ${modelId}…` : 'Loading Concierge…';
     case 'thinking':
-      return `Thinking${modelTag}${mockSuffix}…`;
+      return `Thinking${modelTag}…`;
     case 'streaming':
-      return `Generating${modelTag}${mockSuffix}…`;
+      return `Generating${modelTag}…`;
     case 'done':
-      return `Complete${modelTag}${mockSuffix}`;
+      return `Complete${modelTag}`;
     case 'error':
       return `Error: ${error ?? 'unknown'}`;
     default:

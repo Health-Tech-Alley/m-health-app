@@ -55,7 +55,6 @@ import { MODEL_CATALOG } from '@/inference/model-catalog';
 import { isNativeMemoryAvailable, useMemoryInfo } from '@/services/device-memory';
 import { isModelInstalled } from '@/services/model-storage';
 import {
-  askCaregiverAssistantMock,
   buildCaregiverAssistantContextFromSnapshot,
   buildCaregiverSystemContext,
   CAREGIVER_SLM_MODEL_ID,
@@ -697,30 +696,22 @@ export default function SLMScreen({
     dispatch({ type: 'send-start', payload: { userMessage, assistantMessage } });
     setInputText('');
 
-    // Mock fallback when no model is loaded.
+    // No production fallback: normal caregiver chat must not synthesize a
+    // Concierge answer when the native model is unavailable.
     if (slm.loadStatus !== 'ready') {
-      try {
-        const response = await askCaregiverAssistantMock(trimmed, contextForRequest);
-        dispatch({
-          type: 'send-success',
-          payload: {
-            assistantId: assistantMessage.id,
-            finalText: response.answer,
-            reasoningContent: response.reasoningContent,
-          },
-        });
-      } catch (error) {
-        dispatch({
-          type: 'send-error',
-          payload: {
-            assistantId: assistantMessage.id,
-            error:
-              error instanceof Error
-                ? error.message
-                : 'Something went wrong while asking the Concierge.',
-          },
-        });
-      }
+      const message =
+        slm.loadStatus === 'loading'
+          ? 'Concierge reasoning is still loading. Please retry once the native model is ready.'
+          : slm.loadStatus === 'error'
+            ? `Concierge reasoning is temporarily unavailable${slm.loadError ? `: ${slm.loadError}` : '.'}`
+            : 'Concierge reasoning is temporarily unavailable because no native model is loaded. Load the Concierge model and retry.';
+      dispatch({
+        type: 'send-error',
+        payload: {
+          assistantId: assistantMessage.id,
+          error: message,
+        },
+      });
       return;
     }
 
