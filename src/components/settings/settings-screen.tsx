@@ -6,7 +6,7 @@
  * existing Developer / Demo Mode switch.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -36,13 +36,16 @@ import {
   clearKnowledgeCache,
   deleteKnowledgeChunk,
   deleteKnowledgeChunksBySource,
+  DEVELOPMENT_UC3_REHAB_EXERCISES,
   getActiveConsents,
   getAllKnowledgeChunks,
   getAuditEntriesForResource,
   getEnrichmentLogForPatient,
   getPendingThresholdRecommendations,
+  isUc3DevelopmentExerciseAssignmentEligible,
   removeDemoMedicationConfirmationRequirement,
   resetDatabase,
+  replaceRehabExerciseAssignments,
   setDemoMedicationConfirmationRequired,
   updatePatientConditionRoles,
   updateThresholdRecommendationStatus,
@@ -53,6 +56,7 @@ import {
   type PatientEnrichmentLogEntry,
   type PatientCondition,
   type PatientConditionRole,
+  type RehabExerciseKey,
   type ThresholdRecommendation,
 } from '@/data';
 import { importCdaJsonString, importCdaZip } from '@/data/cda';
@@ -365,6 +369,44 @@ export function AdvancedDeveloperSettingsScreen() {
   const [rerunningDemo, setRerunningDemo] = useState(false);
   const [importingEhr, setImportingEhr] = useState(false);
   const [importProgress, setImportProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  const activeCarePlan = snapshot?.carePlan ?? null;
+  const rehabExerciseAssignments = snapshot?.rehabExerciseAssignments ?? [];
+  const uc3ExerciseAssignmentEligible =
+    __DEV__ &&
+    isUc3DevelopmentExerciseAssignmentEligible(snapshot?.conditions ?? EMPTY_CONDITIONS, activeCarePlan);
+  const assignedExerciseKeySet = useMemo(
+    () =>
+      new Set(
+        rehabExerciseAssignments
+          .filter((assignment) => assignment.active)
+          .map((assignment) => assignment.exerciseKey),
+      ),
+    [rehabExerciseAssignments],
+  );
+
+  const handleUc3ExerciseAssignmentToggle = useCallback((exerciseKey: RehabExerciseKey) => {
+    if (!patientRecordPatientId || !activeCarePlan || !uc3ExerciseAssignmentEligible) return;
+
+    const nextKeys = new Set(assignedExerciseKeySet);
+    if (nextKeys.has(exerciseKey)) {
+      nextKeys.delete(exerciseKey);
+    } else {
+      nextKeys.add(exerciseKey);
+    }
+
+    replaceRehabExerciseAssignments({
+      patientId: patientRecordPatientId,
+      carePlanId: activeCarePlan.planId,
+      exerciseKeys: Array.from(nextKeys),
+    });
+    refresh();
+  }, [
+    activeCarePlan,
+    assignedExerciseKeySet,
+    patientRecordPatientId,
+    refresh,
+    uc3ExerciseAssignmentEligible,
+  ]);
 
   const handleRerunElenaDemo = useCallback(async () => {
     setRerunningDemo(true);
@@ -1056,6 +1098,46 @@ export function AdvancedDeveloperSettingsScreen() {
             </View>
           ) : null}
         </Section>
+
+        {__DEV__ && isDeveloper ? (
+          <Section title="UC3 exercise assignment">
+            <View style={styles.devSection}>
+              {!patientRecordPatientId || !snapshot?.patient ? (
+                <Text style={styles.thresholdMuted}>No active patient selected.</Text>
+              ) : !activeCarePlan ? (
+                <Text style={styles.thresholdMuted}>No active CarePlan available.</Text>
+              ) : !uc3ExerciseAssignmentEligible ? (
+                <Text style={styles.thresholdMuted}>
+                  Active patient is not eligible for UC3 stroke rehabilitation exercise assignment.
+                </Text>
+              ) : (
+                <>
+                  <Text style={styles.devInfo}>
+                    Development-only assignments for the active patient and active CarePlan.
+                  </Text>
+                  {DEVELOPMENT_UC3_REHAB_EXERCISES.map((exercise) => (
+                    <View key={exercise.key} style={styles.inlineControlRow}>
+                      <Text style={styles.inlineControlLabel}>{exercise.label}</Text>
+                      <Switch
+                        value={assignedExerciseKeySet.has(exercise.key)}
+                        onValueChange={() => handleUc3ExerciseAssignmentToggle(exercise.key)}
+                        trackColor={{ false: AppTheme.colors.border, true: AppTheme.colors.brandSoft }}
+                        thumbColor={
+                          assignedExerciseKeySet.has(exercise.key)
+                            ? AppTheme.colors.brand
+                            : AppTheme.colors.white
+                        }
+                        accessibilityRole="switch"
+                        accessibilityLabel={exercise.label}
+                        accessibilityState={{ checked: assignedExerciseKeySet.has(exercise.key) }}
+                      />
+                    </View>
+                  ))}
+                </>
+              )}
+            </View>
+          </Section>
+        ) : null}
 
         {isDeveloper ? (
           <Section title="Diagnosis curation">

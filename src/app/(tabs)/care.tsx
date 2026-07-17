@@ -21,9 +21,16 @@ import { AppTheme } from "@/constants/theme";
 import { useCriticalAlert } from "@/contexts/critical-alert-context";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import {
+  DAILY_CARE_SKIPPED_REASON_OPTIONS,
+  DAILY_CARE_URGENT_SYMPTOM_OPTIONS,
+  filterCompletedExerciseKeysForAssignments,
+  getAssignedDevelopmentRehabExercises,
+  mergeDailyCareUrgentSymptoms,
   upsertDailyCareEntry,
   type CarePlan,
   type DailyCareEntry,
+  type DailyCareUrgentSymptomCode,
+  type RehabExerciseKey,
 } from "@/data";
 import { getRehabilitationMeasurements } from "@/data/repositories/rehabilitationMeasurementRepository";
 import type {
@@ -48,10 +55,8 @@ type DailyCareEditField =
   | "exerciseRepetitions"
   | "romDegrees"
   | "walkingMinutes"
-  | "painBefore"
-  | "painAfter"
-  | "fatigue"
-  | "symptoms";
+  | "painScore"
+  | "fatigue";
 
 type CareContextDisplayItem = {
   item: PatientCareContextItem;
@@ -131,6 +136,37 @@ export default function CareScreen() {
   // seed demo values for a patient that has not recorded care today.
   const entry = snapshot?.todayDailyCareEntry ?? null;
   const dailyEntry = entry && !isSeededDemoDailyEntry(entry) ? entry : null;
+  const rehabExerciseAssignments = snapshot?.rehabExerciseAssignments ?? [];
+  const activeAssignedExercises = useMemo(
+    () =>
+      getAssignedDevelopmentRehabExercises(rehabExerciseAssignments),
+    [rehabExerciseAssignments],
+  );
+  const activeAssignmentKeySet = useMemo(
+    () => new Set(activeAssignedExercises.map((exercise) => exercise.key)),
+    [activeAssignedExercises],
+  );
+  const completedAssignedExerciseKeySet = useMemo(
+    () =>
+      new Set(
+        filterCompletedExerciseKeysForAssignments(
+          dailyEntry?.completedExerciseKeys,
+          rehabExerciseAssignments,
+        ),
+    ),
+    [dailyEntry?.completedExerciseKeys, rehabExerciseAssignments],
+  );
+  const selectedUrgentSymptomCodes = useMemo(
+    () =>
+      DAILY_CARE_URGENT_SYMPTOM_OPTIONS
+        .map((option) => option.value)
+        .filter((symptomCode) => dailyEntry?.symptoms?.includes(symptomCode)),
+    [dailyEntry?.symptoms],
+  );
+  const selectedUrgentSymptomKeySet = useMemo(
+    () => new Set(selectedUrgentSymptomCodes),
+    [selectedUrgentSymptomCodes],
+  );
 
   const [editingField, setEditingField] = useState<null | DailyCareEditField>(null);
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
@@ -187,7 +223,7 @@ export default function CareScreen() {
     setEditingField(field);
     setEditingPatientId(patientId);
     setEditError("");
-    setEditDraft(field === "symptoms" ? (dailyEntry?.symptoms ?? []).join(", ") : String(dailyEntry?.[field] ?? ""));
+    setEditDraft(String(dailyEntry?.[field] ?? ""));
   };
 
   const saveDailyCarePatch = (patch: Partial<DailyCareEntry>) => {
@@ -197,8 +233,45 @@ export default function CareScreen() {
       ...patch,
       patientId,
       carePlanId: dailyEntry?.carePlanId ?? carePlan?.planId,
+      assignedExerciseKeys: activeAssignedExercises.map((exercise) => exercise.key),
     });
     refresh();
+  };
+
+  const toggleCompletedAssignedExercise = (exerciseKey: RehabExerciseKey) => {
+    if (!activeAssignmentKeySet.has(exerciseKey)) return;
+
+    const nextCompletedKeys = new Set(completedAssignedExerciseKeySet);
+    if (nextCompletedKeys.has(exerciseKey)) {
+      nextCompletedKeys.delete(exerciseKey);
+    } else {
+      nextCompletedKeys.add(exerciseKey);
+    }
+
+    saveDailyCarePatch({ completedExerciseKeys: Array.from(nextCompletedKeys) });
+  };
+
+  const toggleSkippedReason = (reason: string) => {
+    saveDailyCarePatch({
+      therapyCompleted: false,
+      skippedReason: dailyEntry?.skippedReason === reason ? null : reason,
+    });
+  };
+
+  const toggleUrgentSymptom = (symptomCode: DailyCareUrgentSymptomCode) => {
+    const nextSelectedUrgentSymptoms = new Set(selectedUrgentSymptomCodes);
+    if (nextSelectedUrgentSymptoms.has(symptomCode)) {
+      nextSelectedUrgentSymptoms.delete(symptomCode);
+    } else {
+      nextSelectedUrgentSymptoms.add(symptomCode);
+    }
+
+    saveDailyCarePatch({
+      symptoms: mergeDailyCareUrgentSymptoms(
+        dailyEntry?.symptoms ?? [],
+        Array.from(nextSelectedUrgentSymptoms),
+      ),
+    });
   };
 
   const saveFieldEdit = () => {
@@ -207,13 +280,8 @@ export default function CareScreen() {
       setEditingPatientId(null);
       return;
     }
-    const isNumeric = activeEditingField !== "symptoms";
     const trimmedDraft = editDraft.trim();
-    const newValue = isNumeric
-      ? trimmedDraft.length > 0
-        ? Number(trimmedDraft)
-        : undefined
-      : parseDailySymptoms(editDraft);
+    const newValue = trimmedDraft.length > 0 ? Number(trimmedDraft) : undefined;
     const validationError = validateDailyCareField(activeEditingField, newValue);
     if (validationError) {
       setEditError(validationError);
@@ -333,11 +401,33 @@ export default function CareScreen() {
             >
               <Text style={styles.carePlanKicker}>{"Today\u2019s rehab check-in"}</Text>
 
+              <View style={styles.assignedExerciseBlock}>
+                <Text style={styles.assignedExerciseTitle}>Assigned exercises</Text>
+                {activeAssignedExercises.length > 0 ? (
+                  <View style={styles.exerciseChecklist}>
+                    {activeAssignedExercises.map((exercise) => (
+                      <ExerciseChecklistRow
+                        key={exercise.key}
+                        label={exercise.label}
+                        checked={completedAssignedExerciseKeySet.has(exercise.key)}
+                        onPress={() => toggleCompletedAssignedExercise(exercise.key)}
+                      />
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.assignedExerciseEmpty}>No exercises assigned.</Text>
+                )}
+              </View>
+
               <Pressable
                 style={styles.completionRow}
-                onPress={() =>
-                  saveDailyCarePatch({ therapyCompleted: !dailyEntry?.therapyCompleted })
-                }
+                onPress={() => {
+                  const therapyCompleted = !dailyEntry?.therapyCompleted;
+                  saveDailyCarePatch({
+                    therapyCompleted,
+                    skippedReason: therapyCompleted ? null : dailyEntry?.skippedReason ?? null,
+                  });
+                }}
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: Boolean(dailyEntry?.therapyCompleted) }}
                 accessibilityLabel="Therapy completed today"
@@ -359,6 +449,40 @@ export default function CareScreen() {
                   </Text>
                 </View>
               </Pressable>
+
+              {!dailyEntry?.therapyCompleted ? (
+                <View style={styles.skippedReasonBlock}>
+                  <Text style={styles.skippedReasonTitle}>
+                    {"Why wasn't the session completed?"}
+                  </Text>
+                  <View style={styles.reasonOptionGrid}>
+                    {DAILY_CARE_SKIPPED_REASON_OPTIONS.map((option) => {
+                      const selected = dailyEntry?.skippedReason === option.value;
+                      return (
+                        <Pressable
+                          key={option.value}
+                          style={[
+                            styles.reasonOption,
+                            selected && styles.reasonOptionSelected,
+                          ]}
+                          onPress={() => toggleSkippedReason(option.value)}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                        >
+                          <Text
+                            style={[
+                              styles.reasonOptionText,
+                              selected && styles.reasonOptionTextSelected,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
 
               <Pressable style={styles.setsRow} onPress={() => openFieldEdit("setsCompleted")}>
                 <View>
@@ -410,14 +534,9 @@ export default function CareScreen() {
 
               <View style={styles.symptomRow}>
                 <EditableSymptomBox
-                  label="Pain Before"
-                  value={dailyEntry?.painBefore}
-                  onPress={() => openFieldEdit("painBefore")}
-                />
-                <EditableSymptomBox
-                  label="Pain After"
-                  value={dailyEntry?.painAfter}
-                  onPress={() => openFieldEdit("painAfter")}
+                  label="Pain"
+                  value={dailyEntry?.painScore}
+                  onPress={() => openFieldEdit("painScore")}
                 />
                 <EditableSymptomBox
                   label="Fatigue"
@@ -426,14 +545,19 @@ export default function CareScreen() {
                 />
               </View>
 
-              <Pressable style={styles.symptomsCard} onPress={() => openFieldEdit("symptoms")}>
-                <Text style={styles.symptomsLabel}>Symptoms - tap to edit</Text>
-                <Text style={styles.symptomsText}>
-                  {dailyEntry?.symptoms && dailyEntry.symptoms.length > 0
-                    ? dailyEntry.symptoms.join(", ")
-                    : "Add symptoms observed today"}
-                </Text>
-              </Pressable>
+              <View style={styles.urgentSymptomBlock}>
+                <Text style={styles.urgentSymptomTitle}>Urgent symptoms</Text>
+                <View style={styles.exerciseChecklist}>
+                  {DAILY_CARE_URGENT_SYMPTOM_OPTIONS.map((option) => (
+                    <ExerciseChecklistRow
+                      key={option.value}
+                      label={option.label}
+                      checked={selectedUrgentSymptomKeySet.has(option.value)}
+                      onPress={() => toggleUrgentSymptom(option.value)}
+                    />
+                  ))}
+                </View>
+              </View>
 
               <ProgressMetric
                 label="Functional Task Score"
@@ -620,26 +744,14 @@ export default function CareScreen() {
             <Text style={styles.editTitle}>
               {activeEditingField ? `Edit ${getDailyCareEditTitle(activeEditingField)}` : "Edit entry"}
             </Text>
-            {activeEditingField === "symptoms" ? (
-              <TextInput
-                style={[styles.editInput, styles.editInputMultiline]}
-                value={editDraft}
-                onChangeText={setEditDraft}
-                placeholder={getDailyCareEditPlaceholder(activeEditingField)}
-                multiline
-                textAlignVertical="top"
-                autoFocus
-              />
-            ) : (
-              <TextInput
-                style={styles.editInput}
-                value={editDraft}
-                onChangeText={setEditDraft}
-                placeholder={activeEditingField ? getDailyCareEditPlaceholder(activeEditingField) : "0"}
-                keyboardType="numeric"
-                autoFocus
-              />
-            )}
+            <TextInput
+              style={styles.editInput}
+              value={editDraft}
+              onChangeText={setEditDraft}
+              placeholder={activeEditingField ? getDailyCareEditPlaceholder(activeEditingField) : "0"}
+              keyboardType="numeric"
+              autoFocus
+            />
             {editError ? <Text style={styles.editError}>{editError}</Text> : null}
             <View style={styles.editActions}>
               <Pressable
@@ -803,6 +915,36 @@ function EditableDailyFactBox({
   );
 }
 
+function ExerciseChecklistRow({
+  label,
+  checked,
+  onPress,
+}: {
+  label: string;
+  checked: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={styles.exerciseChecklistRow}
+      onPress={onPress}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
+      accessibilityLabel={label}
+    >
+      <View
+        style={[
+          styles.completionCheckbox,
+          checked && styles.completionCheckboxChecked,
+        ]}
+      >
+        {checked ? <Text style={styles.completionCheckmark}>✓</Text> : null}
+      </View>
+      <Text style={styles.exerciseChecklistLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function formatRehabPlanMetricValue(metric: CarePlanRehabMetric): string {
   return `${formatRehabPlanNumber(metric.baselineValue, metric.metricKey)} -> ${formatRehabPlanNumber(
     metric.targetValue,
@@ -831,14 +973,10 @@ function getDailyCareEditTitle(field: DailyCareEditField): string {
       return "ROM degrees";
     case "walkingMinutes":
       return "walking minutes";
-    case "painBefore":
-      return "pain before";
-    case "painAfter":
-      return "pain after";
+    case "painScore":
+      return "pain";
     case "fatigue":
       return "fatigue";
-    case "symptoms":
-      return "symptoms";
     default:
       return "entry";
   }
@@ -854,23 +992,21 @@ function getDailyCareEditPlaceholder(field: DailyCareEditField): string {
       return "ROM degrees";
     case "walkingMinutes":
       return "Walking minutes";
-    case "painBefore":
-    case "painAfter":
+    case "painScore":
+      return "Pain score";
     case "fatigue":
       return "Value";
-    case "symptoms":
-      return "Symptoms observed today";
     default:
       return "Value";
   }
 }
 
 function validateDailyCareField(field: DailyCareEditField, value: unknown): string {
-  if (value === undefined || field === "symptoms") return "";
+  if (value === undefined) return "";
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "Enter a valid number.";
   }
-  if (["painBefore", "painAfter", "fatigue"].includes(field)) return "";
+  if (field === "painScore" || field === "fatigue") return "";
   if (value < 0) return "Enter zero or a positive number.";
   if (field === "walkingMinutes" && value > 1440) {
     return "Walking minutes must fit within one day.";
@@ -879,13 +1015,6 @@ function validateDailyCareField(field: DailyCareEditField, value: unknown): stri
     return "ROM degrees must be 360 or less.";
   }
   return "";
-}
-
-function parseDailySymptoms(value: string): string[] {
-  return value
-    .split(/,|\n/)
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 function getInitials(name: string): string {
@@ -1368,10 +1497,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     color: AppTheme.colors.text,
-  },
-  editInputMultiline: {
-    minHeight: 90,
-    textAlignVertical: "top",
   },
   editError: {
     color: AppTheme.colors.danger,
@@ -1885,6 +2010,81 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: 4,
   },
+  assignedExerciseBlock: {
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: AppTheme.colors.border,
+    paddingVertical: 14,
+    marginBottom: 14,
+    gap: 10,
+  },
+  assignedExerciseTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  assignedExerciseEmpty: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  exerciseChecklist: {
+    gap: 8,
+  },
+  exerciseChecklistRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 38,
+  },
+  exerciseChecklistLabel: {
+    flex: 1,
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "800",
+  },
+  skippedReasonBlock: {
+    backgroundColor: AppTheme.colors.softSurface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    padding: 14,
+    marginBottom: 14,
+    gap: 10,
+  },
+  skippedReasonTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  reasonOptionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  reasonOption: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.surface,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+  },
+  reasonOptionSelected: {
+    borderColor: AppTheme.colors.brand,
+    backgroundColor: AppTheme.colors.brandSoft,
+  },
+  reasonOptionText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900",
+  },
+  reasonOptionTextSelected: {
+    color: AppTheme.colors.brand,
+  },
   completionRow: {
     backgroundColor: AppTheme.colors.softSurface,
     borderRadius: 16,
@@ -2016,27 +2216,18 @@ const styles = StyleSheet.create({
     marginTop: 5,
     textAlign: "center",
   },
-  symptomsCard: {
-    backgroundColor: AppTheme.colors.softSurface,
-    borderRadius: 16,
-    borderWidth: 1,
+  urgentSymptomBlock: {
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
     borderColor: AppTheme.colors.border,
-    padding: 14,
+    paddingVertical: 14,
     marginBottom: 18,
+    gap: 10,
   },
-  symptomsLabel: {
-    color: AppTheme.colors.sectionText,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-    marginBottom: 6,
-  },
-  symptomsText: {
+  urgentSymptomTitle: {
     color: AppTheme.colors.text,
     fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "800",
+    fontWeight: "900",
   },
   progressMetric: {
     marginBottom: 18,

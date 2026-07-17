@@ -969,4 +969,69 @@ export const MIGRATIONS: Migration[] = [
       'raw_excerpt TEXT',
     );
   },
+
+  // 40: development-only UC3 rehab exercise assignments and daily completions.
+  (db: SQLiteDatabase) => {
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS rehab_exercise_assignments (
+        patient_id TEXT NOT NULL,
+        care_plan_id TEXT NOT NULL,
+        exercise_key TEXT NOT NULL CHECK (
+          exercise_key IN (
+            'supported_arm_reach',
+            'grasp_release',
+            'sit_to_stand',
+            'supported_weight_shift',
+            'assisted_walking'
+          )
+        ),
+        active INTEGER NOT NULL DEFAULT 1,
+        source TEXT NOT NULL CHECK (source IN ('developer_uc3_v2')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (patient_id, care_plan_id, exercise_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_rehab_exercise_assignments_plan
+        ON rehab_exercise_assignments(patient_id, care_plan_id, active);
+    `);
+
+    const dailyCareColumns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(daily_care_entries);`,
+    );
+    if (!dailyCareColumns.some((column) => column.name === 'completed_exercise_keys_json')) {
+      db.execSync(
+        `ALTER TABLE daily_care_entries
+         ADD COLUMN completed_exercise_keys_json TEXT NOT NULL DEFAULT '[]';`,
+      );
+    }
+  },
+
+  // 41: safe UC3 v2 daily inputs for future adapter consumption.
+  (db: SQLiteDatabase) => {
+    const dailyCareColumns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(daily_care_entries);`,
+    );
+    const addColumn = (name: string, definition: string) => {
+      if (!dailyCareColumns.some((column) => column.name === name)) {
+        db.execSync(`ALTER TABLE daily_care_entries ADD COLUMN ${definition};`);
+      }
+    };
+
+    addColumn('pain_score', 'pain_score INTEGER');
+    addColumn('skipped_reason', 'skipped_reason TEXT');
+  },
+
+  // 42: preserve date-scoped UC3 rehab exercise assignments on daily entries.
+  (db: SQLiteDatabase) => {
+    const dailyCareColumns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(daily_care_entries);`,
+    );
+    if (!dailyCareColumns.some((column) => column.name === 'assigned_exercise_keys_json')) {
+      db.execSync(
+        `ALTER TABLE daily_care_entries
+         ADD COLUMN assigned_exercise_keys_json TEXT NOT NULL DEFAULT '[]';`,
+      );
+    }
+  },
 ];
