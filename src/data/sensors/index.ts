@@ -15,7 +15,7 @@ export type SensorSourceFactoryOptions = {
   forceMock?: boolean;
 };
 
-export function createSensorSource(options: SensorSourceFactoryOptions): SensorSource {
+export function createSensorSource(options: SensorSourceFactoryOptions): SensorSource | null {
   if (options.forceMock) {
     return new MockSensorSource({
       patientId: options.patientId,
@@ -27,10 +27,7 @@ export function createSensorSource(options: SensorSourceFactoryOptions): SensorS
     return new AppleHealthSource({ patientId: options.patientId });
   }
 
-  return new MockSensorSource({
-    patientId: options.patientId,
-    persona: inferPersonaFromPatient(options.patientId),
-  });
+  return null;
 }
 
 function inferPersonaFromPatient(patientId: string): MockPersona {
