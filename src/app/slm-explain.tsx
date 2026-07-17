@@ -43,6 +43,7 @@ import type { NextStepActionId } from '@/data/types';
 import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
 import type { AgentProposal } from '@/orchestration';
 import { executeNextStep, type NextStepExecutionResult } from '@/orchestration/next-steps';
+import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
 
 const TEAL = '#0E6F68';
 const BG = '#EEF7F6';
@@ -128,6 +129,39 @@ export default function SlmExplainScreen() {
   }, [alertId, cardId, mode, patientId, resultId, routePatientId]);
 
   const alert = target.kind === 'alert' ? target.alert : null;
+  const acquireSlm = slm.acquireSlm;
+
+  useEffect(() => {
+    let lease: SlmTaskLease | null = null;
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const reason =
+          target.kind === 'uc3'
+            ? 'explain_rehab_trajectory'
+            : target.kind === 'uc4'
+              ? 'uc4_provider_summary_rewrite'
+              : 'explain_alert';
+        lease = await acquireSlm(reason);
+        if (cancelled) {
+          lease.release();
+          lease = null;
+          return;
+        }
+        log('Concierge loaded (screen lease).');
+      } catch {
+        // RAM gate / not installed; explain() will surface the error.
+      }
+    };
+
+    const timer = setTimeout(() => void run(), 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      lease?.release();
+    };
+  }, [acquireSlm, log, target.kind]);
 
   const explain = useCallback(async () => {
     if (target.kind === 'unavailable') {
@@ -138,15 +172,49 @@ export default function SlmExplainScreen() {
       return;
     }
 
-    if (target.kind !== 'alert') {
-      const message =
-        target.kind === 'uc3'
-          ? 'This rehab trajectory result is verified for the active patient, but Concierge generation for this target is unavailable in this checkpoint.'
-          : 'This care focus card is verified for the active patient, but Concierge generation for this target is unavailable in this checkpoint.';
+    if (target.kind === 'uc3') {
+      setLoading(true);
+      setError(null);
       setProposal(null);
       setStepResult(null);
-      setError(message);
-      log(`Explain unavailable: ${message}`);
+      try {
+        log('Requesting Concierge rehab trajectory explanation...');
+        const result = await orchestrator.explainRehabTrajectory(
+          target.result.resultId,
+          'caregiver-1',
+        );
+        setProposal(result);
+        log(`Explanation received. Citations: ${result.citations.length}.`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(msg);
+        log(`Explain failed: ${msg}`);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (target.kind === 'uc4') {
+      setLoading(true);
+      setError(null);
+      setProposal(null);
+      setStepResult(null);
+      try {
+        log('Requesting Concierge care focus explanation...');
+        const result = await orchestrator.explainUc4PriorityCard(
+          target.card.cardId,
+          'caregiver-1',
+        );
+        setProposal(result);
+        log(`Explanation received. Citations: ${result.citations.length}.`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(msg);
+        log(`Explain failed: ${msg}`);
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 

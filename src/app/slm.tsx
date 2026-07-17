@@ -6,7 +6,7 @@
  * control-token stripping, stop/new-conversation).
  */
 
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import {
   useCallback,
   useEffect,
@@ -36,6 +36,17 @@ import {
   messageHasClinicalKeywords,
   retrieveClinicalChunksViaBm25,
 } from '@/clinical-evidence/retrieval-helper';
+import { selectChatGeneration, formatAnswerWithFootnotes } from '@/clinical-evidence';
+import { createReadyEmbedder } from '@/knowledge/embedder';
+import type { McpToolSummary } from '@/knowledge/types';
+import {
+  PreSlmNlu,
+  buildPatientNluContext,
+  formatEntityHint,
+} from '@/nlu';
+import type { PreSlmPacket } from '@/nlu/types';
+import { TOOL_SCHEMAS } from '@/orchestration/mcp/tool-registry';
+import { filterToolsForSkill } from '@/orchestration/skills';
 import { MainTabHeader } from '@/components/MainTabHeader';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import {
@@ -44,10 +55,10 @@ import {
   truncateForQuickAnswer,
 } from '@/components/concierge/ThinkingIndicator';
 import { AppTheme, MaxContentWidth } from '@/constants/theme';
-import { CONCIERGE_GENERATION_DEEP, REASONING_FORMAT_EXPLAIN } from '@/constants/concierge';
+import { CONCIERGE_GENERATION_DEEP, CONCIERGE_GENERATION_FAST } from '@/constants/concierge';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
-import { useSLM } from '@/contexts/slm-context';
+import { CHAT_UNLOAD_GRACE_MS, useSLM } from '@/contexts/slm-context';
 import { useOrchestratorSafe, useOrchestratorRetriever, useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { useTheme } from '@/hooks/use-theme';
 import type { ChatMessage as ProviderChatMessage } from '@/inference/inference-provider';
@@ -80,6 +91,9 @@ import {
   InChatScheduleAppointmentCard,
   type InChatScheduleResult,
 } from '@/components/concierge/InChatScheduleAppointmentCard';
+
+/** Cap Pre-SLM NLU so empty-cache / live network never blocks Concierge. */
+const NLU_TIMEOUT_MS = 2500;
 
 type MessageStatus = 'streaming' | 'done' | 'stopped' | 'error';
 
@@ -533,7 +547,7 @@ export default function SLMScreen({
 } = {}) {
   const slm = useSLM();
   const theme = useTheme();
-  const { isDeveloper } = useSettings();
+  const { settings, isDeveloper } = useSettings();
   const { snapshot, ready, error: patientRecordError } = usePatientRecord();
   const retriever = useOrchestratorRetriever();
   const orchestrator = useOrchestratorSafe();
@@ -575,6 +589,9 @@ export default function SLMScreen({
   >({});
   const memoryInfo = useMemoryInfo(2000);
   const hasNativeMemory = isNativeMemoryAvailable();
+  const allowDevelopmentNluFallback =
+    __DEV__ && isDeveloper && settings.nluDevelopmentFallback === true;
+  const canUseLocalAppointmentDemo = __DEV__ && isDeveloper;
 
   const medicationNames = useMemo(
     () =>
@@ -620,14 +637,108 @@ export default function SLMScreen({
     [],
   );
 
+  // Doc 34 + chat grace: focus-bound session lease. On blur, keep the lease
+  // for CHAT_UNLOAD_GRACE_MS so accidental tab switches / short navigations
+  // do not unload mid-generation. Generation continues (no abort on blur).
+  // Explicit Stop still aborts via handleStop (not on blur/unmount).
+  const acquireSlm = slm.acquireSlm;
+  const startChatUnloadGrace = slm.startChatUnloadGrace;
+  const cancelChatUnloadGrace = slm.cancelChatUnloadGrace;
+  const chatLeaseRef = useRef<import('@/services/slm/slm-task-queue').SlmTaskLease | null>(null);
+  const chatGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chatFocusedRef = useRef(false);
+
+  const unloadModel = slm.unloadModel;
+  const taskQueue = slm.taskQueue;
+  /** Serializes concurrent focus acquires so we never hold orphaned refcount. */
+  const chatAcquireGenRef = useRef(0);
+
+  const scheduleChatLeaseRelease = useCallback(() => {
+    if (chatGraceTimerRef.current) {
+      clearTimeout(chatGraceTimerRef.current);
+    }
+    startChatUnloadGrace();
+    chatGraceTimerRef.current = setTimeout(() => {
+      chatGraceTimerRef.current = null;
+      chatLeaseRef.current?.release();
+      chatLeaseRef.current = null;
+      // Belt-and-suspenders: if no other leases remain, force unload so the
+      // status icon cannot stay green after the cool-down (stale refcount /
+      // policy edge cases).
+      if (taskQueue.activeLeaseCount === 0) {
+        void unloadModel();
+      }
+    }, CHAT_UNLOAD_GRACE_MS);
+  }, [startChatUnloadGrace, taskQueue, unloadModel]);
+
+  useFocusEffect(
+    useCallback(() => {
+      chatFocusedRef.current = true;
+      const acquireGen = ++chatAcquireGenRef.current;
+
+      // Re-focused: cancel pending grace unload and keep existing lease.
+      if (chatGraceTimerRef.current) {
+        clearTimeout(chatGraceTimerRef.current);
+        chatGraceTimerRef.current = null;
+      }
+      cancelChatUnloadGrace();
+
+      void (async () => {
+        if (chatLeaseRef.current) return;
+        try {
+          const lease = await acquireSlm('caregiver_chat');
+          // Stale acquire (re-focus raced) — drop this lease immediately.
+          if (acquireGen !== chatAcquireGenRef.current) {
+            lease.release();
+            return;
+          }
+          if (!chatFocusedRef.current) {
+            // Blurred while acquiring — hold through grace, then release.
+            chatLeaseRef.current = lease;
+            scheduleChatLeaseRelease();
+            return;
+          }
+          // Another concurrent acquire already filled the ref — release orphan.
+          if (chatLeaseRef.current) {
+            lease.release();
+            return;
+          }
+          chatLeaseRef.current = lease;
+        } catch {
+          // RAM gate / not installed — chat send surfaces the unavailable state.
+        }
+      })();
+
+      return () => {
+        chatFocusedRef.current = false;
+        // Invalidate in-flight acquires from this focus epoch.
+        chatAcquireGenRef.current += 1;
+        if (!chatLeaseRef.current) {
+          // Acquire still in flight; async branch schedules grace when it resolves.
+          return;
+        }
+        scheduleChatLeaseRelease();
+      };
+    }, [acquireSlm, cancelChatUnloadGrace, scheduleChatLeaseRelease]),
+  );
+
+  // Full unmount: do not yank the lease if a blur grace is already running
+  // (tab switch / short leave). Only force-release if we still hold a lease
+  // with no pending grace timer (defensive).
   useEffect(() => {
     return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
+      chatFocusedRef.current = false;
+      if (chatGraceTimerRef.current) {
+        // Grace already scheduled by focus cleanup — let it finish.
+        return;
+      }
+      if (chatLeaseRef.current) {
+        scheduleChatLeaseRelease();
+      } else {
+        cancelChatUnloadGrace();
       }
     };
-  }, []);
+  }, [cancelChatUnloadGrace, scheduleChatLeaseRelease]);
 
   useEffect(() => {
     flatListRef.current?.scrollToEnd({ animated: true });
@@ -695,6 +806,8 @@ export default function SLMScreen({
 
     dispatch({ type: 'send-start', payload: { userMessage, assistantMessage } });
     setInputText('');
+    // Phase 0 = Understanding (NLU). Phase 1 = Concierge (SLM).
+    dispatch({ type: 'set-phase', payload: { assistantId: assistantMessage.id, phase: 0 } });
 
     // No production fallback: normal caregiver chat must not synthesize a
     // Concierge answer when the native model is unavailable.
@@ -715,11 +828,8 @@ export default function SLMScreen({
       return;
     }
 
-    const systemContext = buildCaregiverSystemContext(contextForRequest);
-
-    // Clinical knowledge retrieval: structural intent (question shape +
-    // condition/med token overlap + domain stems) — not a hard-coded phrase list.
-    // Use all confirmed conditions from the snapshot (FHIR import included).
+    // Pre-SLM NLU pipeline (planning/35): entity linking + intent classification
+    // + budgeted retrieval. Hard timeout so chat never hangs on network/NLU.
     const conditionNames = snapshot
       ? [
           ...new Set(
@@ -736,39 +846,134 @@ export default function SLMScreen({
     const medNames = medicationNames;
 
     let userContent = trimmed;
-    const hasClinicalIntent = messageHasClinicalKeywords(
-      trimmed,
-      conditionNames,
-      medNames,
+    let nluPacket: PreSlmPacket | null = null;
+    let nluSkillId: string | undefined;
+
+    console.log('[SLM Chat] NLU start');
+    try {
+      const patientCtx = buildPatientNluContext(snapshot);
+      patientCtx.medications = [
+        ...new Set([...patientCtx.medications, ...medNames].filter(Boolean)),
+      ];
+
+      const embedder = await createReadyEmbedder(400, {
+        allowDevelopmentFallback: allowDevelopmentNluFallback,
+      });
+      const nlu = new PreSlmNlu({
+        embedder,
+        retriever: retriever ?? {
+          retrieve: async () => ({ tools: [], chunks: [], citations: [], latencyMs: 0 }),
+        },
+        toolSchemas: TOOL_SCHEMAS as unknown as McpToolSummary[],
+        allowDevelopmentFallback: allowDevelopmentNluFallback,
+        filterToolsForSkill: (id, tools) =>
+          filterToolsForSkill(id, tools as typeof TOOL_SCHEMAS) as McpToolSummary[],
+      });
+
+      nluPacket = await Promise.race([
+        nlu.run(trimmed, patientCtx),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`NLU timeout after ${NLU_TIMEOUT_MS}ms`)), NLU_TIMEOUT_MS),
+        ),
+      ]);
+      nluSkillId = nluPacket.intent.skillId;
+      console.log(
+        `[SLM Chat] NLU: intent=${nluPacket.intent.primary} conf=${nluPacket.intent.confidence.toFixed(2)} ` +
+          `entities=${nluPacket.entities.length} tools=${nluPacket.tools.length} ` +
+          `chunks=${nluPacket.chunks.length} backend=${nluPacket.trace.backend} ` +
+          `latency=${nluPacket.trace.latencyMs}ms`,
+      );
+    } catch (nluErr) {
+      console.warn('[SLM Chat] NLU unavailable or timed out; continuing without NLU:', nluErr);
+    }
+
+    // Generation routing from NLU intent + confidence (planning/37 §6.3-6.4).
+    const generationDecision = selectChatGeneration({
+      intent: nluPacket?.intent ?? null,
+      message: trimmed,
+      conditions: conditionNames,
+      meds: medNames,
+      citedChunkCount: nluPacket?.chunks.length ?? 0,
+      forceDeep: false,
+    });
+    console.log(
+      `[SLM Chat] generation=${generationDecision.profile === CONCIERGE_GENERATION_FAST ? 'FAST' : 'DEEP'} ` +
+        `reason=${generationDecision.reason} ` +
+        `intent=${nluPacket?.intent?.primary ?? 'none'} ` +
+        `conf=${nluPacket?.intent?.confidence?.toFixed(2) ?? 'n/a'}`,
     );
-    if (hasClinicalIntent) {
-      const retrievalQuery = buildChatRetrievalQuery(
+
+    // Skill fragment from NLU; toolsOverride injects only budgeted packet tools (planning/35).
+    const systemContext = buildCaregiverSystemContext(contextForRequest, {
+      skillId: nluSkillId,
+      toolsOverride: nluPacket ? nluPacket.tools : undefined,
+    });
+
+    // Use NLU chunks if available, otherwise fall back to keyword-based retrieval
+    if (nluPacket && nluPacket.chunks.length > 0) {
+      const entityHint = formatEntityHint(nluPacket.entities);
+      const maxChunkChars = nluPacket.budget.maxChunkChars;
+      const citationBlock = formatCitationsForPrompt(
+        nluPacket.chunks.map((c) => ({
+          docId: c.docId,
+          source: String(c.source),
+          text: c.text,
+          patientId: c.patientId,
+          sourceId: c.sourceId,
+          sourceType: c.sourceType,
+          resourceId: c.resourceId,
+          effectiveAt: c.effectiveAt,
+          createdAt: c.createdAt,
+          synthetic: c.synthetic,
+          retrievalMethod: c.retrievalMethod,
+          graphRelation: c.graphRelation,
+          graphSeedId: c.graphSeedId,
+        })),
+        maxChunkChars,
+      );
+      if (citationBlock) {
+        const hintLine = entityHint ? `\n${entityHint}` : '';
+        console.log(`[SLM Chat] NLU citation block added (${citationBlock.length} chars)`);
+        userContent = `${trimmed}${hintLine}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above where relevant. After claims drawn from a chunk, append that chunk's exact tag (e.g. [PubMed #1], [Drug Label #2], [Care Plan #3]) — include the # number.`;
+      }
+    } else if (nluPacket && nluPacket.entities.length > 0) {
+      const entityHint = formatEntityHint(nluPacket.entities);
+      userContent = `${trimmed}\n${entityHint}`;
+    } else {
+      const hasClinicalIntent = messageHasClinicalKeywords(
         trimmed,
         conditionNames,
         medNames,
       );
-      const citations = await retrieveClinicalChunksViaBm25(
-        retriever,
-        retrievalQuery || [trimmed, ...conditionNames].join(' '),
-        5,
-      );
-      console.log(
-        `[SLM Chat] Clinical intent detected. Query tokens: "${retrievalQuery}". Retrieved ${citations.length} clinical chunks. Conditions: [${conditionNames.join(', ')}]`,
-      );
-      const citationBlock = formatCitationsForPrompt(citations);
-      if (citationBlock) {
-        console.log(`[SLM Chat] Citation block added (${citationBlock.length} chars)`);
-        userContent = `${trimmed}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above where relevant. Add the source label in brackets after relevant statements (e.g., "Common side effects include nausea [Drug Label]" or "Studies show improved outcomes [PubMed]").`;
+      if (hasClinicalIntent) {
+        const retrievalQuery = buildChatRetrievalQuery(
+          trimmed,
+          conditionNames,
+          medNames,
+        );
+        const citations = await retrieveClinicalChunksViaBm25(
+          retriever,
+          retrievalQuery || [trimmed, ...conditionNames].join(' '),
+          5,
+          patientId,
+        );
+        console.log(
+          `[SLM Chat] Clinical intent fallback. Query: "${retrievalQuery}". Chunks: ${citations.length}`,
+        );
+        const citationBlock = formatCitationsForPrompt(citations);
+        if (citationBlock) {
+          userContent = `${trimmed}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above where relevant. After claims drawn from a chunk, append that chunk's exact tag (e.g. [PubMed #1], [Drug Label #2], [Care Plan #3]) — include the # number.`;
+        }
       } else {
         console.log(
-          '[SLM Chat] Clinical intent true but 0 chunks — knowledge cache may be empty for this patient; try rebundling conditions.',
+          `[SLM Chat] No clinical intent. Conditions: [${conditionNames.join(', ')}], Meds: [${medNames.join(', ')}]`,
         );
       }
-    } else {
-      console.log(
-        `[SLM Chat] No clinical intent. Conditions: [${conditionNames.join(', ')}], Meds: [${medNames.join(', ')}]`,
-      );
     }
+
+    // NLU done → Concierge (SLM) stage
+    dispatch({ type: 'set-phase', payload: { assistantId: assistantMessage.id, phase: 1 } });
+    console.log('[SLM Chat] SLM start');
 
     const messages: ProviderChatMessage[] = [
       { role: 'system', content: systemContext },
@@ -776,14 +981,12 @@ export default function SLMScreen({
       { role: 'user', content: userContent },
     ];
 
-    // Debug logging: show user message and SLM output
     console.log('[SLM Chat] === USER MESSAGE ===');
     console.log(userContent);
     console.log('[SLM Chat] === END PROMPT ===');
 
     abortControllerRef.current = new AbortController();
 
-    // §7: drive the phase-word indicator from real reasoning tokens.
     const reasoningStartedAt = { current: null as number | null };
 
     try {
@@ -801,12 +1004,9 @@ export default function SLMScreen({
           });
         },
         abortControllerRef.current.signal,
-        // Single mode: always deep. The model reasons fully in its dedicated
-        // channel (unlimited budget), then streams the complete answer. The
-        // fast path was removed — it reliably got cut off mid-thought.
-        CONCIERGE_GENERATION_DEEP,
+        generationDecision.profile,
         (token) => {
-          // First reasoning token → phase 1 (Verifying).
+          // First reasoning token — stay on Concierge stage (phase 1).
           if (reasoningStartedAt.current === null) {
             reasoningStartedAt.current = Date.now();
             dispatch({ type: 'set-phase', payload: { assistantId: assistantMessage.id, phase: 1 } });
@@ -830,9 +1030,31 @@ export default function SLMScreen({
       }
       console.log('[SLM Chat] === END RESPONSE ===');
 
-      // Health Monitor: auto-run when vitals/what-if are detected (no confirm menu).
-      const monitorArgs = resolveHypotheticalVitalsCandidate(trimmed, result.text);
+      // Health Monitor: prefer NLU-extracted slots, else model ACTION / user NLP.
+      const monitorArgs =
+        nluPacket?.slots ??
+        resolveHypotheticalVitalsCandidate(trimmed, result.text);
       finalText = stripEvaluateHypotheticalAction(finalText);
+
+      // Footnote citations on finalize (planning/37 §6.4.4).
+      const chunksForCite =
+        nluPacket?.chunks.map((c) => ({
+          docId: c.docId,
+          source: String(c.source),
+          text: c.text,
+          patientId: c.patientId,
+          sourceId: c.sourceId,
+          sourceType: c.sourceType,
+          resourceId: c.resourceId,
+          effectiveAt: c.effectiveAt,
+          createdAt: c.createdAt,
+          synthetic: c.synthetic,
+          retrievalMethod: c.retrievalMethod,
+          graphRelation: c.graphRelation,
+          graphSeedId: c.graphSeedId,
+        })) ?? [];
+      const withFootnotes = formatAnswerWithFootnotes(finalText, chunksForCite);
+      finalText = withFootnotes.displayText;
 
       dispatch({
         type: 'send-success',
@@ -914,6 +1136,8 @@ export default function SLMScreen({
     medicationNames,
     retriever,
     orchestrator,
+    patientId,
+    allowDevelopmentNluFallback,
   ]);
 
   const handleStop = useCallback(() => {
@@ -1108,6 +1332,18 @@ export default function SLMScreen({
         return;
       }
 
+      if (shouldOfferScheduleFollowUp(mlResult) && !canUseLocalAppointmentDemo) {
+        await groundAnswerAfterHealthMonitor({
+          assistantId,
+          evalBlock:
+            `${evalBlock}\n\nFOLLOW-UP SCHEDULING STATUS: Appointment scheduling is not available in this caregiver-mode chat. Do not state or imply that a follow-up appointment was scheduled, saved, sent, or received.`,
+          userText,
+          prose,
+          historyMessages,
+        });
+        return;
+      }
+
       if (shouldOfferScheduleFollowUp(mlResult)) {
         const severity =
           mlResult.finalDecision?.final_severity ?? mlResult.post_hitl_severity ?? 1;
@@ -1159,7 +1395,7 @@ export default function SLMScreen({
         historyMessages,
       });
     },
-    [groundAnswerAfterHealthMonitor],
+    [groundAnswerAfterHealthMonitor, canUseLocalAppointmentDemo],
   );
 
   const runHealthMonitorPipeline = useCallback(
@@ -1643,8 +1879,7 @@ export default function SLMScreen({
             dispatch({ type: 'append-token', payload: { assistantId: assistantMessage.id, token } });
           },
           abortControllerRef.current.signal,
-          // §6.6: "Tell me more" is always deep.
-          { ...CONCIERGE_GENERATION_DEEP, reasoningFormat: REASONING_FORMAT_EXPLAIN },
+          selectChatGeneration({ forceDeep: true }).profile,
           (token) => {
             dispatch({ type: 'set-phase', payload: { assistantId: assistantMessage.id, phase: 1 } });
             dispatch({ type: 'append-reasoning-token', payload: { assistantId: assistantMessage.id, token } });
@@ -1926,35 +2161,47 @@ export default function SLMScreen({
             )}
           </View>
 
-          {(slm.loadStatus === 'ready' || slm.loadStatus === 'loading') && memoryInfo ? (
+          {slm.loadStatus === 'ready' || slm.loadStatus === 'loading' ? (
             <View style={[styles.memoryCard, { backgroundColor: theme.backgroundElement }]}>
-              <View style={styles.memoryHeader}>
-                <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Device RAM</Text>
-                <Text style={[styles.statusText, { marginBottom: 0 }]}>
-                  {memoryInfo.usedMB.toFixed(0)} / {memoryInfo.totalMB.toFixed(0)} MB
-                </Text>
-              </View>
-              <View style={styles.progressBarBg}>
-                <View
-                  style={[
-                    styles.progressBarFill,
-                    {
-                      width: `${Math.min((memoryInfo.usedMB / memoryInfo.totalMB) * 100, 100)}%`,
-                      backgroundColor:
-                        memoryInfo.usedMB / memoryInfo.totalMB > 0.8 ? '#B42318' : '#0E6F68',
-                    },
-                  ]}
-                />
-              </View>
-              <View style={styles.memoryDetails}>
-                <Text style={styles.statusText}>Free: {memoryInfo.freeMB.toFixed(0)} MB</Text>
-                {slm.modelSizeGB !== null ? (
-                  <Text style={styles.statusText}>Model: {slm.modelSizeGB.toFixed(2)} GB</Text>
-                ) : null}
-                {hasNativeMemory ? (
-                  <Text style={styles.statusText}>App: {memoryInfo.appMB.toFixed(0)} MB</Text>
-                ) : null}
-              </View>
+              {hasNativeMemory && memoryInfo ? (
+                <>
+                  <View style={styles.memoryHeader}>
+                    <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Device RAM</Text>
+                    <Text style={[styles.statusText, { marginBottom: 0 }]}>
+                      {memoryInfo.usedMB.toFixed(0)} / {memoryInfo.totalMB.toFixed(0)} MB
+                    </Text>
+                  </View>
+                  <View style={styles.progressBarBg}>
+                    <View
+                      style={[
+                        styles.progressBarFill,
+                        {
+                          width: `${Math.min((memoryInfo.usedMB / memoryInfo.totalMB) * 100, 100)}%`,
+                          backgroundColor:
+                            memoryInfo.usedMB / memoryInfo.totalMB > 0.8 ? '#B42318' : '#0E6F68',
+                        },
+                      ]}
+                    />
+                  </View>
+                  <View style={styles.memoryDetails}>
+                    <Text style={styles.statusText}>Free: {memoryInfo.freeMB.toFixed(0)} MB</Text>
+                    {slm.modelSizeGB !== null ? (
+                      <Text style={styles.statusText}>Model: {slm.modelSizeGB.toFixed(2)} GB</Text>
+                    ) : null}
+                    <Text style={styles.statusText}>App: {memoryInfo.appMB.toFixed(0)} MB</Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.cardTitle}>Device RAM</Text>
+                  <Text style={styles.statusText}>
+                    RAM measurement unavailable in this build. Concierge loads on demand with conservative cleanup.
+                  </Text>
+                  {slm.modelSizeGB !== null ? (
+                    <Text style={styles.statusText}>Model: {slm.modelSizeGB.toFixed(2)} GB</Text>
+                  ) : null}
+                </>
+              )}
             </View>
           ) : null}
 
@@ -2086,7 +2333,7 @@ export default function SLMScreen({
                 2. When vitals are detected, you’ll see “activating Health Monitor” and it runs right away.
               </Text>
               <Text style={styles.howToBody}>
-                3. Severity 1–2 may ask for observations, then offer to save a local demo follow-up appointment (or dismiss).
+                3. Severity 1-2 may ask for observations. In developer mode, it may also offer a local demo follow-up appointment.
               </Text>
               <Text style={styles.howToBody}>
                 4. After you finish, Concierge explains with that context. Severity 3 skips review/scheduling and may show a critical banner — never auto-calls 911.

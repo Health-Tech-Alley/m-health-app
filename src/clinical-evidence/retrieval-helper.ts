@@ -24,6 +24,16 @@ export interface RetrievedCitation {
   docId: string;
   source: string;
   text: string;
+  sourceId?: string;
+  sourceType?: string;
+  resourceId?: string;
+  patientId?: string;
+  effectiveAt?: string;
+  createdAt?: string;
+  synthetic?: boolean;
+  retrievalMethod?: string;
+  graphRelation?: string;
+  graphSeedId?: string;
 }
 
 const STOPWORDS = new Set([
@@ -214,10 +224,81 @@ const SOURCE_LABELS: Record<string, string> = {
   'cdc-places': 'SDOH',
   semmeddb: 'SemMedDB',
   hedis: 'HEDIS',
-  synthetic: 'Reference',
+  synthetic: 'Development Fixture',
   'patient-plan': 'Care Plan',
+  'patient-record': 'Patient Record',
   rxnorm: 'RxNorm',
 };
+
+type CitationMetadata = {
+  patientId?: string;
+  sourceId?: string;
+  sourceType?: string;
+  resourceId?: string;
+  docId?: string;
+  effectiveAt?: string;
+  createdAt?: string;
+  retrievedAt?: string;
+  kind?: string;
+  synthetic?: boolean;
+};
+
+function parseCitationMetadata(chunk: KnowledgeChunk): CitationMetadata {
+  if (!chunk.metadataJson) return {};
+  try {
+    return JSON.parse(chunk.metadataJson) as CitationMetadata;
+  } catch {
+    return {};
+  }
+}
+
+function chunkPatientId(chunk: KnowledgeChunk): string | undefined {
+  return chunk.patientId ?? parseCitationMetadata(chunk).patientId;
+}
+
+function chunkBelongsToPatient(chunk: KnowledgeChunk, patientId?: string): boolean {
+  const cachedPatientId = chunkPatientId(chunk);
+  if (!cachedPatientId) return true;
+  return Boolean(patientId && cachedPatientId === patientId);
+}
+
+function citationFromKnowledgeChunk(chunk: KnowledgeChunk): RetrievedCitation {
+  const metadata = parseCitationMetadata(chunk);
+  const patientRecord =
+    metadata.sourceType === 'patient-record' || metadata.kind === 'cda_narrative';
+  const source = patientRecord ? 'patient-record' : chunk.source;
+  return {
+    docId: chunk.chunkId,
+    source,
+    text: chunk.text,
+    patientId: chunk.patientId ?? metadata.patientId,
+    sourceId: chunk.sourceId ?? metadata.sourceId ?? metadata.docId ?? chunk.chunkId,
+    sourceType: chunk.sourceType ?? metadata.sourceType ?? source,
+    resourceId: chunk.resourceId ?? metadata.resourceId ?? metadata.docId,
+    effectiveAt: chunk.effectiveAt ?? metadata.effectiveAt,
+    createdAt: metadata.createdAt ?? metadata.retrievedAt ?? chunk.retrievedAt,
+    synthetic:
+      chunk.synthetic ??
+      metadata.synthetic ??
+      (chunk.source === 'synthetic' && !patientRecord),
+    retrievalMethod: chunk.retrievalMethod ?? 'cache_like',
+  };
+}
+
+function citationMetadataForPrompt(citation: RetrievedCitation): string {
+  const parts = [
+    citation.sourceId ? `source_id=${citation.sourceId}` : null,
+    citation.resourceId ? `resource_id=${citation.resourceId}` : null,
+    citation.effectiveAt ? `effective_at=${citation.effectiveAt}` : null,
+    citation.createdAt ? `retrieved_at=${citation.createdAt}` : null,
+    citation.retrievalMethod ? `method=${citation.retrievalMethod}` : null,
+    citation.graphRelation && citation.graphSeedId
+      ? `graph=${citation.graphRelation} from ${citation.graphSeedId}`
+      : null,
+    citation.synthetic ? 'development_fixture=true' : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+}
 
 /**
  * Tokenize free text into content tokens (lowercase, strip punctuation,
@@ -412,6 +493,7 @@ export function buildChatRetrievalQuery(
 export function retrieveClinicalChunks(
   query: string,
   limit = 5,
+  patientId?: string,
 ): RetrievedCitation[] {
   if (!query.trim()) return [];
   try {
@@ -419,13 +501,12 @@ export function retrieveClinicalChunks(
     // If the query is already short, search as-is; else multi-token OR search.
     const chunks =
       tokens.length <= 1
-        ? searchKnowledgeCache(query.trim(), limit)
-        : searchKnowledgeCacheMultiToken(tokens, limit);
-    return chunks.map((c: KnowledgeChunk) => ({
-      docId: c.chunkId,
-      source: c.source,
-      text: c.text,
-    }));
+        ? searchKnowledgeCache(query.trim(), Math.max(limit * 3, 15))
+        : searchKnowledgeCacheMultiToken(tokens, limit, patientId);
+    return chunks
+      .filter((c) => chunkBelongsToPatient(c, patientId))
+      .slice(0, limit)
+      .map(citationFromKnowledgeChunk);
   } catch {
     return [];
   }
@@ -439,6 +520,7 @@ export function retrieveClinicalChunks(
 function searchKnowledgeCacheMultiToken(
   tokens: string[],
   limit: number,
+  patientId?: string,
 ): KnowledgeChunk[] {
   const unique = [...new Set(tokens)].filter((t) => t.length >= 3).slice(0, 12);
   if (unique.length === 0) return [];
@@ -453,6 +535,7 @@ function searchKnowledgeCacheMultiToken(
       continue;
     }
     for (const chunk of hits) {
+      if (!chunkBelongsToPatient(chunk, patientId)) continue;
       const prev = scores.get(chunk.chunkId);
       if (prev) {
         prev.score += 1;
@@ -472,17 +555,34 @@ function searchKnowledgeCacheMultiToken(
 }
 
 /**
- * Format retrieved chunks as a prompt block the SLM can cite.
+ * Human-readable source name for a knowledge corpus key.
  */
-export function formatCitationsForPrompt(citations: RetrievedCitation[]): string {
+export function citationSourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source;
+}
+
+/**
+ * Bracket tag for one citation: e.g. `[PubMed #1]`, `[Care Plan #3]`.
+ * Index is 1-based within the CLINICAL KNOWLEDGE block for this turn.
+ */
+export function formatCitationTag(source: string, index: number): string {
+  const n = Number.isFinite(index) && index > 0 ? Math.floor(index) : 1;
+  return `[${citationSourceLabel(source)} #${n}]`;
+}
+
+/**
+ * Format retrieved chunks as a prompt block the SLM can cite.
+ * Each line is tagged `[Source #N]` so the model can cite that exact tag.
+ */
+export function formatCitationsForPrompt(citations: RetrievedCitation[], maxLen = 1500): string {
   if (citations.length === 0) return '';
-  const lines = ['CLINICAL KNOWLEDGE (cited — use [Source] to reference)'];
-  for (const c of citations) {
-    const maxLen = 1500;
-    const text = c.text.length > maxLen ? c.text.slice(0, maxLen) + '…' : c.text;
-    const label = SOURCE_LABELS[c.source] ?? c.source;
-    lines.push(`[${label}] ${text}`);
-  }
+  const lines = [
+    'CLINICAL KNOWLEDGE (cited — when you use a chunk, append its exact tag, e.g. [PubMed #1] or [Care Plan #2])',
+  ];
+  citations.forEach((c, i) => {
+    const text = c.text.length > maxLen ? c.text.slice(0, maxLen) + '\u2026' : c.text;
+    lines.push(`${formatCitationTag(c.source, i + 1)}${citationMetadataForPrompt(c)} ${text}`);
+  });
   return lines.join('\n');
 }
 
@@ -503,25 +603,41 @@ export async function retrieveClinicalChunksViaBm25(
   retriever: FusedRetriever | null,
   query: string,
   limit = 5,
+  patientId?: string,
 ): Promise<RetrievedCitation[]> {
-  if (!retriever || !query.trim()) return retrieveClinicalChunks(query, limit);
+  if (!retriever || !query.trim()) return retrieveClinicalChunks(query, limit, patientId);
   try {
     const result = await retriever.retrieve({
       intent: query,
       conditions: [],
       activeMeds: [],
+      // Chat hot path: never block on PubMed/MedlinePlus live supplement.
+      allowLiveSupplement: false,
     });
-    const fromRetriever = result.chunks.slice(0, limit).map((c) => ({
+    const fromRetriever = result.chunks
+      .filter((c) => !c.patientId || Boolean(patientId && c.patientId === patientId))
+      .slice(0, limit)
+      .map((c) => ({
       docId: c.docId,
       source: String(c.source),
       text: c.text,
+      patientId: c.patientId,
+      sourceId: c.sourceId ?? c.docId,
+      sourceType: c.sourceType ?? String(c.source),
+      resourceId: c.resourceId,
+      effectiveAt: c.effectiveAt,
+      createdAt: c.createdAt,
+      synthetic: c.synthetic,
+      retrievalMethod: c.retrievalMethod,
+      graphRelation: c.graphRelation,
+      graphSeedId: c.graphSeedId,
     }));
     // If fused retriever returns nothing, fall back to multi-token cache search
     if (fromRetriever.length === 0) {
-      return retrieveClinicalChunks(query, limit);
+      return retrieveClinicalChunks(query, limit, patientId);
     }
     return fromRetriever;
   } catch {
-    return retrieveClinicalChunks(query, limit);
+    return retrieveClinicalChunks(query, limit, patientId);
   }
 }

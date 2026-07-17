@@ -30,7 +30,9 @@ export type SkillId =
   | 'visit-prep'
   | 'summarize-ehr'
   | 'detect-care-gaps'
-  | 'draft-care-plan';
+  | 'draft-care-plan'
+  | 'explain-rehab-trajectory'
+  | 'uc4-provider-summary-rewrite';
 
 export type Skill = {
   /** Stable identifier — referenced in traces, eval results, and the prompt. */

@@ -1,20 +1,17 @@
 /**
  * Thinking indicator for the Concierge chat screen.
  *
- * Per planning/32 §7:
- *   - Pre-answer phase: a discrete step progress bar + a rotating phase word
- *     (Thinking → Verifying → Checking) + blinking ellipses. The progress bar
- *     is divided into fixed chunks; each completed reasoning segment fills one
- *     chunk (solid) and the in-flight segment pulses. Driven by the real
- *     streamed `<think>` structure via `reasoning`, not a looping animation.
+ * Per planning/32 §7 + planning/35 NLU stages:
+ *   - Pre-answer phase: discrete step progress bar + phase word + blinking
+ *     ellipses. Progress chunks track real reasoning structure when available.
  *   - Phase advances by a `phase` prop the caller drives:
- *       0 = Thinking  (prefill / no tokens yet)
- *       1 = Verifying (first reasoning token seen)
- *       2 = Checking  (reasoning > 1.5s)
+ *       0 = Understanding  (Pre-SLM NLU / encoder / retrieval)
+ *       1 = Thinking       (SLM reasoning / prefill)
+ *       2 = Checking       (Health Monitor / tools)
+ *       3 = Drafting       (answer tokens; usually hidden via streaming)
  *   - When `streaming` is true, the indicator hides and the answer
  *     streams in **bold** inline (handled by the caller's renderer).
- *   - The indicator never displays raw reasoning text. Reasoning is
- *     available to the caller's `onReasoningToken` for phase tracking only.
+ *   - Never shows raw reasoning text or technical NLU/SLM jargon.
  *
  * A legacy `text` prop is kept for back-compat with the older 3-dots UX —
  * callers that pass text get the old "Concierge is thinking…" line.
@@ -23,7 +20,7 @@
 import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
-const PHASES = ['Thinking', 'Reasoning', 'Tools', 'Generating'] as const;
+const PHASES = ['Understanding', 'Thinking', 'Checking', 'Drafting'] as const;
 type PhaseIndex = 0 | 1 | 2 | 3;
 
 const QUICK_ANSWER_MAX_CHARS = 2000;

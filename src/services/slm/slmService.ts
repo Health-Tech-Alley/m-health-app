@@ -229,7 +229,15 @@ export async function askCaregiverAssistantMock(
 
 export function buildCaregiverSystemContext(
   context: CaregiverAssistantContext,
-  options?: { skillId?: string; priorDecisions?: PriorDecisionEntry[] },
+  options?: {
+    skillId?: string;
+    priorDecisions?: PriorDecisionEntry[];
+    /**
+     * When set (including empty array), replaces the default caregiver-chat
+     * tool dump — used by Pre-SLM NLU budgeted tool injection (planning/35).
+     */
+    toolsOverride?: McpToolSummary[];
+  },
 ): string {
   const caregiverFirst = (context.caregiverName ?? "").trim().split(/\s+/)[0] || "there";
   const patientFirst = (context.patientName ?? "").trim().split(/\s+/)[0] || "the patient";
@@ -265,10 +273,10 @@ export function buildCaregiverSystemContext(
     sensitiveTopics,
     "",
     "CITING SOURCES",
-    "- When the CLINICAL KNOWLEDGE block is provided and you use information from it, add the source label in brackets after the relevant statement.",
-    "- Format: put the source name in square brackets at the end of the sentence or claim.",
-    "- Example: \"Common side effects include nausea and dizziness [Drug Label].\" or \"Studies show improved outcomes with early intervention [PubMed].\"",
-    "- Don't cite sources for general knowledge or information from the patient's care context.",
+    "- When the CLINICAL KNOWLEDGE block is provided and you use information from it, append that chunk's exact tag after the claim.",
+    "- Tags look like [PubMed #1], [MedlinePlus #2], [Drug Label #3], [Care Plan #4] — always include the source name and the # number from the block.",
+    "- Example: \"Common side effects include nausea and dizziness [Drug Label #1].\" or \"Studies show improved outcomes with early intervention [PubMed #2].\"",
+    "- Do not invent tags or drop the # index. Don't cite for general knowledge not taken from the block.",
     "",
     "NEVER",
     "- Never diagnose. Never name a condition not already in the patient's record.",
@@ -326,7 +334,11 @@ export function buildCaregiverSystemContext(
   const prior = options?.priorDecisions ?? [];
 
   let toolsSection = '';
-  if (toolsSkillId) {
+  if (options?.toolsOverride !== undefined) {
+    if (options.toolsOverride.length > 0) {
+      toolsSection = `\n${toolsBlock(options.toolsOverride)}\n\n${healthMonitorToolInstruction()}\n`;
+    }
+  } else if (toolsSkillId) {
     const visibleTools = filterToolsForSkill(toolsSkillId, TOOL_SCHEMAS);
     const toolSummaries: McpToolSummary[] = visibleTools.map((t) => ({
       name: t.name,

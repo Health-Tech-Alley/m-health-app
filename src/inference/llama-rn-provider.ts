@@ -6,6 +6,7 @@ import type {
   LoadOptions,
   ModelInfo,
 } from './inference-provider';
+import { effectiveNPredict } from './n-predict';
 import { MissingNativeModuleError } from './missing-native-module-error';
 import { File } from 'expo-file-system';
 
@@ -161,23 +162,11 @@ export class LlamaRnProvider implements InferenceProvider {
     let tokensGenerated = 0;
 
     // Effective llama.rn `n_predict`. This is a SINGLE combined cap over both
-    // the reasoning/`<think>` channel and the answer channel. If we set it to
-    // just the answer budget (the old behavior: `maxTokens ?? 192`), a model
-    // that reasons — Gemma 4 E2B does, even when we ask for reasoning_format
-    // 'none', because its chat template can still emit <think> — burns the
-    // entire budget while thinking, hits the cap, and returns with an EMPTY
-    // answer channel. The UI then rendered the partial thinking as the
-    // "answer." Fix: reserve reasoning headroom ON TOP of the answer budget so
-    // the model can finish thinking AND still emit the full answer.
-    const answerBudget = options?.maxTokens ?? 192;
-    const reasoningBudget = options?.maxReasoningTokens ?? 0;
-    const reasoningOn = (options?.reasoningFormat ?? 'none') === 'auto';
-    const nPredict =
-      answerBudget < 0
-        ? -1 // unlimited: model runs to EOS / context window; thinking is free
-        : reasoningOn
-          ? answerBudget + reasoningBudget
-          : answerBudget;
+    // the reasoning/`<think>` channel and the answer channel. effectiveNPredict
+    // ALWAYS adds maxReasoningTokens as headroom even when reasoningFormat is
+    // 'none' — Gemma 4 E2B may emit <think> anyway, and a starved answer
+    // budget produced empty/truncated responses. See planning/37 §6.2.
+    const nPredict = effectiveNPredict(options);
 
     // Streaming reasoning/answer splitter.
     //

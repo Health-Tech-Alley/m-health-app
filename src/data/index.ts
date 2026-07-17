@@ -52,11 +52,17 @@ export * from './repositories/medicationConfirmationPreferenceRepository';
 export * from './repositories/notificationRepository';
 export * from './repositories/appSettingsRepository';
 export * from './repositories/knowledgeCacheRepository';
+export * from './repositories/knowledgeChunkEdgeRepository';
 export * from './repositories/patientEnrichmentLogRepository';
 export * from './repositories/symptomRepository';
 export * from './repositories/wearableDeviceRepository';
 export * from './repositories/mlEventRepository';
-export * from './repositories/patientRecordRepository';
+export {
+  getBundleStatus,
+  getPatientRecordSnapshot,
+  setBundlePending,
+  setBundleStatus,
+} from './repositories/patientRecordRepository';
 export * from './repositories/dailyCareEntryRepository';
 export * from './repositories/carePlanRepository';
 export * from './repositories/carePlanRehabMetricRepository';

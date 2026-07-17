@@ -562,7 +562,8 @@ export type KnowledgeSource =
   | 'semmeddb'
   | 'synthetic'
   | 'hedis'
-  | 'patient-plan';
+  | 'patient-plan'
+  | 'patient-record';
 
 /** Coarse chunk-depth tier used by the prompt-budget router (planning/32 §12.4). */
 export type KnowledgeDocumentType =
@@ -592,6 +593,33 @@ export interface KnowledgeChunk {
   lengthTier?: KnowledgeLengthTier;
   /** For section-chunked full-text docs, the heading that this chunk came from. */
   sectionHeading?: string;
+  /** Optional provenance fields parsed from metadata_json by retrieval helpers. */
+  patientId?: string;
+  sourceId?: string;
+  sourceType?: string;
+  resourceId?: string;
+  effectiveAt?: string;
+  synthetic?: boolean;
+  retrievalMethod?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge chunk edge - evidence graph for RAG seed expansion (doc 36)
+// ---------------------------------------------------------------------------
+
+export type KnowledgeChunkEdgeType =
+  | 'PARENT_OF'
+  | 'SHARES_CONDITION'
+  | 'SHARES_MEDICATION';
+
+export interface KnowledgeChunkEdge {
+  fromChunkId: string;
+  toChunkId: string;
+  type: KnowledgeChunkEdgeType;
+  weight: number;
+  source?: string;
+  metadataJson?: string;
+  createdAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -778,6 +806,17 @@ export interface AppSettings {
   demoDefaultModelId: string;
   theme: ThemePreference;
   notifications: NotificationPreferences;
+  /**
+   * When true (default): on-demand SLM load/unload (doc 34 dynamic path).
+   * When false: doc-32 legacy startup + foreground reload, with OOM gate/retry fix.
+   */
+  dynamicSlmLoading: boolean;
+  /** __DEV__ only: allow mock/hash NLU fallback when native NLU assets are absent. */
+  nluDevelopmentFallback: boolean;
+  /** __DEV__ only: allow bundled evidence fixtures in retrieval indexes. */
+  evidenceDevelopmentFallback: boolean;
+  /** Evidence graph expansion for RAG retrieval (doc 36). Default false. */
+  knowledgeGraphExpansion: boolean;
 }
 
 // ---------------------------------------------------------------------------

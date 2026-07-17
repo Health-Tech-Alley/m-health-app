@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Modal,
   Pressable,
@@ -39,8 +39,11 @@ import {
   useOrchestratorPatientId,
   useOrchestratorSafe,
 } from '@/contexts/orchestrator-context';
+import { useSettings } from '@/contexts/settings-context';
+import { useSLM } from '@/contexts/slm-context';
 import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
+import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
 
 const TEAL = AppTheme.colors.brand;
 const BG = AppTheme.colors.screen;
@@ -53,6 +56,8 @@ export default function AlertDetailScreen() {
   const { alertId } = useLocalSearchParams<{ alertId: string }>();
   const orchestrator = useOrchestratorSafe();
   const activePatientId = useOrchestratorPatientId();
+  const { settings } = useSettings();
+  const { acquireSlm } = useSLM();
 
   const [version, setVersion] = useState(0);
   const [noteOpen, setNoteOpen] = useState(false);
@@ -70,6 +75,31 @@ export default function AlertDetailScreen() {
         ? 'This alert belongs to a different patient. Switch back to that patient to view it.'
         : null;
   const alert = alertUnavailableMessage ? null : loadedAlert;
+
+  useFocusEffect(
+    useCallback(() => {
+      if (settings.dynamicSlmLoading === false) return;
+      let lease: SlmTaskLease | null = null;
+      let cancelled = false;
+
+      void (async () => {
+        try {
+          lease = await acquireSlm('preload_warm');
+          if (cancelled) {
+            lease.release();
+            lease = null;
+          }
+        } catch {
+          // RAM gate / not installed; the explanation screen reports availability.
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+        lease?.release();
+      };
+    }, [acquireSlm, settings.dynamicSlmLoading]),
+  );
 
   // Compute the 24h-ago cutoff once (impure Date.now() allowed in a useState
   // initializer, not during render).

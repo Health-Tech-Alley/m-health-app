@@ -1130,4 +1130,23 @@ export const MIGRATIONS: Migration[] = [
 
   CREATE INDEX IF NOT EXISTS idx_uc4_responses_patient_created
     ON uc4_caregiver_responses(patient_id, created_at DESC);`,
+
+  // 45: knowledge chunk edges for evidence-graph RAG expansion.
+  `CREATE TABLE IF NOT EXISTS knowledge_chunk_edges (
+    from_chunk_id TEXT NOT NULL,
+    to_chunk_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    weight REAL NOT NULL DEFAULT 1.0,
+    source TEXT,
+    metadata_json TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (from_chunk_id, to_chunk_id, type)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_kce_from
+    ON knowledge_chunk_edges(from_chunk_id);
+  CREATE INDEX IF NOT EXISTS idx_kce_to
+    ON knowledge_chunk_edges(to_chunk_id);
+  CREATE INDEX IF NOT EXISTS idx_kce_type
+    ON knowledge_chunk_edges(type);`,
 ];

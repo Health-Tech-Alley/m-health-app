@@ -137,7 +137,11 @@ type ExpandableId =
   | 'appearance'
   | 'accessibility'
   | 'consent'
-  | 'developer-mode';
+  | 'developer-mode'
+  | 'dynamic-slm-loading'
+  | 'nlu-development-fallback'
+  | 'evidence-development-fallback'
+  | 'knowledge-graph-expansion';
 
 export function SettingsScreen() {
   return <PreferencesScreen />;
@@ -344,6 +348,10 @@ export function AdvancedDeveloperSettingsScreen() {
     isDeveloper,
     toggleMode,
     setDemoDefaultModelId,
+    setDynamicSlmLoading,
+    setNluDevelopmentFallback,
+    setEvidenceDevelopmentFallback,
+    setKnowledgeGraphExpansion,
   } = useSettings();
   const slm = useSLM();
   const patientId = useOrchestratorPatientId();
@@ -383,7 +391,10 @@ export function AdvancedDeveloperSettingsScreen() {
   const [importingEhr, setImportingEhr] = useState(false);
   const [importProgress, setImportProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const activeCarePlan = snapshot?.carePlan ?? null;
-  const rehabExerciseAssignments = snapshot?.rehabExerciseAssignments ?? [];
+  const rehabExerciseAssignments = useMemo(
+    () => snapshot?.rehabExerciseAssignments ?? [],
+    [snapshot?.rehabExerciseAssignments],
+  );
   const uc3ExerciseAssignmentEligible =
     __DEV__ &&
     isUc3DevelopmentExerciseAssignmentEligible(snapshot?.conditions ?? EMPTY_CONDITIONS, activeCarePlan);
@@ -850,6 +861,52 @@ export function AdvancedDeveloperSettingsScreen() {
                   );
                 })}
               </View>
+
+              <Text style={[styles.devLabel, { marginTop: 12 }]}>Runtime gates</Text>
+              <CompactToggleRow
+                id="dynamic-slm-loading"
+                emoji="SLM"
+                label="Dynamic SLM loading"
+                value={settings.dynamicSlmLoading !== false}
+                expanded={expandedId === 'dynamic-slm-loading'}
+                explanation="Loads Concierge only while a chat, explanation, or warmup lease needs it, then releases the model after the task window."
+                onToggleExpand={toggleExpanded}
+                onValueChange={setDynamicSlmLoading}
+                accessibilityLabel="Dynamic SLM loading"
+              />
+              <CompactToggleRow
+                id="nlu-development-fallback"
+                emoji="NLU"
+                label="Development NLU fallback"
+                value={settings.nluDevelopmentFallback === true}
+                expanded={expandedId === 'nlu-development-fallback'}
+                explanation="__DEV__ only. Allows synthetic hash embeddings and keyword intent fallback when native NLU assets are absent; production treats NLU as unavailable."
+                onToggleExpand={toggleExpanded}
+                onValueChange={setNluDevelopmentFallback}
+                accessibilityLabel="Development NLU fallback"
+              />
+              <CompactToggleRow
+                id="evidence-development-fallback"
+                emoji="EV"
+                label="Development evidence fixtures"
+                value={settings.evidenceDevelopmentFallback === true}
+                expanded={expandedId === 'evidence-development-fallback'}
+                explanation="__DEV__ only. Includes bundled synthetic evidence fixtures in the retrieval index for local development; normal retrieval uses persisted or live-approved evidence."
+                onToggleExpand={toggleExpanded}
+                onValueChange={setEvidenceDevelopmentFallback}
+                accessibilityLabel="Development evidence fixtures"
+              />
+              <CompactToggleRow
+                id="knowledge-graph-expansion"
+                emoji="KG"
+                label="Evidence graph expansion"
+                value={settings.knowledgeGraphExpansion === true}
+                expanded={expandedId === 'knowledge-graph-expansion'}
+                explanation="Adds one-hop evidence-graph neighbors into retrieval ranking. It is ranking-only, defaults off, and falls back to ordinary BM25 when edges are missing."
+                onToggleExpand={toggleExpanded}
+                onValueChange={setKnowledgeGraphExpansion}
+                accessibilityLabel="Evidence graph expansion"
+              />
 
               <Pressable
                 style={[styles.actionButton, styles.unloadButton, !slm.currentModelId && styles.disabledActionButton]}

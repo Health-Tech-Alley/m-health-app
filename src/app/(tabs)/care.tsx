@@ -1,4 +1,4 @@
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAppSelector } from '@/store/hooks';
 import { calculateAge } from "@/utils/commonFunctions";
@@ -86,6 +86,7 @@ type CareContextDisplayGroup = {
 };
 
 export default function CareScreen() {
+  const router = useRouter();
   const { patientId, snapshot, refresh } = usePatientRecord();
   const { focus } = useLocalSearchParams<{ focus?: string }>();
   const { reopenOnCareFocus } = useCriticalAlert();
@@ -158,7 +159,10 @@ export default function CareScreen() {
   // seed demo values for a patient that has not recorded care today.
   const entry = snapshot?.todayDailyCareEntry ?? null;
   const dailyEntry = entry && !isSeededDemoDailyEntry(entry) ? entry : null;
-  const rehabExerciseAssignments = snapshot?.rehabExerciseAssignments ?? [];
+  const rehabExerciseAssignments = useMemo(
+    () => snapshot?.rehabExerciseAssignments ?? [],
+    [snapshot?.rehabExerciseAssignments],
+  );
   const activeAssignedExercises = useMemo(
     () =>
       getAssignedDevelopmentRehabExercises(rehabExerciseAssignments),
@@ -420,18 +424,14 @@ export default function CareScreen() {
   const [slmPrompt, setSlmPrompt] = useState("");
   const explainUc3Result = () => {
     if (!latestUc3Result) return;
-    setSlmPrompt(
-      [
-        `Explain persisted UC3 rehabilitation result ${latestUc3Result.resultId} in plain caregiver language.`,
-        `Event: ${latestUc3Result.eventType}.`,
-        `Severity: ${latestUc3Result.severity}.`,
-        `Requires human review: ${latestUc3Result.requiresHumanReview ? "yes" : "no"}.`,
-        `Emergency safety boundary: ${latestUc3Result.emergencyThresholdBreach ? "yes" : "no"}.`,
-        `Jay model explanation: ${latestUc3Result.explanations[0] ?? "No explanation provided."}`,
-        "Do not change the classification, infer new clinical conclusions, or turn this into an emergency alert unless the persisted result already says urgent.",
-      ].join("\n"),
-    );
-    setSlmOpen(true);
+    router.push({
+      pathname: "/slm-explain",
+      params: {
+        mode: "rehab_trajectory",
+        resultId: latestUc3Result.resultId,
+        patientId,
+      },
+    });
   };
   const handleUc4Respond = useCallback((
     card: LatestUc4PriorityCardSummary,
@@ -455,18 +455,15 @@ export default function CareScreen() {
     refresh();
   }, [patientId, refresh]);
   const explainUc4Card = useCallback((card: LatestUc4PriorityCardSummary) => {
-    setSlmPrompt(
-      [
-        `Explain persisted UC4 care focus card ${card.cardId} in plain caregiver language.`,
-        `Template: ${card.templateId}.`,
-        `Title: ${card.title}.`,
-        `Body: ${card.body}.`,
-        `Safety boundary: ${card.safetyBoundary}.`,
-        "Do not change the selected priority, score, safety boundary, or infer diagnosis, medication causality, emergency status, or treatment changes.",
-      ].join("\n"),
-    );
-    setSlmOpen(true);
-  }, []);
+    router.push({
+      pathname: "/slm-explain",
+      params: {
+        mode: "uc4_priority",
+        cardId: card.cardId,
+        patientId,
+      },
+    });
+  }, [patientId, router]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>

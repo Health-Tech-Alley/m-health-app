@@ -37,10 +37,39 @@ import { measuresForPatient, type HedisMeasure } from './hedis-measures';
 import { getPatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
 import { getDatabase } from '@/data/db';
 import { RateLimiter } from './rate-limiter';
+import { sectionChunkKnowledgeBatch } from './section-chunk-helper';
+import {
+  writeParentOfEdges,
+  writeSharesConditionEdges,
+  writeSharesMedicationEdges,
+} from '@/knowledge/graph/knowledge-chunk-edge-writers';
 
 // 500ms between NLM API calls = 2 req/s (well under the 3 req/s limit
 // without an API key, and under 10 req/s with one).
 const nlmRateLimiter = new RateLimiter(500);
+
+/**
+ * Section-chunk long knowledge rows before insertion (planning/35 §5.4).
+ * Short rows pass through unchanged.
+ */
+function insertWithSectionChunking(
+  chunks: KnowledgeChunk[],
+  opts?: { medKey?: string; source?: string },
+): number {
+  const expanded = sectionChunkKnowledgeBatch(chunks);
+  insertKnowledgeChunks(expanded);
+  const source = opts?.source ?? 'bundler';
+  try {
+    writeParentOfEdges(expanded, source);
+    writeSharesConditionEdges(expanded, { source });
+    if (opts?.medKey) {
+      writeSharesMedicationEdges(expanded, opts.medKey, { source });
+    }
+  } catch (err) {
+    console.error('[condition-bundler] evidence edges failed:', err);
+  }
+  return expanded.length;
+}
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
@@ -159,8 +188,7 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
               ...c,
               conditions: conditionName,
             }));
-            insertKnowledgeChunks(tagged);
-            totalChunks += tagged.length;
+            totalChunks += insertWithSectionChunking(tagged);
             logEnrichment(
               patientId, 'condition', condition.conditionId, 'umls', 'bundled',
               `ICD10:${icdCode}`, tagged.length, Date.now() - t0,
@@ -194,8 +222,7 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
           queryHash: hashQuery(deidQuery),
         }));
 
-        insertKnowledgeChunks(taggedChunks);
-        totalChunks += taggedChunks.length;
+        totalChunks += insertWithSectionChunking(taggedChunks);
 
         logEnrichment(
           patientId, 'condition', condition.conditionId, 'pubmed', 'bundled',
@@ -219,8 +246,7 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
             conditions: conditionName,
           }));
 
-          insertKnowledgeChunks(taggedChunks);
-          totalChunks += taggedChunks.length;
+          totalChunks += insertWithSectionChunking(taggedChunks);
 
           logEnrichment(
             patientId, 'condition', condition.conditionId, 'medlineplus', 'bundled',
@@ -242,8 +268,7 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
             ...c,
             conditions: conditionName,
           }));
-          insertKnowledgeChunks(tagged);
-          totalChunks += tagged.length;
+          totalChunks += insertWithSectionChunking(tagged);
           logEnrichment(
             patientId, 'condition', condition.conditionId, 'orphanet', 'bundled',
             conditionName, tagged.length, Date.now() - t0,
@@ -293,7 +318,7 @@ export async function bundleSdohPack(patientId: string, location?: string): Prom
         ...c,
         conditions: 'SDOH',
       }));
-      insertKnowledgeChunks(tagged);
+      insertWithSectionChunking(tagged);
       logEnrichment(
         patientId, 'condition', 'sdoh', 'cdc-places', 'bundled',
         loc, tagged.length, Date.now() - t0,
@@ -355,7 +380,7 @@ async function bundleOneMeasure(patientId: string, measure: HedisMeasure): Promi
       queryHash: hashQuery(deidQuery),
     })));
     if (tagged.length > 0) {
-      insertKnowledgeChunks(tagged);
+      insertWithSectionChunking(tagged);
     }
     logEnrichment(
       patientId, 'goal', measure.id, 'hedis', 'bundled',
@@ -424,7 +449,7 @@ export async function bundleSystematicReviewPack(patientId: string): Promise<voi
         lengthTier: 'long',
       })));
       if (tagged.length > 0) {
-        insertKnowledgeChunks(tagged);
+        insertWithSectionChunking(tagged);
       }
       logEnrichment(
         patientId, 'condition', condition.conditionId, 'pubmed', 'bundled',
@@ -450,7 +475,7 @@ export async function bundleFullSplPack(patientId: string): Promise<void> {
       const t0 = Date.now();
       await nlmRateLimiter.throttle();
       const labels = await fetchDrugLabel(med.name, true);
-      insertKnowledgeChunks(labels);
+      insertWithSectionChunking(labels);
       logEnrichment(
         patientId, 'medication', med.medicationId, 'dailymed', 'bundled',
         `${med.name} (full SPL)`, labels.length, Date.now() - t0,
@@ -490,11 +515,12 @@ export async function bundleMedicationPack(patientId: string): Promise<void> {
       const t0 = Date.now();
       await nlmRateLimiter.throttle();
       const labels = await fetchDrugLabel(med.name);
+      const medKey = med.name.trim().toLowerCase();
       const taggedChunks: KnowledgeChunk[] = labels.map((c) => ({
         ...c,
         conditions: med.name,
       }));
-      insertKnowledgeChunks(taggedChunks);
+      insertWithSectionChunking(taggedChunks, { medKey });
 
       logEnrichment(
         patientId, 'medication', med.medicationId, 'dailymed', 'bundled',
@@ -510,7 +536,9 @@ export async function bundleMedicationPack(patientId: string): Promise<void> {
       const t0 = Date.now();
       await nlmRateLimiter.throttle();
       const events = await fetchAdverseEvents(med.name);
-      insertKnowledgeChunks(events);
+      insertWithSectionChunking(events, {
+        medKey: med.name.trim().toLowerCase(),
+      });
 
       logEnrichment(
         patientId, 'medication', med.medicationId, 'openfda', 'bundled',
@@ -526,7 +554,9 @@ export async function bundleMedicationPack(patientId: string): Promise<void> {
       const t0 = Date.now();
       await nlmRateLimiter.throttle();
       const recalls = await fetchDrugRecalls(med.name);
-      insertKnowledgeChunks(recalls);
+      insertWithSectionChunking(recalls, {
+        medKey: med.name.trim().toLowerCase(),
+      });
 
       logEnrichment(
         patientId, 'medication', med.medicationId, 'openfda', 'bundled',
@@ -574,7 +604,7 @@ export async function liveSupplement(
         queryHash: hashQuery(deidQuery),
       }));
 
-      insertKnowledgeChunks(taggedChunks);
+      insertWithSectionChunking(taggedChunks);
       newChunks.push(...taggedChunks);
 
       logEnrichment(

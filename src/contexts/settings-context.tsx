@@ -14,6 +14,10 @@ import {
   updateTheme,
   updateNotificationPreferences,
   updateDemoDefaultModelId,
+  updateDynamicSlmLoading,
+  updateNluDevelopmentFallback,
+  updateEvidenceDevelopmentFallback,
+  updateKnowledgeGraphExpansion,
   type AppSettings,
 } from '@/data';
 import type { AppMode, ThemePreference, NotificationPreferences } from '@/data/types';
@@ -27,6 +31,10 @@ interface SettingsContextValue {
   setTheme: (theme: ThemePreference) => void;
   setNotificationPreferences: (prefs: Partial<NotificationPreferences>) => void;
   setDemoDefaultModelId: (modelId: string) => void;
+  setDynamicSlmLoading: (enabled: boolean) => void;
+  setNluDevelopmentFallback: (enabled: boolean) => void;
+  setEvidenceDevelopmentFallback: (enabled: boolean) => void;
+  setKnowledgeGraphExpansion: (enabled: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -59,6 +67,26 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSettings(updated);
   }, []);
 
+  const setDynamicSlmLoading = useCallback((enabled: boolean) => {
+    const updated = updateDynamicSlmLoading(enabled);
+    setSettings(updated);
+  }, []);
+
+  const setNluDevelopmentFallback = useCallback((enabled: boolean) => {
+    const updated = updateNluDevelopmentFallback(enabled);
+    setSettings(updated);
+  }, []);
+
+  const setEvidenceDevelopmentFallback = useCallback((enabled: boolean) => {
+    const updated = updateEvidenceDevelopmentFallback(enabled);
+    setSettings(updated);
+  }, []);
+
+  const setKnowledgeGraphExpansion = useCallback((enabled: boolean) => {
+    const updated = updateKnowledgeGraphExpansion(enabled);
+    setSettings(updated);
+  }, []);
+
   const value = useMemo<SettingsContextValue>(
     () => ({
       settings,
@@ -69,8 +97,23 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setTheme,
       setNotificationPreferences,
       setDemoDefaultModelId,
+      setDynamicSlmLoading,
+      setNluDevelopmentFallback,
+      setEvidenceDevelopmentFallback,
+      setKnowledgeGraphExpansion,
     }),
-    [settings, setMode, toggleMode, setTheme, setNotificationPreferences, setDemoDefaultModelId],
+    [
+      settings,
+      setMode,
+      toggleMode,
+      setTheme,
+      setNotificationPreferences,
+      setDemoDefaultModelId,
+      setDynamicSlmLoading,
+      setNluDevelopmentFallback,
+      setEvidenceDevelopmentFallback,
+      setKnowledgeGraphExpansion,
+    ],
   );
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

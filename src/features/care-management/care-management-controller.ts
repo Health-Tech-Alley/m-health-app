@@ -137,6 +137,7 @@ async function buildExplanationPrompt(
     retriever ?? null,
     retrievalQuery,
     5,
+    patientId,
   );
   const citationBlock = formatCitationsForPrompt(citations);
 

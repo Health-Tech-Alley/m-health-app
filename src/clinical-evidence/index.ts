@@ -49,6 +49,8 @@ export { RateLimiter, withRetry, sleep } from './rate-limiter';
 export {
   retrieveClinicalChunks,
   formatCitationsForPrompt,
+  formatCitationTag,
+  citationSourceLabel,
   buildRetrievalQuery,
   buildChatRetrievalQuery,
   messageHasClinicalKeywords,
@@ -56,4 +58,8 @@ export {
 } from './retrieval-helper';
 export type { RetrievedCitation } from './retrieval-helper';
 
-export { decideReasoningMode } from './reasoning-router';
+export { decideReasoningMode, selectChatGeneration, FAST_ELIGIBLE_INTENTS, ALWAYS_DEEP_INTENTS } from './reasoning-router';
+export type { ChatGenerationDecision } from './reasoning-router';
+
+export { formatAnswerWithFootnotes } from './citation-display';
+export type { FootnoteFormatResult } from './citation-display';

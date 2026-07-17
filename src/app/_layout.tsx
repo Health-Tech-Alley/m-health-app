@@ -46,11 +46,15 @@ Notifications.setNotificationHandler({
 });
 
 function SlmPolicySync() {
-  const { mode } = useSettings();
+  const { mode, settings } = useSettings();
   const { setPolicy } = useSLM();
   useEffect(() => {
-    setPolicy(mode === 'demo' ? 'auto' : 'manual');
-  }, [mode, setPolicy]);
+    if (settings.dynamicSlmLoading !== false) {
+      setPolicy('auto');
+    } else {
+      setPolicy(mode === 'demo' ? 'auto' : 'manual');
+    }
+  }, [mode, settings.dynamicSlmLoading, setPolicy]);
   return null;
 }
 

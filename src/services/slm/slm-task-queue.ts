@@ -5,16 +5,15 @@
  * SLMContext. Multiple SLM-required tasks (explain_alert, clarifying_answer,
  * caregiver_chat, ML enrichment) acquire leases via `acquire(reason)`; the
  * model stays loaded while any lease is held. When the last lease is released
- * and policy is 'auto', a 30s auto-unload timer starts. Any new acquire()
- * cancels the timer.
+ * and policy is 'auto', a configurable auto-unload timer starts (0ms for
+ * dynamic mode = immediate, 30s for legacy). Any new acquire() cancels the
+ * timer.
  *
- * The AppState background handling lives in SLMProvider now (D1): instead of
- * a forced immediate unload, the provider debounces a 30s grace window. The
- * queue just owns refcount + timer; the provider owns the policy decision.
- *
- * The orchestrator calls `acquire('explain_alert')` before `slm.chat(...)` and
- * `lease.release()` in a finally block. This makes the SLM lifecycle the
- * queue's responsibility, not the orchestrator's or the UI's.
+ * Doc 34 additions:
+ * - `preload_warm` reason for speculative warm-up (alert detail / emergency)
+ * - `forceAutoLoadOnAcquire` to bypass manual policy in dynamic mode
+ * - Mutable `autoUnloadMs` for hot-switching between dynamic (0) and legacy (30s)
+ * - Immediate unload when autoUnloadMs <= 0 and refcount hits 0
  */
 
 export type SlmTaskReason =
@@ -26,7 +25,12 @@ export type SlmTaskReason =
   | 'enrich_summary'
   // Transient, on-demand SLM use (controlled load/unload):
   | 'safety_note_explain'
-  | 'custom_med_check';
+  | 'custom_med_check'
+  // Doc 34: speculative warm-up — no generation required
+  | 'preload_warm'
+  // UC3/UC4 (doc 38): SLM explain for rehab trajectory and provider summary rewrite
+  | 'explain_rehab_trajectory'
+  | 'uc4_provider_summary_rewrite';
 
 export type SlmLoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type SlmPolicy = 'manual' | 'auto';
@@ -53,14 +57,19 @@ export interface SlmTaskQueueConfig {
   /** Called when the queue wants to know if a load is already in progress. */
   getLoadPromise: () => Promise<void> | null;
   setLoadPromise: (promise: Promise<void> | null) => void;
-  /** Idle-unload timer in ms. Default 30_000 (D1). */
+  /** Idle-unload timer in ms. Default 30_000 (legacy). 0 = immediate (dynamic). */
   autoUnloadMs?: number;
+  /**
+   * When true, acquire() always auto-loads (ignores manual policy refuse).
+   * Dynamic mode forces this true. Legacy keeps demo=auto / developer=manual.
+   */
+  forceAutoLoadOnAcquire?: boolean;
 }
 
 export class SlmTaskQueue {
   private refcount = 0;
   private autoUnloadTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly autoUnloadMs: number;
+  private autoUnloadMs: number;
   private config: SlmTaskQueueConfig;
 
   constructor(config: SlmTaskQueueConfig) {
@@ -71,6 +80,9 @@ export class SlmTaskQueue {
   /** Update the config (called by SLMProvider when state changes). */
   updateConfig(config: SlmTaskQueueConfig): void {
     this.config = config;
+    if (config.autoUnloadMs !== undefined) {
+      this.autoUnloadMs = config.autoUnloadMs;
+    }
   }
 
   /**
@@ -78,16 +90,10 @@ export class SlmTaskQueue {
    *
    * - If the model is 'ready', returns immediately with an incremented refcount.
    * - If 'loading', awaits the in-progress load (startup or another acquire).
-   * - If 'idle'/'error' and policy is 'auto', triggers a fresh load.
+   * - If 'idle'/'error' and policy is 'auto' (or forceAutoLoadOnAcquire), triggers a fresh load.
    * - If policy is 'manual' and not ready, throws SlmNotReadyError.
    *
    * Cancels any pending auto-unload timer.
-   *
-   * Note: after awaiting a load we grant the lease directly rather than
-   * re-reading getLoadStatus(). The await continuation runs as a microtask,
-   * before React's scheduled render, so the status getter would still report
-   * the pre-load value ('loading'/'idle') and wrongly reject the lease. A
-   * resolved load promise means the model is ready.
    */
   async acquire(reason: SlmTaskReason): Promise<SlmTaskLease> {
     this.cancelAutoUnload();
@@ -101,27 +107,30 @@ export class SlmTaskQueue {
       return this.makeLease(reason);
     }
 
-    // A load is already in progress (e.g. the startup load from
-    // SLMProvider) — await it rather than starting a second.
+    // A load is already in progress — await it rather than starting a second.
     if (status === 'loading') {
       const existing = this.config.getLoadPromise();
       if (!existing) {
-        // Inconsistent state (loading with no tracked promise) — bail safely.
         throw new SlmNotReadyError(reason);
       }
-      await existing; // throws if the in-progress load fails
+      await existing;
       this.refcount++;
       return this.makeLease(reason);
     }
 
-    // status is 'idle' or 'error' — only auto-load on demand in auto policy.
-    if (policy === 'manual') {
+    // status is 'idle' or 'error' — check if we may auto-load.
+    const mayAutoLoad =
+      this.config.forceAutoLoadOnAcquire === true ||
+      policy === 'auto';
+
+    if (!mayAutoLoad) {
       throw new SlmNotReadyError(reason);
     }
 
     // Auto-load the default model, then grant the lease.
     const modelId = this.config.getDefaultModelId();
-    const loadPromise = this.config.loadModel(modelId)
+    const loadPromise = this.config
+      .loadModel(modelId)
       .then(() => {
         this.config.setLoadPromise(null);
       })
@@ -131,22 +140,40 @@ export class SlmTaskQueue {
       });
     this.config.setLoadPromise(loadPromise);
 
-    await loadPromise; // throws if the load fails → propagates to the caller
+    await loadPromise;
     this.refcount++;
     return this.makeLease(reason);
   }
 
   /**
-   * Release a lease. When refcount hits 0 and policy is 'auto', schedule the
-   * auto-unload timer. Called automatically by the lease's `release()` method.
+   * Release a lease. When refcount hits 0 and auto-unload is allowed, either
+   * unload immediately (autoUnloadMs <= 0, dynamic mode) or schedule the
+   * auto-unload timer (legacy 30s).
+   *
+   * Dynamic mode uses forceAutoLoadOnAcquire; unload must use the same signal
+   * (not only policy==='auto') so we never leave the model green after the
+   * last lease ends when policy is still briefly 'manual' or out of sync.
    */
   release(_reason: SlmTaskReason): void {
     if (this.refcount > 0) {
       this.refcount--;
     }
-    if (this.refcount === 0 && this.config.getPolicy() === 'auto') {
-      this.scheduleAutoUnload();
+    if (this.refcount === 0 && this.mayAutoUnload()) {
+      if (this.autoUnloadMs <= 0) {
+        // Dynamic mode: immediate unload when last lease ends.
+        void this.config.unloadModel();
+      } else {
+        this.scheduleAutoUnload();
+      }
     }
+  }
+
+  /** Whether last-lease release should unload (dynamic force-auto or policy auto). */
+  private mayAutoUnload(): boolean {
+    return (
+      this.config.forceAutoLoadOnAcquire === true ||
+      this.config.getPolicy() === 'auto'
+    );
   }
 
   /** Force-release all leases (no unload — the provider owns that decision). */
@@ -174,7 +201,7 @@ export class SlmTaskQueue {
     this.cancelAutoUnload();
     this.autoUnloadTimer = setTimeout(() => {
       this.autoUnloadTimer = null;
-      if (this.refcount === 0 && this.config.getPolicy() === 'auto') {
+      if (this.refcount === 0 && this.mayAutoUnload()) {
         void this.config.unloadModel();
       }
     }, this.autoUnloadMs);
