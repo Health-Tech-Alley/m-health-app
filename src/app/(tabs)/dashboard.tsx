@@ -42,6 +42,10 @@ export default function DashboardRoute() {
   );
   const showRehabReminder =
     hasDocumentedRehabPlan && snapshot?.todayDailyCareEntry?.therapyCompleted !== true;
+  const topUc4Priority = snapshot?.latestUc4PriorityCards?.[0] ?? null;
+  const uc3Result = snapshot?.latestUc3TrajectoryResult ?? null;
+  const showUc3Status =
+    Boolean(uc3Result) && uc3Result?.eventType !== "NO_TRAJECTORY_FAILURE";
 
   const scrollToAlertsLog = () => {
     scrollRef.current?.scrollTo({
@@ -86,6 +90,18 @@ export default function DashboardRoute() {
             patientId={patientId}
             onReviewPress={scrollToAlertsLog}
           />
+          {topUc4Priority ? (
+            <CareFocusCompactCard
+              title={topUc4Priority.title}
+              detail={`Priority ${Math.round(topUc4Priority.score * 100)}%`}
+            />
+          ) : null}
+          {showUc3Status && uc3Result ? (
+            <Uc3HomeStatusCard
+              eventType={uc3Result.eventType}
+              urgent={uc3Result.emergencyThresholdBreach || uc3Result.severity === "urgent"}
+            />
+          ) : null}
           {showRehabReminder ? (
             <View>
               <Text style={styles.sectionTitle}>{"Today\u2019s care"}</Text>
@@ -104,6 +120,50 @@ export default function DashboardRoute() {
         </ScrollView>
       </View>
     </SafeAreaView>
+  );
+}
+
+function CareFocusCompactCard({ title, detail }: { title: string; detail: string }) {
+  return (
+    <Pressable
+      style={styles.compactCard}
+      onPress={() => router.push("/care")}
+      accessibilityRole="button"
+      accessibilityLabel="Open care focus checklist"
+    >
+      <View style={styles.compactIcon}>
+        <AppIcon name="heart" size={24} color={AppTheme.colors.warning} />
+      </View>
+      <View style={styles.compactBody}>
+        <Text style={styles.compactKicker}>Care focus</Text>
+        <Text style={styles.compactTitle} numberOfLines={2}>{title}</Text>
+        <Text style={styles.compactMeta}>{detail}</Text>
+      </View>
+      <AppIcon name="chevronRight" size={24} color={AppTheme.colors.textMuted} />
+    </Pressable>
+  );
+}
+
+function Uc3HomeStatusCard({ eventType, urgent }: { eventType: string; urgent: boolean }) {
+  return (
+    <Pressable
+      style={[styles.compactCard, urgent && styles.compactCardUrgent]}
+      onPress={() => router.push("/care")}
+      accessibilityRole="button"
+      accessibilityLabel="Open rehabilitation progress result"
+    >
+      <View style={styles.compactIcon}>
+        <AppIcon name={urgent ? "alert" : "walking"} size={24} color={urgent ? AppTheme.colors.danger : AppTheme.colors.brand} />
+      </View>
+      <View style={styles.compactBody}>
+        <Text style={styles.compactKicker}>Rehabilitation progress</Text>
+        <Text style={styles.compactTitle} numberOfLines={2}>
+          {urgent ? "Urgent safety concern" : "Progress review available"}
+        </Text>
+        <Text style={styles.compactMeta}>{eventType.replace(/_/g, " ").toLowerCase()}</Text>
+      </View>
+      <AppIcon name="chevronRight" size={24} color={AppTheme.colors.textMuted} />
+    </Pressable>
   );
 }
 
@@ -187,6 +247,51 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1.1,
     textTransform: "uppercase",
+  },
+  compactCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    padding: 16,
+    marginBottom: 14,
+  },
+  compactCardUrgent: {
+    borderColor: AppTheme.colors.danger,
+    backgroundColor: "#FEF2F2",
+  },
+  compactIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: AppTheme.colors.softSurface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compactBody: {
+    flex: 1,
+  },
+  compactKicker: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  compactTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  compactMeta: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 3,
   },
   rehabCard: {
     backgroundColor: AppTheme.colors.surface,

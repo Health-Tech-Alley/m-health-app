@@ -55,6 +55,11 @@ import { getSymptomsForPatient } from './symptomRepository';
 import { getActiveThresholds } from './thresholdRepository';
 import { getPrimaryWearableForPatient } from './wearableDeviceRepository';
 import { getLatestActiveUc3TrajectoryResultSummary } from './uc3TrajectoryResultRepository';
+import {
+  getActiveUc4PriorityCardSummaries,
+  getLatestUc4RunSummary,
+  getUc4CaregiverResponses,
+} from './uc4PriorityRepository';
 
 export type { BundleStatus, CarePlanGoalSummary, PatientRecordSnapshot } from '../types';
 
@@ -222,6 +227,9 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const latestUc3TrajectoryResult = carePlan
     ? getLatestActiveUc3TrajectoryResultSummary(patientId, carePlan.planId)
     : null;
+  const latestUc4Run = getLatestUc4RunSummary(patientId);
+  const latestUc4PriorityCards = getActiveUc4PriorityCardSummaries(patientId, 3);
+  const recentUc4CaregiverResponses = getUc4CaregiverResponses(patientId, 20);
   const careContextItems = getPatientCareContextItems(patientId);
   const timelineEvents = getPatientTimelineEvents(patientId);
   const carePlanGoals = getCarePlanGoals(patientId);
@@ -268,6 +276,9 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     todayDailyCareEntry,
     rehabDailyEntries,
     latestUc3TrajectoryResult,
+    latestUc4Run,
+    latestUc4PriorityCards,
+    recentUc4CaregiverResponses,
     careContextItems,
     timelineEvents,
     carePlanGoals,

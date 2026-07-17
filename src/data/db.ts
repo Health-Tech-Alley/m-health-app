@@ -122,6 +122,9 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS daily_care_entries;
     DROP TABLE IF EXISTS rehab_exercise_assignments;
     DROP TABLE IF EXISTS uc3_trajectory_results;
+    DROP TABLE IF EXISTS uc4_runs;
+    DROP TABLE IF EXISTS uc4_priority_cards;
+    DROP TABLE IF EXISTS uc4_caregiver_responses;
     DROP TABLE IF EXISTS rehabilitation_measurements;
     DROP TABLE IF EXISTS care_plan_rehab_metrics;
     DROP TABLE IF EXISTS patient_longitudinal_observations;

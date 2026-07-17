@@ -929,6 +929,69 @@ export interface LatestUc3TrajectoryResultSummary {
   caregiverMessagePreview?: string;
 }
 
+export type Uc4RunStatus = 'completed' | 'paused' | 'no_cards' | 'error';
+export type Uc4PriorityCardStatus =
+  | 'active'
+  | 'acknowledged'
+  | 'completed'
+  | 'dismissed'
+  | 'superseded';
+
+export interface Uc4WhatToLogNextFieldSummary {
+  fieldId: string;
+  label: string;
+  type: string;
+  required: boolean;
+  options?: string[];
+  usedForScoring: boolean;
+}
+
+export interface LatestUc4RunSummary {
+  runId: string;
+  patientId: string;
+  status: Uc4RunStatus;
+  paused: boolean;
+  pauseReason?: string | null;
+  generatedAt: string;
+  engineVersion: string;
+  schemaVersion: string;
+  templateRegistryVersion: string;
+  ruleRegistryVersion: string;
+  scoringVersion: string;
+  cardCount: number;
+}
+
+export interface LatestUc4PriorityCardSummary {
+  cardId: string;
+  patientId: string;
+  runId: string;
+  templateId: string;
+  priorityKind: string;
+  title: string;
+  body: string;
+  domain: string;
+  score: number;
+  firedRuleCodes: string[];
+  evidence: unknown[];
+  whatToLogNextSchema: Uc4WhatToLogNextFieldSummary[];
+  safetyBoundary: string;
+  status: Uc4PriorityCardStatus;
+  generatedAt: string;
+}
+
+export interface Uc4CaregiverResponseSummary {
+  responseId: string;
+  patientId: string;
+  cardId?: string | null;
+  templateId?: string | null;
+  action: string;
+  observationCodes: string[];
+  contextCodes: string[];
+  caregiverRequestedProviderReview: boolean;
+  shortText?: string | null;
+  createdAt: string;
+}
+
 export interface BundleStatus {
   state: 'in_flight' | 'complete' | 'failed';
   chunksAdded: number;
@@ -958,6 +1021,9 @@ export interface PatientRecordSnapshot {
   todayDailyCareEntry: DailyCareEntry | null;
   rehabDailyEntries: DailyCareEntry[];
   latestUc3TrajectoryResult: LatestUc3TrajectoryResultSummary | null;
+  latestUc4Run: LatestUc4RunSummary | null;
+  latestUc4PriorityCards: LatestUc4PriorityCardSummary[];
+  recentUc4CaregiverResponses: Uc4CaregiverResponseSummary[];
   careContextItems: PatientCareContextItem[];
   timelineEvents: PatientTimelineEvent[];
   carePlanGoals: CarePlanGoalSummary[];
