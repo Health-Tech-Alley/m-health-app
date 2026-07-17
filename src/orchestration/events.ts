@@ -71,6 +71,36 @@ export type OrchestrationEvent =
       at: string;
     }
   | { type: 'slm_explain_requested'; alertId: string; patientId: string; at: string }
+  | {
+      type: 'uc3_trajectory_evaluated';
+      patientId: string;
+      resultId: string;
+      carePlanId: string;
+      eventType: string;
+      severity: string;
+      requiresHumanReview: boolean;
+      emergencyThresholdBreach: boolean;
+      generatedAt: string;
+      at: string;
+    }
+  | {
+      type: 'uc4_priorities_evaluated';
+      patientId: string;
+      runId: string;
+      status: 'completed' | 'paused' | 'no_cards' | 'error';
+      paused: boolean;
+      pauseReason?: string | null;
+      cardCount: number;
+      at: string;
+    }
+  | {
+      type: 'uc4_caregiver_response';
+      patientId: string;
+      responseId: string;
+      cardId?: string | null;
+      action: string;
+      at: string;
+    }
   | { type: 'appt_synced'; apptId: string; patientId: string; at: string }
   | { type: 'consent_changed'; patientId: string; scope: string; granted: boolean; at: string }
   | {

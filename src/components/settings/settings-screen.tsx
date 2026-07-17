@@ -79,6 +79,7 @@ import {
   describeUc3DeveloperEvaluationResult,
   type Uc3DeveloperEvaluationStatus,
 } from '@/services/uc3/uc3DeveloperEvaluationPresenter';
+import { evaluateAndPersistUc4Priorities } from '@/services/uc4/uc4EvaluationService';
 
 const teal = '#0E6F68';
 const darkText = '#123433';
@@ -376,6 +377,9 @@ export function AdvancedDeveloperSettingsScreen() {
   const [runningUc3Evaluation, setRunningUc3Evaluation] = useState(false);
   const [uc3EvaluationStatus, setUc3EvaluationStatus] =
     useState<Uc3DeveloperEvaluationStatus | null>(null);
+  const [runningUc4Evaluation, setRunningUc4Evaluation] = useState(false);
+  const [uc4EvaluationStatus, setUc4EvaluationStatus] =
+    useState<Uc3DeveloperEvaluationStatus | null>(null);
   const [importingEhr, setImportingEhr] = useState(false);
   const [importProgress, setImportProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const activeCarePlan = snapshot?.carePlan ?? null;
@@ -440,6 +444,45 @@ export function AdvancedDeveloperSettingsScreen() {
       }
     } finally {
       setRunningUc3Evaluation(false);
+    }
+  }, [refresh, snapshot]);
+
+  const handleRunUc4Evaluation = useCallback(() => {
+    if (!snapshot?.patient) {
+      setUc4EvaluationStatus({
+        title: 'UC4 evaluation not ready',
+        lines: ['No active patient selected.'],
+      });
+      return;
+    }
+
+    setRunningUc4Evaluation(true);
+    try {
+      const result = evaluateAndPersistUc4Priorities(snapshot);
+      if (result.status === 'success') {
+        setUc4EvaluationStatus({
+          title: 'UC4 evaluation saved',
+          lines: [
+            `Run: ${result.runId}`,
+            `Status: ${result.runStatus}`,
+            `Cards: ${result.cards.length}`,
+            result.pauseReason ? `Pause reason: ${result.pauseReason}` : '',
+          ].filter(Boolean),
+        });
+        refresh();
+      } else if (result.status === 'not_ready') {
+        setUc4EvaluationStatus({
+          title: 'UC4 evaluation not ready',
+          lines: result.errors.map((item) => `${item.code}: ${item.message}`),
+        });
+      } else {
+        setUc4EvaluationStatus({
+          title: `UC4 ${result.status.replace(/_/g, ' ')}`,
+          lines: [result.message],
+        });
+      }
+    } finally {
+      setRunningUc4Evaluation(false);
     }
   }, [refresh, snapshot]);
 
@@ -1188,6 +1231,40 @@ export function AdvancedDeveloperSettingsScreen() {
                     {uc3EvaluationStatus.title}
                   </Text>
                   {uc3EvaluationStatus.lines.map((line) => (
+                    <Text key={line} style={styles.uc3EvaluationStatusLine}>
+                      {line}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          </Section>
+        ) : null}
+
+        {__DEV__ && isDeveloper ? (
+          <Section title="UC4 priority evaluation">
+            <View style={styles.devSection}>
+              <Text style={styles.devInfo}>
+                Development-only manual run for the active patient. UC4 cards stay separate from emergency alerts.
+              </Text>
+              <Pressable
+                style={[
+                  styles.actionButton,
+                  runningUc4Evaluation && styles.disabledActionButton,
+                ]}
+                onPress={handleRunUc4Evaluation}
+                disabled={runningUc4Evaluation}
+                accessibilityRole="button"
+                accessibilityLabel="Run UC4 evaluation"
+              >
+                <Text style={styles.actionButtonText}>Run UC4 evaluation</Text>
+              </Pressable>
+              {uc4EvaluationStatus ? (
+                <View style={styles.uc3EvaluationStatusCard}>
+                  <Text style={styles.uc3EvaluationStatusTitle}>
+                    {uc4EvaluationStatus.title}
+                  </Text>
+                  {uc4EvaluationStatus.lines.map((line) => (
                     <Text key={line} style={styles.uc3EvaluationStatusLine}>
                       {line}
                     </Text>

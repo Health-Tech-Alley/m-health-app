@@ -4,6 +4,8 @@ import {
   saveUc3TrajectoryResult,
 } from '../../data/repositories/uc3TrajectoryResultRepository';
 import { evaluateRehabTrajectory } from '../../ml-models/uc3-rehab';
+import { getEventBus } from '../../orchestration/event-bus';
+import { dispatchImmediate } from '../notifications';
 import { adaptPatientRecordSnapshotToUC3Input } from './uc3PatientStateAdapter';
 import { evaluateAndPersistUc3Trajectory } from './uc3EvaluationService';
 
@@ -20,10 +22,20 @@ jest.mock('../../data/repositories/uc3TrajectoryResultRepository', () => ({
   saveUc3TrajectoryResult: jest.fn(),
 }));
 
+jest.mock('../../orchestration/event-bus', () => ({
+  getEventBus: jest.fn(),
+}));
+
+jest.mock('../notifications', () => ({
+  dispatchImmediate: jest.fn(),
+}));
+
 const mockAdapt = adaptPatientRecordSnapshotToUC3Input as jest.Mock;
 const mockEvaluate = evaluateRehabTrajectory as jest.Mock;
 const mockSave = saveUc3TrajectoryResult as jest.Mock;
 const mockRead = getUc3TrajectoryResultById as jest.Mock;
+const mockBus = getEventBus as jest.Mock;
+const mockDispatch = dispatchImmediate as jest.Mock;
 
 const snapshot = { patient: { patientId: 'patient-1' } } as PatientRecordSnapshot;
 
@@ -100,6 +112,7 @@ beforeEach(() => {
   mockEvaluate.mockReturnValue(decision);
   mockSave.mockReturnValue({ resultId: 'saved-result', inserted: true });
   mockRead.mockReturnValue(persistedResult);
+  mockBus.mockReturnValue({ publish: jest.fn() });
 });
 
 describe('evaluateAndPersistUc3Trajectory', () => {
@@ -144,6 +157,15 @@ describe('evaluateAndPersistUc3Trajectory', () => {
       dataQualityJson: JSON.stringify(decision.dataQuality),
     }));
     expect(mockRead).toHaveBeenCalledWith('saved-result');
+    expect(mockBus().publish).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'uc3_trajectory_evaluated',
+      resultId: 'saved-result',
+      eventType: 'TRAJECTORY_FAILURE_DETECTED',
+    }));
+    expect(mockDispatch).toHaveBeenCalledWith(expect.objectContaining({
+      scope: 'care_task',
+      severity: 2,
+    }));
     expect(result).toMatchObject({
       status: 'success',
       decision,

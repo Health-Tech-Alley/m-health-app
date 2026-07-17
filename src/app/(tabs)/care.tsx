@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ObservationVitalsCard } from "@/components/care/ObservationVitalsCard";
+import { Uc4PriorityCard } from "@/components/care/Uc4PriorityCard";
 import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
@@ -37,6 +38,7 @@ import type {
   CarePlanRehabMetric,
   PatientCareContextItem,
   PatientTimelineEvent,
+  LatestUc4PriorityCardSummary,
   RehabilitationMeasurement,
   RehabilitationMeasurementType,
 } from "@/data/types";
@@ -53,6 +55,10 @@ import {
   getUc3ResultDisplay,
   type Uc3ResultDisplay,
 } from "@/services/uc3/uc3ResultPresenter";
+import {
+  submitUc4CaregiverResponse,
+  type Uc4CardResponseAction,
+} from "@/services/uc4/uc4EvaluationService";
 
 type DailyCareEditField =
   | "setsCompleted"
@@ -81,10 +87,12 @@ export default function CareScreen() {
   const patientName = getPatientDisplayName(activePatient);
   const diagnosis = getPrimaryDiagnosisDisplay(activePatient);
   const carePlan = snapshot?.carePlan ?? null;
+  const latestUc3Result = snapshot?.latestUc3TrajectoryResult ?? null;
   const uc3ResultDisplay = useMemo(
-    () => getUc3ResultDisplay(snapshot?.latestUc3TrajectoryResult ?? null),
-    [snapshot?.latestUc3TrajectoryResult],
+    () => getUc3ResultDisplay(latestUc3Result),
+    [latestUc3Result],
   );
+  const uc4PriorityCards = snapshot?.latestUc4PriorityCards ?? [];
   const rehabPlanMetrics = snapshot?.rehabPlanMetrics ?? [];
   const carePlanHistory = snapshot?.carePlans ?? [];
   const timelineEvents = snapshot?.timelineEvents;
@@ -306,6 +314,55 @@ export default function CareScreen() {
   const [openConsideration, setOpenConsideration] = useState<string | null>(null);
   const [slmOpen, setSlmOpen] = useState(false);
   const [slmPrompt, setSlmPrompt] = useState("");
+  const explainUc3Result = () => {
+    if (!latestUc3Result) return;
+    setSlmPrompt(
+      [
+        `Explain persisted UC3 rehabilitation result ${latestUc3Result.resultId} in plain caregiver language.`,
+        `Event: ${latestUc3Result.eventType}.`,
+        `Severity: ${latestUc3Result.severity}.`,
+        `Requires human review: ${latestUc3Result.requiresHumanReview ? "yes" : "no"}.`,
+        `Emergency safety boundary: ${latestUc3Result.emergencyThresholdBreach ? "yes" : "no"}.`,
+        `Jay model explanation: ${latestUc3Result.explanations[0] ?? "No explanation provided."}`,
+        "Do not change the classification, infer new clinical conclusions, or turn this into an emergency alert unless the persisted result already says urgent.",
+      ].join("\n"),
+    );
+    setSlmOpen(true);
+  };
+  const handleUc4Respond = useCallback((
+    card: LatestUc4PriorityCardSummary,
+    action: Uc4CardResponseAction,
+    payload: {
+      observationCodes: string[];
+      contextCodes: string[];
+      caregiverRequestedProviderReview: boolean;
+    },
+  ) => {
+    if (!patientId) return;
+    submitUc4CaregiverResponse({
+      patientId,
+      cardId: card.cardId,
+      templateId: card.templateId,
+      action,
+      observationCodes: payload.observationCodes,
+      contextCodes: payload.contextCodes,
+      caregiverRequestedProviderReview: payload.caregiverRequestedProviderReview,
+    });
+    refresh();
+  }, [patientId, refresh]);
+  const explainUc4Card = useCallback((card: LatestUc4PriorityCardSummary) => {
+    setSlmPrompt(
+      [
+        `Explain persisted UC4 care focus card ${card.cardId} in plain caregiver language.`,
+        `Template: ${card.templateId}.`,
+        `Title: ${card.title}.`,
+        `Body: ${card.body}.`,
+        `Safety boundary: ${card.safetyBoundary}.`,
+        "Do not change the selected priority, score, safety boundary, or infer diagnosis, medication causality, emergency status, or treatment changes.",
+      ].join("\n"),
+    );
+    setSlmOpen(true);
+  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -555,7 +612,24 @@ export default function CareScreen() {
                 </View>
               </View>
 
-              <Uc3ResultCard display={uc3ResultDisplay} />
+              <Uc3ResultCard
+                display={uc3ResultDisplay}
+                onExplain={latestUc3Result ? explainUc3Result : undefined}
+              />
+
+              {uc4PriorityCards.length > 0 ? (
+                <View style={styles.uc4PriorityBlock}>
+                  <Text style={styles.urgentSymptomTitle}>Care focus checklist</Text>
+                  {uc4PriorityCards.map((card) => (
+                    <Uc4PriorityCard
+                      key={card.cardId}
+                      card={card}
+                      onExplain={explainUc4Card}
+                      onRespond={handleUc4Respond}
+                    />
+                  ))}
+                </View>
+              ) : null}
 
               {cpProgressMeasurements.length > 0 ? (
                 <ProgressMetric
@@ -844,7 +918,7 @@ function CarePlanMeta({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Uc3ResultCard({ display }: { display: Uc3ResultDisplay }) {
+function Uc3ResultCard({ display, onExplain }: { display: Uc3ResultDisplay; onExplain?: () => void }) {
   const toneStyle =
     display.tone === "urgent"
       ? styles.uc3ResultCardUrgent
@@ -885,6 +959,11 @@ function Uc3ResultCard({ display }: { display: Uc3ResultDisplay }) {
             </Text>
           ))}
         </View>
+      ) : null}
+      {onExplain ? (
+        <Pressable style={styles.uc3ExplainButton} onPress={onExplain}>
+          <Text style={styles.uc3ExplainButtonText}>Explain this result</Text>
+        </Pressable>
       ) : null}
     </View>
   );
@@ -2321,6 +2400,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "700",
+  },
+  uc3ExplainButton: {
+    alignSelf: "flex-start",
+    borderRadius: 8,
+    backgroundColor: AppTheme.colors.brand,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 2,
+  },
+  uc3ExplainButtonText: {
+    color: AppTheme.colors.white,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  uc4PriorityBlock: {
+    borderTopWidth: 1,
+    borderColor: AppTheme.colors.border,
+    paddingTop: 14,
+    marginBottom: 18,
+    gap: 8,
   },
   progressMetric: {
     marginBottom: 18,

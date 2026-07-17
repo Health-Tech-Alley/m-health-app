@@ -1067,4 +1067,67 @@ export const MIGRATIONS: Migration[] = [
 
   CREATE INDEX IF NOT EXISTS idx_uc3_results_patient_plan_status
     ON uc3_trajectory_results(patient_id, care_plan_id, status, generated_at DESC);`,
+
+  // 44: persisted UC4 micro-priority runs, cards, and caregiver responses.
+  `CREATE TABLE IF NOT EXISTS uc4_runs (
+    run_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('completed', 'paused', 'no_cards', 'error')),
+    pause_reason TEXT,
+    generated_at TEXT NOT NULL,
+    engine_version TEXT NOT NULL,
+    schema_version TEXT NOT NULL,
+    template_registry_version TEXT NOT NULL,
+    rule_registry_version TEXT NOT NULL,
+    scoring_version TEXT NOT NULL,
+    candidates_json TEXT NOT NULL,
+    audit_records_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_uc4_runs_patient_generated
+    ON uc4_runs(patient_id, generated_at DESC);
+
+  CREATE TABLE IF NOT EXISTS uc4_priority_cards (
+    card_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    priority_kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    score REAL NOT NULL,
+    fired_rule_codes_json TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    what_to_log_next_schema_json TEXT NOT NULL,
+    safety_boundary TEXT NOT NULL,
+    free_text_used_for_scoring INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active'
+      CHECK (status IN ('active', 'acknowledged', 'completed', 'dismissed', 'superseded')),
+    generated_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_uc4_cards_patient_status_score
+    ON uc4_priority_cards(patient_id, status, score DESC);
+
+  CREATE TABLE IF NOT EXISTS uc4_caregiver_responses (
+    response_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    card_id TEXT,
+    template_id TEXT,
+    action TEXT NOT NULL,
+    observation_codes_json TEXT NOT NULL,
+    context_codes_json TEXT NOT NULL,
+    caregiver_requested_provider_review INTEGER NOT NULL DEFAULT 0,
+    short_text TEXT,
+    free_text_used_for_scoring INTEGER NOT NULL DEFAULT 0,
+    used_for_scoring INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_uc4_responses_patient_created
+    ON uc4_caregiver_responses(patient_id, created_at DESC);`,
 ];
