@@ -27,13 +27,34 @@ function sourceTag(chunk: RetrievedChunk): string {
     'cdc-places': 'SDOH',
     semmeddb: 'SemMedDB',
     hedis: 'HEDIS',
-    synthetic: 'Reference',
+    synthetic: 'Development Fixture',
     'patient-plan': 'Care Plan',
+    'patient-record': 'Patient Record',
     rxnorm: 'RxNorm',
   };
   const label = labels[String(chunk.source)] ?? String(chunk.source);
   const section = chunk.sectionHeading ? ` · ${chunk.sectionHeading}` : '';
   return `${label}${section}`;
+}
+
+function citationProvenance(chunk: RetrievedChunk): string {
+  const parts = [
+    chunk.sourceId ? `source_id=${chunk.sourceId}` : null,
+    chunk.resourceId ? `resource_id=${chunk.resourceId}` : null,
+    chunk.effectiveAt ? `effective_at=${chunk.effectiveAt}` : null,
+    chunk.createdAt ? `retrieved_at=${chunk.createdAt}` : null,
+    chunk.retrievalMethod ? `method=${chunk.retrievalMethod}` : null,
+    chunk.synthetic ? 'development_fixture=true' : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+}
+
+function citationLine(chunk: RetrievedChunk, text: string): string {
+  const base = `[${sourceTag(chunk).trim()}]${citationProvenance(chunk)} ${text}`;
+  if (chunk.graphRelation && chunk.graphSeedId) {
+    return `[${chunk.graphRelation}←${chunk.graphSeedId}] ${base}`;
+  }
+  return base;
 }
 
 export interface PatientBlockInput {
@@ -156,10 +177,9 @@ export function citationsBlock(
   for (const c of chunks) {
     const remaining = maxChars - used;
     if (remaining <= 50) break;
-    const tag = sourceTag(c);
     const text = c.text.length > remaining ? c.text.slice(0, remaining) + '…' : c.text;
-    lines.push(`[${tag.trim()}] ${text}`);
-    used += text.length + tag.length + 4;
+    lines.push(citationLine(c, text));
+    used += text.length + citationLine(c, '').length;
   }
   return lines.join('\n');
 }
@@ -182,10 +202,9 @@ export function budgetAwareCitationsBlock(
     if (remaining <= minPer) break;
     const share = Math.max(minPer, Math.min(maxPer, Math.round((score / totalScore) * totalChars)));
     const cap = Math.min(share, remaining);
-    const tag = sourceTag(c);
     const text = c.text.length > cap ? c.text.slice(0, cap - 1) + '…' : c.text;
-    lines.push(`[${tag.trim()}] ${text}`);
-    used += text.length + tag.length + 4;
+    lines.push(citationLine(c, text));
+    used += text.length + citationLine(c, '').length;
   }
   return lines.join('\n');
 }
@@ -350,5 +369,40 @@ export function progressMeasuresBlock(
     }
   }
   if (lines.length === 1) return 'PROGRESS MEASURES\nNone recorded';
+  return lines.join('\n');
+}
+
+/** UC3 persisted trajectory result — structured only (doc 38). */
+export function rehabTrajectoryBlock(
+  rt: AggregatedContext['rehabTrajectory'],
+): string {
+  if (!rt) return 'REHAB TRAJECTORY (UC3)\nNone recorded';
+  const lines = [
+    'REHAB TRAJECTORY (UC3) — persisted result; do not re-score',
+    `resultId: ${rt.resultId}`,
+    `eventType: ${rt.eventType}`,
+    `severity: ${rt.severity}`,
+    `requiresHumanReview: ${rt.requiresHumanReview}`,
+    `emergencyThresholdBreach: ${rt.emergencyThresholdBreach}`,
+    `reviewPriorityScore: ${rt.reviewPriorityScore}`,
+    `reasonCodes: ${rt.reasonCodes.join(', ') || 'none'}`,
+  ];
+  if (rt.caregiverMessagePreview) {
+    lines.push(`caregiverMessagePreview: ${rt.caregiverMessagePreview}`);
+  }
+  return lines.join('\n');
+}
+
+/** UC4 active micro-priority cards — structured only (doc 38). */
+export function uc4PrioritiesBlock(
+  cards: AggregatedContext['uc4Priorities'],
+): string {
+  if (!cards || cards.length === 0) return 'CARE FOCUS PRIORITIES (UC4)\nNone active';
+  const lines = ['CARE FOCUS PRIORITIES (UC4) — do not re-score or invent templates'];
+  for (const c of cards) {
+    lines.push(
+      `- ${c.title} (templateId=${c.templateId}, score=${c.score.toFixed(3)}, cardId=${c.cardId})`,
+    );
+  }
   return lines.join('\n');
 }

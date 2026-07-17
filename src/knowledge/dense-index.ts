@@ -27,7 +27,9 @@ export class DenseIndex {
   }
 
   async search(query: string, k = 10): Promise<{ docId: string; score: number }[]> {
-    const qVec = await this.embedder.embed(query);
+    // leaf-ir requires the IR query prefix on query strings only (docs already
+    // embedded without it in add()).
+    const qVec = await this.embedder.embed(query, { isQuery: true });
     const scored = this.docs
       .filter((d) => d.vector)
       .map((d) => ({ docId: d.docId, score: cosineSimilarity(qVec, d.vector!) }))

@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs */
 import {
   createContext,
   useCallback,
@@ -20,6 +21,8 @@ import { LlamaRnProvider } from '@/inference/llama-rn-provider';
 import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG, resolveModelPath } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import { useSettings } from '@/contexts/settings-context';
+import { checkSlmRamGate } from '@/services/slm/slm-ram-gate';
+import { getDeviceMemoryModule, isNativeMemoryAvailable } from '@/services/device-memory';
 import {
   SlmTaskQueue,
   type SlmTaskLease,
@@ -31,10 +34,21 @@ import {
 export type SLMStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type SlmPolicy = 'manual' | 'auto';
 
-/** D1: 30s background grace before unload (was 0/immediate). */
-const BACKGROUND_UNLOAD_MS = 30_000;
-/** D1: defer startup load so first render + onboarding hydration win. */
-const STARTUP_LOAD_DELAY_MS = 500;
+/** Legacy: 30s background grace before unload. */
+const LEGACY_BACKGROUND_UNLOAD_MS = 30_000;
+/** Legacy: defer startup load so first render + onboarding hydration win. */
+const LEGACY_STARTUP_LOAD_DELAY_MS = 500;
+/** Delayed OOM retry — only if free RAM improved since the failure. */
+const OOM_SINGLE_RETRY_DELAY_MS = 4000;
+/** Concierge chat: keep model loaded briefly after blur (accidental tab switches). */
+export const CHAT_UNLOAD_GRACE_MS = 10_000;
+
+export type ChatUnloadGrace = {
+  /** Epoch ms when the grace period ends and the chat lease may release. */
+  endsAt: number;
+  /** Full duration of this grace (for ring progress). */
+  durationMs: number;
+};
 
 interface SLMContextValue {
   provider: InferenceProvider;
@@ -57,12 +71,22 @@ interface SLMContextValue {
   taskQueue: SlmTaskQueue;
   /** Acquire an SLM lease for a task. See SlmTaskQueue.acquire(). */
   acquireSlm: (reason: SlmTaskReason) => Promise<SlmTaskLease>;
+  /**
+   * Active Concierge chat unload grace (blur cooldown). Null when not counting down.
+   * Used by SlmStatusIcon for the depleting ring.
+   */
+  chatUnloadGrace: ChatUnloadGrace | null;
+  /** Start (or restart) the chat blur grace countdown. */
+  startChatUnloadGrace: (durationMs?: number) => void;
+  /** Cancel grace (e.g. Concierge regained focus). */
+  cancelChatUnloadGrace: () => void;
 }
 
 const SLMContext = createContext<SLMContextValue | null>(null);
 
 export function SLMProvider({ children }: { children: ReactNode }) {
   const { settings } = useSettings();
+  const dynamic = settings.dynamicSlmLoading !== false; // default ON
   const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
   const [provider] = useState<InferenceProvider>(() => new LlamaRnProvider());
   const [loadStatus, setLoadStatus] = useState<SLMStatus>('idle');
@@ -70,46 +94,140 @@ export function SLMProvider({ children }: { children: ReactNode }) {
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
   const [modelSizeGB, setModelSizeGB] = useState<number | null>(null);
   const [policy, setPolicy] = useState<SlmPolicy>('manual');
+  const [chatUnloadGrace, setChatUnloadGrace] = useState<ChatUnloadGrace | null>(null);
+  const chatGraceClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadPromiseRef = useRef<Promise<void> | null>(null);
-  // Survives the AppState 'active' / unload race. The unload itself
-  // transitions loadStatus from 'ready' to 'idle' asynchronously; if the
-  // user foregrounds mid-unload, the AppState 'active' handler must
-  // still know "we just unloaded — reload now." This ref is the single
-  // source of truth for that decision.
   const wasUnloadedRef = useRef<boolean>(false);
-  // Track error state to prevent reload loops. Updated in loadModel/unloadModel.
   const hasLoadErrorRef = useRef<boolean>(false);
 
-  const loadModel = useCallback(async (modelId: string) => {
-    const entry = MODEL_CATALOG.find((m) => m.id === modelId);
-    if (!entry) {
-      setLoadError(`Model not found: ${modelId}`);
-      setLoadStatus('error');
-      hasLoadErrorRef.current = true;
-      return;
+  const cancelChatUnloadGrace = useCallback(() => {
+    if (chatGraceClearTimerRef.current) {
+      clearTimeout(chatGraceClearTimerRef.current);
+      chatGraceClearTimerRef.current = null;
     }
+    setChatUnloadGrace(null);
+  }, []);
 
-    setLoadStatus('loading');
-    setLoadError(null);
-    wasUnloadedRef.current = false;
-    hasLoadErrorRef.current = false;
+  const startChatUnloadGrace = useCallback(
+    (durationMs: number = CHAT_UNLOAD_GRACE_MS) => {
+      if (chatGraceClearTimerRef.current) {
+        clearTimeout(chatGraceClearTimerRef.current);
+        chatGraceClearTimerRef.current = null;
+      }
+      const endsAt = Date.now() + durationMs;
+      setChatUnloadGrace({ endsAt, durationMs });
+      // Auto-clear UI state when the window ends (lease release is owned by chat screen).
+      // Add a small skew so the chat screen's release/unload runs first.
+      chatGraceClearTimerRef.current = setTimeout(() => {
+        chatGraceClearTimerRef.current = null;
+        setChatUnloadGrace(null);
+      }, durationMs + 50);
+    },
+    [],
+  );
 
-    try {
-      const path = resolveModelPath(entry.file);
-      await provider.loadModel(path, { nCtx: 8192 });
-      const info: ModelInfo | null = provider.getModelInfo();
-      setCurrentModelId(modelId);
-      setModelSizeGB(info ? info.sizeBytes / (1024 * 1024 * 1024) : null);
-      setLoadStatus('ready');
+
+  useEffect(() => {
+    return () => {
+      if (chatGraceClearTimerRef.current) {
+        clearTimeout(chatGraceClearTimerRef.current);
+      }
+    };
+  }, []);
+
+  // ── OOM retry state (shared by both modes) ──
+  const oomRetryUsedRef = useRef(false);
+  const freeMBAtFailRef = useRef<number | null>(null);
+  const oomRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref to break the circular dependency: scheduleSingleOomRetry → loadModel.
+  const loadModelRef = useRef<(modelId: string) => Promise<void>>(() => Promise.resolve());
+
+  const scheduleSingleOomRetry = useCallback(
+    (modelId: string) => {
+      if (oomRetryUsedRef.current) return;
+      if (oomRetryTimerRef.current) return;
+
+      oomRetryTimerRef.current = setTimeout(() => {
+        oomRetryTimerRef.current = null;
+        oomRetryUsedRef.current = true;
+
+        const gate = checkSlmRamGate(modelId);
+        const improved =
+          freeMBAtFailRef.current == null ||
+          (gate.freeMB != null && gate.freeMB > freeMBAtFailRef.current + 100);
+
+        if (gate.ok && improved && !loadPromiseRef.current) {
+          hasLoadErrorRef.current = false;
+          void loadModelRef.current(modelId).catch(() => {});
+        }
+      }, OOM_SINGLE_RETRY_DELAY_MS);
+    },
+    [],
+  );
+
+  const loadModel = useCallback(
+    async (modelId: string) => {
+      const entry = MODEL_CATALOG.find((m) => m.id === modelId);
+      if (!entry) {
+        setLoadError(`Model not found: ${modelId}`);
+        setLoadStatus('error');
+        hasLoadErrorRef.current = true;
+        return;
+      }
+
+      // ── Pre-load RAM gate (shared by both modes) ──
+      const gate = checkSlmRamGate(modelId);
+      if (!gate.ok) {
+        setLoadError(`Not enough free memory to load Concierge. ${gate.reason}`);
+        setLoadStatus('error');
+        hasLoadErrorRef.current = true;
+        freeMBAtFailRef.current = gate.freeMB;
+        scheduleSingleOomRetry(modelId);
+        return;
+      }
+
+      setLoadStatus('loading');
+      setLoadError(null);
+      wasUnloadedRef.current = false;
       hasLoadErrorRef.current = false;
-    } catch (err: any) {
-      setLoadError(err.message ?? 'Failed to load model');
-      setLoadStatus('error');
-      setCurrentModelId(null);
-      setModelSizeGB(null);
-      hasLoadErrorRef.current = true;
-    }
-  }, [provider]);
+      oomRetryUsedRef.current = false;
+
+      try {
+        const path = resolveModelPath(entry.file);
+        await provider.loadModel(path, { nCtx: 8192 });
+        const info: ModelInfo | null = provider.getModelInfo();
+        setCurrentModelId(modelId);
+        setModelSizeGB(info ? info.sizeBytes / (1024 * 1024 * 1024) : null);
+        setLoadStatus('ready');
+        hasLoadErrorRef.current = false;
+        oomRetryUsedRef.current = false;
+        freeMBAtFailRef.current = null;
+        if (oomRetryTimerRef.current) {
+          clearTimeout(oomRetryTimerRef.current);
+          oomRetryTimerRef.current = null;
+        }
+      } catch (err: any) {
+        setLoadError(err.message ?? 'Failed to load model');
+        setLoadStatus('error');
+        setCurrentModelId(null);
+        setModelSizeGB(null);
+        hasLoadErrorRef.current = true;
+        if (isNativeMemoryAvailable()) {
+          try {
+            const { freeMB } = getDeviceMemoryModule().getMemoryInfo();
+            freeMBAtFailRef.current = freeMB;
+          } catch {
+            // ignore
+          }
+        }
+        scheduleSingleOomRetry(modelId);
+      }
+    },
+    [provider, scheduleSingleOomRetry],
+  );
+
+  // Keep the ref current so the OOM retry timer can call loadModel.
+  useEffect(() => { loadModelRef.current = loadModel; }, [loadModel]);
 
   const unloadModel = useCallback(async () => {
     try {
@@ -125,21 +243,21 @@ export function SLMProvider({ children }: { children: ReactNode }) {
     setLoadError(null);
   }, [provider]);
 
-  // Create the task queue once. Its config is updated in a useEffect below
-  // whenever loadStatus/policy/currentModelId change, so it always reads the
-  // latest state without being recreated. The useState initializer captures
-  // loadModel/unloadModel (stable useCallbacks) — the config is refreshed
-  // in the effect below, so stale closures are not a concern.
-  // eslint-disable-next-line
-  const [taskQueue] = useState(() => new SlmTaskQueue({
-    getLoadStatus: () => 'idle' as QueueLoadStatus,
-    getPolicy: () => 'manual' as QueuePolicy,
-    getDefaultModelId: () => defaultModelId,
-    loadModel,
-    unloadModel,
-    getLoadPromise: () => null,
-    setLoadPromise: () => {},
-  }));
+  // Create the task queue once.
+  // eslint-disable react-hooks/refs
+  const [taskQueue] = useState(
+    () =>
+      new SlmTaskQueue({
+        getLoadStatus: () => 'idle' as QueueLoadStatus,
+        getPolicy: () => 'manual' as QueuePolicy,
+        getDefaultModelId: () => defaultModelId,
+        loadModel,
+        unloadModel,
+        getLoadPromise: () => null,
+        setLoadPromise: () => {},
+      }),
+  );
+  // eslint-enable react-hooks/refs
 
   // Update the task queue config whenever state changes.
   useEffect(() => {
@@ -150,43 +268,36 @@ export function SLMProvider({ children }: { children: ReactNode }) {
       loadModel,
       unloadModel,
       getLoadPromise: () => loadPromiseRef.current,
-      setLoadPromise: (p) => { loadPromiseRef.current = p; },
+      setLoadPromise: (p) => {
+        loadPromiseRef.current = p;
+      },
+      autoUnloadMs: dynamic ? 0 : LEGACY_BACKGROUND_UNLOAD_MS,
+      forceAutoLoadOnAcquire: dynamic,
     });
-  }, [taskQueue, loadStatus, policy, currentModelId, defaultModelId, loadModel, unloadModel]);
+  }, [taskQueue, loadStatus, policy, currentModelId, defaultModelId, loadModel, unloadModel, dynamic]);
 
-  // D1: Startup load — async, non-blocking. Fires once per defaultModelId.
-  // Acquires can await this promise via the task queue.
-  // Guard: skip if the model file isn't downloaded yet (stays 'idle' / grey
-  // rather than erroring on a missing file). The user can download it from
-  // the Models / Concierge tab; the next foreground-return will pick it up.
+  // ── Startup load — LEGACY ONLY ──
   useEffect(() => {
+    if (dynamic) return; // DYNAMIC: no startup load
     const entry = MODEL_CATALOG.find((m) => m.id === defaultModelId);
     if (!entry || !isModelInstalled(entry)) return;
-    // Only auto-load when idle. Don't retry on error — user must manually trigger.
     if (loadStatus !== 'idle') return;
     const t = setTimeout(() => {
-      void loadModel(defaultModelId).catch(() => {
-        // loadModel already sets 'error' on failure; nothing else to do.
-      });
-    }, STARTUP_LOAD_DELAY_MS);
+      const gate = checkSlmRamGate(defaultModelId);
+      if (!gate.ok) {
+        setLoadError(`Not enough free memory to load Concierge. ${gate.reason}`);
+        setLoadStatus('error');
+        hasLoadErrorRef.current = true;
+        freeMBAtFailRef.current = gate.freeMB;
+        scheduleSingleOomRetry(defaultModelId);
+        return;
+      }
+      void loadModel(defaultModelId).catch(() => {});
+    }, LEGACY_STARTUP_LOAD_DELAY_MS);
     return () => clearTimeout(t);
-  }, [defaultModelId, loadModel, loadStatus]);
+  }, [dynamic, defaultModelId, loadModel, loadStatus, scheduleSingleOomRetry]);
 
-  // D1: AppState — debounced unload (30s grace) instead of immediate.
-  // Mid-generation is protected by the lease refcount: if there are active
-  // leases when the timer fires, we just defer the unload until they're gone.
-  //
-  // CRITICAL: the `active` branch must NOT depend on `loadStatus` in its
-  // closure, because the unload itself transitions loadStatus from 'ready'
-  // to 'idle' asynchronously. If the user foregrounds mid-unload (e.g. at
-  // second 31, while provider.release() is still awaiting), the old listener
-  // reads `loadStatus === 'ready'` and skips the re-load. The new listener
-  // isn't installed until the unload's setLoadStatus('idle') commits, by
-  // which time the AppState 'active' event has already passed.
-  //
-  // The `wasUnloadedRef` is the single source of truth. It flips in
-  // unloadModel/loadModel and is read here as `.current` — always the
-  // freshest value, never the closure-captured stale one.
+  // ── AppState — debounced unload / foreground reload ──
   useEffect(() => {
     let unloadTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -200,36 +311,44 @@ export function SLMProvider({ children }: { children: ReactNode }) {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'background') {
         clearUnloadTimer();
-        unloadTimer = setTimeout(() => {
-          unloadTimer = null;
-          // Only unload if no active generation (task queue is the
-          // authority). If a lease is held, leave the model loaded — the
-          // lease release path will trigger the auto-unload.
-          if (taskQueue.activeLeaseCount === 0) {
-            void unloadModel();
-          }
-        }, BACKGROUND_UNLOAD_MS);
+        const grace = dynamic ? 0 : LEGACY_BACKGROUND_UNLOAD_MS;
+        const fire = () => {
+          if (taskQueue.activeLeaseCount === 0) void unloadModel();
+        };
+        if (grace <= 0) {
+          fire();
+        } else {
+          unloadTimer = setTimeout(fire, grace);
+        }
       } else if (state === 'active') {
         clearUnloadTimer();
-        // Always check if we need to reload on foreground. The native model
-        // might have been released by the OS even if we didn't explicitly
-        // unload it. Check both our ref flag AND the provider's actual state.
-        // Don't reload if we're in an error state — user must manually trigger.
+        if (dynamic) return; // DYNAMIC: never auto-reload on foreground
+
+        // LEGACY: needsReload + RAM gate + load or scheduleSingleOomRetry
         const needsReload = wasUnloadedRef.current || provider.getModelInfo() === null;
-        if (needsReload && !loadPromiseRef.current && !hasLoadErrorRef.current) {
-          const entry = MODEL_CATALOG.find((m) => m.id === defaultModelId);
-          if (entry && isModelInstalled(entry)) {
-            console.log('[SLM] Foreground re-loading model');
-            void loadModel(defaultModelId).catch(() => {});
-          }
+        if (!needsReload || loadPromiseRef.current || hasLoadErrorRef.current) return;
+
+        const entry = MODEL_CATALOG.find((m) => m.id === defaultModelId);
+        if (!entry || !isModelInstalled(entry)) return;
+
+        const gate = checkSlmRamGate(defaultModelId);
+        if (!gate.ok) {
+          console.warn('[SLM] Skip foreground reload — RAM gate:', gate.reason);
+          setLoadError(`Concierge paused: ${gate.reason}. Free memory and tap to retry.`);
+          setLoadStatus('error');
+          hasLoadErrorRef.current = true;
+          freeMBAtFailRef.current = gate.freeMB;
+          scheduleSingleOomRetry(defaultModelId);
+          return;
         }
+        void loadModel(defaultModelId).catch(() => {});
       }
     });
     return () => {
       sub.remove();
       clearUnloadTimer();
     };
-  }, [taskQueue, defaultModelId, loadModel, unloadModel]); // loadStatus intentionally removed — see comment above
+  }, [dynamic, taskQueue, defaultModelId, loadModel, unloadModel, provider, scheduleSingleOomRetry]); // loadStatus intentionally removed — see comment in original
 
   // Cleanup on unmount.
   useEffect(() => {
@@ -237,6 +356,29 @@ export function SLMProvider({ children }: { children: ReactNode }) {
       provider.release().catch(() => {});
     };
   }, [provider]);
+
+  // ── Toggle hot-switch ──
+  const prevDynamicRef = useRef(dynamic);
+  useEffect(() => {
+    const prev = prevDynamicRef.current;
+    prevDynamicRef.current = dynamic;
+    if (prev === dynamic) return; // only on transition
+
+    if (!dynamic && loadStatus === 'idle') {
+      const entry = MODEL_CATALOG.find((m) => m.id === defaultModelId);
+      if (entry && isModelInstalled(entry)) {
+        const gate = checkSlmRamGate(defaultModelId);
+        if (gate.ok) {
+          // Defer to avoid setState-during-effect cascade.
+          setTimeout(() => void loadModel(defaultModelId).catch(() => {}), 0);
+        }
+      }
+    }
+    if (dynamic && taskQueue.activeLeaseCount === 0 && loadStatus === 'ready') {
+      // Defer to avoid setState-during-effect cascade.
+      setTimeout(() => void unloadModel(), 0);
+    }
+  }, [dynamic, loadStatus, defaultModelId, loadModel, unloadModel, taskQueue]);
 
   const acquireSlm = useCallback(
     (reason: SlmTaskReason) => taskQueue.acquire(reason),
@@ -251,14 +393,6 @@ export function SLMProvider({ children }: { children: ReactNode }) {
       options?: GenerateOptions,
       onReasoningToken?: (token: string) => void,
     ): Promise<ChatResult> => {
-      // Belt-and-suspenders: if the user sends a message and the model
-      // was unloaded, auto-load it before calling provider.chat. Normally
-      // the AppState 'active' re-load handles this, but there's a window
-      // where the user might send a message before the re-load completes.
-      // The provider's getModelInfo() returns null when no context is
-      // loaded — that's the authoritative native-side check (independent
-      // of React state).
-      // Don't auto-load if we're in an error state — user must manually trigger.
       if (provider.getModelInfo() === null && wasUnloadedRef.current && !hasLoadErrorRef.current) {
         const entry = MODEL_CATALOG.find((m) => m.id === defaultModelId);
         if (entry && isModelInstalled(entry)) {
@@ -284,6 +418,9 @@ export function SLMProvider({ children }: { children: ReactNode }) {
     chat,
     taskQueue,
     acquireSlm,
+    chatUnloadGrace,
+    startChatUnloadGrace,
+    cancelChatUnloadGrace,
   };
 
   return <SLMContext.Provider value={value}>{children}</SLMContext.Provider>;

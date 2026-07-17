@@ -225,6 +225,46 @@ const SKILLS: Skill[] = [
 - Leave a field empty if no EHR evidence exists — do NOT invent values
 - OUTPUT: the filled JSON template (valid JSON, no prose, no markdown fences)`,
   },
+  {
+    // doc 38 — UC3 Long-Term Trajectory Failure explain
+    id: 'explain-rehab-trajectory',
+    name: 'Explain rehab trajectory failure',
+    purpose:
+      'Explain a UC3 long-term rehab trajectory result to the caregiver in ' +
+      'plain language. Input is structured: eventType, reasonCodes, ' +
+      'metricAnalyses, dataQuality, plan targets.',
+    tulaAnalog: '(new — extends explain-anomaly with rehab context)',
+    allowedTools: [
+      'get_patient_profile',
+      'get_recent_vitals',
+      'get_active_thresholds',
+    ],
+    evalTaskIds: ['UC3-explain-structured', 'UC3-message-no-diagnosis', 'UC3-message-includes-plateau-or-gap-facts'],
+    promptFragment: `SKILL: explain-rehab-trajectory
+- The user opened a UC3 rehab trajectory alert. Explain it in plain language. Lead with the action.
+- Input is structured: eventType, reasonCodes, metricAnalyses, dataQuality, plan targets.
+- Explain in plain language for the caregiver. Do NOT diagnose. Do NOT change severity. Do NOT invent vitals.
+- Affirm adherence when HIGH_ADHERENCE is present — the caregiver is doing the work.
+- Suggest discussing plan adjustment with clinician for TRAJECTORY_FAILURE_DETECTED.
+- End with guidance, not medical advice. Use existing concierge rules.`,
+  },
+  {
+    // doc 38 — UC4 provider summary rewrite
+    id: 'uc4-provider-summary-rewrite',
+    name: 'Rewrite UC4 provider summary',
+    purpose:
+      'Rewrite a deterministic UC4 provider summary for clinician readability. ' +
+      'The summary is pre-generated; this skill only rewrites prose. Never scores.',
+    tulaAnalog: '(new — provider-facing rewrite from deterministic summary)',
+    allowedTools: ['get_patient_profile'],
+    evalTaskIds: ['UC4-rewrite-facts-unchanged', 'UC4-rewrite-no-diagnosis', 'UC4-rewrite-no-score-change'],
+    promptFragment: `SKILL: uc4-provider-summary-rewrite
+- The app has generated a deterministic UC4 care-priority summary.
+- REWRITE the prose for clinician readability. Keep ALL facts, scores, and templateIds exactly as provided.
+- Do NOT add diagnosis language. Do NOT invent medication causality.
+- Do NOT change any score, templateId, or safetyTag. Do NOT add watch areas.
+- Return the rewritten summary as plain text with the same section headers.`,
+  },
 ];
 
 let registered = false;

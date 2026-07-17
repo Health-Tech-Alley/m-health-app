@@ -15,7 +15,8 @@ export type RetrievedChunkSource =
   | 'umls'
   | 'cdc-places'
   | 'semmeddb'
-  | 'hedis';
+  | 'hedis'
+  | 'patient-record';
 
 export type RetrievedChunkDocumentType =
   | 'abstract'
@@ -42,6 +43,18 @@ export type RetrievedChunk = {
   lengthTier?: RetrievedChunkLengthTier;
   /** For section-chunked full-text docs, the heading that this chunk came from. */
   sectionHeading?: string;
+  /** Set when chunk entered the result via graph expansion (not BM25 seed alone). */
+  graphRelation?: string;
+  /** Seed docId that pulled this neighbor in (for transparency / prompt). */
+  graphSeedId?: string;
+  sourceId?: string;
+  sourceType?: string;
+  resourceId?: string;
+  patientId?: string;
+  effectiveAt?: string;
+  createdAt?: string;
+  synthetic?: boolean;
+  retrievalMethod?: string;
 };
 
 export type McpToolSummary = {
@@ -61,6 +74,12 @@ export type RetrievalQuery = {
   kTools?: number;
   /** How many clinical chunks to return. Default 8. */
   kChunks?: number;
+  /**
+   * When false, skip live network supplement (PubMed/MedlinePlus) on sparse
+   * cache hits. Chat Pre-SLM NLU must pass false so empty cache cannot hang
+   * the send path. Default true for background/enrichment callers.
+   */
+  allowLiveSupplement?: boolean;
 };
 
 export type RetrievalResult = {
@@ -78,5 +97,5 @@ export interface FusedRetriever {
 
 export interface Embedder {
   readonly dimensions: number;
-  embed(text: string): Promise<number[]>;
+  embed(text: string, opts?: { isQuery?: boolean }): Promise<number[]>;
 }

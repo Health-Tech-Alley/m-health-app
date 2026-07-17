@@ -114,11 +114,14 @@ import {
   priorDecisionsBlock,
   progressMeasuresBlock,
   recentVitalsBlock,
+  rehabTrajectoryBlock,
   sensitiveTopicsInstruction,
   thresholdsBlock,
   toolsBlock,
+  uc4PrioritiesBlock,
   type PriorDecisionEntry,
 } from './prompt-fragments';
+import { PreSlmNlu, buildPatientNluContext, formatEntityHint } from '@/nlu';
 import { filterToolsForSkill, getSkillPromptFragment, type SkillId } from './skills';
 
 export type OrchestratorConfig = {
@@ -1000,6 +1003,56 @@ export class Orchestrator {
     }
 
     // D3 / T3: explain path always runs deep — fetch long-doc chunks too.
+    try {
+      const { createReadyEmbedder } = await import('@/knowledge/embedder');
+      const patientCtx = buildPatientNluContext(snapshot);
+      const nlu = new PreSlmNlu({
+        embedder: await createReadyEmbedder(400, { allowDevelopmentFallback: false }),
+        retriever: this.retriever,
+        toolSchemas: TOOL_SCHEMAS as unknown as import('@/knowledge/types').McpToolSummary[],
+        allowDevelopmentFallback: false,
+        filterToolsForSkill: (id, tools) =>
+          filterToolsForSkill(
+            id,
+            tools as import('./mcp/tool-registry').ToolSchema[],
+          ) as import('@/knowledge/types').McpToolSummary[],
+      });
+
+      const nluPacket = await Promise.race([
+        nlu.run(`Explain alert ${alertId}: ${alert.title}`, patientCtx, {
+          skillHint: 'explain-anomaly',
+          intentOverride: 'explain_anomaly',
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('NLU explain timeout after 2500ms')), 2500),
+        ),
+      ]);
+
+      if (nluPacket.chunks.length > 0) {
+        context.retrieval.chunks = nluPacket.chunks;
+        context.retrieval.citations = nluPacket.chunks.map((c) => c.docId);
+      }
+
+      if (nluPacket.entities.length > 0) {
+        const hint = formatEntityHint(nluPacket.entities);
+        this.addTrace({
+          agent: 'orchestrator',
+          thought: `NLU entities: ${hint}`,
+        });
+      }
+
+      this.addTrace({
+        agent: 'orchestrator',
+        thought:
+          `NLU explain: intent=${nluPacket.intent.primary} conf=${nluPacket.intent.confidence.toFixed(2)} ` +
+          `entities=${nluPacket.entities.length} tools=${nluPacket.tools.length} ` +
+          `chunks=${nluPacket.chunks.length} total=${context.retrieval.chunks.length} ` +
+          `backend=${nluPacket.trace.backend}`,
+      });
+    } catch (nluErr) {
+      console.warn('[Orchestrator] NLU explain unavailable or timed out; using standard retrieval:', nluErr);
+    }
+
     if ('retrieveDeep' in this.retriever && typeof (this.retriever as { retrieveDeep?: unknown }).retrieveDeep === 'function') {
       try {
         const deepResult = await (this.retriever as { retrieveDeep: (q: { intent: string; conditions: string[]; activeMeds: string[]; kTools: number; kChunks: number }) => Promise<{ chunks: RetrievedChunk[] }> }).retrieveDeep({
@@ -1141,6 +1194,281 @@ export class Orchestrator {
     return this.explainAlert(alertId, caregiverId);
   }
 
+  async explainRehabTrajectory(
+    resultId: string,
+    caregiverId: string,
+  ): Promise<AgentProposal> {
+    this.trace = [];
+    const result = getUc3TrajectoryResultById(resultId);
+    if (!result) throw new Error(`UC3 trajectory result not found: ${resultId}`);
+
+    const snapshot = this.snapshotProvider();
+    if (!snapshot) {
+      throw new Error('PatientRecordStore snapshot not available');
+    }
+    if (snapshot.patient?.patientId && snapshot.patient.patientId !== result.patientId) {
+      throw new Error(`UC3 result ${resultId} does not belong to active patient ${snapshot.patient.patientId}`);
+    }
+    if (snapshot.carePlan?.planId && snapshot.carePlan.planId !== result.carePlanId) {
+      throw new Error(`UC3 result ${resultId} does not match active CarePlan ${snapshot.carePlan.planId}`);
+    }
+
+    const patientId = result.patientId;
+    const intent = `Explain rehab trajectory ${resultId}: ${result.eventType}`;
+    this.addTrace({
+      agent: 'orchestrator',
+      thought: 'Building aggregated context for UC3 rehab trajectory explain.',
+    });
+    const context = await buildAggregatedContext(patientId, intent, this.retriever, snapshot);
+    if (this.priorDecisionsProvider) {
+      context.priorDecisions = this.priorDecisionsProvider({ patientId });
+    }
+
+    const structuredBlock = [
+      'UC3 REHAB TRAJECTORY RESULT (persisted - do not re-score or invent vitals)',
+      `resultId: ${result.resultId}`,
+      `carePlanId: ${result.carePlanId}`,
+      `eventType: ${result.eventType}`,
+      `severity: ${result.severity}`,
+      `requiresHumanReview: ${result.requiresHumanReview}`,
+      `emergencyThresholdBreach: ${result.emergencyThresholdBreach}`,
+      `reviewPriorityScore: ${result.reviewPriorityScore}`,
+      `modelFamily: ${result.modelFamily}`,
+      `modelVersion: ${result.modelVersion}`,
+      `generatedAt: ${result.generatedAt}`,
+      `reasonCodes: ${result.reasonCodes.join(', ')}`,
+      'explanations:',
+      ...result.explanations.map((explanation) => `- ${explanation}`),
+      `metricAnalysesJson: ${JSON.stringify(result.metricAnalyses)}`,
+      `dataQualityJson: ${JSON.stringify(result.dataQuality)}`,
+    ].join('\n');
+
+    const activeSkill = 'explain-rehab-trajectory' as SkillId;
+    let prompt = [
+      this.buildSystemPrompt(context, activeSkill),
+      '',
+      structuredBlock,
+      '',
+      rehabTrajectoryBlock(context.rehabTrajectory),
+      '',
+      progressMeasuresBlock(context.progressMeasures),
+      '',
+      'Explain this rehab trajectory result to the caregiver in plain language.',
+      'Do not diagnose. Do not change severity. Do not invent measurements.',
+    ].join('\n');
+
+    const reserveForGeneration =
+      CONCIERGE_GENERATION_EXPLAIN.maxTokens > 0
+        ? CONCIERGE_GENERATION_EXPLAIN.maxTokens
+        : 2048;
+    prompt = this.truncateToTokenBudget(prompt, 4096 - reserveForGeneration);
+
+    const turnId = `turn-uc3-${Date.now()}`;
+    this.addTrace({
+      agent: 'orchestrator',
+      thought: 'Acquiring SLM lease for explain_rehab_trajectory.',
+    });
+    const lease = await this.slmTasks.acquire('explain_rehab_trajectory');
+
+    let slmResult;
+    try {
+      this.addTrace({
+        agent: 'orchestrator',
+        thought: 'Selecting skill: explain-rehab-trajectory.',
+      });
+      slmResult = await this.slm.chat(
+        [
+          { role: 'system', content: this.buildSystemPrompt(context, activeSkill) },
+          { role: 'user', content: prompt },
+        ],
+        () => {},
+        new AbortController().signal,
+        { ...CONCIERGE_GENERATION_EXPLAIN, reasoningFormat: REASONING_FORMAT_EXPLAIN },
+        (reasoningToken) => {
+          this.addTrace({
+            agent: 'slm',
+            thought: `reasoning_token(${reasoningToken.length})`,
+          });
+        },
+      );
+    } finally {
+      lease.release();
+    }
+
+    const citations = context.retrieval.citations;
+    const turn: SlmTurn = {
+      turnId,
+      alertId: result.resultId,
+      patientId,
+      modelId: 'slm',
+      latencyMs: slmResult.latencyMs,
+      tokensGenerated: slmResult.tokensGenerated,
+      createdAt: new Date().toISOString(),
+    };
+    insertSlmTurn(turn, citations);
+    auditSlmTurn(patientId, turnId, {
+      alertId: result.resultId,
+      latencyMs: slmResult.latencyMs,
+      tokensGenerated: slmResult.tokensGenerated,
+      skill: 'explain-rehab-trajectory',
+      caregiverId,
+    });
+
+    const proposal = this.parseProposal(slmResult.text, context, result.resultId);
+    proposal.trace = this.trace;
+    proposal.citations = citations;
+    const mappedSeverity =
+      result.emergencyThresholdBreach || result.severity === 'urgent' ? 3 : 2;
+    proposal.nextSteps = this.injectSeverityGatedNextSteps(
+      proposal.nextSteps,
+      mappedSeverity as 1 | 2 | 3,
+    );
+    return proposal;
+  }
+
+  async explainUc4PriorityCard(
+    cardId: string,
+    caregiverId: string,
+  ): Promise<AgentProposal> {
+    this.trace = [];
+    const card = getUc4PriorityCardSummaryById(cardId);
+    if (!card) throw new Error(`UC4 priority card not found: ${cardId}`);
+    const run = getUc4RunSummaryById(card.runId);
+    if (!run) throw new Error(`UC4 run not found for card ${cardId}: ${card.runId}`);
+
+    const snapshot = this.snapshotProvider();
+    if (!snapshot) {
+      throw new Error('PatientRecordStore snapshot not available');
+    }
+    if (snapshot.patient?.patientId && snapshot.patient.patientId !== card.patientId) {
+      throw new Error(`UC4 card ${cardId} does not belong to active patient ${snapshot.patient.patientId}`);
+    }
+
+    const patientId = card.patientId;
+    const intent = `Explain UC4 care focus card ${card.cardId}: ${card.title}`;
+    const context = await buildAggregatedContext(patientId, intent, this.retriever, snapshot);
+    if (this.priorDecisionsProvider) {
+      context.priorDecisions = this.priorDecisionsProvider({ patientId });
+    }
+
+    const deterministicSummary = [
+      'UC4 CARE FOCUS CARD (persisted - do not re-score or change templates)',
+      `runId: ${run.runId}`,
+      `runStatus: ${run.status}`,
+      `cardId: ${card.cardId}`,
+      `templateId: ${card.templateId}`,
+      `priorityKind: ${card.priorityKind}`,
+      `title: ${card.title}`,
+      `body: ${card.body}`,
+      `domain: ${card.domain}`,
+      `score: ${card.score}`,
+      `firedRuleCodes: ${card.firedRuleCodes.join(', ')}`,
+      `safetyBoundary: ${card.safetyBoundary}`,
+      `whatToLogNextSchemaJson: ${JSON.stringify(card.whatToLogNextSchema)}`,
+      `evidenceJson: ${JSON.stringify(card.evidence)}`,
+    ].join('\n');
+
+    const activeSkill = 'uc4-provider-summary-rewrite' as SkillId;
+    const lease = await this.slmTasks.acquire('uc4_provider_summary_rewrite');
+    const turnId = `turn-uc4-${Date.now()}`;
+    let slmResult;
+    try {
+      slmResult = await this.slm.chat(
+        [
+          {
+            role: 'system',
+            content: this.buildSystemPrompt(context, activeSkill),
+          },
+          {
+            role: 'user',
+            content: [
+              'Explain the following deterministic UC4 care focus card for a family caregiver.',
+              'Keep all facts, scores, template IDs, and safety boundaries unchanged.',
+              'No diagnosis. No medication causality. No treatment changes.',
+              '',
+              deterministicSummary,
+            ].join('\n'),
+          },
+        ],
+        () => {},
+        new AbortController().signal,
+        { ...CONCIERGE_GENERATION_EXPLAIN, reasoningFormat: REASONING_FORMAT_EXPLAIN },
+      );
+    } finally {
+      lease.release();
+    }
+
+    const citations = context.retrieval.citations;
+    const turn: SlmTurn = {
+      turnId,
+      alertId: card.cardId,
+      patientId,
+      modelId: 'slm',
+      latencyMs: slmResult.latencyMs,
+      tokensGenerated: slmResult.tokensGenerated,
+      createdAt: new Date().toISOString(),
+    };
+    insertSlmTurn(turn, citations);
+    auditSlmTurn(patientId, turnId, {
+      alertId: card.cardId,
+      latencyMs: slmResult.latencyMs,
+      tokensGenerated: slmResult.tokensGenerated,
+      skill: 'uc4-provider-summary-rewrite',
+      caregiverId,
+    });
+
+    const proposal = this.parseProposal(slmResult.text, context, card.cardId);
+    proposal.trace = this.trace;
+    proposal.citations = citations;
+    return proposal;
+  }
+
+  async rewriteUc4ProviderSummary(
+    patientId: string,
+    deterministicSummary: string,
+  ): Promise<string> {
+    const snapshot = this.snapshotProvider();
+    if (!snapshot) {
+      throw new Error('PatientRecordStore snapshot not available');
+    }
+    if (snapshot.patient?.patientId && snapshot.patient.patientId !== patientId) {
+      throw new Error(`UC4 summary patient ${patientId} does not match active patient ${snapshot.patient.patientId}`);
+    }
+    const context = await buildAggregatedContext(
+      patientId,
+      'Rewrite UC4 provider summary',
+      this.retriever,
+      snapshot,
+    );
+    const activeSkill = 'uc4-provider-summary-rewrite' as SkillId;
+    const lease = await this.slmTasks.acquire('uc4_provider_summary_rewrite');
+    try {
+      const slmResult = await this.slm.chat(
+        [
+          {
+            role: 'system',
+            content: this.buildSystemPrompt(context, activeSkill),
+          },
+          {
+            role: 'user',
+            content: [
+              'Rewrite the following deterministic UC4 provider summary for clinician readability.',
+              'Keep all facts, scores, and template IDs unchanged. No diagnosis. No medication causality.',
+              '',
+              deterministicSummary,
+            ].join('\n'),
+          },
+        ],
+        () => {},
+        new AbortController().signal,
+        { ...CONCIERGE_GENERATION_EXPLAIN, reasoningFormat: REASONING_FORMAT_EXPLAIN },
+      );
+      return slmResult.text;
+    } finally {
+      lease.release();
+    }
+  }
+
   private buildSystemPrompt(context: AggregatedContext, skillId?: SkillId): string {
     // Filter the visible tool list to the active skill's allow-list. This
     // is the per-skill scope enforcement from planning/17 §3d.
@@ -1193,6 +1521,10 @@ export class Orchestrator {
       recentVitalsBlock(context.recentVitals),
       '',
       progressMeasuresBlock(context.progressMeasures),
+      '',
+      rehabTrajectoryBlock(context.rehabTrajectory),
+      '',
+      uc4PrioritiesBlock(context.uc4Priorities),
       '',
       budgetAwareCitationsBlock(context.retrieval.chunks, 1200),
       '',

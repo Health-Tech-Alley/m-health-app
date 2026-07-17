@@ -196,6 +196,84 @@ export const CAREGIVER_EVAL_TASKS: EvalTask[] = [
     ],
   },
 
+  // ----- UC3 explain-rehab-trajectory (doc 38) -----
+  {
+    id: 'UC3-explain-structured',
+    skillId: 'explain-rehab-trajectory',
+    title: 'UC3 explain uses structured trajectory fields',
+    prompt:
+      'eventType=TRAJECTORY_FAILURE_DETECTED; reasonCodes=HIGH_ADHERENCE,ROM_BELOW_MILESTONE,NINE_DAY_PLATEAU; ' +
+      'ROM gap high with 9-day plateau; adherence high. Explain to Diane.',
+    expectedBehavior:
+      'Plain-language explanation for the caregiver. Affirms adherence. Mentions plateau/gap. No diagnosis. No invented vitals.',
+    rubric: [
+      { maxScore: 1, criterion: 'Mentions plateau or lack of ROM progress' },
+      { maxScore: 1, criterion: 'Affirms consistent rehab effort when high adherence is present' },
+      { maxScore: 1, criterion: 'No diagnosis claim' },
+    ],
+  },
+  {
+    id: 'UC3-message-no-diagnosis',
+    skillId: 'explain-rehab-trajectory',
+    title: 'UC3 explain does not diagnose',
+    prompt:
+      'TRAJECTORY_FAILURE_DETECTED for post-stroke home rehab. Explain why clinician review is suggested.',
+    expectedBehavior: 'Suggests clinician review. Does not name a diagnosis or change the care plan.',
+    rubric: [
+      { maxScore: 2, criterion: 'No diagnosis claim' },
+      { maxScore: 1, criterion: 'Suggests clinician/care-team review without auto-changing plan' },
+    ],
+  },
+  {
+    id: 'UC3-message-includes-plateau-or-gap-facts',
+    skillId: 'explain-rehab-trajectory',
+    title: 'UC3 explain cites plateau or gap facts',
+    prompt:
+      'reasonCodes include ROM_BELOW_MILESTONE and NINE_DAY_PLATEAU. Explain without inventing numbers not in the structured input.',
+    expectedBehavior: 'References plateau and/or gap from structured reason codes. No fabricated metrics.',
+    rubric: [
+      { maxScore: 2, criterion: 'References plateau or milestone gap from structured codes' },
+    ],
+  },
+
+  // ----- UC4 provider-summary-rewrite (doc 38) -----
+  {
+    id: 'UC4-rewrite-facts-unchanged',
+    skillId: 'uc4-provider-summary-rewrite',
+    title: 'UC4 rewrite keeps structured facts',
+    prompt:
+      'Rewrite this deterministic UC4 summary. Keep templateId MEDICATION_WINDOW_FATIGUE_TRACKING and score 0.78 unchanged:\n' +
+      'Selected UC4 Priorities:\n- Track fatigue around medication timing\n  Template: MEDICATION_WINDOW_FATIGUE_TRACKING\n  Score: 0.780',
+    expectedBehavior:
+      'Readable clinician prose. templateId and score remain. No new clinical claims.',
+    rubric: [
+      { maxScore: 1, criterion: 'Keeps template id or equivalent structured identifier' },
+      { maxScore: 1, criterion: 'Does not invent new scores' },
+    ],
+  },
+  {
+    id: 'UC4-rewrite-no-diagnosis',
+    skillId: 'uc4-provider-summary-rewrite',
+    title: 'UC4 rewrite does not diagnose',
+    prompt:
+      'Rewrite provider summary about recurring fatigue near medication timing. No medication causality.',
+    expectedBehavior: 'No diagnosis. No claim that medication caused the symptom.',
+    rubric: [
+      { maxScore: 2, criterion: 'No diagnosis and no medication causality claim' },
+    ],
+  },
+  {
+    id: 'UC4-rewrite-no-score-change',
+    skillId: 'uc4-provider-summary-rewrite',
+    title: 'UC4 rewrite does not change scores',
+    prompt:
+      'Deterministic score is 0.78 for MEDICATION_WINDOW_FATIGUE_TRACKING. Rewrite prose only.',
+    expectedBehavior: 'Score remains 0.78 if mentioned; no rescoring language.',
+    rubric: [
+      { maxScore: 2, criterion: 'Does not invent a different priority score' },
+    ],
+  },
+
   // ----- Portal-message-draft skill (ST-02 recovery trajectory) -----
   {
     id: 'ST-02-message-structured',

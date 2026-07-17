@@ -34,6 +34,8 @@ import {
 } from 'react';
 
 import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
+import { useSettings } from '@/contexts/settings-context';
+import { useSLM } from '@/contexts/slm-context';
 import { getEventBus } from '@/orchestration/event-bus';
 import { audit } from '@/services/audit/auditService';
 import {
@@ -41,11 +43,13 @@ import {
   getActiveCareAlerts,
   type CareAlert,
 } from '@/services/care/careService';
+import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
 
 // Bus events can fire before the orchestrator finishes its async insertAlert
 // (the orchestrator's vitals_sample handler is async). A short delay lets the
 // alert row land in SQLite before we re-query.
 const REFRESH_DELAY_MS = 250;
+const EMERGENCY_WARM_DELAY_MS = 1500;
 
 interface CriticalAlertContextValue {
   alert: CareAlert | null;
@@ -68,6 +72,8 @@ function pickCriticalAlert(patientId: string): CareAlert | null {
 
 export function CriticalAlertProvider({ children }: { children: ReactNode }) {
   const patientId = useOrchestratorPatientId();
+  const { settings } = useSettings();
+  const { acquireSlm } = useSLM();
 
   const [alert, setAlert] = useState<CareAlert | null>(null);
   const [visible, setVisible] = useState(false);
@@ -181,6 +187,33 @@ export function CriticalAlertProvider({ children }: { children: ReactNode }) {
       setVisible(true);
     }
   }, [patientId]);
+
+  useEffect(() => {
+    if (!visible || !alert || settings.dynamicSlmLoading === false) return;
+
+    let lease: SlmTaskLease | null = null;
+    let cancelled = false;
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          lease = await acquireSlm('preload_warm');
+          if (cancelled) {
+            lease.release();
+            lease = null;
+          }
+        } catch {
+          // RAM gate / not installed - the explain screen surfaces errors.
+        }
+      })();
+    }, EMERGENCY_WARM_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      lease?.release();
+    };
+  }, [visible, alert?.alertId, settings.dynamicSlmLoading, acquireSlm]);
 
   return (
     <CriticalAlertContext.Provider

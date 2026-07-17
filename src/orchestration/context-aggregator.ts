@@ -127,6 +127,22 @@ export type AggregatedContext = {
   };
   /** Caregiver action + decision history (D8 / §9). Populated when the
    *  orchestrator's priorDecisionsProvider is wired. */
+  rehabTrajectory?: {
+    resultId: string;
+    eventType: string;
+    severity: string;
+    requiresHumanReview: boolean;
+    emergencyThresholdBreach: boolean;
+    reviewPriorityScore: number;
+    reasonCodes: string[];
+    caregiverMessagePreview?: string;
+  };
+  uc4Priorities?: {
+    cardId: string;
+    templateId: string;
+    title: string;
+    score: number;
+  }[];
   priorDecisions?: { verb: string; summary: string; at: string }[];
 };
 
@@ -362,6 +378,29 @@ export async function buildAggregatedContext(
     retrieval,
     evidenceMetadata: freezeArray(evidenceMetadataFromRetrieval(retrieval)),
     progressMeasures,
+    rehabTrajectory:
+      snapshot.latestUc3TrajectoryResult?.patientId === patientId
+        ? {
+            resultId: snapshot.latestUc3TrajectoryResult.resultId,
+            eventType: snapshot.latestUc3TrajectoryResult.eventType,
+            severity: snapshot.latestUc3TrajectoryResult.severity,
+            requiresHumanReview: snapshot.latestUc3TrajectoryResult.requiresHumanReview,
+            emergencyThresholdBreach:
+              snapshot.latestUc3TrajectoryResult.emergencyThresholdBreach,
+            reviewPriorityScore: snapshot.latestUc3TrajectoryResult.reviewPriorityScore,
+            reasonCodes: freezeArray(snapshot.latestUc3TrajectoryResult.reasonCodes),
+            caregiverMessagePreview:
+              snapshot.latestUc3TrajectoryResult.caregiverMessagePreview,
+          }
+        : undefined,
+    uc4Priorities: freezeArray(
+      activeUc4Cards.map((card) => ({
+        cardId: card.cardId,
+        templateId: card.templateId,
+        title: card.title,
+        score: card.score,
+      })),
+    ),
     priorDecisions: undefined,
   };
 

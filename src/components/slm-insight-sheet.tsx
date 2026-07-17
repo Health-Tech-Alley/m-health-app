@@ -72,6 +72,7 @@ export interface SlmInsightSheetProps {
 }
 
 type Phase = 'idle' | 'loading' | 'thinking' | 'streaming' | 'done' | 'error';
+type Source = 'native';
 
 // Points-based cap for the scrollable answer area. A definite (non-percentage)
 // maxHeight guarantees the ScrollView bounds + scrolls regardless of the
@@ -106,6 +107,7 @@ export function SlmInsightSheet({
   const [answer, setAnswer] = useState('');
   const [finalText, setFinalText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [source, setSource] = useState<Source | null>(null);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const leaseRef = useRef<SlmTaskLease | null>(null);
   // True when the sheet loaded the model itself (not via the task queue's
@@ -179,6 +181,7 @@ export function SlmInsightSheet({
     setAnswer('');
     setFinalText(null);
     setError(null);
+    setSource(null);
     setActiveModelId(currentModelId);
     cancelRef.current = false;
 
@@ -200,7 +203,12 @@ export function SlmInsightSheet({
     // safety consideration or med-check question).
     const conditionName = snapshot?.primaryCondition?.name;
     const retrievalQuery = buildRetrievalQuery(conditionName, prompt);
-    const citations = await retrieveClinicalChunksViaBm25(retriever, retrievalQuery, 3);
+    const citations = await retrieveClinicalChunksViaBm25(
+      retriever,
+      retrievalQuery,
+      3,
+      snapshot?.patient?.patientId,
+    );
     const citationBlock = formatCitationsForPrompt(citations);
     const enrichedPrompt = citationBlock
       ? `${prompt}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above. Cite sources in brackets like [PMID-12345678].`
@@ -212,6 +220,7 @@ export function SlmInsightSheet({
     // re-renders, so slm.loadStatus may still read 'loading'. A loaded provider
     // implies the model is ready.
     if (provider.getModelInfo()) {
+      setSource('native');
       setPhase('thinking');
 
       const controller = new AbortController();
@@ -367,6 +376,7 @@ export function SlmInsightSheet({
 
   const statusLabel = deriveStatusLabel(
     phase,
+    source,
     activeModelId,
     currentModelId,
     error,
@@ -471,6 +481,7 @@ export function SlmInsightSheet({
 
 function deriveStatusLabel(
   phase: Phase,
+  source: Source | null,
   activeModelId: string | null,
   currentModelId: string | null,
   error: string | null,

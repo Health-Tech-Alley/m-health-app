@@ -24,6 +24,10 @@ const DEFAULT_SETTINGS: AppSettings = {
     careTask: true,
     careTaskDevice: true,
   },
+  dynamicSlmLoading: true,
+  nluDevelopmentFallback: false,
+  evidenceDevelopmentFallback: false,
+  knowledgeGraphExpansion: false,
 };
 
 export function getAppSettings(): AppSettings {
@@ -83,6 +87,34 @@ export function updateNotificationPreferences(prefs: Partial<NotificationPrefere
 export function updateDemoDefaultModelId(modelId: string): AppSettings {
   const current = getAppSettings();
   const updated = { ...current, demoDefaultModelId: modelId };
+  saveAppSettings(updated);
+  return updated;
+}
+
+export function updateDynamicSlmLoading(enabled: boolean): AppSettings {
+  const current = getAppSettings();
+  const updated = { ...current, dynamicSlmLoading: enabled };
+  saveAppSettings(updated);
+  return updated;
+}
+
+export function updateNluDevelopmentFallback(enabled: boolean): AppSettings {
+  const current = getAppSettings();
+  const updated = { ...current, nluDevelopmentFallback: enabled };
+  saveAppSettings(updated);
+  return updated;
+}
+
+export function updateEvidenceDevelopmentFallback(enabled: boolean): AppSettings {
+  const current = getAppSettings();
+  const updated = { ...current, evidenceDevelopmentFallback: enabled };
+  saveAppSettings(updated);
+  return updated;
+}
+
+export function updateKnowledgeGraphExpansion(enabled: boolean): AppSettings {
+  const current = getAppSettings();
+  const updated = { ...current, knowledgeGraphExpansion: enabled };
   saveAppSettings(updated);
   return updated;
 }
