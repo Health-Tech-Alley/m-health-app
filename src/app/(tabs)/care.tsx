@@ -49,6 +49,10 @@ import {
   getPatientDisplayName,
   getPrimaryDiagnosisDisplay,
 } from "@/utils/patientDisplay";
+import {
+  getUc3ResultDisplay,
+  type Uc3ResultDisplay,
+} from "@/services/uc3/uc3ResultPresenter";
 
 type DailyCareEditField =
   | "setsCompleted"
@@ -77,6 +81,10 @@ export default function CareScreen() {
   const patientName = getPatientDisplayName(activePatient);
   const diagnosis = getPrimaryDiagnosisDisplay(activePatient);
   const carePlan = snapshot?.carePlan ?? null;
+  const uc3ResultDisplay = useMemo(
+    () => getUc3ResultDisplay(snapshot?.latestUc3TrajectoryResult ?? null),
+    [snapshot?.latestUc3TrajectoryResult],
+  );
   const rehabPlanMetrics = snapshot?.rehabPlanMetrics ?? [];
   const carePlanHistory = snapshot?.carePlans ?? [];
   const timelineEvents = snapshot?.timelineEvents;
@@ -186,18 +194,6 @@ export default function CareScreen() {
     return () => clearTimeout(handle);
   }, [patientId]);
 
-  const rehabMeasurements = useMemo(() => {
-    if (!patientId) return [];
-    return getRehabilitationMeasurements(patientId, "rehabilitation_berg_balance")
-      .concat(getRehabilitationMeasurements(patientId, "rehabilitation_gait_speed"));
-  }, [patientId]);
-
-  const bergBalanceMeasurements = rehabMeasurements.filter(
-    (m) => m.type === "rehabilitation_berg_balance",
-  );
-  const gaitSpeedMeasurements = rehabMeasurements.filter(
-    (m) => m.type === "rehabilitation_gait_speed",
-  );
   const careContextGroups = useMemo(
     () => buildCareContextGroups(clinicalTimelineEvents, snapshot?.careContextItems ?? []),
     [clinicalTimelineEvents, snapshot?.careContextItems],
@@ -559,21 +555,7 @@ export default function CareScreen() {
                 </View>
               </View>
 
-              <ProgressMetric
-                label="Functional Task Score"
-                measurements={bergBalanceMeasurements}
-                target={56}
-                maxVal={56}
-                unit="pts"
-              />
-
-              <ProgressMetric
-                label="Guided Movement Score"
-                measurements={gaitSpeedMeasurements}
-                target={1.0}
-                maxVal={1.5}
-                unit="m/s"
-              />
+              <Uc3ResultCard display={uc3ResultDisplay} />
 
               {cpProgressMeasurements.length > 0 ? (
                 <ProgressMetric
@@ -862,6 +844,52 @@ function CarePlanMeta({ label, value }: { label: string; value: string }) {
   );
 }
 
+function Uc3ResultCard({ display }: { display: Uc3ResultDisplay }) {
+  const toneStyle =
+    display.tone === "urgent"
+      ? styles.uc3ResultCardUrgent
+      : display.tone === "review"
+        ? styles.uc3ResultCardReview
+        : null;
+
+  return (
+    <View style={[styles.uc3ResultCard, toneStyle]}>
+      <View style={styles.uc3ResultHeader}>
+        <Text style={styles.uc3ResultKicker}>{display.title}</Text>
+        {display.reviewLabel ? (
+          <Text
+            style={[
+              styles.uc3ResultBadge,
+              display.tone === "urgent" ? styles.uc3ResultBadgeUrgent : null,
+            ]}
+          >
+            {display.reviewLabel}
+          </Text>
+        ) : null}
+      </View>
+      <Text style={styles.uc3ResultStatus}>{display.statusLabel}</Text>
+      {display.generatedAtLabel ? (
+        <Text style={styles.uc3ResultMeta}>{display.generatedAtLabel}</Text>
+      ) : null}
+      {display.explanation ? (
+        <Text style={styles.uc3ResultExplanation}>{display.explanation}</Text>
+      ) : null}
+      {display.dataQualityLabel ? (
+        <Text style={styles.uc3ResultMeta}>{display.dataQualityLabel}</Text>
+      ) : null}
+      {display.detailLines.length > 0 ? (
+        <View style={styles.uc3ResultDetails}>
+          {display.detailLines.map((line) => (
+            <Text key={line} style={styles.uc3ResultDetailLine}>
+              {line}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function RehabPlanMetricList({ metrics }: { metrics: CarePlanRehabMetric[] }) {
   return (
     <View style={styles.rehabGoalList}>
@@ -1050,8 +1078,6 @@ function isSeededDemoDailyEntry(entry: DailyCareEntry): boolean {
     entry.fatigue === 5 &&
     entry.assistanceRequired === "some" &&
     entry.caregiverConcern === false &&
-    entry.functionalTaskScore === 2.6 &&
-    entry.guidedMovementScore === 55 &&
     entry.notes === "Completed all exercises but shoulder movement looked about the same as last week."
   );
 }
@@ -2228,6 +2254,73 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.text,
     fontSize: 14,
     fontWeight: "900",
+  },
+  uc3ResultCard: {
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    borderRadius: 12,
+    backgroundColor: AppTheme.colors.white,
+    padding: 14,
+    marginBottom: 18,
+    gap: 8,
+  },
+  uc3ResultCardReview: {
+    borderColor: "#F59E0B",
+    backgroundColor: "#FFFBEB",
+  },
+  uc3ResultCardUrgent: {
+    borderColor: AppTheme.colors.danger,
+    backgroundColor: "#FEF2F2",
+  },
+  uc3ResultHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  uc3ResultKicker: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  uc3ResultBadge: {
+    borderRadius: 999,
+    backgroundColor: "#FDE68A",
+    color: "#92400E",
+    fontSize: 11,
+    fontWeight: "900",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  uc3ResultBadgeUrgent: {
+    backgroundColor: "#FEE2E2",
+    color: AppTheme.colors.danger,
+  },
+  uc3ResultStatus: {
+    color: AppTheme.colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  uc3ResultMeta: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  uc3ResultExplanation: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  uc3ResultDetails: {
+    gap: 4,
+  },
+  uc3ResultDetailLine: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
   },
   progressMetric: {
     marginBottom: 18,

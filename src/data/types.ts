@@ -886,6 +886,49 @@ export interface DailyCareEntry {
   updatedAt: string;
 }
 
+export type Uc3TrajectoryResultStatus = 'active' | 'superseded' | 'acknowledged';
+
+export interface Uc3TrajectoryMetricAnalysisSummary {
+  metricName: string;
+  finalActual: number | null;
+  finalExpected: number | null;
+  gap: number | null;
+  gapPercent: number | null;
+  recentSlope: number | null;
+  plateauDays: number;
+  dataPoints: number;
+}
+
+export interface Uc3TrajectoryDataQualitySummary {
+  totalExpectedDays: number;
+  totalLoggedDays: number;
+  missingDays: number[];
+  completenessRatio: number;
+  sufficientData: boolean;
+  warnings: string[];
+}
+
+export interface LatestUc3TrajectoryResultSummary {
+  resultId: string;
+  patientId: string;
+  carePlanId: string;
+  modelFamily: string;
+  modelVersion: string;
+  inputFingerprint: string;
+  eventType: string;
+  severity: string;
+  requiresHumanReview: boolean;
+  emergencyThresholdBreach: boolean;
+  reviewPriorityScore: number;
+  reasonCodes: string[];
+  explanations: string[];
+  metricAnalyses: Record<string, Uc3TrajectoryMetricAnalysisSummary>;
+  dataQuality: Uc3TrajectoryDataQualitySummary;
+  generatedAt: string;
+  status: Uc3TrajectoryResultStatus;
+  caregiverMessagePreview?: string;
+}
+
 export interface BundleStatus {
   state: 'in_flight' | 'complete' | 'failed';
   chunksAdded: number;
@@ -914,6 +957,7 @@ export interface PatientRecordSnapshot {
   rehabExerciseAssignments: RehabExerciseAssignment[];
   todayDailyCareEntry: DailyCareEntry | null;
   rehabDailyEntries: DailyCareEntry[];
+  latestUc3TrajectoryResult: LatestUc3TrajectoryResultSummary | null;
   careContextItems: PatientCareContextItem[];
   timelineEvents: PatientTimelineEvent[];
   carePlanGoals: CarePlanGoalSummary[];

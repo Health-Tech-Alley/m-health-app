@@ -1034,4 +1034,37 @@ export const MIGRATIONS: Migration[] = [
       );
     }
   },
+
+  // 43: persisted UC3 trajectory results, scoped by patient and CarePlan.
+  `CREATE TABLE IF NOT EXISTS uc3_trajectory_results (
+    result_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    care_plan_id TEXT NOT NULL,
+    model_family TEXT NOT NULL,
+    model_version TEXT NOT NULL,
+    input_fingerprint TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    input_window_start TEXT,
+    input_window_end TEXT,
+    event_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    requires_human_review INTEGER NOT NULL DEFAULT 0,
+    emergency_threshold_breach INTEGER NOT NULL DEFAULT 0,
+    review_priority_score REAL NOT NULL,
+    reason_codes_json TEXT NOT NULL,
+    explanations_json TEXT NOT NULL,
+    metric_analyses_json TEXT NOT NULL,
+    data_quality_json TEXT NOT NULL,
+    caregiver_message TEXT,
+    clinician_summary TEXT,
+    status TEXT NOT NULL DEFAULT 'active'
+      CHECK (status IN ('active', 'superseded', 'acknowledged')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    superseded_at TEXT,
+    UNIQUE(patient_id, care_plan_id, model_version, input_fingerprint)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_uc3_results_patient_plan_status
+    ON uc3_trajectory_results(patient_id, care_plan_id, status, generated_at DESC);`,
 ];
