@@ -121,8 +121,22 @@ const PREFERRED_METRIC_ORDER: HealthSampleType[] = [
   "steps",
 ];
 
+const DISPLAY_UNIT_OVERRIDE: Partial<Record<HealthSampleType, string>> = {
+  heart_rate: 'bpm',
+  respiratory_rate: 'breaths/min',
+  steps: 'steps',
+  distance: 'mi',
+  flights_climbed: 'flights',
+  blood_pressure_systolic: 'mmHg',
+  blood_pressure_diastolic: 'mmHg',
+};
+
+function displayUnit(type: HealthSampleType, rawUnit: string): string {
+  return DISPLAY_UNIT_OVERRIDE[type] ?? rawUnit;
+}
+
 const CHART_HEIGHT = 88;
-const POINT_SIZE = 13;
+const POINT_SIZE = 8;
 const RECENT_WINDOW_MS = 100 * 24 * 60 * 60 * 1000;
 
 export function WeeklyVitalsCard() {
@@ -288,10 +302,10 @@ function buildMetrics(
         tabIcon: meta.tabIcon,
         label: meta.label,
         value: formatReadingValue(latest, byType),
-        unit: formatReadingUnit(latest, byType),
+        unit: displayUnit(type, formatReadingUnit(latest, byType)),
         status: `Latest ${formatRelativeTime(latest.recordedAt)}`,
         statusTone: "good" as MetricTone,
-        subtitle: `${sorted.length} reading${sorted.length === 1 ? "" : "s"} in the last 7 days`,
+        subtitle: `${sorted.length} reading${sorted.length === 1 ? "" : "s"} Today`,
         helperText: meta.helperText,
         readings: sorted,
       }];
@@ -319,7 +333,7 @@ function formatReadingUnit(
   }
 
   const diastolic = findPairedReading(reading, byType.get("blood_pressure_diastolic") ?? []);
-  return reading.unit || diastolic?.unit || "mmHg";
+   return displayUnit(reading.type, reading.unit || diastolic?.unit || "mmHg");
 }
 
 function findPairedReading(
@@ -345,6 +359,7 @@ function getSummaryMetrics(
 
 function TrendChart({ readings }: { readings: LiveVitalReading[] }) {
   const [chartWidth, setChartWidth] = useState(0);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const values = readings.map((reading) => reading.value);
 
   const points = useMemo(() => {
@@ -369,6 +384,8 @@ function TrendChart({ readings }: { readings: LiveVitalReading[] }) {
 
   const firstReading = readings[0];
   const lastReading = readings[readings.length - 1];
+  const selectedPoint = selectedIndex !== null ? points[selectedIndex] : null;
+  const selectedReading = selectedIndex !== null ? readings[selectedIndex] : null;
 
   return (
     <View style={styles.chartWrap}>
@@ -410,17 +427,42 @@ function TrendChart({ readings }: { readings: LiveVitalReading[] }) {
           })}
 
           {points.map((point, index) => (
-            <View
+            <Pressable
               key={`point-${readings[index].sampleId}`}
+              hitSlop={10}
+              onPress={() =>
+                setSelectedIndex((current) => (current === index ? null : index))
+              }
               style={[
                 styles.point,
                 {
                   left: point.x - POINT_SIZE / 2,
                   top: point.y - POINT_SIZE / 2,
                 },
+                selectedIndex === index && styles.pointSelected,
               ]}
             />
           ))}
+
+          {selectedPoint && selectedReading ? (
+            <View
+              pointerEvents="none"
+              style={[
+                styles.valueBubble,
+                {
+                  left: Math.max(
+                    0,
+                    Math.min(selectedPoint.x - 24, chartWidth - 48),
+                  ),
+                  top: Math.max(selectedPoint.y - 30, 0),
+                },
+              ]}
+            >
+              <Text style={styles.valueBubbleText}>
+                {formatNumber(selectedReading.value)}
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.dayRow}>
@@ -683,6 +725,27 @@ const styles = StyleSheet.create({
   smallStatUnit: {
     color: AppTheme.colors.textMuted,
     fontSize: 12,
+    fontWeight: "800",
+  },
+  pointSelected: {
+    width: POINT_SIZE + 6,
+    height: POINT_SIZE + 6,
+    borderRadius: (POINT_SIZE + 6) / 2,
+    borderWidth: 2,
+    borderColor: AppTheme.colors.white,
+  },
+  valueBubble: {
+    position: "absolute",
+    backgroundColor: AppTheme.colors.brandDark,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    minWidth: 48,
+    alignItems: "center",
+  },
+  valueBubbleText: {
+    color: AppTheme.colors.white,
+    fontSize: 11,
     fontWeight: "800",
   },
 });
