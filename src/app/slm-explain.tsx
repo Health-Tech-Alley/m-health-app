@@ -12,7 +12,7 @@
  * caregiver_action.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Modal,
@@ -33,7 +33,12 @@ import {
   useOrchestratorPatientId,
 } from '@/contexts/orchestrator-context';
 import { useSLM } from '@/contexts/slm-context';
-import { getAlertById, insertCaregiverAction } from '@/data';
+import {
+  getAlertById,
+  getUc3TrajectoryResultById,
+  getUc4PriorityCardSummaryById,
+  insertCaregiverAction,
+} from '@/data';
 import type { NextStepActionId } from '@/data/types';
 import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
 import type { AgentProposal } from '@/orchestration';
@@ -49,12 +54,30 @@ const GREEN = '#0F7A4A';
 
 const CAREGIVER_SLM_MODEL_ID = DEFAULT_SLM_MODEL_ID;
 
+type ExplanationTarget =
+  | { kind: 'alert'; alert: NonNullable<ReturnType<typeof getAlertById>> }
+  | { kind: 'uc3'; result: NonNullable<ReturnType<typeof getUc3TrajectoryResultById>> }
+  | { kind: 'uc4'; card: NonNullable<ReturnType<typeof getUc4PriorityCardSummaryById>> }
+  | { kind: 'unavailable'; message: string };
+
 export default function SlmExplainScreen() {
   const router = useRouter();
   const orchestrator = useOrchestrator();
   const slm = useSLM();
   const patientId = useOrchestratorPatientId();
-  const { alertId } = useLocalSearchParams<{ alertId: string }>();
+  const {
+    alertId,
+    resultId,
+    cardId,
+    mode,
+    patientId: routePatientId,
+  } = useLocalSearchParams<{
+    alertId?: string;
+    resultId?: string;
+    cardId?: string;
+    mode?: string;
+    patientId?: string;
+  }>();
 
   const [proposal, setProposal] = useState<AgentProposal | null>(null);
   const [loading, setLoading] = useState(false);
@@ -68,8 +91,65 @@ export default function SlmExplainScreen() {
 
   const log = useCallback((msg: string) => setLogs((prev) => [...prev, msg]), []);
 
+  const target = useMemo<ExplanationTarget>(() => {
+    const requestedPatientId = routePatientId?.trim();
+    const validatePatient = (targetPatientId: string, label: string): string | null => {
+      if (requestedPatientId && requestedPatientId !== patientId) {
+        return `This ${label} link is stale for the active patient. Switch back to the original patient or reopen the result.`;
+      }
+      if (targetPatientId !== patientId) {
+        return `This ${label} belongs to a different patient. Switch back to that patient to view it.`;
+      }
+      return null;
+    };
+
+    if (alertId) {
+      const alert = getAlertById(alertId);
+      if (!alert) return { kind: 'unavailable', message: 'Alert not found.' };
+      const mismatch = validatePatient(alert.patientId, 'alert');
+      return mismatch ? { kind: 'unavailable', message: mismatch } : { kind: 'alert', alert };
+    }
+
+    if (mode === 'rehab_trajectory' && resultId) {
+      const result = getUc3TrajectoryResultById(resultId);
+      if (!result) return { kind: 'unavailable', message: 'Rehab trajectory result not found.' };
+      const mismatch = validatePatient(result.patientId, 'rehab trajectory result');
+      return mismatch ? { kind: 'unavailable', message: mismatch } : { kind: 'uc3', result };
+    }
+
+    if (mode === 'uc4_priority' && cardId) {
+      const card = getUc4PriorityCardSummaryById(cardId);
+      if (!card) return { kind: 'unavailable', message: 'Care focus card not found.' };
+      const mismatch = validatePatient(card.patientId, 'care focus card');
+      return mismatch ? { kind: 'unavailable', message: mismatch } : { kind: 'uc4', card };
+    }
+
+    return { kind: 'unavailable', message: 'No Concierge explanation target was selected.' };
+  }, [alertId, cardId, mode, patientId, resultId, routePatientId]);
+
+  const alert = target.kind === 'alert' ? target.alert : null;
+
   const explain = useCallback(async () => {
-    if (!alertId) return;
+    if (target.kind === 'unavailable') {
+      setProposal(null);
+      setStepResult(null);
+      setError(target.message);
+      log(`Explain unavailable: ${target.message}`);
+      return;
+    }
+
+    if (target.kind !== 'alert') {
+      const message =
+        target.kind === 'uc3'
+          ? 'This rehab trajectory result is verified for the active patient, but Concierge generation for this target is unavailable in this checkpoint.'
+          : 'This care focus card is verified for the active patient, but Concierge generation for this target is unavailable in this checkpoint.';
+      setProposal(null);
+      setStepResult(null);
+      setError(message);
+      log(`Explain unavailable: ${message}`);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setProposal(null);
@@ -80,17 +160,17 @@ export default function SlmExplainScreen() {
         await slm.loadModel(CAREGIVER_SLM_MODEL_ID);
       }
       log('Requesting Concierge explanation…');
-      const result = await orchestrator.explainAlert(alertId, 'caregiver-1');
-        setProposal(result);
-        log(`Explanation received. Citations: ${result.citations.length}.`);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setError(msg);
-        log(`Explain failed: ${msg}`);
-      } finally {
-        setLoading(false);
-      }
-  }, [alertId, orchestrator, slm, log]);
+      const result = await orchestrator.explainAlert(target.alert.alertId, 'caregiver-1');
+      setProposal(result);
+      log(`Explanation received. Citations: ${result.citations.length}.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      log(`Explain failed: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [orchestrator, slm, log, target]);
 
   useEffect(() => {
     // Defer so setState happens in an async callback, not synchronously in
@@ -103,13 +183,13 @@ export default function SlmExplainScreen() {
 
   const answerQuestion = useCallback(
     async (option: string) => {
-      if (!alertId || !proposal?.clarifyingQuestion) return;
+      if (!alert || !proposal?.clarifyingQuestion) return;
       setLoading(true);
       setError(null);
       try {
         log(`Answering clarifying question: ${option}`);
         const result = await orchestrator.answerClarifyingQuestion(
-          alertId,
+          alert.alertId,
           'caregiver-1',
           proposal.clarifyingQuestion.questionId,
           option,
@@ -124,18 +204,18 @@ export default function SlmExplainScreen() {
         setLoading(false);
       }
     },
-    [alertId, proposal, orchestrator, slm, log],
+    [alert, proposal, orchestrator, log],
   );
 
   const runNextStep = useCallback(
     async (actionId: NextStepActionId) => {
-      if (!alertId) return;
+      if (!alert) return;
       setLoading(true);
       setError(null);
       try {
         const result = await executeNextStep(actionId, {
           patientId,
-          alertId,
+          alertId: alert.alertId,
           caregiverId: 'caregiver-1',
         });
         setStepResult(result);
@@ -148,14 +228,14 @@ export default function SlmExplainScreen() {
         setLoading(false);
       }
     },
-    [alertId, patientId, log],
+    [alert, patientId, log],
   );
 
   const saveOverride = useCallback(() => {
-    if (!alertId || !overrideText.trim()) return;
+    if (!alert || !overrideText.trim()) return;
     insertCaregiverAction({
       actionId: `act-${Date.now()}`,
-      alertId,
+      alertId: alert.alertId,
       patientId,
       caregiverId: 'caregiver-1',
       type: 'override',
@@ -166,13 +246,13 @@ export default function SlmExplainScreen() {
     setFeedback('Thanks. I\u2019ll learn from your feedback.');
     setOverrideText('');
     setOverrideOpen(false);
-  }, [alertId, patientId, overrideText, log]);
+  }, [alert, patientId, overrideText, log]);
 
   const confirmProposal = useCallback(() => {
-    if (!alertId) return;
+    if (!alert) return;
     insertCaregiverAction({
       actionId: `act-${Date.now()}`,
-      alertId,
+      alertId: alert.alertId,
       patientId,
       caregiverId: 'caregiver-1',
       type: 'ask_slm',
@@ -181,9 +261,7 @@ export default function SlmExplainScreen() {
     });
     log('Caregiver confirmed the Concierge explanation.');
     setFeedback('Got it. The next step is in your hands.');
-  }, [alertId, patientId, log]);
-
-  const alert = alertId ? getAlertById(alertId) : null;
+  }, [alert, patientId, log]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
