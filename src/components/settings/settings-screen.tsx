@@ -73,6 +73,12 @@ import {
   setRecordConsent,
   type RecordConsentScope,
 } from '@/services/records/recordsService';
+import { evaluateAndPersistUc3Trajectory } from '@/services/uc3/uc3EvaluationService';
+import {
+  createManualUc3EvaluationKey,
+  describeUc3DeveloperEvaluationResult,
+  type Uc3DeveloperEvaluationStatus,
+} from '@/services/uc3/uc3DeveloperEvaluationPresenter';
 
 const teal = '#0E6F68';
 const darkText = '#123433';
@@ -367,6 +373,9 @@ export function AdvancedDeveloperSettingsScreen() {
   const [thresholdRecs, setThresholdRecs] = useState<ThresholdRecommendation[]>([]);
   const [recVersion, setRecVersion] = useState(0);
   const [rerunningDemo, setRerunningDemo] = useState(false);
+  const [runningUc3Evaluation, setRunningUc3Evaluation] = useState(false);
+  const [uc3EvaluationStatus, setUc3EvaluationStatus] =
+    useState<Uc3DeveloperEvaluationStatus | null>(null);
   const [importingEhr, setImportingEhr] = useState(false);
   const [importProgress, setImportProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const activeCarePlan = snapshot?.carePlan ?? null;
@@ -407,6 +416,32 @@ export function AdvancedDeveloperSettingsScreen() {
     refresh,
     uc3ExerciseAssignmentEligible,
   ]);
+
+  const handleRunUc3Evaluation = useCallback(() => {
+    if (!snapshot?.patient) {
+      setUc3EvaluationStatus({
+        title: 'UC3 evaluation not ready',
+        lines: ['No active patient selected.'],
+      });
+      return;
+    }
+
+    const now = new Date();
+    const evaluationKey = createManualUc3EvaluationKey(now);
+    setRunningUc3Evaluation(true);
+    try {
+      const result = evaluateAndPersistUc3Trajectory(snapshot, {
+        evaluationKey,
+        now,
+      });
+      setUc3EvaluationStatus(describeUc3DeveloperEvaluationResult(result));
+      if (result.status === 'success') {
+        refresh();
+      }
+    } finally {
+      setRunningUc3Evaluation(false);
+    }
+  }, [refresh, snapshot]);
 
   const handleRerunElenaDemo = useCallback(async () => {
     setRerunningDemo(true);
@@ -1135,6 +1170,30 @@ export function AdvancedDeveloperSettingsScreen() {
                   ))}
                 </>
               )}
+              <Pressable
+                style={[
+                  styles.actionButton,
+                  runningUc3Evaluation && styles.disabledActionButton,
+                ]}
+                onPress={handleRunUc3Evaluation}
+                disabled={runningUc3Evaluation}
+                accessibilityRole="button"
+                accessibilityLabel="Run UC3 evaluation"
+              >
+                <Text style={styles.actionButtonText}>Run UC3 evaluation</Text>
+              </Pressable>
+              {uc3EvaluationStatus ? (
+                <View style={styles.uc3EvaluationStatusCard}>
+                  <Text style={styles.uc3EvaluationStatusTitle}>
+                    {uc3EvaluationStatus.title}
+                  </Text>
+                  {uc3EvaluationStatus.lines.map((line) => (
+                    <Text key={line} style={styles.uc3EvaluationStatusLine}>
+                      {line}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
             </View>
           </Section>
         ) : null}
@@ -2352,6 +2411,25 @@ const styles = StyleSheet.create({
   devSection: { gap: 12, marginTop: 8, paddingHorizontal: 16, paddingBottom: 16 },
   devLabel: { fontSize: 14, fontWeight: '700', color: darkText },
   devInfo: { fontSize: 12, color: mutedText, lineHeight: 17 },
+  uc3EvaluationStatusCard: {
+    borderWidth: 1,
+    borderColor,
+    borderRadius: 10,
+    backgroundColor: AppTheme.colors.softSurface,
+    padding: 10,
+    gap: 4,
+  },
+  uc3EvaluationStatusTitle: {
+    color: darkText,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  uc3EvaluationStatusLine: {
+    color: mutedText,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
   keyLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',

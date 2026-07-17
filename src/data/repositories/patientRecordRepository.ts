@@ -54,6 +54,7 @@ import { getRehabExerciseAssignments } from './rehabExerciseAssignmentRepository
 import { getSymptomsForPatient } from './symptomRepository';
 import { getActiveThresholds } from './thresholdRepository';
 import { getPrimaryWearableForPatient } from './wearableDeviceRepository';
+import { getLatestActiveUc3TrajectoryResultSummary } from './uc3TrajectoryResultRepository';
 
 export type { BundleStatus, CarePlanGoalSummary, PatientRecordSnapshot } from '../types';
 
@@ -218,6 +219,9 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     patientId,
     getRehabDailyEntryWindow(carePlan),
   );
+  const latestUc3TrajectoryResult = carePlan
+    ? getLatestActiveUc3TrajectoryResultSummary(patientId, carePlan.planId)
+    : null;
   const careContextItems = getPatientCareContextItems(patientId);
   const timelineEvents = getPatientTimelineEvents(patientId);
   const carePlanGoals = getCarePlanGoals(patientId);
@@ -263,6 +267,7 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     rehabExerciseAssignments,
     todayDailyCareEntry,
     rehabDailyEntries,
+    latestUc3TrajectoryResult,
     careContextItems,
     timelineEvents,
     carePlanGoals,

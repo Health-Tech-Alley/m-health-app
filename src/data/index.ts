@@ -61,6 +61,7 @@ export * from './repositories/dailyCareEntryRepository';
 export * from './repositories/carePlanRepository';
 export * from './repositories/carePlanRehabMetricRepository';
 export * from './repositories/rehabExerciseAssignmentRepository';
+export * from './repositories/uc3TrajectoryResultRepository';
 export * from './repositories/rehabilitationMeasurementRepository';
 export * from './repositories/patientLongitudinalObservationRepository';
 export * from './repositories/patientTimelineEventRepository';
