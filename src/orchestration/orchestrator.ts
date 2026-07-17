@@ -38,6 +38,12 @@ import {
   updateMlEventPostHitl,
 } from '@/data/repositories/mlEventRepository';
 import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
+import { getUc3TrajectoryResultById } from '@/data/repositories/uc3TrajectoryResultRepository';
+import {
+  getUc4PriorityCardSummariesForRun,
+  getUc4PriorityCardSummaryById,
+  getUc4RunSummaryById,
+} from '@/data/repositories/uc4PriorityRepository';
 import type { InferenceProvider } from '@/inference/inference-provider';
 import type { FusedRetriever, RetrievedChunk } from '@/knowledge';
 import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
@@ -45,6 +51,7 @@ import type { AppleWatchVitalsInput, UC2DecisionResult } from '@/ml-models/uc2-d
 import { audit, auditAlertCreated, auditCaregiverAction, auditSampleRead, auditSlmTurn } from '@/services/audit/auditService';
 import { checkEgressConsent } from '@/services/consent/consentGate';
 import { AlertMlService } from '@/services/ml/alert-ml-service';
+import { dispatchImmediate } from '@/services/notifications';
 import type { SlmTaskQueue } from '@/services/slm/slm-task-queue';
 import { store } from '@/store';
 
@@ -228,11 +235,29 @@ export class Orchestrator {
         void this.handleCaregiverOverride(event);
       }
     });
+    const unsubUc3 = bus.subscribe('uc3_trajectory_evaluated', (event) => {
+      if (event.type === 'uc3_trajectory_evaluated') {
+        void this.handleUc3TrajectoryEvaluated(event);
+      }
+    });
+    const unsubUc4 = bus.subscribe('uc4_priorities_evaluated', (event) => {
+      if (event.type === 'uc4_priorities_evaluated') {
+        void this.handleUc4PrioritiesEvaluated(event);
+      }
+    });
+    const unsubUc4Resp = bus.subscribe('uc4_caregiver_response', (event) => {
+      if (event.type === 'uc4_caregiver_response') {
+        void this.handleUc4CaregiverResponse(event);
+      }
+    });
 
     this.unsubscribe = () => {
       unsubVitals();
       unsubMl();
       unsubOverride();
+      unsubUc3();
+      unsubUc4();
+      unsubUc4Resp();
     };
   }
 
@@ -628,6 +653,131 @@ export class Orchestrator {
       resourceId: event.alertId,
       patientId: event.patientId,
       payload: { note: event.note },
+    });
+  }
+
+  private async handleUc3TrajectoryEvaluated(
+    event: Extract<OrchestrationEvent, { type: 'uc3_trajectory_evaluated' }>,
+  ): Promise<void> {
+    const result = getUc3TrajectoryResultById(event.resultId);
+    if (!result || result.patientId !== event.patientId || result.carePlanId !== event.carePlanId) {
+      audit({
+        actor: 'system',
+        action: 'uc3_trajectory_event_mismatch',
+        resourceType: 'uc3_trajectory_result',
+        resourceId: event.resultId,
+        patientId: event.patientId,
+        payload: { carePlanId: event.carePlanId, found: Boolean(result) },
+      });
+      return;
+    }
+
+    audit({
+      actor: 'system',
+      action: 'uc3_trajectory_evaluated',
+      resourceType: 'uc3_trajectory_result',
+      resourceId: result.resultId,
+      patientId: result.patientId,
+      payload: {
+        carePlanId: result.carePlanId,
+        eventType: result.eventType,
+        severity: result.severity,
+        requiresHumanReview: result.requiresHumanReview,
+        emergencyThresholdBreach: result.emergencyThresholdBreach,
+      },
+    });
+
+    if (event.inserted === false) return;
+    if (!result.requiresHumanReview && !result.emergencyThresholdBreach) return;
+
+    const urgent = result.emergencyThresholdBreach || result.severity === 'urgent';
+    try {
+      const consent = checkEgressConsent(result.patientId, 'dispatch_alert_notification');
+      if (consent.allowed) {
+        await dispatchImmediate({
+          patientId: result.patientId,
+          scope: 'care_task',
+          triggerRef: result.resultId,
+          title: urgent ? 'Urgent rehab safety concern' : 'Rehab progress review recommended',
+          body: result.explanations[0] ?? result.eventType,
+          severity: urgent ? 3 : 2,
+          bypassDnd: urgent,
+        });
+      }
+    } catch (err) {
+      console.warn('[Orchestrator] UC3 notification dispatch failed:', err);
+    }
+  }
+
+  private async handleUc4PrioritiesEvaluated(
+    event: Extract<OrchestrationEvent, { type: 'uc4_priorities_evaluated' }>,
+  ): Promise<void> {
+    const run = getUc4RunSummaryById(event.runId);
+    if (!run || run.patientId !== event.patientId) {
+      audit({
+        actor: 'system',
+        action: 'uc4_priorities_event_mismatch',
+        resourceType: 'uc4_priority_run',
+        resourceId: event.runId,
+        patientId: event.patientId,
+        payload: { found: Boolean(run) },
+      });
+      return;
+    }
+
+    audit({
+      actor: 'system',
+      action: 'uc4_priorities_evaluated',
+      resourceType: 'uc4_priority_run',
+      resourceId: run.runId,
+      patientId: run.patientId,
+      payload: {
+        status: run.status,
+        paused: run.paused,
+        pauseReason: run.pauseReason,
+        cardCount: run.cardCount,
+      },
+    });
+
+    if (run.status !== 'completed' || run.cardCount === 0) return;
+
+    const cards = getUc4PriorityCardSummariesForRun(run.patientId, run.runId, 1);
+    const topCard = cards[0];
+    if (!topCard) return;
+
+    try {
+      const consent = checkEgressConsent(run.patientId, 'dispatch_alert_notification');
+      if (consent.allowed) {
+        await dispatchImmediate({
+          patientId: run.patientId,
+          scope: 'care_task',
+          triggerRef: run.runId,
+          title: 'New care focus checklist available',
+          body: topCard.title,
+          severity: 1,
+          bypassDnd: false,
+        });
+      }
+    } catch (err) {
+      console.warn('[Orchestrator] UC4 notification dispatch failed:', err);
+    }
+  }
+
+  private async handleUc4CaregiverResponse(
+    event: Extract<OrchestrationEvent, { type: 'uc4_caregiver_response' }>,
+  ): Promise<void> {
+    const card = event.cardId ? getUc4PriorityCardSummaryById(event.cardId) : null;
+    audit({
+      actor: 'caregiver',
+      action: event.action,
+      resourceType: 'uc4_priority_card',
+      resourceId: event.cardId ?? event.responseId,
+      patientId: event.patientId,
+      payload: {
+        responseId: event.responseId,
+        cardFound: Boolean(card),
+        cardPatientMatches: card ? card.patientId === event.patientId : null,
+      },
     });
   }
 

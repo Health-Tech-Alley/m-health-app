@@ -15,7 +15,6 @@ import {
   type UC4PriorityCard,
 } from '../../ml-models/uc4-micro-priorities';
 import { getEventBus } from '../../orchestration/event-bus';
-import { dispatchImmediate } from '../notifications';
 import {
   adaptPatientRecordSnapshotToUC4Input,
   type UC4AdapterIssue,
@@ -85,20 +84,6 @@ function publishUc4Result(params: {
   } catch {
     /* event bus may not exist during isolated tests */
   }
-}
-
-function maybeNotifyUc4Cards(patientId: string, runId: string, cards: UC4PriorityCard[]): void {
-  if (cards.length === 0) return;
-  const topCard = cards[0];
-  void dispatchImmediate({
-    patientId,
-    scope: 'care_task',
-    triggerRef: runId,
-    title: 'New care focus checklist available',
-    body: topCard.title,
-    severity: 1,
-    bypassDnd: false,
-  });
 }
 
 export function evaluateAndPersistUc4Priorities(
@@ -189,7 +174,6 @@ export function evaluateAndPersistUc4Priorities(
     cardCount: output.selectedCards.length,
     at: nowIso,
   });
-  maybeNotifyUc4Cards(patientId, runId, output.selectedCards);
 
   return {
     status: 'success',
@@ -214,13 +198,20 @@ export function submitUc4CaregiverResponse(params: {
 }): string {
   const nowIso = new Date().toISOString();
   const responseId = `uc4-response:${params.patientId}:${params.cardId}:${nowIso}`;
+  const observationCodes = new Set(params.observationCodes ?? []);
+  if (
+    params.action === 'provider_review_requested' ||
+    params.caregiverRequestedProviderReview === true
+  ) {
+    observationCodes.add('CAREGIVER_WANTS_PROVIDER_REVIEW');
+  }
   saveUc4CaregiverResponse({
     responseId,
     patientId: params.patientId,
     cardId: params.cardId,
     templateId: params.templateId,
     action: params.action,
-    observationCodes: params.observationCodes ?? [],
+    observationCodes: Array.from(observationCodes),
     contextCodes: params.contextCodes ?? [],
     caregiverRequestedProviderReview:
       params.caregiverRequestedProviderReview ?? params.action === 'provider_review_requested',

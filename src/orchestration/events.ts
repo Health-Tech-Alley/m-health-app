@@ -80,6 +80,7 @@ export type OrchestrationEvent =
       severity: string;
       requiresHumanReview: boolean;
       emergencyThresholdBreach: boolean;
+      inserted?: boolean;
       generatedAt: string;
       at: string;
     }

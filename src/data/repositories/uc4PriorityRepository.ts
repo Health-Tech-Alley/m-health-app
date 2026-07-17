@@ -248,6 +248,39 @@ export function getLatestUc4RunSummary(patientId: string): LatestUc4RunSummary |
   };
 }
 
+export function getUc4RunSummaryById(runId: string): LatestUc4RunSummary | null {
+  const row = getDatabase().getFirstSync<Uc4RunRow>(
+    `SELECT r.run_id AS runId, r.patient_id AS patientId, r.status,
+            r.pause_reason AS pauseReason, r.generated_at AS generatedAt,
+            r.engine_version AS engineVersion, r.schema_version AS schemaVersion,
+            r.template_registry_version AS templateRegistryVersion,
+            r.rule_registry_version AS ruleRegistryVersion,
+            r.scoring_version AS scoringVersion,
+            COUNT(c.card_id) AS cardCount
+     FROM uc4_runs r
+     LEFT JOIN uc4_priority_cards c ON c.run_id = r.run_id
+     WHERE r.run_id = ?
+     GROUP BY r.run_id
+     LIMIT 1;`,
+    runId,
+  );
+  if (!row) return null;
+  return {
+    runId: row.runId,
+    patientId: row.patientId,
+    status: row.status,
+    paused: row.status === 'paused',
+    pauseReason: row.pauseReason ?? null,
+    generatedAt: row.generatedAt,
+    engineVersion: row.engineVersion,
+    schemaVersion: row.schemaVersion,
+    templateRegistryVersion: row.templateRegistryVersion,
+    ruleRegistryVersion: row.ruleRegistryVersion,
+    scoringVersion: row.scoringVersion,
+    cardCount: row.cardCount,
+  };
+}
+
 export function getActiveUc4PriorityCardSummaries(
   patientId: string,
   limit = 3,
@@ -265,6 +298,48 @@ export function getActiveUc4PriorityCardSummaries(
        ORDER BY score DESC, generated_at DESC
        LIMIT ?;`,
       patientId,
+      limit,
+    )
+    .map(toCardSummary);
+}
+
+export function getUc4PriorityCardSummaryById(
+  cardId: string,
+): LatestUc4PriorityCardSummary | null {
+  const row = getDatabase().getFirstSync<Uc4CardRow>(
+    `SELECT card_id AS cardId, patient_id AS patientId, run_id AS runId,
+            template_id AS templateId, priority_kind AS priorityKind,
+            title, body, domain, score, fired_rule_codes_json AS firedRuleCodesJson,
+            evidence_json AS evidenceJson,
+            what_to_log_next_schema_json AS whatToLogNextSchemaJson,
+            safety_boundary AS safetyBoundary, status, generated_at AS generatedAt
+     FROM uc4_priority_cards
+     WHERE card_id = ?
+     LIMIT 1;`,
+    cardId,
+  );
+  return row ? toCardSummary(row) : null;
+}
+
+export function getUc4PriorityCardSummariesForRun(
+  patientId: string,
+  runId: string,
+  limit = 3,
+): LatestUc4PriorityCardSummary[] {
+  return getDatabase()
+    .getAllSync<Uc4CardRow>(
+      `SELECT card_id AS cardId, patient_id AS patientId, run_id AS runId,
+              template_id AS templateId, priority_kind AS priorityKind,
+              title, body, domain, score, fired_rule_codes_json AS firedRuleCodesJson,
+              evidence_json AS evidenceJson,
+              what_to_log_next_schema_json AS whatToLogNextSchemaJson,
+              safety_boundary AS safetyBoundary, status, generated_at AS generatedAt
+       FROM uc4_priority_cards
+       WHERE patient_id = ? AND run_id = ?
+       ORDER BY score DESC, generated_at DESC
+       LIMIT ?;`,
+      patientId,
+      runId,
       limit,
     )
     .map(toCardSummary);

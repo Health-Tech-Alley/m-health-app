@@ -9,7 +9,6 @@ import {
   type UC3AdapterIssue,
 } from './uc3PatientStateAdapter';
 import { getEventBus } from '../../orchestration/event-bus';
-import { dispatchImmediate } from '../notifications';
 
 export type Uc3EvaluationSuccess = {
   status: 'success';
@@ -72,7 +71,10 @@ function resultIdFor(
   return `uc3:${patientId}:${carePlanId}:${modelVersion}:${evaluationKey}`;
 }
 
-function publishUc3PersistedResult(result: LatestUc3TrajectoryResultSummary): void {
+function publishUc3PersistedResult(
+  result: LatestUc3TrajectoryResultSummary,
+  inserted: boolean,
+): void {
   try {
     getEventBus().publish({
       type: 'uc3_trajectory_evaluated',
@@ -83,31 +85,13 @@ function publishUc3PersistedResult(result: LatestUc3TrajectoryResultSummary): vo
       severity: result.severity,
       requiresHumanReview: result.requiresHumanReview,
       emergencyThresholdBreach: result.emergencyThresholdBreach,
+      inserted,
       generatedAt: result.generatedAt,
       at: new Date().toISOString(),
     });
   } catch {
     /* event bus may not be initialized in isolated tests */
   }
-}
-
-function maybeNotifyUc3PersistedResult(result: LatestUc3TrajectoryResultSummary, inserted: boolean): void {
-  if (!inserted) return;
-  if (result.eventType === 'NO_TRAJECTORY_FAILURE' || result.eventType === 'INSUFFICIENT_DATA') {
-    return;
-  }
-  if (!result.requiresHumanReview && !result.emergencyThresholdBreach) return;
-
-  const urgent = result.emergencyThresholdBreach || result.severity === 'urgent';
-  void dispatchImmediate({
-    patientId: result.patientId,
-    scope: 'care_task',
-    triggerRef: result.resultId,
-    title: urgent ? 'Urgent rehab safety concern' : 'Rehab progress review recommended',
-    body: result.explanations[0] ?? result.eventType,
-    severity: urgent ? 3 : 2,
-    bypassDnd: urgent,
-  });
 }
 
 export function evaluateAndPersistUc3Trajectory(
@@ -176,8 +160,7 @@ export function evaluateAndPersistUc3Trajectory(
     if (!persistedResult) {
       throw new Error(`UC3 result ${saved.resultId} was saved but could not be re-read.`);
     }
-    publishUc3PersistedResult(persistedResult);
-    maybeNotifyUc3PersistedResult(persistedResult, saved.inserted);
+    publishUc3PersistedResult(persistedResult, saved.inserted);
     return {
       status: 'success',
       evaluationKey,
