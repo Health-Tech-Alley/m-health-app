@@ -1142,11 +1142,105 @@ export const MIGRATIONS: Migration[] = [
     created_at TEXT NOT NULL,
     PRIMARY KEY (from_chunk_id, to_chunk_id, type)
   );
-
+ 
   CREATE INDEX IF NOT EXISTS idx_kce_from
     ON knowledge_chunk_edges(from_chunk_id);
   CREATE INDEX IF NOT EXISTS idx_kce_to
     ON knowledge_chunk_edges(to_chunk_id);
   CREATE INDEX IF NOT EXISTS idx_kce_type
     ON knowledge_chunk_edges(type);`,
+
+  // 40: uc3_trajectory_results — UC3 Long-Term Trajectory Failure derived results (doc 38)
+  `CREATE TABLE IF NOT EXISTS uc3_trajectory_results (
+    id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    care_plan_id TEXT,
+    model_family TEXT NOT NULL,
+    model_version TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    input_window_start TEXT,
+    input_window_end TEXT,
+    event_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    requires_human_review INTEGER NOT NULL DEFAULT 0,
+    emergency_threshold_breach INTEGER NOT NULL DEFAULT 0,
+    review_priority_score REAL NOT NULL,
+    reason_codes_json TEXT NOT NULL,
+    explanations_json TEXT NOT NULL,
+    metric_analyses_json TEXT NOT NULL,
+    data_quality_json TEXT NOT NULL,
+    caregiver_message TEXT,
+    clinician_summary TEXT,
+    share_payload_json TEXT,
+    status TEXT NOT NULL DEFAULT 'active'
+      CHECK (status IN ('active', 'stale', 'superseded', 'acknowledged')),
+    linked_alert_id TEXT,
+    created_at TEXT NOT NULL,
+    superseded_at TEXT
+  );
+ 
+  CREATE INDEX IF NOT EXISTS idx_uc3_traj_patient_status
+    ON uc3_trajectory_results(patient_id, status, generated_at DESC);`,
+
+  // 41: uc4_priority_cards, uc4_caregiver_responses, uc4_recent_events, uc4_previous_priorities (doc 38)
+  `CREATE TABLE IF NOT EXISTS uc4_priority_cards (
+    card_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    priority_kind TEXT,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    body TEXT NOT NULL,
+    why_this_matters TEXT,
+    what_to_log_next_json TEXT NOT NULL,
+    what_to_log_next_schema_json TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    score REAL NOT NULL,
+    score_trace_json TEXT,
+    safety_tags_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active'
+      CHECK (status IN ('active', 'dismissed', 'acknowledged', 'superseded')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+ 
+  CREATE TABLE IF NOT EXISTS uc4_caregiver_responses (
+    event_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    originating_card_id TEXT,
+    originating_template_id TEXT,
+    timestamp_iso TEXT NOT NULL,
+    observation_codes_json TEXT NOT NULL,
+    context_codes_json TEXT NOT NULL,
+    caregiver_requested_provider_review INTEGER NOT NULL DEFAULT 0,
+    short_text TEXT,
+    free_text_used_for_scoring INTEGER NOT NULL DEFAULT 0,
+    used_for_scoring INTEGER NOT NULL DEFAULT 0,
+    action TEXT,
+    created_at TEXT NOT NULL
+  );
+ 
+  CREATE TABLE IF NOT EXISTS uc4_recent_events (
+    event_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    timestamp_iso TEXT NOT NULL,
+    source TEXT NOT NULL,
+    observation_codes_json TEXT NOT NULL,
+    context_codes_json TEXT NOT NULL,
+    severity INTEGER,
+    free_text_used_for_scoring INTEGER NOT NULL DEFAULT 0,
+    free_text_provider_context TEXT,
+    metadata_json TEXT,
+    created_at TEXT NOT NULL
+  );
+ 
+  CREATE TABLE IF NOT EXISTS uc4_previous_priorities (
+    id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    shown_at_iso TEXT NOT NULL,
+    caregiver_response TEXT,
+    created_at TEXT NOT NULL
+  );`,
 ];
