@@ -4,6 +4,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type ReactNode,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
@@ -12,26 +13,124 @@ import { usePatientRecord } from '@/contexts/patient-record-context';
 import type { SensorSource } from '@/data/sensors';
 import { createSensorSource } from '@/data/sensors';
 
+export type SensorConnectionStatus =
+  | 'available'
+  | 'checking'
+  | 'disconnected'
+  | 'unavailable'
+  | 'unsupported';
+
 interface SensorContextValue {
   sensor: SensorSource | null;
   isRealHealth: boolean;
+  status: SensorConnectionStatus;
+  unavailableReason: string | null;
 }
 
 const SensorContext = createContext<SensorContextValue | null>(null);
 
+type SensorAvailabilityResolution = {
+  sensor: SensorSource;
+  status: 'available' | 'unavailable';
+  unavailableReason: string | null;
+};
+
 export function SensorProvider({ children }: { children: ReactNode }) {
   const { patientId } = usePatientRecord();
   const stopPublishingRef = useRef<(() => void) | null>(null);
+  const [availabilityResolution, setAvailabilityResolution] =
+    useState<SensorAvailabilityResolution | null>(null);
 
   const sensor = useMemo<SensorSource | null>(() => {
     if (!patientId) return null;
     return createSensorSource({ patientId });
   }, [patientId]);
 
-  const isRealHealth = sensor?.constructor.name === 'AppleHealthSource';
+  const baseAvailability = useMemo((): Pick<SensorContextValue, 'status' | 'unavailableReason'> => {
+    if (!patientId) {
+      return {
+        status: 'disconnected',
+        unavailableReason: 'No active patient selected.',
+      };
+    }
+
+    if (!sensor) {
+      return {
+        status: 'unsupported',
+        unavailableReason: 'No supported sensor source is available on this platform.',
+      };
+    }
+
+    if (!sensor.isAvailable()) {
+      return {
+        status: 'unavailable',
+        unavailableReason: 'The configured sensor source is unavailable.',
+      };
+    }
+
+    return {
+      status: 'checking',
+      unavailableReason: null,
+    };
+  }, [patientId, sensor]);
+
+  const resolvedAvailability =
+    baseAvailability.status === 'checking' && availabilityResolution?.sensor === sensor
+      ? availabilityResolution
+      : baseAvailability;
+  const status = resolvedAvailability.status;
+  const unavailableReason = resolvedAvailability.unavailableReason;
+  const isRealHealth = status === 'available' && sensor?.constructor.name === 'AppleHealthSource';
 
   useEffect(() => {
-    if (!sensor) return;
+    let cancelled = false;
+
+    if (!patientId || !sensor || !sensor.isAvailable()) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const resolveAvailability = (
+      healthDataAvailable: boolean,
+      unavailableReasonOverride?: string,
+    ) => {
+      if (cancelled) return;
+      setAvailabilityResolution({
+        sensor,
+        status: healthDataAvailable ? 'available' : 'unavailable',
+        unavailableReason: healthDataAvailable
+          ? null
+          : unavailableReasonOverride ?? 'The configured sensor source is unavailable.',
+      });
+    };
+
+    if (hasHealthDataAvailabilityCheck(sensor)) {
+      void sensor
+        .isHealthDataAvailable()
+        .then((healthDataAvailable) => {
+          resolveAvailability(
+            healthDataAvailable,
+            'Apple Health data is unavailable in this build or on this device.',
+          );
+        })
+        .catch(() => {
+          resolveAvailability(
+            false,
+            'Apple Health data is unavailable in this build or on this device.',
+          );
+        });
+    } else {
+      void Promise.resolve().then(() => resolveAvailability(true));
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId, sensor]);
+
+  useEffect(() => {
+    if (!sensor || status !== 'available') return;
 
     // if (sensor.constructor.name === 'AppleHealthSource') {
     //   for (const type of ALL_HEALTHKIT_READ_TYPES) {
@@ -64,10 +163,10 @@ export function SensorProvider({ children }: { children: ReactNode }) {
         stopPublishingRef.current = null;
       }
     };
-  }, [sensor]);
+  }, [sensor, status]);
 
   return (
-    <SensorContext.Provider value={{ sensor, isRealHealth }}>
+    <SensorContext.Provider value={{ sensor, isRealHealth, status, unavailableReason }}>
       {children}
     </SensorContext.Provider>
   );
@@ -79,4 +178,13 @@ export function useSensor(): SensorContextValue {
     throw new Error('useSensor must be used within a SensorProvider');
   }
   return ctx;
+}
+
+function hasHealthDataAvailabilityCheck(
+  sensor: SensorSource,
+): sensor is SensorSource & { isHealthDataAvailable(): Promise<boolean> } {
+  return (
+    'isHealthDataAvailable' in sensor &&
+    typeof sensor.isHealthDataAvailable === 'function'
+  );
 }
