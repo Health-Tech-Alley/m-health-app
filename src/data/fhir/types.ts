@@ -11,14 +11,26 @@ export type FhirResourceType =
   | 'Patient'
   | 'RelatedPerson'
   | 'Practitioner'
+  | 'PractitionerRole'
+  | 'Organization'
+  | 'CareTeam'
   | 'Condition'
+  | 'AllergyIntolerance'
   | 'Observation'
   | 'MedicationRequest'
   | 'MedicationStatement'
+  | 'MedicationAdministration'
   | 'Goal'
   | 'CarePlan'
+  | 'ServiceRequest'
+  | 'Procedure'
+  | 'Encounter'
+  | 'DocumentReference'
+  | 'Binary'
+  | 'Device'
   | 'Consent'
   | 'Provenance'
+  | 'Basic'
   | 'Composition'
   | 'Bundle';
 
@@ -160,6 +172,8 @@ export interface FhirObservation {
   code: FhirCodeableConcept;
   subject: FhirReference;
   effectiveDateTime?: string;
+  effectivePeriod?: FhirPeriod;
+  issued?: string;
   valueQuantity?: FhirQuantity;
   referenceRange?: FhirObservationReferenceRange[];
 }

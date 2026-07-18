@@ -18,15 +18,21 @@ import type {
 } from '../types';
 import { assertFhirBundleReferenceIntegrity } from './reference-validator';
 
-type SaveFHIRBundleOptions = {
-  patientId?: string;
-};
-
 type ResourceReferenceTarget = {
   resourceType: string;
   id: string;
   fullUrl?: string;
 };
+
+type ObservationEffectiveTimeResolution =
+  | {
+      recordedAt: string;
+      reason: 'EFFECTIVE_DATETIME' | 'EFFECTIVE_PERIOD_START' | 'EFFECTIVE_PERIOD_END';
+    }
+  | {
+      recordedAt: null;
+      reason: 'MISSING_EFFECTIVE_TIME';
+    };
 
 export const REHAB_PLAN_METRIC_CODE_SYSTEM =
   'https://access-dp.local/fhir/CodeSystem/rehab-plan-metric';
@@ -40,10 +46,10 @@ const rehabPlanMetricDefinitions: Record<CarePlanRehabMetricKey, { displayName: 
   walkingMinutes: { displayName: 'Walking time' },
 };
 
-export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions = {}): string | null {
+export function saveFHIRBundleToDB(bundle: any): string | null {
   assertFhirBundleReferenceIntegrity(bundle);
 
-  const canonicalPatientId = getBundlePatientId(bundle, options.patientId);
+  const canonicalPatientId = getBundlePatientId(bundle);
   if (!canonicalPatientId) return null;
   const db = getDatabase();
   const resourceReferenceMap = buildResourceReferenceMap(bundle);
@@ -57,6 +63,12 @@ export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions =
     for (const entry of bundle.entry ?? []) {
       const resource = entry.resource;
       if (!resource) continue;
+      cacheRawResource(db, resource, entry.fullUrl);
+      if (!hasResourceId(resource)) {
+        reportRawOnlyObservationTimeIssue(resource);
+        continue;
+      }
+
       // console.log('[FHIR Import] Processing resource: ', resource.resourceType, ', id: ', resource.id);
       switch (resource.resourceType) {
         case 'Patient':
@@ -100,7 +112,6 @@ export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions =
           break;
         // add more resource types as needed
       }
-      cacheRawResource(db, resource);
     }
   });
 
@@ -115,11 +126,10 @@ function calculateAge(birthdate: Date): number | null {
     return Math.abs(ageDate.getUTCFullYear() - 1970);
 }
 
-function getBundlePatientId(bundle: any, explicitPatientId?: string): string | null {
-  if (explicitPatientId) return explicitPatientId;
+function getBundlePatientId(bundle: any): string | null {
   const patientEntry = bundle.entry?.find((entry: any) => entry.resource?.resourceType === 'Patient');
   const patient = patientEntry?.resource;
-  return normalizePatientId(patient?.id) ?? normalizePatientReference(patientEntry?.fullUrl) ?? null;
+  return normalizePatientId(patient?.id);
 }
 
 function normalizePatientReference(reference?: string): string | null {
@@ -452,7 +462,12 @@ function upsertObservation(
   if (!patientId) return;
   const observationCode = getObservationCode(r);
   const loincCode = r.code?.coding?.[0]?.code;
-  const date = r.effectiveDateTime ?? new Date().toISOString();
+  const effectiveTime = resolveObservationEffectiveTime(r);
+  if (effectiveTime.recordedAt === null) {
+    reportObservationNormalizationIssue(r, effectiveTime.reason);
+    return;
+  }
+  const date = effectiveTime.recordedAt;
   const now = new Date().toISOString();
 
   const rehabilitationType = rehabilitationObservationTypeMap[observationCode ?? ''];
@@ -592,6 +607,46 @@ function upsertObservation(
     date,
     now,
   );
+}
+
+function resolveObservationEffectiveTime(resource: any): ObservationEffectiveTimeResolution {
+  const effectiveDateTime = getNonEmptyString(resource?.effectiveDateTime);
+  if (effectiveDateTime) {
+    return { recordedAt: effectiveDateTime, reason: 'EFFECTIVE_DATETIME' };
+  }
+
+  const effectivePeriodStart = getNonEmptyString(resource?.effectivePeriod?.start);
+  if (effectivePeriodStart) {
+    return { recordedAt: effectivePeriodStart, reason: 'EFFECTIVE_PERIOD_START' };
+  }
+
+  const effectivePeriodEnd = getNonEmptyString(resource?.effectivePeriod?.end);
+  if (effectivePeriodEnd) {
+    return { recordedAt: effectivePeriodEnd, reason: 'EFFECTIVE_PERIOD_END' };
+  }
+
+  // Observation.issued is the release time for this version, not the clinical measurement time.
+  return { recordedAt: null, reason: 'MISSING_EFFECTIVE_TIME' };
+}
+
+function getNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function reportObservationNormalizationIssue(resource: any, reason: 'MISSING_EFFECTIVE_TIME'): void {
+  console.warn('[FHIR Import] Observation kept raw-only during normalization', {
+    resourceType: 'Observation',
+    id: typeof resource?.id === 'string' ? resource.id : null,
+    code: getObservationCode(resource),
+    reason,
+  });
+}
+
+function reportRawOnlyObservationTimeIssue(resource: any): void {
+  if (resource?.resourceType !== 'Observation') return;
+  const effectiveTime = resolveObservationEffectiveTime(resource);
+  if (effectiveTime.recordedAt !== null) return;
+  reportObservationNormalizationIssue(resource, effectiveTime.reason);
 }
 
 function upsertMedication(
@@ -1118,9 +1173,31 @@ function resolveReferenceDisplay(
 }
 
 
-function cacheRawResource(db: any, r: any): void {
+function hasResourceId(resource: any): boolean {
+  return typeof resource?.id === 'string' && resource.id.trim().length > 0;
+}
+
+function getRawResourceId(resource: any, fullUrl?: string): string | null {
+  const id = typeof resource?.id === 'string' ? resource.id.trim() : '';
+  if (id) {
+    return id;
+  }
+  const normalizedFullUrl = normalizeFullUrl(fullUrl);
+  if (normalizedFullUrl) return normalizedFullUrl;
+  return null;
+}
+
+function normalizeFullUrl(fullUrl?: string): string | null {
+  return typeof fullUrl === 'string' && fullUrl.trim() ? fullUrl.trim() : null;
+}
+
+function cacheRawResource(db: any, r: any, fullUrl?: string): void {
   // fhir_resources table:
   // resource_type, resource_id, version, kind, payload_json, last_synced_at, created_at
+  const resourceType = typeof r?.resourceType === 'string' ? r.resourceType : null;
+  const resourceId = getRawResourceId(r, fullUrl);
+  if (!resourceType || !resourceId) return;
+
   const now = new Date().toISOString();
 
   db.runSync(
@@ -1130,8 +1207,8 @@ function cacheRawResource(db: any, r: any): void {
      ON CONFLICT(resource_type, resource_id, version) DO UPDATE SET
        payload_json   = excluded.payload_json,
        last_synced_at = excluded.last_synced_at;`,
-    r.resourceType,
-    r.id,
+    resourceType,
+    resourceId,
     JSON.stringify(r),
     now,
     now,

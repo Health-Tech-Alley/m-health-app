@@ -24,7 +24,7 @@ import {
   saveOnboardingProfile,
   type OnboardingProfile,
 } from "@/services/onboarding/onboardingService";
-import { prepareDemoOnboardingForImportedProfile } from "@/services/onboarding/demoOnboardingPresets";
+import { prepareExplicitDemoOnboardingForImportedProfile } from "@/services/onboarding/demoOnboardingPresets";
 import { useAppDispatch } from "@/store/hooks";
 import { addPatient } from "@/store/reducers/patientSlice";
 
@@ -38,22 +38,30 @@ type PatientProfileEntry = {
   data: unknown;
 };
 
-function attachClinicalImportForGate(
-  profile: OnboardingProfile,
+type ImportProfileOptions = {
+  includeDemoOnboarding?: boolean;
+};
+
+function readClinicalImportForGate(
   fhirBundle: unknown,
-): OnboardingProfile {
+): OnboardingProfile['clinicalImport'] {
   try {
     const mapped = mapFhirBundleToOnboardingImport(
       fhirBundle as Parameters<typeof mapFhirBundleToOnboardingImport>[0],
     );
-    return {
-      ...profile,
-      clinicalImport: mapped.clinicalImport,
-    };
+    return mapped.clinicalImport;
   } catch (error) {
     console.error("Failed to inspect bundled FHIR profile for clinical import", error);
-    return profile;
+    return undefined;
   }
+}
+
+function attachClinicalImportForGate(
+  profile: OnboardingProfile,
+  fhirBundle: unknown,
+): OnboardingProfile {
+  const clinicalImport = readClinicalImportForGate(fhirBundle);
+  return clinicalImport ? { ...profile, clinicalImport } : profile;
 }
 
 function startBundledEhrKnowledgeBundle(params: {
@@ -118,7 +126,10 @@ export default function SelectFhirProfileScreen() {
     [],
   );
 
-  async function handleSelectProfile(entry: PatientProfileEntry) {
+  async function handleSelectProfile(
+    entry: PatientProfileEntry,
+    options: ImportProfileOptions = {},
+  ) {
     if (importingId) return;
     setImportingId(entry.id);
 
@@ -129,17 +140,26 @@ export default function SelectFhirProfileScreen() {
       dispatch(addPatient(fhirBundle));
 
       if (importedPatientId) {
-        const prepared = prepareDemoOnboardingForImportedProfile({
-          currentProfile: getOnboardingProfile(),
-          importedProfileId: entry.id,
-          patientId: importedPatientId,
-        });
-        const importedProfile = attachClinicalImportForGate(prepared.profile, fhirBundle);
         const importedPatient = getPatient(importedPatientId);
+        let bundleLocation = importedPatient?.location;
+        let includeHedis = Boolean(readClinicalImportForGate(fhirBundle));
 
-        if (prepared.caregiver) {
-          saveOnboardingProfile(importedProfile);
-          upsertCaregiver(prepared.caregiver);
+        if (options.includeDemoOnboarding) {
+          const currentProfile = getOnboardingProfile();
+          const prepared = prepareExplicitDemoOnboardingForImportedProfile({
+            currentProfile,
+            importedProfileId: entry.id,
+            patientId: importedPatientId,
+          });
+          const importedProfile = attachClinicalImportForGate(prepared.profile, fhirBundle);
+          bundleLocation = importedProfile.patient.location ?? importedPatient?.location;
+          includeHedis = shouldBundleHedisMeasures(importedProfile);
+
+          if (prepared.caregiver) {
+            saveOnboardingProfile(importedProfile);
+            upsertCaregiver(prepared.caregiver);
+          }
+
           if (importedPatient) {
             upsertPatient({
               ...importedPatient,
@@ -161,8 +181,8 @@ export default function SelectFhirProfileScreen() {
 
         startBundledEhrKnowledgeBundle({
           patientId: importedPatientId,
-          location: importedProfile.patient.location ?? importedPatient?.location,
-          includeHedis: shouldBundleHedisMeasures(importedProfile),
+          location: bundleLocation,
+          includeHedis,
         });
 
         emitInAppBanner({
@@ -202,22 +222,31 @@ export default function SelectFhirProfileScreen() {
           </Text>
         }
         renderItem={({ item }) => (
-          <Pressable
-            style={styles.row}
-            disabled={importingId !== null}
-            onPress={() => handleSelectProfile(item)}
-          >
-            <View style={styles.rowIconCircle}>
-              <AppIcon name="note" size={20} color={AppTheme.colors.brand} />
-            </View>
-            <View style={styles.rowTextBlock}>
-              <Text style={styles.rowTitle}>{item.label}</Text>
-              <Text style={styles.rowSubtitle}>
-                {importingId === item.id ? "Importing…" : "Tap to import"}
-              </Text>
-            </View>
-            <Text style={styles.chevron}>›</Text>
-          </Pressable>
+          <View style={styles.row}>
+            <Pressable
+              style={styles.rowMain}
+              disabled={importingId !== null}
+              onPress={() => handleSelectProfile(item)}
+            >
+              <View style={styles.rowIconCircle}>
+                <AppIcon name="note" size={20} color={AppTheme.colors.brand} />
+              </View>
+              <View style={styles.rowTextBlock}>
+                <Text style={styles.rowTitle}>{item.label}</Text>
+                <Text style={styles.rowSubtitle}>
+                  {importingId === item.id ? "Importing..." : "Import EHR only"}
+                </Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+            <Pressable
+              style={styles.demoButton}
+              disabled={importingId !== null}
+              onPress={() => handleSelectProfile(item, { includeDemoOnboarding: true })}
+            >
+              <Text style={styles.demoButtonText}>Demo data</Text>
+            </Pressable>
+          </View>
         )}
       />
     </SafeAreaView>
@@ -278,6 +307,11 @@ const styles = StyleSheet.create({
     borderColor: AppTheme.colors.border,
     padding: 14,
   },
+  rowMain: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+  },
   rowIconCircle: {
     width: 40,
     height: 40,
@@ -304,6 +338,19 @@ const styles = StyleSheet.create({
   chevron: {
     color: AppTheme.colors.textMuted,
     fontSize: 16,
+    fontWeight: "900",
+  },
+  demoButton: {
+    marginLeft: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  demoButtonText: {
+    color: AppTheme.colors.brand,
+    fontSize: 12,
     fontWeight: "900",
   },
   emptyText: {

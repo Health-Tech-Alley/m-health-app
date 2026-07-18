@@ -285,7 +285,7 @@ export function applyDemoOnboardingPreset(
   };
 }
 
-export function prepareDemoOnboardingForImportedProfile({
+export function prepareExplicitDemoOnboardingForImportedProfile({
   currentProfile,
   importedProfileId,
   patientId,
@@ -323,6 +323,9 @@ export function prepareDemoOnboardingForImportedProfile({
     preservedExistingOnboarding,
   };
 }
+
+export const prepareDemoOnboardingForImportedProfile =
+  prepareExplicitDemoOnboardingForImportedProfile;
 
 export function buildPatientScopedCaregiver(
   profile: OnboardingProfile,
