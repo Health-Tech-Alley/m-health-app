@@ -16,9 +16,16 @@ import type {
   PatientTimelineEventType,
   RehabilitationMeasurementType,
 } from '../types';
+import { assertFhirBundleReferenceIntegrity } from './reference-validator';
 
 type SaveFHIRBundleOptions = {
   patientId?: string;
+};
+
+type ResourceReferenceTarget = {
+  resourceType: string;
+  id: string;
+  fullUrl?: string;
 };
 
 export const REHAB_PLAN_METRIC_CODE_SYSTEM =
@@ -34,12 +41,15 @@ const rehabPlanMetricDefinitions: Record<CarePlanRehabMetricKey, { displayName: 
 };
 
 export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions = {}): string | null {
-  const db = getDatabase();
+  assertFhirBundleReferenceIntegrity(bundle);
+
   const canonicalPatientId = getBundlePatientId(bundle, options.patientId);
   if (!canonicalPatientId) return null;
+  const db = getDatabase();
+  const resourceReferenceMap = buildResourceReferenceMap(bundle);
   const patientReferenceMap = buildPatientReferenceMap(bundle, canonicalPatientId);
   const practitionerDisplayByReference = buildPractitionerDisplayMap(bundle);
-  const provenanceIdByConditionId = buildConditionProvenanceMap(bundle);
+  const provenanceIdByConditionId = buildConditionProvenanceMap(bundle, resourceReferenceMap);
   const latestDaysFromFirstVisit = getLatestDaysFromFirstVisit(bundle);
   const rehabPlanResourceIndex = buildRehabPlanResourceIndex(bundle);
 
@@ -53,7 +63,13 @@ export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions =
           upsertPatient(db, resource, canonicalPatientId);
           break;
         case 'Observation':
-          upsertObservation(db, resource, canonicalPatientId, patientReferenceMap);
+          upsertObservation(
+            db,
+            resource,
+            canonicalPatientId,
+            patientReferenceMap,
+            resourceReferenceMap,
+          );
           break;
         case 'MedicationRequest':
           upsertMedication(db, resource, canonicalPatientId, patientReferenceMap);
@@ -75,6 +91,7 @@ export function saveFHIRBundleToDB(bundle: any, options: SaveFHIRBundleOptions =
             patientReferenceMap,
             practitionerDisplayByReference,
             rehabPlanResourceIndex,
+            resourceReferenceMap,
           );
           break;
         case 'Basic':
@@ -117,6 +134,29 @@ function normalizePatientReference(reference?: string): string | null {
 function normalizePatientId(patientId?: string): string | null {
   const normalized = patientId?.trim();
   return normalized ? normalized : null;
+}
+
+function buildResourceReferenceMap(bundle: any): Map<string, ResourceReferenceTarget> {
+  const referenceMap = new Map<string, ResourceReferenceTarget>();
+
+  for (const entry of bundle.entry ?? []) {
+    const resource = entry.resource;
+    if (!resource?.resourceType || !resource.id) continue;
+
+    const target: ResourceReferenceTarget = {
+      resourceType: resource.resourceType,
+      id: resource.id,
+      fullUrl: typeof entry.fullUrl === 'string' ? entry.fullUrl : undefined,
+    };
+
+    referenceMap.set(`${resource.resourceType}/${resource.id}`, target);
+    referenceMap.set(`urn:uuid:${resource.id}`, target);
+    if (target.fullUrl) {
+      referenceMap.set(target.fullUrl, target);
+    }
+  }
+
+  return referenceMap;
 }
 
 function buildPatientReferenceMap(bundle: any, canonicalPatientId: string): Map<string, string> {
@@ -169,13 +209,23 @@ function getImportedPatientId(
   resource: any,
   fallbackPatientId: string,
   referenceMap?: Map<string, string>,
-): string {
-  return (
-    resolvePatientReference(resource.subject?.reference, referenceMap) ??
-    resolvePatientReference(resource.patient?.reference, referenceMap) ??
-    resolvePatientReference(resource.beneficiary?.reference, referenceMap) ??
-    fallbackPatientId
+): string | null {
+  const patientReferences = [
+    resource.subject?.reference,
+    resource.patient?.reference,
+    resource.beneficiary?.reference,
+  ].filter(
+    (reference): reference is string =>
+      typeof reference === 'string' && reference.trim().length > 0,
   );
+
+  for (const reference of patientReferences) {
+    const resolved = resolvePatientReference(reference, referenceMap);
+    if (!resolved) return null;
+    return resolved;
+  }
+
+  return resource.resourceType === 'Patient' ? fallbackPatientId : null;
 }
 
 function buildPractitionerDisplayMap(bundle: any): Map<string, string> {
@@ -227,13 +277,16 @@ function buildRehabPlanResourceIndex(bundle: any): RehabPlanResourceIndex {
   return { goalsByReference, baselineObservations };
 }
 
-function buildConditionProvenanceMap(bundle: any): Map<string, string> {
+function buildConditionProvenanceMap(
+  bundle: any,
+  resourceReferenceMap: Map<string, ResourceReferenceTarget>,
+): Map<string, string> {
   const provenanceByConditionId = new Map<string, string>();
   for (const entry of bundle.entry ?? []) {
     const resource = entry.resource;
     if (resource?.resourceType !== 'Provenance' || !resource.id) continue;
     for (const target of resource.target ?? []) {
-      const conditionId = getReferenceId(target?.reference);
+      const conditionId = getReferenceId(target?.reference, resourceReferenceMap);
       if (conditionId) {
         provenanceByConditionId.set(conditionId, resource.id);
       }
@@ -389,6 +442,7 @@ function upsertObservation(
   r: any,
   activePatientId: string,
   patientReferenceMap?: Map<string, string>,
+  resourceReferenceMap?: Map<string, ResourceReferenceTarget>,
 ): void {
   // your health_samples table:
   // sample_id, patient_id, source, type, value, value_json, unit, recorded_at, received_at
@@ -437,7 +491,7 @@ function upsertObservation(
         observationId: r.id,
         measurementType: longitudinalType,
         recordedAt: date,
-        encounterId: getReferenceId(r.encounter?.reference),
+        encounterId: getReferenceId(r.encounter?.reference, resourceReferenceMap),
         numericValue,
         textValue,
         unit: r.valueQuantity?.unit ?? r.valueQuantity?.code ?? undefined,
@@ -843,8 +897,14 @@ function getObservationCoding(resource: any, code?: string | null): any | null {
   return coding.find((item: any) => item?.code === code) ?? coding[0] ?? null;
 }
 
-function getReferenceId(reference?: string): string | undefined {
+function getReferenceId(
+  reference?: string,
+  resourceReferenceMap?: Map<string, ResourceReferenceTarget>,
+): string | undefined {
   if (!reference) return undefined;
+  const resolved = resourceReferenceMap?.get(reference);
+  if (resolved) return resolved.id;
+  if (reference.startsWith('urn:uuid:')) return reference.replace('urn:uuid:', '');
   return reference.split('/').pop() || reference;
 }
 
@@ -852,7 +912,12 @@ function referenceMatchesResourceId(
   reference: string | undefined,
   resourceType: string,
   resourceId: string,
+  resourceReferenceMap?: Map<string, ResourceReferenceTarget>,
 ): boolean {
+  const resolved = reference ? resourceReferenceMap?.get(reference) : undefined;
+  if (resolved) {
+    return resolved.resourceType === resourceType && resolved.id === resourceId;
+  }
   return (
     reference === resourceId ||
     reference === `${resourceType}/${resourceId}` ||
@@ -867,6 +932,7 @@ function upsertFHIRCarePlan(
   patientReferenceMap: Map<string, string> | undefined,
   practitionerDisplayByReference: Map<string, string>,
   rehabPlanResourceIndex: RehabPlanResourceIndex,
+  resourceReferenceMap: Map<string, ResourceReferenceTarget>,
 ): void {
   const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   if (!patientId || !r.id) return;
@@ -909,6 +975,7 @@ function upsertFHIRCarePlan(
       activePatientId,
       patientReferenceMap,
       rehabPlanResourceIndex,
+      resourceReferenceMap,
       now,
     ),
   );
@@ -920,6 +987,7 @@ function buildCarePlanRehabMetrics(
   activePatientId: string,
   patientReferenceMap: Map<string, string> | undefined,
   rehabPlanResourceIndex: RehabPlanResourceIndex,
+  resourceReferenceMap: Map<string, ResourceReferenceTarget>,
   now: string,
 ): CarePlanRehabMetric[] {
   const durationDays = getCarePlanDurationDays(carePlan.period);
@@ -948,6 +1016,7 @@ function buildCarePlanRehabMetrics(
         patientId,
         activePatientId,
         patientReferenceMap,
+        resourceReferenceMap,
         metricKey,
       );
       const baselineValue = baselineObservation?.valueQuantity?.value;
@@ -987,6 +1056,7 @@ function findBaselineObservationForMetric(
   patientId: string,
   activePatientId: string,
   patientReferenceMap: Map<string, string> | undefined,
+  resourceReferenceMap: Map<string, ResourceReferenceTarget>,
   metricKey: CarePlanRehabMetricKey,
 ): any | null {
   return (
@@ -997,7 +1067,12 @@ function findBaselineObservationForMetric(
       }
       return (observation.basedOn ?? []).some(
         (reference: any) =>
-          referenceMatchesResourceId(reference?.reference, 'CarePlan', carePlanId),
+          referenceMatchesResourceId(
+            reference?.reference,
+            'CarePlan',
+            carePlanId,
+            resourceReferenceMap,
+          ),
       );
     }) ?? null
   );

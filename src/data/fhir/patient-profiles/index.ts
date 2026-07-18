@@ -10,7 +10,7 @@ const patientProfiles: PatientProfileEntry[] = [
   { id: "elena-gracia", label: "Elena Garcia", data: require("./elena-garcia.json") },
   { id: "james-okafor", label: "James Okafor", data: require("./james-okafor.json") },
   { id: "sofia-reyes", label: "Sofia Reyes", data: require("./sofia-reyes.json") },
-  { id: "mike-ehr-v62", label: "Mike EHR v6.2", data: require("../fixtures/mike-fhir-bundle-v6.2.json") },
+  { id: "mike-ehr-v62", label: "Mike Thompson", data: require("./mike-thompson.json") },
 
   // add one entry per file in this folder
 ];
