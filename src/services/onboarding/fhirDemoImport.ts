@@ -83,7 +83,7 @@ export async function applyElenaGarciaDemoProfile(): Promise<string> {
       notificationStyle: 'Push + sound',
       languagePreference: 'English + Español',
       medicalComfortLevel: 'Moderate detail',
-      emergencyComfortLevel: 'Tell me what to do',
+      emergencyComfortLevel: 'Would call 911 if needed',
       hobbiesOrRoutines: 'Watches baseball together on weekends',
       mainConcern: "Mom's breathing episodes and fall risk",
       stressOrSupportNeeds:
@@ -126,7 +126,7 @@ export async function applyElenaGarciaDemoProfile(): Promise<string> {
         deviceType: 'Apple Watch',
         deviceLabel: "Elena's Apple Watch",
         connected: true,
-        baselineStatus: 'completed',
+        baselineStatus: 'connected',
         baselineStartedAt: new Date(
           Date.now() - 7 * 24 * 60 * 60 * 1000,
         ).toISOString(),

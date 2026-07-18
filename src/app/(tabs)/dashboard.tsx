@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { router } from "expo-router";
+import { useRef, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -6,25 +7,18 @@ import {
   Text,
   View,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { AlertsLogCard } from "@/components/dashboard/AlertsLogCard";
 import { NeedsYourReviewBanner } from "@/components/dashboard/NeedsYourReviewBanner";
-import { NonEmergencyInsightCard } from "@/components/dashboard/NonEmergencyInsightCard";
 import { PatientSummaryCard } from "@/components/dashboard/PatientSummaryCard";
-import { TodayPriorityCard } from "@/components/dashboard/TodayPriorityCard";
 import { WeeklyVitalsCard } from "@/components/dashboard/WeeklyVitalsCard";
 import { AppTheme } from "@/constants/theme";
 import { timeOfDayGreeting } from "@/constants/user-terms";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
-import { getEventBus } from "@/orchestration/event-bus";
-import {
-  getActiveCareAlerts,
-  type CareAlert,
-} from "@/services/care/careService";
+import { usePatientRecord } from "@/contexts/patient-record-context";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
 import {
   getCaregiverDisplay,
@@ -34,15 +28,20 @@ import {
 export default function DashboardRoute() {
   const activePatient = useActivePatientView();
   const patientId = useOrchestratorPatientId();
+  const { snapshot } = usePatientRecord();
   const scrollRef = useRef<ScrollView | null>(null);
   const [alertsLogY, setAlertsLogY] = useState(0);
-  const [nonEmergencyAlert, setNonEmergencyAlert] = useState<CareAlert | null>(
-    null,
-  );
 
   const caregiverFirstName = getFirstName(getCaregiverDisplay(activePatient));
   const patientFirstName = getFirstName(getPatientDisplayName(activePatient));
   const greeting = `${timeOfDayGreeting()}, ${caregiverFirstName}`;
+  const hasDocumentedRehabPlan = Boolean(
+    snapshot?.carePlan &&
+      ((snapshot.carePlan.activities?.length ?? 0) > 0 ||
+        (snapshot.rehabPlanMetrics?.length ?? 0) > 0),
+  );
+  const showRehabReminder =
+    hasDocumentedRehabPlan && snapshot?.todayDailyCareEntry?.therapyCompleted !== true;
 
   const scrollToAlertsLog = () => {
     scrollRef.current?.scrollTo({
@@ -50,44 +49,6 @@ export default function DashboardRoute() {
       animated: true,
     });
   };
-
-  const refreshNonEmergencyAlert = useCallback(() => {
-    if (!patientId) {
-      setNonEmergencyAlert(null);
-      return;
-    }
-
-    const alert = selectNonEmergencyAlert(getActiveCareAlerts(patientId));
-    setNonEmergencyAlert(alert);
-  }, [patientId]);
-
-  useEffect(() => {
-    if (!patientId) {
-      const clear = setTimeout(() => setNonEmergencyAlert(null), 0);
-      return () => clearTimeout(clear);
-    }
-
-    const initial = setTimeout(refreshNonEmergencyAlert, 0);
-    const deferredRefresh = () => setTimeout(refreshNonEmergencyAlert, 250);
-    const bus = getEventBus();
-    const unsubMl = bus.subscribe("ml_alert_created", deferredRefresh);
-    const unsubVitals = bus.subscribe("vitals_sample", deferredRefresh);
-
-    return () => {
-      clearTimeout(initial);
-      unsubMl();
-      unsubVitals();
-    };
-  }, [patientId, refreshNonEmergencyAlert]);
-
-  useFocusEffect(
-    useCallback(() => {
-      refreshNonEmergencyAlert();
-    }, [refreshNonEmergencyAlert]),
-  );
-
-  const visibleNonEmergencyAlert =
-    nonEmergencyAlert?.patientId === patientId ? nonEmergencyAlert : null;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -125,15 +86,12 @@ export default function DashboardRoute() {
             patientId={patientId}
             onReviewPress={scrollToAlertsLog}
           />
-          {visibleNonEmergencyAlert ? (
-            <NonEmergencyInsightCard
-              key={`${visibleNonEmergencyAlert.patientId}:${visibleNonEmergencyAlert.alertId}`}
-              alert={visibleNonEmergencyAlert}
-            />
+          {showRehabReminder ? (
+            <View>
+              <Text style={styles.sectionTitle}>{"Today\u2019s care"}</Text>
+              <RehabReminderCard />
+            </View>
           ) : null}
-
-          <Text style={styles.sectionTitle}>Today&apos;s Priority</Text>
-          <TodayPriorityCard />
 
           <View
             onLayout={(event) => {
@@ -149,31 +107,33 @@ export default function DashboardRoute() {
   );
 }
 
-function selectNonEmergencyAlert(alerts: CareAlert[]): CareAlert | null {
-  return alerts.reduce<CareAlert | null>((selected, alert) => {
-    if (alert.severity !== 1 && alert.severity !== 2) {
-      return selected;
-    }
-    if (!selected) {
-      return alert;
-    }
-    if (alert.severity !== selected.severity) {
-      return alert.severity > selected.severity ? alert : selected;
-    }
-
-    const alertTime = Date.parse(alert.createdAt);
-    const selectedTime = Date.parse(selected.createdAt);
-    const safeAlertTime = Number.isFinite(alertTime) ? alertTime : 0;
-    const safeSelectedTime = Number.isFinite(selectedTime) ? selectedTime : 0;
-
-    if (safeAlertTime !== safeSelectedTime) {
-      return safeAlertTime > safeSelectedTime ? alert : selected;
-    }
-
-    return alert.alertId.localeCompare(selected.alertId) > 0
-      ? alert
-      : selected;
-  }, null);
+function RehabReminderCard() {
+  return (
+    <Pressable
+      style={styles.rehabCard}
+      onPress={() =>
+        router.push({
+          pathname: "/care",
+          params: { focus: "rehab-check-in" },
+        } as never)
+      }
+      accessibilityRole="button"
+      accessibilityLabel="Open today's rehab check-in"
+    >
+      <View style={styles.rehabCardHeader}>
+        <View>
+          <Text style={styles.rehabKicker}>{"Today\u2019s rehab check-in"}</Text>
+          <Text style={styles.rehabStatus}>
+            Therapy has not been completed today.
+          </Text>
+        </View>
+        <View style={styles.rehabIcon}>
+          <AppIcon name="walking" size={24} color={AppTheme.colors.brand} />
+        </View>
+      </View>
+      <Text style={styles.rehabActionText}>Open check-in</Text>
+    </Pressable>
+  );
 }
 
 function getFirstName(name: string): string {
@@ -227,5 +187,48 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1.1,
     textTransform: "uppercase",
+  },
+  rehabCard: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.card,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    padding: 18,
+    ...AppTheme.shadow,
+  },
+  rehabCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  rehabKicker: {
+    color: AppTheme.colors.sectionText,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  rehabStatus: {
+    color: AppTheme.colors.text,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "900",
+    marginTop: 6,
+  },
+  rehabActionText: {
+    color: AppTheme.colors.brand,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "900",
+    marginTop: 14,
+  },
+  rehabIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: AppTheme.colors.brandSoft,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

@@ -18,6 +18,7 @@ export {
   getAlertById,
   getAlertsForLog,
   updateAlertStatus,
+  updateAlertMlFields,
   dismissAlert,
   removeAlert,
   insertCaregiverAction,
@@ -37,6 +38,7 @@ export {
   deleteCarePlanMedicationsForPatient,
   upsertCondition,
   getConditionsForPatient,
+  updatePatientConditionRoles,
   confirmPendingCondition,
   deleteCondition,
   deleteConditionsForPatient,
@@ -57,9 +59,11 @@ export * from './repositories/mlEventRepository';
 export * from './repositories/patientRecordRepository';
 export * from './repositories/dailyCareEntryRepository';
 export * from './repositories/carePlanRepository';
+export * from './repositories/carePlanRehabMetricRepository';
 export * from './repositories/rehabilitationMeasurementRepository';
 export * from './repositories/patientLongitudinalObservationRepository';
 export * from './repositories/patientTimelineEventRepository';
+export * from './repositories/patientCareContextRepository';
 export * from './repositories/appointmentRepository';
 export * from './repositories/thresholdRecommendationRepository';
 export * from './repositories/secureMessagingRepository';

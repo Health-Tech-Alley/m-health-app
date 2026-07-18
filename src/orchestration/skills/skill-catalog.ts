@@ -105,14 +105,24 @@ const SKILLS: Skill[] = [
       'Free-form caregiver chat. Practical, warm, adaptive length. Use the patient ' +
       'context to personalize. No tools needed unless the caregiver asks for ' +
       'something that requires live data (appointments, vitals).',
-    allowedTools: ['get_patient_profile', 'get_recent_vitals', 'get_active_thresholds', 'list_upcoming_appointments'],
+    allowedTools: [
+      'get_patient_profile',
+      'get_recent_vitals',
+      'get_active_thresholds',
+      'list_upcoming_appointments',
+      'evaluate_hypothetical_vitals',
+    ],
     evalTaskIds: ['ST-conversational-tone', 'ST-name-personalization', 'ST-concise'],
     promptFragment: `SKILL: caregiver-chat
 - Conversational caregiver support. Address the caregiver by first name.
 - Adapt response length to the query: brief for simple questions, detailed when warranted. Lead with the action.
 - When you do list steps, use a short bulleted list. Otherwise write prose.
 - Use the patient's care context to personalize. If a number is needed and isn't in context, ask.
-- When describing a medication, lead with what it's for, then common effects, then a brief gentle note on serious reactions. Favor the type of reaction over the worst outcome (e.g. "serious allergic reactions have been reported" rather than "death is possible").`,
+- When describing a medication, lead with what it's for, then common effects, then a brief gentle note on serious reactions. Favor the type of reaction over the worst outcome (e.g. "serious allergic reactions have been reported" rather than "death is possible").
+- When the caregiver describes vitals, a what-if scenario, or asks the Health Monitor to analyze numbers, you may propose the tool by emitting exactly one line:
+  ACTION: evaluate_hypothetical_vitals({"blood_oxygen":86,"heart_rate":110,"respiratory_rate":28})
+- SpO2 is 0–100 percent (86, not 0.86). Do not invent ML scores or claim Health Monitor results before the caregiver confirms the tool run.
+- When the caregiver gives vitals or a what-if, the app may run Health Monitor automatically after your reply. After proposing ACTION, do not invent scores; wait for monitor results in a follow-up turn.`,
   },
   {
     id: 'visit-prep',

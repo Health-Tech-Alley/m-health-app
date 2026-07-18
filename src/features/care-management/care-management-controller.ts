@@ -1,4 +1,9 @@
-import type { ChatMessage } from '@/inference/inference-provider';
+import type {
+  ChatMessage,
+  ChatResult,
+  GenerateOptions,
+} from '@/inference/inference-provider';
+import { CONCIERGE_GENERATION_DEEP } from '@/constants/concierge';
 import { AlertAutoencoder } from '@/ml-models/alert-autoencoder';
 import type { CoreVitals, ExtendedVitals } from '@/ml-models/alert-autoencoder/types';
 import { SCENARIOS } from '@/ml-models/alert-autoencoder/mock-scenarios';
@@ -15,11 +20,23 @@ import {
   buildRetrievalQuery,
 } from '@/clinical-evidence/retrieval-helper';
 import type { FusedRetriever } from '@/knowledge/types';
-import { getConditionsForPatient, type MlRawVitalsInputEnvelope } from '@/data';
+import { getConditionsForPatient } from '@/data';
+import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
 import type { VitalsScenario } from '@/ml-models/alert-autoencoder/mock-scenarios';
-import { getEventBus } from '@/orchestration/event-bus';
-import type { OrchestrationEvent } from '@/orchestration/events';
+import {
+  buildCaregiverAssistantContextFromSnapshot,
+  buildCaregiverSystemContext,
+} from '@/services/slm/slmService';
 import type { CareManagementAction, CareManagementState, BatchParityRow } from './types';
+
+/** Same chat signature as SLMProvider.chat / main Concierge tab. */
+export type CareManagementChatFn = (
+  messages: ChatMessage[],
+  onToken: (token: string) => void,
+  signal: AbortSignal,
+  options?: GenerateOptions,
+  onReasoningToken?: (token: string) => void,
+) => Promise<ChatResult>;
 
 function buildTimestamp(hour: number | undefined): string {
   const d = new Date();
@@ -67,10 +84,15 @@ function buildUC2Input(
   return input;
 }
 
+/**
+ * Build Concierge explain messages the same way as the main SLM chat tab:
+ * full `buildCaregiverSystemContext` (no word/token caps in the prompt) plus
+ * UC2 result + optional clinical knowledge chunks in the user turn.
+ */
 async function buildExplanationPrompt(
   core: CoreVitals,
   result: UC2DecisionResult,
-  patientId?: string,
+  snapshot?: PatientRecordSnapshot | null,
   retriever?: FusedRetriever | null,
 ): Promise<ChatMessage[]> {
   const vitalsSummary = [
@@ -82,51 +104,98 @@ async function buildExplanationPrompt(
   ].join(', ');
 
   const topFeatures = result.topFeatureEvidence
-    .slice(0, 3)
-    .map((f) => f.feature)
+    .slice(0, 5)
+    .map((f) => `${f.feature}${typeof f.importance === 'number' ? ` (${f.importance.toFixed(3)})` : ''}`)
     .join(', ');
 
-  // Retrieve clinical knowledge chunks from the knowledge cache (PubMed,
-  // MedlinePlus, etc.) using the patient's condition + anomaly type + top
-  // features as the query. Injects cited context into the prompt.
   let conditionName: string | undefined;
+  const patientId = snapshot?.patient?.patientId;
   if (patientId) {
     try {
       const conditions = getConditionsForPatient(patientId);
-      conditionName = conditions.find((c) => c.isPrimary)?.name ?? conditions[0]?.name;
+      conditionName =
+        conditions.find((c) => c.isPrimary)?.name ?? conditions[0]?.name;
     } catch {
       // ignore — retrieval is best-effort
     }
   }
+  if (!conditionName && snapshot?.primaryCondition?.name) {
+    conditionName = snapshot.primaryCondition.name;
+  }
 
-  const anomalyTypeReadable = result.initialAnomalyType.replace(/_/g, ' ').toLowerCase();
-  const retrievalQuery = buildRetrievalQuery(conditionName, anomalyTypeReadable, topFeatures);
-  const citations = await retrieveClinicalChunksViaBm25(retriever ?? null, retrievalQuery, 5);
+  const anomalyTypeReadable = String(
+    result.postHitlAnomalyType ?? result.initialAnomalyType ?? 'unknown',
+  )
+    .replace(/_/g, ' ')
+    .toLowerCase();
+  const retrievalQuery = buildRetrievalQuery(
+    conditionName,
+    anomalyTypeReadable,
+    topFeatures,
+  );
+  const citations = await retrieveClinicalChunksViaBm25(
+    retriever ?? null,
+    retrievalQuery,
+    5,
+  );
   const citationBlock = formatCitationsForPrompt(citations);
 
-  const systemContent =
-    'You are a caregiver-support assistant inside a mobile health app. ' +
-    'Explain an anomaly detection result in plain, calm language for a non-clinical family caregiver. ' +
-    'Never diagnose. Never give medication instructions. ' +
-    'Keep your answer to 80\u2013150 words. Lead with the bottom line, then 2\u20133 short bullet points, then red flags. ' +
-    'Use Markdown formatting.' +
-    (citations.length > 0
-      ? '\n\nGround your explanation in the CLINICAL KNOWLEDGE block below. Add the source label in brackets after relevant statements (e.g., "Common side effects include nausea [Drug Label]" or "Studies show improved outcomes [PubMed]").'
+  // Same system stack as Concierge tab — persona, care context, tools, safety.
+  // Do not inject word-count or token caps here.
+  const systemContext = snapshot?.patient
+    ? buildCaregiverSystemContext(
+        buildCaregiverAssistantContextFromSnapshot(snapshot),
+      )
+    : buildCaregiverSystemContext({});
+
+  const severity =
+    result.finalDecision?.final_severity ?? result.post_hitl_severity ?? 'n/a';
+  const postHitl = result.postHitlAnomalyType ?? result.post_hitl_anomaly_type;
+  const aeScore =
+    result.aeScore !== null && result.aeScore !== undefined
+      ? result.aeScore.toFixed(3)
+      : result.ae_score_mse != null
+        ? Number(result.ae_score_mse).toFixed(3)
+        : 'n/a';
+
+  let userContent =
+    `Please explain this on-device Health Monitor (anomaly) result for me as the family caregiver.\n\n` +
+    `HEALTH MONITOR RESULT\n` +
+    `Vitals: ${vitalsSummary}\n` +
+    `Pipeline: ${result.emergencyResult.pipelinePath}` +
+    `${result.emergencyResult.emergency ? ` (emergency: ${result.emergencyResult.reason ?? result.emergencyResult.reasons?.join('; ') ?? 'yes'})` : ''}\n` +
+    `Initial anomaly type: ${String(result.initialAnomalyType).replace(/_/g, ' ')}\n` +
+    (postHitl
+      ? `Post-review anomaly type: ${String(postHitl).replace(/_/g, ' ')}\n`
+      : '') +
+    `AE score: ${aeScore} (threshold ${Number(result.threshold).toFixed(3)})\n` +
+    `Is anomaly: ${result.isAnomaly ? 'yes' : 'no'}\n` +
+    `Severity: ${severity}\n` +
+    `Top features: ${topFeatures || 'n/a'}\n` +
+    `Final notification: ${String(result.finalDecision.final_notification_type).replace(/_/g, ' ').toLowerCase()}\n` +
+    (result.finalDecision.final_notification_title
+      ? `Title: ${result.finalDecision.final_notification_title}\n`
+      : '') +
+    (result.finalDecision.final_notification_body
+      ? `Body: ${result.finalDecision.final_notification_body}\n`
       : '');
 
-  const userContent =
-    `An on-device anomaly model produced this result:\n` +
-    `Vitals: ${vitalsSummary}\n` +
-    `Pipeline: ${result.emergencyResult.pipelinePath}${result.emergencyResult.emergency ? ` (emergency: ${result.emergencyResult.reason})` : ''}\n` +
-    `Anomaly type: ${anomalyTypeReadable}\n` +
-    `Score: ${result.aeScore !== null ? result.aeScore.toFixed(2) : 'n/a'} (threshold ${result.threshold.toFixed(2)})\n` +
-    `Top features: ${topFeatures || 'n/a'}\n` +
-    `Final decision: ${result.finalDecision.final_notification_type.replace(/_/g, ' ').toLowerCase()}\n` +
-    (citationBlock ? `\n${citationBlock}\n` : '') +
-    `\nIn 80\u2013150 words, explain what this means and what the caregiver should do next.`;
+  if (citationBlock) {
+    userContent +=
+      `\n${citationBlock}\n\n` +
+      `Ground your answer in the clinical knowledge above where relevant. ` +
+      `Add the source label in brackets after relevant statements ` +
+      `(e.g., "Common side effects include nausea [Drug Label]" or ` +
+      `"Studies show improved outcomes [PubMed]").\n`;
+  }
+
+  userContent +=
+    `\nExplain what this means in plain language and what I should do next. ` +
+    `Lead with the bottom line. Use Markdown. Never diagnose. ` +
+    `Do not invent numbers that are not in the result or care context.`;
 
   return [
-    { role: 'system', content: systemContent },
+    { role: 'system', content: systemContext },
     { role: 'user', content: userContent },
   ];
 }
@@ -169,67 +238,22 @@ async function publishResultToOrchestrator(
   patientId: string,
 ): Promise<void> {
   if (!state.coreVitals || !state.extendedVitals) return;
-  const severity = result.finalDecision.final_severity;
-  if (
-    (severity !== 1 && severity !== 2 && severity !== 3) ||
-    (!result.isAnomaly && !result.emergencyResult.emergency)
-  ) {
-    return;
-  }
-
-  try {
-    const bus = getEventBus();
-    const now = new Date().toISOString();
-    const scenarioId = state.selectedScenarioId ?? 'custom';
-    const safeAlertId = `cm-alert-${patientId}-${scenarioId}`.replace(/[^A-Za-z0-9_.:-]/g, '-');
-    const scoreRatio =
-      result.aeScore !== null && result.threshold > 0
-        ? result.aeScore / result.threshold
-        : undefined;
-    const rawVitals: MlRawVitalsInputEnvelope = {
-      contract: 'AppleWatchVitalsInput',
-      contractVersion: 1,
-      input: {
-        ...input,
-        patient_id: patientId,
-      },
-      provenance: {},
-      evaluatedAt: input.timestamp,
-    };
-    const event: Extract<OrchestrationEvent, { type: 'ml_alert_created' }> = {
-      type: 'ml_alert_created',
-      alertId: safeAlertId,
-      patientId,
-      severity,
-      score: result.aeScore ?? 0,
-      features: result.rawFeatures,
-      at: now,
-      eventType: 'TRIGGER_WORKFLOW_ANOMALY_TYPE_04',
-      modelVersion: 'tiny_ae_uc2_v0.1.0',
-      threshold: result.threshold,
-      reconstructionError: result.aeScore ?? undefined,
-      topFeatures: result.topFeatureEvidence.map((feature) => [
-        feature.feature,
-        feature.importance,
-      ]),
-      ruleEngine: {
-        is_emergency: result.emergencyResult.emergency,
-        severity: result.emergencyResult.severity,
-        reasons: result.emergencyResult.reason ? [result.emergencyResult.reason] : [],
-      },
-      rawVitals,
-      pipelinePath: result.emergencyResult.pipelinePath,
-      initialAnomalyType: result.initialAnomalyType,
-      postHitlAnomalyType: result.postHitlAnomalyType,
-      featureQuality: result.featureQuality,
-      scoreRatio,
-      notificationTitle: result.finalDecision.final_notification_title || undefined,
-      notificationBody: result.finalDecision.final_notification_body || undefined,
-    };
-    bus.publish(event);
-  } catch (err) {
-    console.warn('[CareManagement] publish to orchestrator failed:', err);
-  }
+  const { publishUc2ResultAsAlert } = await import('@/services/ml/publish-uc2-alert');
+  const scenarioId = state.selectedScenarioId ?? 'custom';
+  publishUc2ResultAsAlert({
+    patientId,
+    result,
+    input: { ...input, patient_id: patientId },
+    alertIdPrefix: `cm-alert-${scenarioId}`,
+    caregiverBlock:
+      state.observationCodes.length > 0
+        ? {
+            action: state.caregiverAction,
+            confirmed: true,
+            observations: state.observationCodes,
+          }
+        : undefined,
+  });
 }
 
 export function createCareManagementController(mlModel: AlertAutoencoder) {
@@ -480,43 +504,59 @@ export function createCareManagementController(mlModel: AlertAutoencoder) {
 
     async executeSLMExplanation(
       state: CareManagementState,
-      chat: (
-        messages: ChatMessage[],
-        onToken: (token: string) => void,
-        signal: AbortSignal,
-      ) => Promise<any>,
+      chat: CareManagementChatFn,
       onToken: (token: string) => void,
       retriever?: FusedRetriever | null,
+      snapshot?: PatientRecordSnapshot | null,
     ): Promise<CareManagementAction> {
       if (!state.coreVitals || !state.uc2Result) {
         return { type: 'noop' };
       }
       abortController = new AbortController();
-      const messages = await buildExplanationPrompt(state.coreVitals, state.uc2Result, state.selectedScenarioId ? undefined : 'default-patient', retriever);
+      const messages = await buildExplanationPrompt(
+        state.coreVitals,
+        state.uc2Result,
+        snapshot ?? null,
+        retriever,
+      );
 
-      // Accumulate tokens locally so the abort handler can strip whatever was
-      // streamed before stop (the state parameter is a stale snapshot).
+      // Same generation profile as main Concierge tab: unlimited tokens
+      // (maxTokens=-1), deep reasoning — no 192-token default cap.
       let accumulated = '';
+      let reasoningAccum = '';
       const wrappedOnToken = (token: string) => {
         accumulated += token;
         onToken(token);
       };
 
       try {
-        const result = await chat(messages, wrappedOnToken, abortController.signal);
-        // Strip control tokens / thinking tags from the final text so only the
-        // clean answer is shown. Capture any reasoning content the native
-        // provider returns separately.
+        const result = await chat(
+          messages,
+          wrappedOnToken,
+          abortController.signal,
+          CONCIERGE_GENERATION_DEEP,
+          (token) => {
+            reasoningAccum += token;
+          },
+        );
         const rawText = result?.text ?? accumulated;
         const stripped = stripControlTokens(rawText);
         const answer = stripped.answer;
-        const thinking = result?.reasoningContent ?? stripped.thinking;
+        const thinking =
+          result?.reasoningContent ??
+          (reasoningAccum || stripped.thinking) ??
+          null;
         return { type: 'slm-success', payload: { answer, thinking } };
       } catch (err: any) {
         if (err?.name === 'AbortError') {
-          // On stop, strip whatever was streamed so far.
           const stripped = stripControlTokens(accumulated);
-          return { type: 'slm-success', payload: { answer: stripped.answer, thinking: stripped.thinking } };
+          return {
+            type: 'slm-success',
+            payload: {
+              answer: stripped.answer,
+              thinking: reasoningAccum || stripped.thinking,
+            },
+          };
         }
         return { type: 'slm-error', payload: { error: err?.message ?? 'SLM failed' } };
       }

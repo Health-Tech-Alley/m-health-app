@@ -2,7 +2,7 @@ import type {
     CaregiverHitlInput,
     PatientProfile,
     RawObservationInput,
-} from "../../";
+} from "../";
 
 export const fixtureSlowPathGiRaw: RawObservationInput = {
     patient_id: "patient_gi_001",

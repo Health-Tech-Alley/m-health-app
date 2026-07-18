@@ -114,15 +114,28 @@ export function CareManagementView({
 
   const selectedScenario = SCENARIOS.find((s) => s.id === state.selectedScenarioId);
   const uc2 = state.uc2Result;
+  const resultSeverity =
+    uc2?.finalDecision?.final_severity ??
+    uc2?.post_hitl_severity ??
+    0;
+  const isEmergencyPath =
+    !!uc2?.emergencyResult?.emergency || resultSeverity === 3;
+  // Severity 3 / hard emergency: never caregiver review.
+  // Severity 1–2 (or non-emergency anomaly): show ObservationPicker + Apply Review.
   const hitlApplicable =
-    !!uc2 && !uc2.emergencyResult.emergency && uc2.promptShown;
+    !!uc2 &&
+    !isEmergencyPath &&
+    (uc2.promptShown ||
+      uc2.isAnomaly ||
+      resultSeverity === 1 ||
+      resultSeverity === 2);
   const hitlUnavailableMessage = !uc2
     ? ''
-    : uc2.emergencyResult.emergency
-      ? 'HITL not applicable — emergency fast path bypassed the prompt.'
-      : !uc2.isAnomaly
-        ? 'No caregiver prompt was shown for this result (not anomalous).'
-        : 'Anomaly detected, but no caregiver prompt was shown for this run.';
+    : isEmergencyPath
+      ? 'Severity 3 emergency — caregiver review is skipped (hard threshold / fast path). Use Call 911 / ER paths if this were a live alert.'
+      : !uc2.isAnomaly && resultSeverity === 0
+        ? 'No caregiver prompt for this result (not anomalous / severity 0).'
+        : 'Caregiver review is not available for this run.';
 
   return (
     <View style={styles.container}>
@@ -395,8 +408,9 @@ export function CareManagementView({
                 {hitlApplicable ? (
                   <>
                     <Text style={styles.editHint}>
-                      Simulate caregiver ground truth, then apply to reclassify
-                      the anomaly type and recompute the final decision.
+                      Severity 1–2: confirm or de-escalate with observations,
+                      then Apply Review to reclassify the anomaly and recompute
+                      the final decision before Concierge explain.
                     </Text>
                     <ObservationPicker
                       selected={state.observationCodes}

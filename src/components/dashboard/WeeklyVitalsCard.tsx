@@ -35,77 +35,77 @@ const METRIC_META: Record<
   }
 > = {
   spo2: {
-    tabIcon: "O2",
+    tabIcon: "\u{1FAC1}",
     label: "Oxygen Saturation",
     helperText: "SpO2 estimates how much oxygen is in the blood.",
   },
   heart_rate: {
-    tabIcon: "HR",
+    tabIcon: "\u2764\uFE0F",
     label: "Heart Rate",
     helperText: "Heart rate shows beats per minute.",
   },
   respiratory_rate: {
-    tabIcon: "RR",
+    tabIcon: "\u{1F4A8}",
     label: "Respiratory Rate",
     helperText: "Respiratory rate counts breaths per minute.",
   },
   blood_pressure_systolic: {
-    tabIcon: "BP",
+    tabIcon: "\u{1FA7A}",
     label: "Blood Pressure",
     helperText: "Blood pressure is shown from paired recent readings when available.",
   },
   blood_pressure_diastolic: {
-    tabIcon: "BP",
+    tabIcon: "\u{1FA7A}",
     label: "Blood Pressure",
     helperText: "Blood pressure is shown from paired recent readings when available.",
   },
   temperature: {
-    tabIcon: "T",
+    tabIcon: "\u{1F321}\uFE0F",
     label: "Body Temperature",
     helperText: "Body temperature uses the unit stored with the reading.",
   },
   blood_glucose: {
-    tabIcon: "BG",
+    tabIcon: "\u{1FA78}",
     label: "Blood Glucose",
     helperText: "Blood glucose uses the unit stored with the reading.",
   },
   steps: {
-    tabIcon: "ST",
+    tabIcon: "\u{1F463}",
     label: "Steps",
     helperText: "Steps show recent movement readings from monitoring data.",
   },
   weight: {
-    tabIcon: "WT",
+    tabIcon: "\u2696\uFE0F",
     label: "Weight",
     helperText: "Weight uses the unit stored with the reading.",
   },
   height: {
-    tabIcon: "HT",
+    tabIcon: "\u{1F4CF}",
     label: "Height",
     helperText: "Height uses the unit stored with the reading.",
   },
   bmi: {
-    tabIcon: "BMI",
+    tabIcon: "\u{1F4CA}",
     label: "BMI",
     helperText: "BMI uses the unit stored with the reading.",
   },
   distance: {
-    tabIcon: "DS",
+    tabIcon: "\u{1F6B6}",
     label: "Distance",
     helperText: "Distance uses the unit stored with the reading.",
   },
   flights_climbed: {
-    tabIcon: "FL",
+    tabIcon: "\u{1FA9C}",
     label: "Flights Climbed",
     helperText: "Flights climbed uses the unit stored with the reading.",
   },
   sleep: {
-    tabIcon: "SL",
+    tabIcon: "\u{1F4A4}",
     label: "Sleep",
     helperText: "Sleep readings use the stored monitoring value.",
   },
   coughing: {
-    tabIcon: "CF",
+    tabIcon: "\u{1F5E3}\uFE0F",
     label: "Coughing",
     helperText: "Coughing readings use the stored monitoring value.",
   },
@@ -587,8 +587,8 @@ const styles = StyleSheet.create({
   },
   tabIcon: {
     color: AppTheme.colors.textSoft,
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: "900",
     textAlign: "center",
   },

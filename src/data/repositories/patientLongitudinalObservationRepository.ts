@@ -13,8 +13,10 @@ export function upsertPatientLongitudinalObservation(
   db.runSync(
     `INSERT INTO patient_longitudinal_observations
       (patient_id, observation_id, measurement_type, recorded_at, encounter_id,
-       numeric_value, text_value, unit, source_system, source_code, source_type)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       numeric_value, text_value, unit, source_system, source_code, source_type,
+       source_label, source_file, source_section, visit_index, days_from_first_visit,
+       confidence, raw_excerpt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(patient_id, observation_id) DO UPDATE SET
        measurement_type = excluded.measurement_type,
        recorded_at = excluded.recorded_at,
@@ -24,7 +26,14 @@ export function upsertPatientLongitudinalObservation(
        unit = excluded.unit,
        source_system = excluded.source_system,
        source_code = excluded.source_code,
-       source_type = excluded.source_type;`,
+       source_type = excluded.source_type,
+       source_label = excluded.source_label,
+       source_file = excluded.source_file,
+       source_section = excluded.source_section,
+       visit_index = excluded.visit_index,
+       days_from_first_visit = excluded.days_from_first_visit,
+       confidence = excluded.confidence,
+       raw_excerpt = excluded.raw_excerpt;`,
     observation.patientId,
     observation.observationId,
     observation.measurementType,
@@ -36,6 +45,13 @@ export function upsertPatientLongitudinalObservation(
     observation.sourceSystem ?? null,
     observation.sourceCode,
     observation.sourceType,
+    observation.sourceLabel ?? null,
+    observation.sourceFile ?? null,
+    observation.sourceSection ?? null,
+    observation.visitIndex ?? null,
+    observation.daysFromFirstVisit ?? null,
+    observation.confidence ?? null,
+    observation.rawExcerpt ?? null,
   );
 }
 
@@ -60,7 +76,14 @@ export function getPatientLongitudinalObservations(
             unit,
             source_system AS sourceSystem,
             source_code AS sourceCode,
-            source_type AS sourceType
+            source_type AS sourceType,
+            source_label AS sourceLabel,
+            source_file AS sourceFile,
+            source_section AS sourceSection,
+            visit_index AS visitIndex,
+            days_from_first_visit AS daysFromFirstVisit,
+            confidence,
+            raw_excerpt AS rawExcerpt
      FROM patient_longitudinal_observations
      ${where}
      ORDER BY recorded_at ASC, observation_id ASC;`,

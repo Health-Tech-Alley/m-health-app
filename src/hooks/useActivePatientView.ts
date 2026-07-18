@@ -9,6 +9,7 @@ import type {
   NormalizedBloodPressurePair,
   NormalizedVitalMetric,
   NormalizedVitalReading,
+  PatientCondition,
 } from '@/data/types';
 import { store, type AppDispatch } from '@/store';
 import {
@@ -53,6 +54,15 @@ const LIVE_MONITORING_TYPES: HealthSampleType[] = [
 
 const RECENT_MONITORING_WINDOW_DAYS = 7;
 
+const ACTIVE_COMORBIDITY_ORDER = new Map([
+  ['contracture', 0],
+  ['scoliosis', 1],
+  ['constipation', 2],
+  ['dysphagia', 3],
+  ['esophagitis', 4],
+  ['epilepsy', 5],
+]);
+
 /**
  * Hydrate the vitalsSlice (Redux) with recent non-FHIR live vitals for the
  * given patient. Called when the patient record refreshes so the
@@ -86,7 +96,7 @@ export function clearLiveVitals(dispatch: AppDispatch = store.dispatch): void {
   dispatch(clearVitalsForPatient(undefined));
 }
 
-function normalizeActivePatient(
+export function normalizeActivePatient(
   snapshot: NonNullable<ReturnType<typeof usePatientRecord>['snapshot']>,
   patientId: string,
 ): NormalizedActivePatient {
@@ -96,11 +106,29 @@ function normalizeActivePatient(
   const displayName = preferredName || name;
   const nameParts = (name || displayName).split(/\s+/).filter(Boolean);
   const confirmedConditions = snapshot.conditions.filter((condition) => !condition.needsReview);
+  const hasCuratedConditionRoles = snapshot.conditions.some((condition) =>
+    Boolean(condition.conditionRole),
+  );
   const primaryDiagnosis =
+    snapshot.conditions.find((condition) => condition.conditionRole === 'primary_diagnosis') ??
+    snapshot.primaryCondition ??
     confirmedConditions.find((condition) => condition.isPrimary) ??
     confirmedConditions[0] ??
     null;
-  const comorbidities = confirmedConditions.filter((condition) => condition !== primaryDiagnosis);
+  const comorbidities = hasCuratedConditionRoles
+    ? sortActiveComorbidities(
+        snapshot.conditions.filter((condition) => condition.conditionRole === 'active_comorbidity'),
+      )
+    : confirmedConditions.filter(
+        (condition) => condition !== primaryDiagnosis && condition.source !== 'fhir_import',
+      );
+
+  const caregiver: NormalizedActivePatient['caregiver'] = snapshot.caregiver
+    ? {
+        name: snapshot.caregiver.name,
+        relationship: snapshot.caregiver.relationship,
+      }
+    : null;
 
   return {
     patientId,
@@ -109,12 +137,7 @@ function normalizeActivePatient(
     displayName,
     preferredName,
     age: clean(patient?.age),
-    caregiver: snapshot.caregiver
-      ? {
-          name: snapshot.caregiver.name,
-          relationship: snapshot.caregiver.relationship,
-        }
-      : null,
+    caregiver,
     primaryDiagnosis,
     comorbidities,
     pendingConditions: snapshot.pendingReviewConditions,
@@ -139,6 +162,14 @@ function normalizeActivePatient(
     status: patient ? 'available' : 'unknown',
     lastRefreshedAt: snapshot.lastRefreshedAt,
   };
+}
+
+function sortActiveComorbidities(conditions: PatientCondition[]): PatientCondition[] {
+  return [...conditions].sort(
+    (a, b) =>
+      (ACTIVE_COMORBIDITY_ORDER.get(a.name.toLowerCase()) ?? Number.MAX_SAFE_INTEGER) -
+      (ACTIVE_COMORBIDITY_ORDER.get(b.name.toLowerCase()) ?? Number.MAX_SAFE_INTEGER),
+  );
 }
 
 function getImportedHealthSamples(patientId: string, type: HealthSampleType): HealthSample[] {

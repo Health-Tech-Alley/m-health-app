@@ -5,9 +5,26 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
-import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
-import { usePatientRecord } from "@/contexts/patient-record-context";
-import { dispatchImmediate } from "@/services/notifications";
+import {
+  refreshPatientRecord,
+  usePatientRecord,
+} from "@/contexts/patient-record-context";
+import {
+  getPatient,
+  setBundlePending,
+  setBundleStatus,
+  upsertCaregiver,
+  upsertPatient,
+} from "@/data";
+import { mapFhirBundleToOnboardingImport } from "@/data/fhir/onboarding-import-mapper";
+import { shouldBundleHedisMeasures } from "@/data/seed/seedFromProfile";
+import { emitInAppBanner } from "@/services/notifications";
+import {
+  getOnboardingProfile,
+  saveOnboardingProfile,
+  type OnboardingProfile,
+} from "@/services/onboarding/onboardingService";
+import { prepareDemoOnboardingForImportedProfile } from "@/services/onboarding/demoOnboardingPresets";
 import { useAppDispatch } from "@/store/hooks";
 import { addPatient } from "@/store/reducers/patientSlice";
 
@@ -21,10 +38,78 @@ type PatientProfileEntry = {
   data: unknown;
 };
 
+function attachClinicalImportForGate(
+  profile: OnboardingProfile,
+  fhirBundle: unknown,
+): OnboardingProfile {
+  try {
+    const mapped = mapFhirBundleToOnboardingImport(
+      fhirBundle as Parameters<typeof mapFhirBundleToOnboardingImport>[0],
+    );
+    return {
+      ...profile,
+      clinicalImport: mapped.clinicalImport,
+    };
+  } catch (error) {
+    console.error("Failed to inspect bundled FHIR profile for clinical import", error);
+    return profile;
+  }
+}
+
+function startBundledEhrKnowledgeBundle(params: {
+  patientId: string;
+  location?: string;
+  includeHedis: boolean;
+}): void {
+  const { patientId, location, includeHedis } = params;
+
+  setBundlePending(patientId, true);
+  setBundleStatus(patientId, { state: "in_flight", chunksAdded: 0 });
+
+  void import("@/clinical-evidence/condition-bundler")
+    .then(async ({
+      bundleConditionPack,
+      bundleMedicationPack,
+      bundleSdohPack,
+      bundleMeasurePack,
+    }) => {
+      const bundleTasks = [
+        bundleConditionPack(patientId).catch((error) => {
+          console.error("[select-fhir-profile] condition bundle failed:", error);
+        }),
+        bundleMedicationPack(patientId).catch((error) => {
+          console.error("[select-fhir-profile] medication bundle failed:", error);
+        }),
+        bundleSdohPack(patientId, location).catch((error) => {
+          console.error("[select-fhir-profile] SDOH bundle failed:", error);
+        }),
+      ];
+
+      if (includeHedis) {
+        bundleTasks.push(
+          bundleMeasurePack(patientId).catch((error) => {
+            console.error("[select-fhir-profile] HEDIS bundle failed:", error);
+          }),
+        );
+      }
+
+      await Promise.all(bundleTasks);
+    })
+    .catch((error) => {
+      console.error("[select-fhir-profile] Failed to load condition-bundler:", error);
+    })
+    .finally(() => {
+      try {
+        refreshPatientRecord(patientId);
+      } catch (error) {
+        console.error("Failed to refresh patient after clinical bundling", error);
+      }
+    });
+}
+
 export default function SelectFhirProfileScreen() {
   const router = useRouter();
   const dispatch = useAppDispatch();
-  const patientId = useOrchestratorPatientId();
   const { importFHIRBundle } = usePatientRecord();
   const [importingId, setImportingId] = useState<string | null>(null);
 
@@ -40,16 +125,52 @@ export default function SelectFhirProfileScreen() {
     try {
       const fhirBundle = entry.data;
 
-      importFHIRBundle(fhirBundle);
+      const importedPatientId = importFHIRBundle(fhirBundle);
       dispatch(addPatient(fhirBundle));
 
-      await dispatchImmediate({
-        patientId,
-        scope: "anomaly",
-        title: "EHR Import",
-        body: `FHIR bundle "${entry.label}" imported successfully`,
-        severity: 1,
-      });
+      if (importedPatientId) {
+        const prepared = prepareDemoOnboardingForImportedProfile({
+          currentProfile: getOnboardingProfile(),
+          importedProfileId: entry.id,
+          patientId: importedPatientId,
+        });
+        const importedProfile = attachClinicalImportForGate(prepared.profile, fhirBundle);
+        const importedPatient = getPatient(importedPatientId);
+
+        if (prepared.caregiver) {
+          saveOnboardingProfile(importedProfile);
+          upsertCaregiver(prepared.caregiver);
+          if (importedPatient) {
+            upsertPatient({
+              ...importedPatient,
+              preferredName:
+                prepared.profile.patient.preferredName ??
+                importedPatient.preferredName,
+              baselineDailyRoutine:
+                prepared.profile.patient.baselineDailyRoutine ??
+                importedPatient.baselineDailyRoutine,
+              safetyNotes:
+                prepared.profile.safety?.safetyNotes ??
+                importedPatient.safetyNotes,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        }
+
+        refreshPatientRecord(importedPatientId);
+
+        startBundledEhrKnowledgeBundle({
+          patientId: importedPatientId,
+          location: importedProfile.patient.location ?? importedPatient?.location,
+          includeHedis: shouldBundleHedisMeasures(importedProfile),
+        });
+
+        emitInAppBanner({
+          title: "EHR Import",
+          body: `FHIR bundle "${entry.label}" imported successfully`,
+          severity: 1,
+        });
+      }
 
       router.back();
     } catch (error) {

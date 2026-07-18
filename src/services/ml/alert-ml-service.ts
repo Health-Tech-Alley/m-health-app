@@ -36,16 +36,44 @@ import {
   patientProfileFromPlainObject,
   runEmergencyRuleEngine,
   runUC2DecisionLayerV2,
+  shouldShowCaregiverPrompt,
 } from '@/ml-models/uc2-decision-layer';
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
 import { store } from '@/store';
-import { LiveVitalReading } from '@/store/reducers/vitalsSlice';
+import {
+  filterLiveVitalReadingsForPatient,
+  type LiveVitalReading,
+} from '@/store/reducers/vitalsSlice';
+import { normalizeSpo2Percent } from '@/utils/spo2';
 import { toRawObservationInput } from './uc2-runtime-service';
 
 const MIN_SAMPLE_TYPES = 2;
+/** HITL / fallback: need at least one of SpO2 or HR (imputation fills the rest). */
+const MIN_HITL_CORE_VITALS = 1;
+
+function shortPatientId(patientId: string): string {
+  return patientId.length > 6 ? `...${patientId.slice(-6)}` : patientId;
+}
+
+function toUc2BodyTemperature(value: number, unit?: string): number {
+  const normalizedUnit = unit?.trim().toLowerCase();
+  if (
+    normalizedUnit === 'c' ||
+    normalizedUnit === 'cel' ||
+    normalizedUnit === 'celsius' ||
+    normalizedUnit === '°c'
+  ) {
+    return (value * 9) / 5 + 32;
+  }
+  return value;
+}
 
 type InputProvenance = MlRawVitalsInputEnvelope['provenance'];
+type ProvenanceSample = Pick<
+  HealthSample,
+  'sampleId' | 'source' | 'value' | 'recordedAt' | 'receivedAt' | 'unit' | 'metadataJson'
+>;
 
 type BuiltMlInput = {
   input: AppleWatchVitalsInput;
@@ -92,7 +120,7 @@ export function buildMlRawVitalsInputEnvelope(params: {
 }
 
 function sampleProvenance(
-  sample: HealthSample,
+  sample: ProvenanceSample,
   healthSampleType: HealthSampleType,
 ): InputProvenance[string] {
   return {
@@ -106,11 +134,23 @@ function sampleProvenance(
   };
 }
 
-  export function getRecentReadingsFromRedux(patientId: string, type: HealthSampleType, sinceMs: number, limit: number): LiveVitalReading[] {
-    return store.getState().vitals.readings
-      .filter((r) => r.patientId === patientId && r.type === type && Date.parse(r.recordedAt) >= sinceMs)
-      .slice(0, limit);
+export function getRecentReadingsFromRedux(
+  patientId: string,
+  type: HealthSampleType,
+  sinceMs: number,
+  limit: number,
+): LiveVitalReading[] {
+  const vitals = store.getState().vitals;
+  if (vitals.activePatientId !== patientId || vitals.readings.length === 0) {
+    return [];
   }
+
+  return filterLiveVitalReadingsForPatient(vitals.readings, patientId, {
+    type,
+    since: sinceMs,
+    limit,
+  });
+}
 
 export class AlertMlService {
   private model: AlertMlModel;
@@ -141,23 +181,39 @@ export class AlertMlService {
     patientId: string,
     triggeringEvent: Extract<OrchestrationEvent, { type: 'vitals_sample' }>,
     snapshot: PatientRecordSnapshot | null = null,
+    readings?: LiveVitalReading[],
   ): Promise<UC2DecisionResult | null> {
-    console.log('[ML] Evaluating vitals_sample for patientId=', patientId, 'sampleType=', triggeringEvent.sampleType);
+    if (__DEV__) {
+      console.log('[ML] Evaluating vitals_sample for patientId=', shortPatientId(patientId), 'sampleType=', triggeringEvent.sampleType);
+    }
     if (!this.model.isLoaded) {
       await this.load();
     }
-    console.log('[ML] Model loaded:', this.model.isLoaded, 'threshold:', this.model.threshold);
-    const built = this.buildInputFromRecentSamples(patientId, new Date(triggeringEvent.recordedAt));
+    if (__DEV__) {
+      console.log('[ML] Model loaded:', this.model.isLoaded, 'threshold:', this.model.threshold);
+    }
 
+    const built = readings
+      ? this.buildInputFromReadings(patientId, new Date(triggeringEvent.recordedAt), readings)
+      : this.buildInputFromRecentSamples(patientId, new Date(triggeringEvent.recordedAt));
     if (!built) return null;
-    console.log('[ML] Built UC2 input for patientId=', patientId, 'input:', built.input, 'provenance:', built.provenance);
+    if (__DEV__) {
+      console.log('[ML] Built UC2 input for patientId=', shortPatientId(patientId), 'input:', {
+        ...built.input,
+        patient_id: shortPatientId(patientId),
+      }, 'provenance:', built.provenance);
+    }
+
     const profile = this.buildProfileFromSnapshot(patientId, snapshot);
 
     // The UC2 layer needs a concrete AlertAutoencoder for the TFLite runner.
     // When the configured model is one, use it directly; otherwise fall back
     // to the legacy per-model inference path (kept for the mock provider).
     const result = await this.runDecisionLayer(built.input, profile);
-    console.log(`[ML] UC2 decision layer result for patientId=${patientId}:`, result);
+    if (__DEV__) {
+      console.log(`[ML] UC2 decision layer result for patientId=${shortPatientId(patientId)}:`, result);
+    }
+
     if (result && (result.isAnomaly || result.emergencyResult.emergency)) {
       this.emitAlert(
         patientId,
@@ -172,6 +228,32 @@ export class AlertMlService {
     }
 
     return result;
+  }
+
+  /**
+   * Public wrapper for HITL re-runs and chat tooling that need a PatientProfile
+   * without going through ambient `evaluate()`.
+   */
+  profileFromSnapshot(
+    patientId: string,
+    snapshot: PatientRecordSnapshot | null,
+  ): PatientProfile | undefined {
+    return this.buildProfileFromSnapshot(patientId, snapshot);
+  }
+
+  /**
+   * Build UC2 input from latest SQLite samples. Ambient path requires
+   * MIN_SAMPLE_TYPES distinct vitals; HITL fallback accepts SpO2 and/or HR only.
+   */
+  tryBuildInputFromRecentSamples(
+    patientId: string,
+    options?: { minTypes?: number; requireCoreVital?: boolean },
+  ): AppleWatchVitalsInput | null {
+    const built = this.buildInputFromRecentSamples(patientId, new Date(), {
+      minTypes: options?.minTypes ?? MIN_HITL_CORE_VITALS,
+      requireCoreVital: options?.requireCoreVital ?? true,
+    });
+    return built?.input ?? null;
   }
 
   /**
@@ -196,9 +278,6 @@ export class AlertMlService {
         .filter(Boolean),
       medications: snapshot.medications.map((m) => m.name).filter(Boolean),
       care_plan_goals: snapshot.carePlanGoals.map((g) => g.description),
-      baseline_spo2: patient.spo2Cutoff
-        ? parseFloat(String(patient.spo2Cutoff).replace(/[^\d.]/g, ''))
-        : undefined,
       resting_heart_rate: patient.baselineHeartRate
         ? parseFloat(String(patient.baselineHeartRate).replace(/[^\d.]/g, ''))
         : undefined,
@@ -221,6 +300,7 @@ export class AlertMlService {
   async runDecisionLayer(
     input: AppleWatchVitalsInput,
     profile?: PatientProfile,
+    caregiverSelectedCodes: string[] = [],
   ): Promise<UC2DecisionResult | null> {
     if (!this.model.isLoaded) {
       await this.load();
@@ -243,6 +323,13 @@ export class AlertMlService {
     const v2Result = await runUC2DecisionLayerV2({
       raw: toRawObservationInput(input),
       profile,
+      caregiverInput:
+        caregiverSelectedCodes.length > 0
+          ? {
+              selected_codes: caregiverSelectedCodes as import('@/ml-models/uc2-decision-layer').CaregiverObservationCode[],
+              confirmed_at_iso: new Date().toISOString(),
+            }
+          : undefined,
       scaler: { mean: scaler.mean, scale: scaler.scale },
       interpreter: createTfliteInterpreterAdapter(ae),
       aeThreshold: this.model.threshold,
@@ -258,6 +345,12 @@ export class AlertMlService {
         direction: 'unknown',
         source: 'ae_reconstruction_contribution',
       })) ?? [];
+    const promptShown = shouldShowCaregiverPrompt({
+      emergency: Boolean(
+        v2Result.emergency.is_emergency ?? v2Result.emergency.emergency,
+      ),
+      isAnomaly: Boolean(isAnomaly),
+    });
 
     return {
       emergencyResult: v2Result.emergency,
@@ -266,7 +359,7 @@ export class AlertMlService {
       aeScore,
       threshold: this.model.threshold,
       isAnomaly,
-      promptShown: false,
+      promptShown,
       initialAnomalyType: v2Result.sensor_classification?.sensor_anomaly_type ?? 'NORMAL_PATTERN',
       postHitlAnomalyType: finalDec.post_hitl_anomaly_type ?? 'NORMAL_PATTERN',
       topFeatureEvidence,
@@ -286,9 +379,9 @@ export class AlertMlService {
       sensor_anomaly_type: v2Result.sensor_classification?.sensor_anomaly_type ?? 'NORMAL_PATTERN',
       post_hitl_anomaly_type: (finalDec.post_hitl_anomaly_type ?? 'NORMAL_PATTERN') as UC2DecisionResult['post_hitl_anomaly_type'],
       anomaly_family: v2Result.caregiver_hitl?.anomaly_family,
-      caregiver_selected_codes: [],
-      max_matrix_delta: 0,
-      critical_route_triggered: false,
+      caregiver_selected_codes: v2Result.caregiver_hitl?.caregiver_selected_codes ?? [],
+      max_matrix_delta: v2Result.caregiver_hitl?.max_matrix_delta ?? 0,
+      critical_route_triggered: v2Result.caregiver_hitl?.critical_route_triggered ?? false,
       personalized_threshold_severity_floor:
         v2Result.personalized_thresholds?.personalized_threshold_severity_floor ?? 0,
       recurrence_severity_floor: v2Result.recurrence?.recurrence_severity_floor ?? 0,
@@ -408,11 +501,39 @@ export class AlertMlService {
     };
   }
 
+  private buildInputFromReadings(
+    patientId: string,
+    timestamp: Date,
+    readings: LiveVitalReading[],
+    options?: { minTypes?: number; requireCoreVital?: boolean },
+  ): BuiltMlInput | null {
+    const get = (type: HealthSampleType): LiveVitalReading | null => {
+      const matches = readings.filter(
+        (reading) => reading.patientId === patientId && reading.type === type,
+      );
+      matches.sort((a, b) => Date.parse(b.recordedAt) - Date.parse(a.recordedAt));
+      return matches[0] ?? null;
+    };
+
+    return this.buildInputFromLatestSamples(patientId, timestamp, get, options);
+  }
+
   private buildInputFromRecentSamples(
     patientId: string,
     timestamp: Date,
+    options?: { minTypes?: number; requireCoreVital?: boolean },
   ): BuiltMlInput | null {
     const get = (type: HealthSampleType) => getLatestHealthSample(patientId, type);
+
+    return this.buildInputFromLatestSamples(patientId, timestamp, get, options);
+  }
+
+  private buildInputFromLatestSamples(
+    patientId: string,
+    timestamp: Date,
+    get: (type: HealthSampleType) => ProvenanceSample | null,
+    options?: { minTypes?: number; requireCoreVital?: boolean },
+  ): BuiltMlInput | null {
 
     const spo2 = get('spo2');
     const heartRate = get('heart_rate');
@@ -423,14 +544,68 @@ export class AlertMlService {
     const resp = get('respiratory_rate');
     const steps = get('steps');
 
-    const presentTypes = [spo2, heartRate, bpSys, bpDia, temp, glucose, resp].filter(
-      (sample) => sample !== null,
-    ).length;
-    if (presentTypes < MIN_SAMPLE_TYPES) return null;
+    const qualifyingSamples: Array<[HealthSampleType, ProvenanceSample | null]> = [
+      ['spo2', spo2],
+      ['heart_rate', heartRate],
+      ['blood_pressure_systolic', bpSys],
+      ['blood_pressure_diastolic', bpDia],
+      ['temperature', temp],
+      ['blood_glucose', glucose],
+      ['respiratory_rate', resp],
+    ];
+    const qualifyingTypes = qualifyingSamples
+      .filter(([, sample]) => sample !== null)
+      .map(([type]) => type);
+    const presentTypes = qualifyingTypes.length;
+    const minTypes = options?.minTypes ?? MIN_SAMPLE_TYPES;
+    const latestSources = qualifyingSamples.reduce<string[]>((sources, [, sample]) => {
+      if (sample?.source && !sources.includes(sample.source)) {
+        sources.push(sample.source);
+      }
+      return sources;
+    }, []);
+    if (presentTypes < minTypes) {
+      if (__DEV__) {
+        console.log('[ML] Wearable readiness', {
+          patient: shortPatientId(patientId),
+          qualifyingTypes,
+          requiredMinimum: minTypes,
+          sources: latestSources,
+          reason: 'insufficient_sample_types',
+        });
+      }
+      return null;
+    }
+
+    if (options?.requireCoreVital) {
+      const hasCore = spo2 !== null || heartRate !== null;
+      if (!hasCore) {
+        if (__DEV__) {
+          console.log('[ML] Wearable readiness', {
+            patient: shortPatientId(patientId),
+            qualifyingTypes,
+            requiredMinimum: minTypes,
+            sources: latestSources,
+            reason: 'missing_core_vital',
+          });
+        }
+        return null;
+      }
+    }
+
+    if (__DEV__) {
+      console.log('[ML] Wearable readiness', {
+        patient: shortPatientId(patientId),
+        qualifyingTypes,
+        requiredMinimum: minTypes,
+        sources: latestSources,
+        reason: 'ready',
+      });
+    }
 
     // Convert SpO2 fraction to percentage for the UC2 model (trained on 0-100).
     const spo2Percent =
-      spo2 === null ? undefined : spo2.value <= 1.0 ? spo2.value * 100 : spo2.value;
+      spo2 === null ? undefined : normalizeSpo2Percent(spo2.value);
 
     const input: AppleWatchVitalsInput = {
       patient_id: patientId,
@@ -440,7 +615,7 @@ export class AlertMlService {
       blood_pressure_systolic: bpSys?.value ?? undefined,
       blood_pressure_diastolic: bpDia?.value ?? undefined,
       glucose_level: glucose?.value ?? undefined,
-      body_temperature: temp?.value ?? undefined,
+      body_temperature: temp ? toUc2BodyTemperature(temp.value, temp.unit) : undefined,
       respiratory_rate: resp?.value ?? undefined,
       steps_count: steps?.value ?? undefined,
       // Extended vitals not yet sourced from HealthKit — left undefined so the

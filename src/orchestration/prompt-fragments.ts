@@ -198,6 +198,22 @@ export function toolsBlock(tools: McpToolSummary[]): string {
   ].join('\n');
 }
 
+/**
+ * Chat-path instructions for Health Monitor tool proposals.
+ * Tool execution is confirm-gated in the UI — the model only proposes ACTION.
+ */
+export function healthMonitorToolInstruction(): string {
+  return [
+    'HEALTH MONITOR TOOL (confirm-gated)',
+    '- For vitals / what-if / Health Monitor questions, you may emit:',
+    '  ACTION: evaluate_hypothetical_vitals({"blood_oxygen":86,"heart_rate":110,"respiratory_rate":28})',
+    '- SpO2 is 0–100 percent (86 not 0.86). Only include vitals the caregiver stated or clearly implied.',
+    '- Do not invent anomaly scores, severity, or ML results. The app may run Health Monitor automatically when vitals are present; wait for monitor results before claiming scores.',
+    '- After an ACTION line, keep prose brief and do not claim results until confirmation.',
+    '- Med/schedule/education questions: do not emit evaluate_hypothetical_vitals.',
+  ].join('\n');
+}
+
 export function escalationBlock(pcpName?: string): string {
   return [
     'ESCALATION',

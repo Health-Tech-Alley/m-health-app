@@ -667,7 +667,8 @@
           "reference": "Patient/patient-james-okafor"
         },
         "period": {
-          "start": "2025-01-01"
+          "start": "2025-01-01",
+          "end": "2025-01-21"
         },
         "careTeam": [
           {
@@ -710,7 +711,423 @@
               "description": "Caregiver-assisted fall-risk mitigation and medication adherence review"
             }
           }
+        ],
+        "goal": [
+          {
+            "reference": "Goal/goal-james-post-stroke-rehab-romDegrees",
+            "display": "Range of motion"
+          },
+          {
+            "reference": "Goal/goal-james-post-stroke-rehab-exerciseReps",
+            "display": "Exercise repetitions"
+          },
+          {
+            "reference": "Goal/goal-james-post-stroke-rehab-adherence",
+            "display": "Exercise participation"
+          },
+          {
+            "reference": "Goal/goal-james-post-stroke-rehab-painScore",
+            "display": "Pain"
+          },
+          {
+            "reference": "Goal/goal-james-post-stroke-rehab-fatigueScore",
+            "display": "Fatigue"
+          },
+          {
+            "reference": "Goal/goal-james-post-stroke-rehab-walkingMinutes",
+            "display": "Walking time"
+          }
         ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:goal-james-post-stroke-rehab-romDegrees",
+      "resource": {
+        "resourceType": "Goal",
+        "id": "goal-james-post-stroke-rehab-romDegrees",
+        "lifecycleStatus": "active",
+        "description": {
+          "text": "Improve shoulder range of motion during the home rehabilitation period."
+        },
+        "subject": {
+          "reference": "Patient/patient-james-okafor"
+        },
+        "startDate": "2025-01-01",
+        "target": [
+          {
+            "measure": {
+              "coding": [
+                {
+                  "system": "https://access-dp.local/fhir/CodeSystem/rehab-plan-metric",
+                  "code": "romDegrees",
+                  "display": "Range of motion"
+                }
+              ],
+              "text": "Range of motion"
+            },
+            "detailQuantity": {
+              "value": 64.5,
+              "unit": "degrees"
+            },
+            "dueDate": "2025-01-21"
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:goal-james-post-stroke-rehab-exerciseReps",
+      "resource": {
+        "resourceType": "Goal",
+        "id": "goal-james-post-stroke-rehab-exerciseReps",
+        "lifecycleStatus": "active",
+        "description": {
+          "text": "Increase participation in prescribed home rehabilitation."
+        },
+        "subject": {
+          "reference": "Patient/patient-james-okafor"
+        },
+        "startDate": "2025-01-01",
+        "target": [
+          {
+            "measure": {
+              "coding": [
+                {
+                  "system": "https://access-dp.local/fhir/CodeSystem/rehab-plan-metric",
+                  "code": "exerciseReps",
+                  "display": "Exercise repetitions"
+                }
+              ],
+              "text": "Exercise repetitions"
+            },
+            "detailQuantity": {
+              "value": 18.5,
+              "unit": "repetitions"
+            },
+            "dueDate": "2025-01-21"
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:goal-james-post-stroke-rehab-adherence",
+      "resource": {
+        "resourceType": "Goal",
+        "id": "goal-james-post-stroke-rehab-adherence",
+        "lifecycleStatus": "active",
+        "description": {
+          "text": "Increase participation in prescribed home rehabilitation."
+        },
+        "subject": {
+          "reference": "Patient/patient-james-okafor"
+        },
+        "startDate": "2025-01-01",
+        "target": [
+          {
+            "measure": {
+              "coding": [
+                {
+                  "system": "https://access-dp.local/fhir/CodeSystem/rehab-plan-metric",
+                  "code": "adherence",
+                  "display": "Exercise participation"
+                }
+              ],
+              "text": "Exercise participation"
+            },
+            "detailQuantity": {
+              "value": 0.89,
+              "unit": "ratio"
+            },
+            "dueDate": "2025-01-21"
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:goal-james-post-stroke-rehab-painScore",
+      "resource": {
+        "resourceType": "Goal",
+        "id": "goal-james-post-stroke-rehab-painScore",
+        "lifecycleStatus": "active",
+        "description": {
+          "text": "Reduce pain that limits rehabilitation participation."
+        },
+        "subject": {
+          "reference": "Patient/patient-james-okafor"
+        },
+        "startDate": "2025-01-01",
+        "target": [
+          {
+            "measure": {
+              "coding": [
+                {
+                  "system": "https://access-dp.local/fhir/CodeSystem/rehab-plan-metric",
+                  "code": "painScore",
+                  "display": "Pain"
+                }
+              ],
+              "text": "Pain"
+            },
+            "detailQuantity": {
+              "value": 2.24,
+              "unit": "score"
+            },
+            "dueDate": "2025-01-21"
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:goal-james-post-stroke-rehab-fatigueScore",
+      "resource": {
+        "resourceType": "Goal",
+        "id": "goal-james-post-stroke-rehab-fatigueScore",
+        "lifecycleStatus": "active",
+        "description": {
+          "text": "Reduce rehabilitation-related fatigue."
+        },
+        "subject": {
+          "reference": "Patient/patient-james-okafor"
+        },
+        "startDate": "2025-01-01",
+        "target": [
+          {
+            "measure": {
+              "coding": [
+                {
+                  "system": "https://access-dp.local/fhir/CodeSystem/rehab-plan-metric",
+                  "code": "fatigueScore",
+                  "display": "Fatigue"
+                }
+              ],
+              "text": "Fatigue"
+            },
+            "detailQuantity": {
+              "value": 3.2,
+              "unit": "score"
+            },
+            "dueDate": "2025-01-21"
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:goal-james-post-stroke-rehab-walkingMinutes",
+      "resource": {
+        "resourceType": "Goal",
+        "id": "goal-james-post-stroke-rehab-walkingMinutes",
+        "lifecycleStatus": "active",
+        "description": {
+          "text": "Improve walking endurance."
+        },
+        "subject": {
+          "reference": "Patient/patient-james-okafor"
+        },
+        "startDate": "2025-01-01",
+        "target": [
+          {
+            "measure": {
+              "coding": [
+                {
+                  "system": "https://access-dp.local/fhir/CodeSystem/rehab-plan-metric",
+                  "code": "walkingMinutes",
+                  "display": "Walking time"
+                }
+              ],
+              "text": "Walking time"
+            },
+            "detailQuantity": {
+              "value": 12.5,
+              "unit": "minutes"
+            },
+            "dueDate": "2025-01-21"
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:obs-james-rehab-baseline-romDegrees",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-james-rehab-baseline-romDegrees",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "https://access-dp.local/fhir/CodeSystem/rehab-plan-metric",
+              "code": "romDegrees",
+              "display": "Range of motion"
+            }
+          ],
+          "text": "Range of motion baseline"
+        },
+        "subject": {
+          "reference": "Patient/patient-james-okafor"
+        },
+        "effectiveDateTime": "2025-01-01T00:00:00.000Z",
+        "basedOn": [
+          {
+            "reference": "CarePlan/careplan-james-post-stroke-rehab"
+          }
+        ],
+        "valueQuantity": {
+          "value": 30,
+          "unit": "degrees"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:obs-james-rehab-baseline-exerciseReps",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-james-rehab-baseline-exerciseReps",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "https://access-dp.local/fhir/CodeSystem/rehab-plan-metric",
+              "code": "exerciseReps",
+              "display": "Exercise repetitions"
+            }
+          ],
+          "text": "Exercise repetitions baseline"
+        },
+        "subject": {
+          "reference": "Patient/patient-james-okafor"
+        },
+        "effectiveDateTime": "2025-01-01T00:00:00.000Z",
+        "basedOn": [
+          {
+            "reference": "CarePlan/careplan-james-post-stroke-rehab"
+          }
+        ],
+        "valueQuantity": {
+          "value": 8,
+          "unit": "repetitions"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:obs-james-rehab-baseline-adherence",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-james-rehab-baseline-adherence",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "https://access-dp.local/fhir/CodeSystem/rehab-plan-metric",
+              "code": "adherence",
+              "display": "Exercise participation"
+            }
+          ],
+          "text": "Exercise participation baseline"
+        },
+        "subject": {
+          "reference": "Patient/patient-james-okafor"
+        },
+        "effectiveDateTime": "2025-01-01T00:00:00.000Z",
+        "basedOn": [
+          {
+            "reference": "CarePlan/careplan-james-post-stroke-rehab"
+          }
+        ],
+        "valueQuantity": {
+          "value": 0.7,
+          "unit": "ratio"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:obs-james-rehab-baseline-painScore",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-james-rehab-baseline-painScore",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "https://access-dp.local/fhir/CodeSystem/rehab-plan-metric",
+              "code": "painScore",
+              "display": "Pain"
+            }
+          ],
+          "text": "Pain baseline"
+        },
+        "subject": {
+          "reference": "Patient/patient-james-okafor"
+        },
+        "effectiveDateTime": "2025-01-01T00:00:00.000Z",
+        "basedOn": [
+          {
+            "reference": "CarePlan/careplan-james-post-stroke-rehab"
+          }
+        ],
+        "valueQuantity": {
+          "value": 4.5,
+          "unit": "score"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:obs-james-rehab-baseline-fatigueScore",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-james-rehab-baseline-fatigueScore",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "https://access-dp.local/fhir/CodeSystem/rehab-plan-metric",
+              "code": "fatigueScore",
+              "display": "Fatigue"
+            }
+          ],
+          "text": "Fatigue baseline"
+        },
+        "subject": {
+          "reference": "Patient/patient-james-okafor"
+        },
+        "effectiveDateTime": "2025-01-01T00:00:00.000Z",
+        "basedOn": [
+          {
+            "reference": "CarePlan/careplan-james-post-stroke-rehab"
+          }
+        ],
+        "valueQuantity": {
+          "value": 5.2,
+          "unit": "score"
+        }
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:obs-james-rehab-baseline-walkingMinutes",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-james-rehab-baseline-walkingMinutes",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "https://access-dp.local/fhir/CodeSystem/rehab-plan-metric",
+              "code": "walkingMinutes",
+              "display": "Walking time"
+            }
+          ],
+          "text": "Walking time baseline"
+        },
+        "subject": {
+          "reference": "Patient/patient-james-okafor"
+        },
+        "effectiveDateTime": "2025-01-01T00:00:00.000Z",
+        "basedOn": [
+          {
+            "reference": "CarePlan/careplan-james-post-stroke-rehab"
+          }
+        ],
+        "valueQuantity": {
+          "value": 5,
+          "unit": "minutes"
+        }
       }
     },
     {

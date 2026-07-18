@@ -129,13 +129,13 @@ export type PatientProfile = {
   officialFirstName?: string;
   officialLastName?: string;
   officialDisplayName?: string;
-  age: string;
+  age?: string;
 
   /**
    * Legacy display string used by current Dashboard/Profile/SLM.
    * Keep this until every screen reads structured ICD/comorbidity data.
    */
-  conditions: string;
+  conditions?: string;
 
   addressSameAsCaregiver?: boolean;
   address?: AddressProfile;
@@ -201,6 +201,7 @@ export type SafetyProfile = {
 };
 
 export type OnboardingProfile = {
+  demoProfileId?: string;
   caregiver: CaregiverProfile;
   patient: PatientProfile;
   primaryCareProvider: ProviderProfile;
@@ -367,10 +368,10 @@ export const WEARABLE_DEVICE_OPTIONS: WearableDeviceType[] = [
 ];
 
 const defaultCaregiverAddress: AddressProfile = {
-  line1: "1200 Cypress Ave",
-  city: "Gaithersburg",
-  state: "MD",
-  postalCode: "20877",
+  line1: "",
+  city: "",
+  state: "",
+  postalCode: "",
   country: "United States",
 };
 
@@ -378,20 +379,20 @@ let savedOnboardingProfile: OnboardingProfile | null = null;
 
 export const defaultOnboardingProfile: OnboardingProfile = {
   caregiver: {
-    name: "Luis Garcia",
-    relationship: "Son",
-    phone: "(555) 010-2030",
+    name: "",
+    relationship: "",
+    phone: "",
     address: defaultCaregiverAddress,
     experience: "Some experience",
     availability: "Evenings & weekends",
     notificationStyle: "Push + sound",
-    languagePreference: "English + Español",
+    languagePreference: "English",
     medicalComfortLevel: "Moderate detail",
     emergencyComfortLevel: "Would call 911 if needed",
-    hobbiesOrRoutines: "Cooking, evening walks",
-    mainConcern: "Breathing episodes",
-    stressOrSupportNeeds: "Family check-ins help",
-    backupCaregiver: "Maria Garcia · (555) 020-3040",
+    hobbiesOrRoutines: "",
+    mainConcern: "",
+    stressOrSupportNeeds: "",
+    backupCaregiver: "",
   },
   patient: {
     name: "",
@@ -425,7 +426,7 @@ export const defaultOnboardingProfile: OnboardingProfile = {
     edacsLevel: "",
     wearableDevice: {
       deviceType: "Apple Watch",
-      deviceLabel: "Elena's Apple Watch",
+      deviceLabel: "",
       connected: false,
       baselineStatus: "simulated",
       baselineStartedAt: new Date().toISOString(),
@@ -433,13 +434,13 @@ export const defaultOnboardingProfile: OnboardingProfile = {
     },
   },
   primaryCareProvider: {
-    name: "Dr. Smith",
-    phone: "(555) 800-1234",
-    email: "dr.smith@clinic.org",
+    name: "",
+    phone: "",
+    email: "",
   },
   safety: {
-    emergencyContact: "Maria Garcia · (555) 020-3040",
-    safetyNotes: "Allergic to penicillin. Falls risk.",
+    emergencyContact: "",
+    safetyNotes: "",
     emergencyDisclaimerAccepted: true,
   },
   completedAt: new Date().toISOString(),
@@ -486,7 +487,7 @@ export function getMockEhrPatientRecord(): MockEhrPatientRecord {
     comorbidities: patient.comorbidities?.map((condition) => ({
       ...condition,
     })) ?? [],
-    conditions: patient.conditions,
+    conditions: patient.conditions ?? "",
   };
 }
 
@@ -504,7 +505,7 @@ export function clearOnboardingProfile(): void {
 }
 
 export function getPatientConditionSummary(patient: PatientProfile): string {
-  const primary = patient.primaryIcdLabel || patient.conditions;
+  const primary = patient.primaryIcdLabel || patient.conditions || "";
   const comorbidities = patient.comorbidities ?? [];
 
   if (comorbidities.length === 0) {
@@ -548,7 +549,7 @@ export function getPrimaryIcdDisplay(patient: PatientProfile): string {
     return patient.primaryIcdLabel;
   }
 
-  return patient.conditions;
+  return patient.conditions ?? "";
 }
 
 export function getWearableDeviceDisplay(patient: PatientProfile): string {

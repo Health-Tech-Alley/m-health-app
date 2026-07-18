@@ -74,6 +74,7 @@ function migrate(db: SQLiteDatabase): void {
   // diagnosis, meds, symptoms) fails to save.
   const defensiveColumns: Array<{ table: string; col: string; type: string }> = [
     { table: 'patients', col: 'location', type: 'TEXT' },
+    { table: 'patients', col: 'safety_notes', type: 'TEXT' },
   ];
   for (const { table, col, type } of defensiveColumns) {
     try {
@@ -120,8 +121,10 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS ml_events;
     DROP TABLE IF EXISTS daily_care_entries;
     DROP TABLE IF EXISTS rehabilitation_measurements;
+    DROP TABLE IF EXISTS care_plan_rehab_metrics;
     DROP TABLE IF EXISTS patient_longitudinal_observations;
     DROP TABLE IF EXISTS patient_timeline_events;
+    DROP TABLE IF EXISTS patient_care_context_items;
     DROP TABLE IF EXISTS appointments;
     DROP TABLE IF EXISTS threshold_recommendations;
     DROP TABLE IF EXISTS __migrations;

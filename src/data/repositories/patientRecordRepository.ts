@@ -16,21 +16,29 @@ import { getDatabase } from '../db';
 import type {
   Caregiver,
   CarePlan,
+  CarePlanRehabMetric,
+  DailyCareEntry,
   Medication,
   MedicationCandidate,
   MedicationConfirmationRequirement,
   Patient,
+  PatientCareContextItem,
   PatientCondition,
+  PatientLongitudinalObservation,
   PatientTimelineEvent,
   Symptom,
   Threshold,
   WearableDevice,
 } from '../types';
 import { getActiveCarePlanForPatient, getCarePlansForPatient } from './carePlanRepository';
+import { getCarePlanRehabMetrics } from './carePlanRehabMetricRepository';
+import { getDailyCareEntries, getDailyCareEntry } from './dailyCareEntryRepository';
 import { getMedicationCandidatesForPatient } from './fhirResourceRepository';
 import { getKnowledgeCacheStats } from './knowledgeCacheRepository';
 import { getMedicationConfirmationRequirementsForPatient } from './medicationConfirmationRequirementRepository';
 import { getEnrichmentStats } from './patientEnrichmentLogRepository';
+import { getPatientCareContextItems } from './patientCareContextRepository';
+import { getPatientLongitudinalObservations } from './patientLongitudinalObservationRepository';
 import { getPatientTimelineEvents } from './patientTimelineEventRepository';
 import {
   getActiveMedications,
@@ -62,6 +70,7 @@ export interface BundleStatus {
 
 export interface PatientRecordSnapshot {
   patient: Patient | null;
+  safetyNotes: string;
   caregiver: Caregiver | null;
   conditions: PatientCondition[]; // structured, with icd10/category/isPrimary/source/needsReview
   comorbidities: PatientCondition[]; // subset where isPrimary === false (or source !== 'onboarding' for primary)
@@ -72,9 +81,14 @@ export interface PatientRecordSnapshot {
   medications: Medication[];
   medicationCandidates: MedicationCandidate[];
   medicationConfirmationRequirements: Record<string, MedicationConfirmationRequirement>;
+  functionalObservations: PatientLongitudinalObservation[];
   thresholds: Threshold[];
   carePlan: CarePlan | null;
   carePlans: CarePlan[];
+  rehabPlanMetrics: CarePlanRehabMetric[];
+  todayDailyCareEntry: DailyCareEntry | null;
+  rehabDailyEntries: DailyCareEntry[];
+  careContextItems: PatientCareContextItem[];
   timelineEvents: PatientTimelineEvent[];
   carePlanGoals: CarePlanGoalSummary[];
   knowledgeStats: { total: number; bySource: Record<string, number> };
@@ -104,6 +118,48 @@ function getCarePlanGoals(patientId: string): CarePlanGoalSummary[] {
   }
 }
 
+const UC3_REHAB_HISTORY_DAYS = 21;
+
+function toDateOnly(value?: string | null): string | null {
+  if (!value) return null;
+  const dateOnly = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateOnly) ? dateOnly : null;
+}
+
+function addDays(dateOnly: string, days: number): string {
+  const date = new Date(`${dateOnly}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function minDateOnly(a: string, b: string): string {
+  return a <= b ? a : b;
+}
+
+function getRehabDailyEntryWindow(carePlan: CarePlan | null): {
+  since: string;
+  until: string;
+  limit: number;
+} {
+  const today = new Date().toISOString().slice(0, 10);
+  const planStart = toDateOnly(carePlan?.periodStart ?? carePlan?.effectiveDate);
+  const planEnd = toDateOnly(carePlan?.periodEnd);
+
+  if (planStart) {
+    return {
+      since: planStart,
+      until: planEnd ? minDateOnly(planEnd, today) : today,
+      limit: UC3_REHAB_HISTORY_DAYS,
+    };
+  }
+
+  return {
+    since: addDays(today, -(UC3_REHAB_HISTORY_DAYS - 1)),
+    until: today,
+    limit: UC3_REHAB_HISTORY_DAYS,
+  };
+}
+
 export function setBundlePending(patientId: string, pending: boolean): void {
   const db = getDatabase();
   const now = new Date().toISOString();
@@ -116,6 +172,35 @@ export function setBundlePending(patientId: string, pending: boolean): void {
 }
 
 const DEFAULT_BUNDLE_STATUS: BundleStatus = { state: 'complete', chunksAdded: 0 };
+
+function isCerebralPalsyCondition(condition: PatientCondition): boolean {
+  return condition.name.toLowerCase().includes('cerebral palsy');
+}
+
+function hasCuratedConditionRoles(conditions: PatientCondition[]): boolean {
+  return conditions.some((condition) => Boolean(condition.conditionRole));
+}
+
+const activeComorbidityOrder = new Map([
+  ['contracture', 0],
+  ['scoliosis', 1],
+  ['constipation', 2],
+  ['dysphagia', 3],
+  ['esophagitis', 4],
+  ['epilepsy', 5],
+]);
+
+function sortActiveComorbidities(conditions: PatientCondition[]): PatientCondition[] {
+  return [...conditions].sort(
+    (a, b) =>
+      (activeComorbidityOrder.get(a.name.toLowerCase()) ?? Number.MAX_SAFE_INTEGER) -
+      (activeComorbidityOrder.get(b.name.toLowerCase()) ?? Number.MAX_SAFE_INTEGER),
+  );
+}
+
+function isFallbackVisibleComorbidity(condition: PatientCondition): boolean {
+  return condition.source !== 'fhir_import';
+}
 
 export function getBundleStatus(patientId: string): BundleStatus {
   try {
@@ -160,9 +245,22 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const medicationCandidates = getMedicationCandidatesForPatient(patientId);
   const medicationConfirmationRequirements =
     getMedicationConfirmationRequirementsForPatient(patientId);
+  const functionalObservations = [
+    ...getPatientLongitudinalObservations(patientId, 'mobility_assistance_level'),
+    ...getPatientLongitudinalObservations(patientId, 'musculoskeletal_limitation_level'),
+  ];
   const thresholds = getActiveThresholds(patientId);
   const carePlan = getActiveCarePlanForPatient(patientId);
   const carePlans = getCarePlansForPatient(patientId);
+  const rehabPlanMetrics = carePlan
+    ? getCarePlanRehabMetrics(patientId, carePlan.planId)
+    : [];
+  const todayDailyCareEntry = getDailyCareEntry(patientId);
+  const rehabDailyEntries = getDailyCareEntries(
+    patientId,
+    getRehabDailyEntryWindow(carePlan),
+  );
+  const careContextItems = getPatientCareContextItems(patientId);
   const timelineEvents = getPatientTimelineEvents(patientId);
   const carePlanGoals = getCarePlanGoals(patientId);
   const knowledgeStats = getKnowledgeCacheStats();
@@ -170,12 +268,25 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const bundleStatus = getBundleStatus(patientId);
   const bundlePending = bundleStatus.state === 'in_flight';
 
-  const primaryCondition = conditions.find((c) => c.isPrimary) ?? conditions[0] ?? null;
-  const comorbidities = conditions.filter((c) => c !== primaryCondition);
-  const pendingReviewConditions = conditions.filter((c) => c.needsReview);
+  const hasCuratedRoles = hasCuratedConditionRoles(conditions);
+  const primaryCondition =
+    conditions.find((c) => c.conditionRole === 'primary_diagnosis') ??
+    conditions.find((c) => c.isPrimary) ??
+    conditions.find(isCerebralPalsyCondition) ??
+    conditions[0] ??
+    null;
+  const comorbidities = hasCuratedRoles
+    ? sortActiveComorbidities(
+        conditions.filter((c) => c.conditionRole === 'active_comorbidity'),
+      )
+    : conditions.filter((c) => c !== primaryCondition && isFallbackVisibleComorbidity(c));
+  const pendingReviewConditions = conditions.filter(
+    (c) => c.needsReview && c !== primaryCondition,
+  );
 
   return {
     patient,
+    safetyNotes: patient?.safetyNotes ?? '',
     caregiver,
     conditions,
     comorbidities,
@@ -186,9 +297,14 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     medications,
     medicationCandidates,
     medicationConfirmationRequirements,
+    functionalObservations,
     thresholds,
     carePlan,
     carePlans,
+    rehabPlanMetrics,
+    todayDailyCareEntry,
+    rehabDailyEntries,
+    careContextItems,
     timelineEvents,
     carePlanGoals,
     knowledgeStats,
