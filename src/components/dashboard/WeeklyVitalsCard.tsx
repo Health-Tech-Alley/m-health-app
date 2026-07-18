@@ -9,7 +9,10 @@ import type { HealthSampleType } from "@/data/types";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { useAppSelector } from "@/store/hooks";
 import type { LiveVitalReading } from "@/store/reducers/vitalsSlice";
-import { selectLiveVitalsState } from "@/store/reducers/vitalsSlice";
+import {
+  selectLiveVitalsState,
+  selectProductionWearableReadingsForPatient,
+} from "@/store/reducers/vitalsSlice";
 
 type MetricTone = "critical" | "warning" | "good";
 
@@ -125,7 +128,7 @@ const DISPLAY_UNIT_OVERRIDE: Partial<Record<HealthSampleType, string>> = {
   heart_rate: 'bpm',
   respiratory_rate: 'breaths/min',
   steps: 'steps',
-  distance: 'mi',
+  distance: 'm',
   flights_climbed: 'flights',
   blood_pressure_systolic: 'mmHg',
   blood_pressure_diastolic: 'mmHg',
@@ -144,10 +147,15 @@ export function WeeklyVitalsCard() {
   const vitals = useAppSelector(selectLiveVitalsState);
   const activePatient = useActivePatientView();
   const activePatientId = activePatient?.patientId ?? null;
+  const productionReadings = useAppSelector((state) =>
+    activePatientId
+      ? selectProductionWearableReadingsForPatient(state, activePatientId)
+      : [],
+  );
 
   const metrics = useMemo(
-    () => buildMetrics(vitals.readings, activePatientId),
-    [activePatientId, vitals.readings],
+    () => buildMetrics(productionReadings, activePatientId),
+    [activePatientId, productionReadings],
   );
 
   const { isRealHealth } = useSensor();
@@ -159,8 +167,8 @@ export function WeeklyVitalsCard() {
   }, [activePatientId, isRealHealth]);
 
   useEffect(() => {
-    console.log('[DEBUG] Weekly vitals updated:', (vitals.readings.length), 'readings for patient', activePatientId);
-  }, [vitals]);
+    console.log('[DEBUG] Weekly vitals updated:', productionReadings.length, 'readings for patient', activePatientId);
+  }, [activePatientId, productionReadings]);
 
   const selectedMetric =
     metrics.find((metric) => metric.key === selectedKey) ?? metrics[0] ?? null;
@@ -305,7 +313,7 @@ function buildMetrics(
         unit: displayUnit(type, formatReadingUnit(latest, byType)),
         status: `Latest ${formatRelativeTime(latest.recordedAt)}`,
         statusTone: "good" as MetricTone,
-        subtitle: `${sorted.length} reading${sorted.length === 1 ? "" : "s"} Today`,
+        subtitle: formatReadingsSubtitle(sorted),
         helperText: meta.helperText,
         readings: sorted,
       }];
@@ -333,7 +341,7 @@ function formatReadingUnit(
   }
 
   const diastolic = findPairedReading(reading, byType.get("blood_pressure_diastolic") ?? []);
-   return displayUnit(reading.type, reading.unit || diastolic?.unit || "mmHg");
+  return reading.unit || diastolic?.unit || "mmHg";
 }
 
 function findPairedReading(
@@ -535,6 +543,40 @@ function formatShortDate(value: string): string {
     month: "short",
     day: "numeric",
   });
+}
+
+function formatReadingsSubtitle(readings: LiveVitalReading[]): string {
+  const countLabel = `${readings.length} reading${readings.length === 1 ? "" : "s"}`;
+  const dates = readings
+    .map((reading) => {
+      const timestamp = Date.parse(reading.recordedAt);
+      return Number.isFinite(timestamp) ? new Date(timestamp) : null;
+    })
+    .filter((date): date is Date => date !== null);
+
+  if (dates.length === 0) return "Latest readings";
+
+  const today = new Date();
+  if (dates.every((date) => isSameLocalDay(date, today))) {
+    return `${countLabel} Today`;
+  }
+
+  const first = dates[0];
+  const last = dates[dates.length - 1];
+  const firstLabel = formatShortDate(first.toISOString());
+  const lastLabel = formatShortDate(last.toISOString());
+
+  if (!firstLabel || !lastLabel) return "Latest readings";
+  if (firstLabel === lastLabel) return `${countLabel} ${lastLabel}`;
+  return `${countLabel} ${firstLabel} - ${lastLabel}`;
+}
+
+function isSameLocalDay(left: Date, right: Date): boolean {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
 }
 
 const styles = StyleSheet.create({

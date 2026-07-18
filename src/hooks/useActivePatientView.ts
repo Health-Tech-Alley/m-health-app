@@ -17,6 +17,7 @@ import {
   hydrationFailed,
   hydrationStarted,
   hydrationSucceeded,
+  isProductionWearableSource,
 } from '@/store/reducers/vitalsSlice';
 
 const CLINICAL_VITALS: {
@@ -80,7 +81,7 @@ export function hydrateLiveVitals(
     ).toISOString();
     const samples = LIVE_MONITORING_TYPES.flatMap((type) =>
       getRecentHealthSamples(patientId, type, since, 100),
-    ).filter((sample) => sample.source !== 'fhir');
+    ).filter((sample) => isProductionWearableSource(sample.source));
     dispatch(hydrationSucceeded({ patientId, samples }));
   } catch (error) {
     dispatch(

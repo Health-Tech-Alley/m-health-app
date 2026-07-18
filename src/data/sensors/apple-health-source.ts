@@ -1,8 +1,8 @@
-import { Platform } from 'react-native';
+import { InteractionManager, Platform } from 'react-native';
 
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
-import { dispatchInChunks, runInBackground } from '@/utils/commonFunctions';
+import type { LiveVitalReading } from '@/store/reducers/vitalsSlice';
 
 import {
   getSyncCursor,
@@ -41,6 +41,27 @@ async function getHealthKitModule(): Promise<HealthKitModule | null> {
   } catch {
     _hkModule = null;
     return null;
+  }
+}
+
+function runInBackground(task: () => void | Promise<void>): void {
+  InteractionManager.runAfterInteractions(() => {
+    void task();
+  });
+}
+
+async function dispatchReadingsInChunks(
+  readings: LiveVitalReading[],
+  chunkSize = 50,
+): Promise<void> {
+  const [{ store }, { ingestSamplesBatch }] = await Promise.all([
+    import('@/store'),
+    import('@/store/reducers/vitalsSlice'),
+  ]);
+
+  for (let i = 0; i < readings.length; i += chunkSize) {
+    store.dispatch(ingestSamplesBatch({ samples: readings.slice(i, i + chunkSize) }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }
 
@@ -247,7 +268,7 @@ async primeAnchorsToNow(): Promise<void> {
         // current frame/interaction. Chunked so even a full 500-sample
         // batch doesn't lock up the JS thread in one go.
         runInBackground(async () => {
-          await dispatchInChunks(readings);
+          await dispatchReadingsInChunks(readings);
 
           const bus = getEventBus();
           for (const sample of sensorSamples) {
