@@ -118,12 +118,35 @@ export function saveFHIRBundleToDB(bundle: any): string | null {
   return canonicalPatientId;
 }
 
-function calculateAge(birthdate: Date): number | null {
-    if (Number.isNaN(birthdate.getTime())) return null;
-    const today: Date = new Date();
-    const diff: number = today.getTime() - birthdate.getTime();
-    const ageDate: Date = new Date(diff);
-    return Math.abs(ageDate.getUTCFullYear() - 1970);
+const FULL_BIRTH_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+function calculateAgeFromBirthDate(birthDate: unknown): number | null {
+  if (typeof birthDate !== 'string' || birthDate.length === 0 || birthDate !== birthDate.trim()) {
+    return null;
+  }
+
+  const match = birthDate.match(FULL_BIRTH_DATE_PATTERN);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  if (!Number.isInteger(year) || year < 1) return null;
+  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (!Number.isInteger(day) || day < 1 || day > daysInMonth) return null;
+
+  const today = new Date();
+  let age = today.getFullYear() - year;
+  const currentMonth = today.getMonth() + 1;
+  const currentDay = today.getDate();
+  if (currentMonth < month || (currentMonth === month && currentDay < day)) {
+    age -= 1;
+  }
+
+  return age < 0 ? null : age;
 }
 
 function getBundlePatientId(bundle: any): string | null {
@@ -389,10 +412,15 @@ function upsertPatient(db: any, r: any, activePatientId: string): void {
   const macs = getStringExtension(r, 'macs');
   const cfcs = getStringExtension(r, 'cfcs');
   const edacs = getStringExtension(r, 'edacs');
+  const importedAge = calculateAgeFromBirthDate(r.birthDate);
+  if (typeof r.birthDate === 'string' && importedAge === null) {
+    console.warn('[FHIR Import] Skipping invalid Patient.birthDate', {
+      patientId,
+      birthDate: r.birthDate,
+    });
+  }
 
-  // your patients table uses: patient_id, name, age, conditions,
-  // baseline_daily_routine, current_medications, spo2_cutoff,
-  // baseline_heart_rate, created_at, updated_at
+  // Patient.birthDate is the generic source for normalized runtime age.
   db.runSync(
     `INSERT INTO patients (
        patient_id, name, preferred_name, age, baseline_daily_routine, current_medications,
@@ -403,7 +431,7 @@ function upsertPatient(db: any, r: any, activePatientId: string): void {
      ON CONFLICT(patient_id) DO UPDATE SET
        name = COALESCE(NULLIF(excluded.name, ''), patients.name),
        preferred_name = COALESCE(NULLIF(patients.preferred_name, ''), NULLIF(excluded.preferred_name, ''), patients.preferred_name),
-       age  = COALESCE(NULLIF(patients.age, ''), excluded.age, patients.age),
+       age = excluded.age,
        baseline_daily_routine = COALESCE(NULLIF(patients.baseline_daily_routine, ''), NULLIF(excluded.baseline_daily_routine, ''), patients.baseline_daily_routine),
        current_medications = COALESCE(NULLIF(patients.current_medications, ''), NULLIF(excluded.current_medications, ''), patients.current_medications),
        spo2_cutoff = COALESCE(NULLIF(patients.spo2_cutoff, ''), NULLIF(excluded.spo2_cutoff, ''), patients.spo2_cutoff),
@@ -417,7 +445,7 @@ function upsertPatient(db: any, r: any, activePatientId: string): void {
     patientId,
     fullName,
     importedPreferredName,
-    r.birthDate ? calculateAge(new Date(r.birthDate)) : null,
+    importedAge === null ? null : String(importedAge),
     baselineDailyRoutine,
     currentMedications,
     spo2Cutoff,

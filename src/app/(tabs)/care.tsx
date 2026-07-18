@@ -1,7 +1,5 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useAppSelector } from '@/store/hooks';
-import { calculateAge } from "@/utils/commonFunctions";
 import {
   Modal,
   Pressable,
@@ -115,35 +113,12 @@ export default function CareScreen() {
         .sort((a, b) => a.daysFromFirstVisit - b.daysFromFirstVisit),
     [timelineEvents],
   );
-  const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
-  const [patientProfile, setPatientProfile] = useState<any>(null);
-  
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      if (patient) {
-        console.log('fhirBundleImported event listener: ', Object.keys(patient));
-        const patientData =  patient["entry"]?.map(
-            (entry: any) => {
-              return entry && entry.resource && entry.resource.resourceType === "Patient" ? entry : null;
-            }
-        );
-        setPatientProfile(patientData);
-      } else {
-        setPatientProfile(null);
-      }
-    }, 0);
-    return () => clearTimeout(handle);
-  }, [patient]);
-
   const caregiverDisplay = getCaregiverDisplay(activePatient);
   const caregiverFirstName = isProvided(caregiverDisplay)
     ? caregiverDisplay.trim().split(/\s+/)[0]
     : "";
   const caregiverRole = getCaregiverRoleDisplay(activePatient);
-  const patientPersonalInfo = patientProfile?.filter((entry: any) => entry && entry.resource && entry.resource.resourceType === "Patient")[0]?.resource;
-  const patientFirstName = patientPersonalInfo?.name?.[0]?.given?.[0] || "Patient";
-  const patientFamilyName = patientPersonalInfo?.name?.[0]?.family || "Name";
-  const patientAge = patientPersonalInfo?.birthDate ? calculateAge(new Date(patientPersonalInfo?.birthDate)) : "N/A";
+  const patientAge = getPatientAgeDisplay(activePatient);
 
   
 
