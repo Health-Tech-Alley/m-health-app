@@ -489,7 +489,7 @@ function upsertObservation(
   const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   if (!patientId) return;
   const observationCode = getObservationCode(r);
-  const loincCode = r.code?.coding?.[0]?.code;
+  const loincCode = getLoincCode(r.code);
   const effectiveTime = resolveObservationEffectiveTime(r);
   if (effectiveTime.recordedAt === null) {
     reportObservationNormalizationIssue(r, effectiveTime.reason);
@@ -557,10 +557,10 @@ function upsertObservation(
   // Blood pressure — two components, store as value_json
   if (loincCode === '85354-9') {
     const systolic = r.component?.find(
-      (c: any) => c.code?.coding?.[0]?.code === '8480-6'
+      (c: any) => getLoincCode(c.code) === '8480-6'
     )?.valueQuantity?.value;
     const diastolic = r.component?.find(
-      (c: any) => c.code?.coding?.[0]?.code === '8462-4'
+      (c: any) => getLoincCode(c.code) === '8462-4'
     )?.valueQuantity?.value;
 
     db.runSync(
@@ -591,7 +591,7 @@ function upsertObservation(
     '8462-4': 'blood_pressure_diastolic',
   };
 
-  const separateBloodPressureType = separateBloodPressureTypeMap[loincCode];
+  const separateBloodPressureType = separateBloodPressureTypeMap[loincCode ?? ''];
   if (separateBloodPressureType) {
     db.runSync(
       `INSERT OR REPLACE INTO health_samples
@@ -620,7 +620,7 @@ function upsertObservation(
     '39156-5': 'bmi',
   };
 
-  const type = typeMap[loincCode];
+  const type = typeMap[loincCode ?? ''];
   if (!type) return;
 
   db.runSync(
@@ -965,6 +965,15 @@ const longitudinalObservationTypeMap: Record<string, LongitudinalObservationType
   'mike-mobility-assistance-level': 'mobility_assistance_level',
   'mike-musculoskeletal-limitation-level': 'musculoskeletal_limitation_level',
 };
+
+const LOINC_CODE_SYSTEM = 'http://loinc.org';
+
+function getLoincCode(codeableConcept: any): string | null {
+  const coding = codeableConcept?.coding;
+  if (!Array.isArray(coding)) return null;
+  const match = coding.find((item: any) => item?.system === LOINC_CODE_SYSTEM);
+  return typeof match?.code === 'string' ? match.code : null;
+}
 
 function getObservationCode(resource: any): string | null {
   const coding = resource.code?.coding;
