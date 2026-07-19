@@ -488,7 +488,8 @@ function upsertObservation(
 
   const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   if (!patientId) return;
-  const observationCode = getObservationCode(r);
+  const localObservationCoding = getLocalObservationCoding(r);
+  const localObservationCode = localObservationCoding?.code ?? null;
   const loincCode = getLoincCode(r.code);
   const effectiveTime = resolveObservationEffectiveTime(r);
   if (effectiveTime.recordedAt === null) {
@@ -498,7 +499,7 @@ function upsertObservation(
   const date = effectiveTime.recordedAt;
   const now = new Date().toISOString();
 
-  const rehabilitationType = rehabilitationObservationTypeMap[observationCode ?? ''];
+  const rehabilitationType = rehabilitationObservationTypeMap[localObservationCode ?? ''];
   if (rehabilitationType && r.id && typeof r.valueQuantity?.value === 'number') {
     upsertRehabilitationMeasurement(
       {
@@ -516,9 +517,8 @@ function upsertObservation(
     return;
   }
 
-  const longitudinalType = longitudinalObservationTypeMap[observationCode ?? ''];
+  const longitudinalType = longitudinalObservationTypeMap[localObservationCode ?? ''];
   if (longitudinalType && r.id) {
-    const coding = getObservationCoding(r, observationCode);
     const numericValue =
       typeof r.valueQuantity?.value === 'number' ? r.valueQuantity.value : undefined;
     const textValue =
@@ -538,8 +538,8 @@ function upsertObservation(
         numericValue,
         textValue,
         unit: r.valueQuantity?.unit ?? r.valueQuantity?.code ?? undefined,
-        sourceSystem: coding?.system,
-        sourceCode: coding?.code ?? observationCode,
+        sourceSystem: localObservationCoding?.system,
+        sourceCode: localObservationCoding?.code ?? localObservationCode,
         sourceType: 'fhir',
         sourceLabel: getStringExtension(r, 'source-label') ?? r.code?.text ?? undefined,
         sourceFile: getStringExtension(r, 'source-file') ?? undefined,
@@ -966,6 +966,10 @@ const longitudinalObservationTypeMap: Record<string, LongitudinalObservationType
   'mike-musculoskeletal-limitation-level': 'musculoskeletal_limitation_level',
 };
 
+const CUSTOM_OBSERVATION_CODE_SYSTEM =
+  'https://access-dp.local/fhir/CodeSystem/custom-observations';
+const FUNCTIONAL_OBSERVATION_CODE_SYSTEM =
+  'https://mhealth.local/fhir/CodeSystem/functional-observation';
 const LOINC_CODE_SYSTEM = 'http://loinc.org';
 
 function getLoincCode(codeableConcept: any): string | null {
@@ -975,18 +979,26 @@ function getLoincCode(codeableConcept: any): string | null {
   return typeof match?.code === 'string' ? match.code : null;
 }
 
+function getLocalObservationCoding(resource: any): any | null {
+  const coding = resource.code?.coding;
+  if (!Array.isArray(coding)) return null;
+  return (
+    coding.find((item: any) => {
+      const code = item?.code;
+      if (typeof code !== 'string') return false;
+      if (item?.system === CUSTOM_OBSERVATION_CODE_SYSTEM) {
+        return rehabilitationObservationTypeMap[code] || longitudinalObservationTypeMap[code];
+      }
+      return item?.system === FUNCTIONAL_OBSERVATION_CODE_SYSTEM && longitudinalObservationTypeMap[code];
+    }) ?? null
+  );
+}
+
 function getObservationCode(resource: any): string | null {
   const coding = resource.code?.coding;
   if (!Array.isArray(coding)) return resource.code?.text ?? null;
-  const rehabilitationCode = coding.find((item: any) => rehabilitationObservationTypeMap[item?.code]);
-  const longitudinalCode = coding.find((item: any) => longitudinalObservationTypeMap[item?.code]);
-  return rehabilitationCode?.code ?? longitudinalCode?.code ?? coding[0]?.code ?? resource.code?.text ?? null;
-}
-
-function getObservationCoding(resource: any, code?: string | null): any | null {
-  const coding = resource.code?.coding;
-  if (!Array.isArray(coding)) return null;
-  return coding.find((item: any) => item?.code === code) ?? coding[0] ?? null;
+  const localObservationCoding = getLocalObservationCoding(resource);
+  return localObservationCoding?.code ?? coding[0]?.code ?? resource.code?.text ?? null;
 }
 
 function getReferenceId(
