@@ -98,11 +98,20 @@ function setPatientId(patientId: string, persist = true): void {
 
 /** Re-read the snapshot from SQLite and broadcast. Called after any write. */
 export function refreshPatientRecord(patientId?: string): void {
-  if (!currentPatientId && !patientId) return;
+  if (!currentPatientId) return;
+  if (patientId && patientId !== currentPatientId) return;
 
-  const nextPatientId = patientId || (currentPatientId ?? '');
+  const nextPatientId = currentPatientId;
   try {
-    setPatientId(nextPatientId, Boolean(patientId));
+    if (!getPatient(nextPatientId)) {
+      throw new Error(`Cannot refresh missing patient record: ${nextPatientId}`);
+    }
+    const nextSnapshot = loadSnapshot(nextPatientId);
+    if (nextSnapshot.patient?.patientId !== nextPatientId) {
+      throw new Error(`Refusing to publish mismatched patient snapshot: ${nextPatientId}`);
+    }
+    currentSnapshot = nextSnapshot;
+    emitChange();
     hydrateLiveVitals(nextPatientId);
   } catch (error) {
     if (getActivePatientId() === nextPatientId) {

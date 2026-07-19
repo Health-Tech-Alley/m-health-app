@@ -16,7 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
-import { refreshPatientRecord } from "@/contexts/patient-record-context";
+import { selectPatientRecord } from "@/contexts/patient-record-context";
 import { AppleHealthSource } from "@/data/sensors/apple-health-source";
 import { ALL_HEALTHKIT_READ_TYPES } from "@/data/sensors/healthkit-type-map";
 import {
@@ -670,7 +670,9 @@ export default function OnboardingScreen() {
     };
 
     const result = await completeOnboardingProfile(profile);
-    refreshPatientRecord(result.patientId);
+    if (result.patientId) {
+      selectPatientRecord(result.patientId);
+    }
     router.replace("/dashboard");
   }
 
