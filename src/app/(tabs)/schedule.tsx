@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -230,8 +231,10 @@ export default function ScheduleScreen() {
   // let athenaPatientId = '-1';
   const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
   const [athenaPatientId, setAthenaPatientId] = useState<string>('-1');
+  const latestReloadPatientIdRef = useRef<string>('-1');
   const [form, setForm] = useState(() => emptyForm(profile));
   const [upcoming, setUpcoming] = useState<Appointment[]>([]);
+  const [appointmentLoadError, setAppointmentLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [toastOpacity] = useState(new Animated.Value(0));
   const [booking, setBooking] = useState(false);
@@ -260,26 +263,33 @@ export default function ScheduleScreen() {
 
   const reload = useCallback(async () => {
     setUpcoming([]); // clear while loading
-    // find patietn record
-    // console.log('reloading appointments due to patient update: ', patient, athenaPatientId);
-    if (patient) {
-      const patientRecord =  patient?.entry?.filter((entry: any) => entry && entry.resource && entry.resource.resourceType === "Patient");
-      console.log('patient record: ', patientRecord);
+    setAppointmentLoadError(null);
 
-      setAthenaPatientId(patientRecord ? patientRecord[0].resource?.id : '-1');
-      const tempAthenaPaientId = patientRecord ? patientRecord[0].resource?.id : '-1'
-      console.log('Updated Athena Patient ID: ', athenaPatientId, tempAthenaPaientId);
-      if( tempAthenaPaientId !== '-1') {
-        console.log('Reloading appointments for Athena Patient ID: ', athenaPatientId, tempAthenaPaientId);
-        setUpcoming(await searchUpcomingAppointments(tempAthenaPaientId, todayIsoDate(), addDaysIso(todayIsoDate(), 90)));
-      }
-  }
+    const patientRecord = patient?.entry?.filter((entry: any) => entry && entry.resource && entry.resource.resourceType === "Patient");
+    const nextAthenaPatientId = patientRecord?.[0]?.resource?.id ?? '-1';
+    setAthenaPatientId(nextAthenaPatientId);
+    latestReloadPatientIdRef.current = nextAthenaPatientId;
+    if (nextAthenaPatientId === '-1') {
+      return;
+    }
+
+    try {
+      const nextUpcoming = await searchUpcomingAppointments(nextAthenaPatientId, todayIsoDate(), addDaysIso(todayIsoDate(), 90));
+      if (latestReloadPatientIdRef.current !== nextAthenaPatientId) return;
+      setUpcoming(nextUpcoming);
+    } catch (err) {
+      if (latestReloadPatientIdRef.current !== nextAthenaPatientId) return;
+      console.error("Failed to load Athena appointments", err);
+      setUpcoming([]);
+      setAppointmentLoadError(err instanceof Error ? err.message : String(err));
+    }
   }, [patient]);
 
-  useEffect(() => {
-    const handle = setTimeout(() => reload(), 0);
-    return () => clearTimeout(handle);
-  }, [reload]);
+  useFocusEffect(
+    useCallback(() => {
+      void reload();
+    }, [reload]),
+  );
 
   const showToast = (message: string) => {
     setToast(message);
@@ -475,7 +485,9 @@ export default function ScheduleScreen() {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Scheduled appointments</Text>
 
-            {sortedUpcoming.length === 0 ? (
+            {appointmentLoadError ? (
+              <Text style={styles.emptyText}>Appointments unavailable</Text>
+            ) : sortedUpcoming.length === 0 ? (
               <Text style={styles.emptyText}>No upcoming appointments.</Text>
             ) : (
               sortedUpcoming.map((appt) => {
