@@ -870,7 +870,7 @@ export function AdvancedDeveloperSettingsScreen() {
               <Text style={[styles.devLabel, { marginTop: 12 }]}>Runtime gates</Text>
               <CompactToggleRow
                 id="dynamic-slm-loading"
-                emoji="SLM"
+                emoji=""
                 label="Dynamic SLM loading"
                 value={settings.dynamicSlmLoading !== false}
                 expanded={expandedId === 'dynamic-slm-loading'}
@@ -881,7 +881,7 @@ export function AdvancedDeveloperSettingsScreen() {
               />
               <CompactToggleRow
                 id="nlu-development-fallback"
-                emoji="NLU"
+                emoji=""
                 label="Development NLU fallback"
                 value={settings.nluDevelopmentFallback === true}
                 expanded={expandedId === 'nlu-development-fallback'}
@@ -892,7 +892,7 @@ export function AdvancedDeveloperSettingsScreen() {
               />
               <CompactToggleRow
                 id="evidence-development-fallback"
-                emoji="EV"
+                emoji=""
                 label="Development evidence fixtures"
                 value={settings.evidenceDevelopmentFallback === true}
                 expanded={expandedId === 'evidence-development-fallback'}
@@ -903,7 +903,7 @@ export function AdvancedDeveloperSettingsScreen() {
               />
               <CompactToggleRow
                 id="knowledge-graph-expansion"
-                emoji="KG"
+                emoji=""
                 label="Evidence graph expansion"
                 value={settings.knowledgeGraphExpansion === true}
                 expanded={expandedId === 'knowledge-graph-expansion'}
@@ -2338,11 +2338,12 @@ function CompactToggleRow({
           accessibilityHint={expanded ? 'Collapse explanation' : accessibilityHint ?? 'Expand explanation'}
           accessibilityState={{ expanded }}
         >
-          <Text style={styles.rowEmoji} accessibilityElementsHidden importantForAccessibility="no">
-            {emoji}
-          </Text>
+          {emoji ? (
+            <Text style={styles.rowEmoji} accessibilityElementsHidden importantForAccessibility="no">
+              {emoji}
+            </Text>
+          ) : null}
           <Text style={styles.rowLabel}>{label}</Text>
-          <Text style={styles.infoIcon}>{expanded ? '⌃' : 'ⓘ'}</Text>
         </Pressable>
         <Switch
           value={value}
@@ -2403,7 +2404,6 @@ function CompactActionRow({
           {emoji}
         </Text>
         <Text style={styles.rowLabel}>{label}</Text>
-        <Text style={styles.chevron}>{expanded ? '⌃' : '›'}</Text>
       </Pressable>
       {expanded ? (
         <View style={styles.explanation}>
@@ -2451,7 +2451,6 @@ function PlainActionRow({
         <Text style={styles.rowLabel}>{label}</Text>
         <Text style={styles.rowDescription}>{description}</Text>
       </View>
-      <Text style={styles.chevron}>›</Text>
     </Pressable>
   );
 }
@@ -2523,18 +2522,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '600',
-  },
-  infoIcon: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 17,
-    fontWeight: '900',
-    paddingHorizontal: 4,
-  },
-  chevron: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 22,
-    fontWeight: '900',
-    paddingHorizontal: 4,
   },
   explanation: {
     gap: 10,
