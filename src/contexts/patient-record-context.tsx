@@ -48,6 +48,7 @@ import { hydrateLiveVitals, clearLiveVitals } from '@/hooks/useActivePatientView
 let currentSnapshot: PatientRecordSnapshot | null = null;
 let currentPatientId: string | null = null;
 let activeProviderToken: symbol | null = null;
+let patientRecordMutationVersion = 0;
 const listeners = new Set<() => void>();
 
 function loadSnapshot(patientId: string): PatientRecordSnapshot {
@@ -93,6 +94,7 @@ function setPatientId(patientId: string, persist = true): void {
   }
   currentPatientId = patientId;
   currentSnapshot = nextSnapshot;
+  patientRecordMutationVersion += 1;
   emitChange();
 }
 
@@ -111,6 +113,7 @@ export function refreshPatientRecord(patientId?: string): void {
       throw new Error(`Refusing to publish mismatched patient snapshot: ${nextPatientId}`);
     }
     currentSnapshot = nextSnapshot;
+    patientRecordMutationVersion += 1;
     emitChange();
     hydrateLiveVitals(nextPatientId);
   } catch (error) {
@@ -128,6 +131,31 @@ export function selectPatientRecord(patientId: string): void {
   setPatientId(patientId);
 }
 
+export function mutateCurrentPatientRecord(update: (snapshot: PatientRecordSnapshot) => PatientRecordSnapshot, persist: () => void | Promise<void>): Promise<void> {
+  if (!currentPatientId || !currentSnapshot) return Promise.resolve();
+
+  const mutationPatientId = currentPatientId;
+  const mutationId = ++patientRecordMutationVersion;
+  const previousSnapshot = currentSnapshot;
+  const nextSnapshot = update(previousSnapshot);
+  if (nextSnapshot.patient?.patientId !== mutationPatientId) {
+    throw new Error(`Refusing to publish mutation for inactive patient: ${mutationPatientId}`);
+  }
+
+  currentSnapshot = nextSnapshot;
+  emitChange();
+
+  return Promise.resolve()
+    .then(() => persist())
+    .catch((error) => {
+      if (mutationId === patientRecordMutationVersion && currentPatientId === mutationPatientId && currentSnapshot?.patient?.patientId === mutationPatientId) {
+        currentSnapshot = previousSnapshot;
+        emitChange();
+      }
+      throw error;
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Context
 // ---------------------------------------------------------------------------
@@ -140,6 +168,7 @@ interface PatientRecordContextValue {
   error: Error | null;
   /** Re-read the snapshot from SQLite. Call after any repository write. */
   refresh: () => void;
+  mutatePatientRecord: typeof mutateCurrentPatientRecord;
   /** Mark the clinical-condition bundle as pending / completed. */
   setBundlePending: (pending: boolean) => void;
   selectPatient: (patientId: string) => void;
@@ -289,6 +318,7 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
       ready: initialized,
       error,
       refresh,
+      mutatePatientRecord: mutateCurrentPatientRecord,
       setBundlePending: setBundlePendingFlag,
       selectPatient,
       importFHIRBundle,

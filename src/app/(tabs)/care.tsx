@@ -29,6 +29,7 @@ import {
   type CarePlan,
   type DailyCareEntry,
   type DailyCareUrgentSymptomCode,
+  type PatientRecordSnapshot,
   type RehabExerciseKey,
 } from "@/data";
 import { getRehabilitationMeasurements } from "@/data/repositories/rehabilitationMeasurementRepository";
@@ -85,7 +86,7 @@ type CareContextDisplayGroup = {
 
 export default function CareScreen() {
   const router = useRouter();
-  const { patientId, snapshot, refresh } = usePatientRecord();
+  const { patientId, snapshot, refresh, mutatePatientRecord } = usePatientRecord();
   const { focus } = useLocalSearchParams<{ focus?: string }>();
   const { reopenOnCareFocus } = useCriticalAlert();
   const activePatient = useActivePatientView();
@@ -328,14 +329,22 @@ export default function CareScreen() {
   const toggleCompletedAssignedExercise = (exerciseKey: RehabExerciseKey) => {
     if (!activeAssignmentKeySet.has(exerciseKey)) return;
 
-    const nextCompletedKeys = new Set(completedAssignedExerciseKeySet);
-    if (nextCompletedKeys.has(exerciseKey)) {
-      nextCompletedKeys.delete(exerciseKey);
-    } else {
-      nextCompletedKeys.add(exerciseKey);
-    }
-
-    saveDailyCarePatch({ completedExerciseKeys: Array.from(nextCompletedKeys) });
+    let nextEntry: DailyCareEntry | null = null;
+    void mutatePatientRecord(
+      (latestSnapshot) => {
+        if (latestSnapshot.patient?.patientId !== patientId) {
+          throw new Error(`Cannot save daily care for inactive patient: ${patientId}`);
+        }
+        nextEntry = buildCompletedExerciseEntry(latestSnapshot, exerciseKey);
+        return withDailyCareEntry(latestSnapshot, nextEntry);
+      },
+      () => {
+        if (nextEntry) Object.assign(nextEntry, upsertDailyCareEntry(nextEntry));
+      },
+    ).catch((error) => {
+      console.error("[CareScreen] Daily care update failed:", error);
+      setUc3CompletionStatus("Care update could not be saved. Please try again.");
+    });
   };
 
   const toggleSkippedReason = (reason: string) => {
@@ -1035,6 +1044,52 @@ function parseSafetyConsiderations(notes: string): string[] {
     .filter((s) => s.length > 2);
   const unique = Array.from(new Set(raw));
   return unique.length > 0 ? unique : ["No safety notes provided."];
+}
+
+function buildCompletedExerciseEntry(snapshot: PatientRecordSnapshot, exerciseKey: RehabExerciseKey): DailyCareEntry {
+  const patientId = snapshot.patient?.patientId;
+  if (!patientId) throw new Error("Cannot update daily care without an active patient.");
+
+  const existingEntry =
+    snapshot.todayDailyCareEntry && !isSeededDemoDailyEntry(snapshot.todayDailyCareEntry)
+      ? snapshot.todayDailyCareEntry
+      : null;
+  const now = new Date().toISOString();
+  const assignedExerciseKeys = getAssignedDevelopmentRehabExercises(snapshot.rehabExerciseAssignments)
+    .map((exercise) => exercise.key);
+  const completedExerciseKeys = new Set(filterCompletedExerciseKeysForAssignments(
+    existingEntry?.completedExerciseKeys,
+    snapshot.rehabExerciseAssignments,
+  ));
+  completedExerciseKeys.has(exerciseKey)
+    ? completedExerciseKeys.delete(exerciseKey)
+    : completedExerciseKeys.add(exerciseKey);
+
+  return {
+    ...(existingEntry ?? {
+      entryId: `dce-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`,
+      patientId,
+      entryDate: now.slice(0, 10),
+      therapyCompleted: false,
+      setsCompleted: 0,
+      recommendedSets: 0,
+      caregiverConcern: false,
+      createdAt: now,
+    }),
+    patientId,
+    carePlanId: existingEntry?.carePlanId ?? snapshot.carePlan?.planId ?? null,
+    assignedExerciseKeys,
+    completedExerciseKeys: Array.from(completedExerciseKeys),
+    updatedAt: now,
+  };
+}
+
+function withDailyCareEntry(snapshot: PatientRecordSnapshot, entry: DailyCareEntry): PatientRecordSnapshot {
+  const hasEntry = snapshot.rehabDailyEntries.some((item) => item.entryDate === entry.entryDate);
+  const rehabDailyEntries = (hasEntry
+    ? snapshot.rehabDailyEntries.map((item) => item.entryDate === entry.entryDate ? entry : item)
+    : [...snapshot.rehabDailyEntries, entry]).sort((a, b) => a.entryDate.localeCompare(b.entryDate));
+  return { ...snapshot, todayDailyCareEntry: entry, rehabDailyEntries };
 }
 
 function createTherapyCompletionUc3EvaluationKey(entryDate: string, now: Date): string {
