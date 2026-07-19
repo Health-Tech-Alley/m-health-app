@@ -718,12 +718,8 @@ function upsertCondition(
   const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   if (!patientId) return;
 
-  const coding = r.code?.coding ?? [];
-  const icd10 = coding.find((c: any) => c?.system?.includes('icd-10'))?.code
-    ?? coding[0]?.code
-    ?? null;
-  const snomed = coding.find((c: any) => c?.system?.includes('snomed'))?.code
-    ?? null;
+  const icd10 = getConditionCode(r.code, ICD10_CODE_SYSTEM);
+  const snomed = getConditionCode(r.code, SNOMED_CODE_SYSTEM);
   const name = r.code?.text ?? r.code?.coding?.[0]?.display ?? '';
   const conditionRole = getConditionRoleExtension(r);
   const sourceReferences = getConditionSourceReferences(
@@ -979,6 +975,15 @@ const CUSTOM_OBSERVATION_CODE_SYSTEM =
 const FUNCTIONAL_OBSERVATION_CODE_SYSTEM =
   'https://mhealth.local/fhir/CodeSystem/functional-observation';
 const LOINC_CODE_SYSTEM = 'http://loinc.org';
+const ICD10_CODE_SYSTEM = 'http://hl7.org/fhir/sid/icd-10';
+const SNOMED_CODE_SYSTEM = 'http://snomed.info/sct';
+
+function getConditionCode(codeableConcept: any, system: string): string | null {
+  const coding = codeableConcept?.coding;
+  if (!Array.isArray(coding)) return null;
+  const match = coding.find((item: any) => item?.system === system && typeof item?.code === 'string');
+  return match?.code ?? null;
+}
 
 function getLoincCode(codeableConcept: any): string | null {
   const coding = codeableConcept?.coding;
