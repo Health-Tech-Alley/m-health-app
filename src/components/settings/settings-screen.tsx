@@ -37,6 +37,7 @@ import {
   deleteKnowledgeChunk,
   deleteKnowledgeChunksBySource,
   DEVELOPMENT_UC3_REHAB_EXERCISES,
+  filterCompletedExerciseKeysForAssignments,
   getActiveConsents,
   getAllKnowledgeChunks,
   getAuditEntriesForResource,
@@ -56,6 +57,7 @@ import {
   type PatientEnrichmentLogEntry,
   type PatientCondition,
   type PatientConditionRole,
+  type PatientRecordSnapshot,
   type RehabExerciseKey,
   type ThresholdRecommendation,
 } from '@/data';
@@ -359,6 +361,7 @@ export function AdvancedDeveloperSettingsScreen() {
     patientId: patientRecordPatientId,
     snapshot,
     refresh,
+    mutatePatientRecord,
   } = usePatientRecord();
   const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
   const [ncbiKeyInput, setNcbiKeyInput] = useState('');
@@ -411,24 +414,26 @@ export function AdvancedDeveloperSettingsScreen() {
   const handleUc3ExerciseAssignmentToggle = useCallback((exerciseKey: RehabExerciseKey) => {
     if (!patientRecordPatientId || !activeCarePlan || !uc3ExerciseAssignmentEligible) return;
 
-    const nextKeys = new Set(assignedExerciseKeySet);
-    if (nextKeys.has(exerciseKey)) {
-      nextKeys.delete(exerciseKey);
-    } else {
-      nextKeys.add(exerciseKey);
-    }
-
-    replaceRehabExerciseAssignments({
-      patientId: patientRecordPatientId,
-      carePlanId: activeCarePlan.planId,
-      exerciseKeys: Array.from(nextKeys),
-    });
-    refresh();
+    let nextKeys: RehabExerciseKey[] = [];
+    let carePlanId = activeCarePlan.planId;
+    void mutatePatientRecord((latestSnapshot) => {
+      if (latestSnapshot.patient?.patientId !== patientRecordPatientId) {
+        throw new Error(`Cannot update exercise assignments for inactive patient: ${patientRecordPatientId}`);
+      }
+      carePlanId = latestSnapshot.carePlan?.planId ?? carePlanId;
+      const keySet = new Set(latestSnapshot.rehabExerciseAssignments.map((assignment) => assignment.exerciseKey));
+      keySet.has(exerciseKey) ? keySet.delete(exerciseKey) : keySet.add(exerciseKey);
+      nextKeys = DEVELOPMENT_UC3_REHAB_EXERCISES
+        .map((exercise) => exercise.key)
+        .filter((key) => keySet.has(key));
+      return patchRehabAssignments(latestSnapshot, carePlanId, nextKeys);
+    }, () => {
+      replaceRehabExerciseAssignments({ patientId: patientRecordPatientId, carePlanId, exerciseKeys: nextKeys });
+    }).catch(reportAdvancedSettingsSaveFailure);
   }, [
     activeCarePlan,
-    assignedExerciseKeySet,
+    mutatePatientRecord,
     patientRecordPatientId,
-    refresh,
     uc3ExerciseAssignmentEligible,
   ]);
 
@@ -1337,7 +1342,7 @@ export function AdvancedDeveloperSettingsScreen() {
             <DiagnosisCurationSettings
               patientId={patientRecordPatientId ?? ''}
               snapshot={snapshot}
-              refresh={refresh}
+              mutatePatientRecord={mutatePatientRecord}
             />
           </Section>
         ) : null}
@@ -1345,9 +1350,9 @@ export function AdvancedDeveloperSettingsScreen() {
         {isDeveloper ? (
           <Section title="Simulate care-team-required confirmation">
             <DemoMedicationConfirmationSettings
-              patientId={patientId}
+              patientId={patientRecordPatientId ?? ''}
               snapshot={snapshot}
-              refresh={refresh}
+              mutatePatientRecord={mutatePatientRecord}
             />
           </Section>
         ) : null}
@@ -1359,11 +1364,11 @@ export function AdvancedDeveloperSettingsScreen() {
 function DiagnosisCurationSettings({
   patientId,
   snapshot,
-  refresh,
+  mutatePatientRecord,
 }: {
   patientId: string;
   snapshot: ReturnType<typeof usePatientRecord>['snapshot'];
-  refresh: () => void;
+  mutatePatientRecord: ReturnType<typeof usePatientRecord>['mutatePatientRecord'];
 }) {
   const conditions = snapshot?.conditions ?? EMPTY_CONDITIONS;
   const [primaryConditionId, setPrimaryConditionId] = useState<string | null>(null);
@@ -1445,9 +1450,16 @@ function DiagnosisCurationSettings({
       rolesByConditionId[conditionId] = 'active_comorbidity';
     }
 
-    updatePatientConditionRoles(patientId, rolesByConditionId);
-    refresh();
-    Alert.alert('Saved', 'Diagnosis roles updated for the active patient.');
+    void mutatePatientRecord((latestSnapshot) => {
+      if (latestSnapshot.patient?.patientId !== patientId) {
+        throw new Error(`Cannot update diagnosis roles for inactive patient: ${patientId}`);
+      }
+      return patchConditionRoles(latestSnapshot, rolesByConditionId);
+    }, () => {
+      updatePatientConditionRoles(patientId, rolesByConditionId);
+    }).then(() => {
+      Alert.alert('Saved', 'Diagnosis roles updated for the active patient.');
+    }).catch(reportAdvancedSettingsSaveFailure);
   };
 
   return (
@@ -1536,14 +1548,83 @@ function formatConditionSourceSummary(condition: PatientCondition): string | nul
   ].filter(Boolean).join(' - ');
 }
 
+function reportAdvancedSettingsSaveFailure(error: unknown): void {
+  console.error('[AdvancedSettings] Patient selection update failed:', error);
+  Alert.alert('Save failed', error instanceof Error ? error.message : String(error));
+}
+
+function patchMedicationRequirement(snapshot: PatientRecordSnapshot, medicationId: string, enabled: boolean): PatientRecordSnapshot {
+  const requirements = { ...snapshot.medicationConfirmationRequirements };
+  if (!enabled) delete requirements[medicationId];
+  else {
+    const now = new Date().toISOString();
+    requirements[medicationId] = {
+      patientId: snapshot.patient?.patientId ?? '', medicationId, confirmationRequirement: 'required',
+      requirementSource: 'demo_override', createdAt: requirements[medicationId]?.createdAt ?? now, updatedAt: now,
+    };
+  }
+  return { ...snapshot, medicationConfirmationRequirements: requirements };
+}
+
+function patchConditionRoles(snapshot: PatientRecordSnapshot, rolesByConditionId: Record<string, PatientConditionRole>): PatientRecordSnapshot {
+  const conditions = snapshot.conditions.map((condition) => {
+    const conditionRole = rolesByConditionId[condition.conditionId] ?? 'history_context';
+    return { ...condition, conditionRole, isPrimary: conditionRole === 'primary_diagnosis' };
+  });
+  const primaryCondition = conditions.find((condition) => condition.conditionRole === 'primary_diagnosis') ?? null;
+  const activeOrder = ['contracture', 'scoliosis', 'constipation', 'dysphagia', 'esophagitis', 'epilepsy'];
+  const comorbidities = conditions
+    .filter((condition) => condition.conditionRole === 'active_comorbidity')
+    .sort((a, b) => (activeOrder.indexOf(a.name.toLowerCase()) + 1 || Number.MAX_SAFE_INTEGER) -
+      (activeOrder.indexOf(b.name.toLowerCase()) + 1 || Number.MAX_SAFE_INTEGER));
+  const pendingReviewConditions = conditions.filter((condition) =>
+    condition.needsReview && condition.conditionId !== primaryCondition?.conditionId);
+  return { ...snapshot, conditions, primaryCondition, comorbidities, pendingReviewConditions };
+}
+
+function patchRehabAssignments(snapshot: PatientRecordSnapshot, carePlanId: string, activeKeys: readonly RehabExerciseKey[]): PatientRecordSnapshot {
+  const now = new Date().toISOString();
+  const existingAssignments = new Map(
+    snapshot.rehabExerciseAssignments.map((assignment) => [assignment.exerciseKey, assignment]),
+  );
+  const rehabExerciseAssignments = DEVELOPMENT_UC3_REHAB_EXERCISES
+    .filter((exercise) => activeKeys.includes(exercise.key))
+    .map((exercise) => {
+      const existing = existingAssignments.get(exercise.key);
+      return {
+        patientId: snapshot.patient?.patientId ?? '', carePlanId, exerciseKey: exercise.key, active: true,
+        source: existing?.source ?? 'developer_uc3_v2' as const, createdAt: existing?.createdAt ?? now, updatedAt: now,
+      };
+    });
+  const todayDailyCareEntry = snapshot.todayDailyCareEntry
+    ? {
+        ...snapshot.todayDailyCareEntry,
+        completedExerciseKeys: filterCompletedExerciseKeysForAssignments(
+          snapshot.todayDailyCareEntry.completedExerciseKeys,
+          rehabExerciseAssignments,
+        ),
+      }
+    : null;
+  return {
+    ...snapshot,
+    rehabExerciseAssignments,
+    todayDailyCareEntry,
+    rehabDailyEntries: todayDailyCareEntry
+      ? snapshot.rehabDailyEntries.map((entry) =>
+          entry.entryDate === todayDailyCareEntry.entryDate ? todayDailyCareEntry : entry,
+        )
+      : snapshot.rehabDailyEntries,
+  };
+}
+
 function DemoMedicationConfirmationSettings({
   patientId,
   snapshot,
-  refresh,
+  mutatePatientRecord,
 }: {
   patientId: string;
   snapshot: ReturnType<typeof usePatientRecord>['snapshot'];
-  refresh: () => void;
+  mutatePatientRecord: ReturnType<typeof usePatientRecord>['mutatePatientRecord'];
 }) {
   if (!patientId || !snapshot?.patient) {
     return (
@@ -1571,12 +1652,15 @@ function DemoMedicationConfirmationSettings({
   const importedMedications = snapshot.medications.filter((medication) => medication.source === 'fhir');
 
   const handleToggle = (medicationId: string, enabled: boolean) => {
-    if (enabled) {
-      setDemoMedicationConfirmationRequired(patientId, medicationId);
-    } else {
-      removeDemoMedicationConfirmationRequirement(patientId, medicationId);
-    }
-    refresh();
+    void mutatePatientRecord((latestSnapshot) => {
+      if (latestSnapshot.patient?.patientId !== patientId) {
+        throw new Error(`Cannot update medication confirmation for inactive patient: ${patientId}`);
+      }
+      return patchMedicationRequirement(latestSnapshot, medicationId, enabled);
+    }, () => {
+      if (enabled) setDemoMedicationConfirmationRequired(patientId, medicationId);
+      else removeDemoMedicationConfirmationRequirement(patientId, medicationId);
+    }).catch(reportAdvancedSettingsSaveFailure);
   };
 
   return (
