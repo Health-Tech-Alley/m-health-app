@@ -837,13 +837,17 @@ const timelineEventTypes = new Set<PatientTimelineEventType>([
   'equipment_orthotics_support',
 ]);
 
+const TIMELINE_EVENT_BASIC_CODE_SYSTEM =
+  'https://mhealth.local/fhir/CodeSystem/curated-context';
+const CARE_CONTEXT_BASIC_CODE_SYSTEM =
+  'https://mhealth.local/fhir/CodeSystem/basic-resource-type';
+
 function upsertPatientTimelineEventFromBasic(
   r: any,
   activePatientId: string,
   patientReferenceMap?: Map<string, string>,
 ): void {
-  const code = r.code?.coding?.[0]?.code ?? r.code?.text;
-  if (code !== 'patient-timeline-event') return;
+  if (!hasBasicCoding(r, TIMELINE_EVENT_BASIC_CODE_SYSTEM, 'patient-timeline-event')) return;
 
   const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   const eventType = getStringExtension(r, 'timeline-event-type');
@@ -894,8 +898,7 @@ function upsertPatientCareContextItemFromBasic(
   activePatientId: string,
   patientReferenceMap?: Map<string, string>,
 ): void {
-  const code = r.code?.coding?.[0]?.code ?? r.code?.text;
-  if (code !== 'patient-care-context-item') return;
+  if (!hasBasicCoding(r, CARE_CONTEXT_BASIC_CODE_SYSTEM, 'patient-care-context-item')) return;
 
   const patientId = getImportedPatientId(r, activePatientId, patientReferenceMap);
   const contextCategory = getStringExtension(r, 'context-category');
@@ -944,6 +947,11 @@ function upsertPatientCareContextItemFromBasic(
     },
     getDatabase(),
   );
+}
+
+function hasBasicCoding(resource: any, system: string, code: string): boolean {
+  const coding = resource.code?.coding;
+  return Array.isArray(coding) && coding.some((item: any) => item?.system === system && item?.code === code);
 }
 
 const rehabilitationObservationTypeMap: Record<string, RehabilitationMeasurementType> = {

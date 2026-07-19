@@ -5,6 +5,8 @@
 import { getDatabase } from '../db';
 import type { FhirResource, FhirResourceKind, MedicationCandidate } from '../types';
 
+const MEDICATION_REVIEW_BASIC_CODE_SYSTEM =
+  'https://mhealth.local/fhir/CodeSystem/review-resource';
 const MEDICATION_REVIEW_BASIC_CODES = new Set([
   'medication-review',
   'short-course-medication-history',
@@ -84,9 +86,8 @@ export function getMedicationCandidatesForPatient(patientId: string): Medication
     if (resource.resourceType !== 'Basic') continue;
 
     const parsed = parseJsonResource(resource.payloadJson);
-    if (!parsed || getBasicCode(parsed) === null) continue;
-    const category = getBasicCode(parsed);
-    if (!category || !MEDICATION_REVIEW_BASIC_CODES.has(category)) continue;
+    const category = getMedicationReviewBasicCode(parsed);
+    if (!category) continue;
     if (getPatientReferenceId(parsed.subject?.reference) !== patientId) continue;
 
     const label = getStringExtension(parsed, 'medication-label') ?? parsed.code?.text;
@@ -137,8 +138,15 @@ function parseJsonResource(payloadJson: string): any | null {
   }
 }
 
-function getBasicCode(resource: any): string | null {
-  return resource.code?.coding?.[0]?.code ?? resource.code?.text ?? null;
+function getMedicationReviewBasicCode(resource: any): string | null {
+  const coding = resource?.code?.coding;
+  if (!Array.isArray(coding)) return null;
+  const match = coding.find(
+    (item: any) =>
+      item?.system === MEDICATION_REVIEW_BASIC_CODE_SYSTEM &&
+      MEDICATION_REVIEW_BASIC_CODES.has(item?.code),
+  );
+  return typeof match?.code === 'string' ? match.code : null;
 }
 
 function getPatientReferenceId(reference?: string): string | null {
