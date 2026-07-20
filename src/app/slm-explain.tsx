@@ -12,7 +12,7 @@
  * caregiver_action.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Modal,
@@ -52,6 +52,51 @@ const MUTED = '#526866';
 const RED = '#B42318';
 const AMBER = '#E1A53C';
 const GREEN = '#0F7A4A';
+
+function isModelLoadError(error: string | null): boolean {
+  if (!error) return false;
+  const lower = error.toLowerCase();
+  return (
+    lower.includes('no native slm') ||
+    lower.includes('model unavailable') ||
+    lower.includes('not installed') ||
+    lower.includes('ram') ||
+    lower.includes('memory') ||
+    lower.includes('mmap') ||
+    lower.includes('unable to load') ||
+    lower.includes('failed to load') ||
+    lower.includes('load attempts failed') ||
+    lower.includes('model not loaded') ||
+    lower.includes('slm is not ready') ||
+    lower.includes('not ready') ||
+    lower.includes('context is full') ||
+    lower.includes('context window')
+  );
+}
+
+function formatLoadFailureMessage(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes('ram') ||
+    lower.includes('memory') ||
+    lower.includes('mmap') ||
+    lower.includes('2.9') ||
+    lower.includes('contiguous')
+  ) {
+    return (
+      `${raw}\n\n` +
+      'Tips: close other apps, unload Concierge from Models/Settings if it is half-loaded, ' +
+      'then retry. Prefer Gemma-4-E2B (~2.4 GB) if a larger model is selected.'
+    );
+  }
+  if (lower.includes('not installed') || lower.includes('not found')) {
+    return (
+      `${raw}\n\n` +
+      'Open Models and download the default Concierge model, then tap Load Concierge.'
+    );
+  }
+  return raw;
+}
 
 const CAREGIVER_SLM_MODEL_ID = DEFAULT_SLM_MODEL_ID;
 
@@ -130,39 +175,13 @@ export default function SlmExplainScreen() {
 
   const alert = target.kind === 'alert' ? target.alert : null;
   const acquireSlm = slm.acquireSlm;
+  const screenLeaseRef = useRef<SlmTaskLease | null>(null);
+  const explainStartedRef = useRef(false);
 
-  useEffect(() => {
-    let lease: SlmTaskLease | null = null;
-    let cancelled = false;
-
-    const run = async () => {
-      try {
-        const reason =
-          target.kind === 'uc3'
-            ? 'explain_rehab_trajectory'
-            : target.kind === 'uc4'
-              ? 'uc4_provider_summary_rewrite'
-              : 'explain_alert';
-        lease = await acquireSlm(reason);
-        if (cancelled) {
-          lease.release();
-          lease = null;
-          return;
-        }
-        log('Concierge loaded (screen lease).');
-      } catch {
-        // RAM gate / not installed; explain() will surface the error.
-      }
-    };
-
-    const timer = setTimeout(() => void run(), 0);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      lease?.release();
-    };
-  }, [acquireSlm, log, target.kind]);
-
+  /**
+   * Single entry: one screen lease (loads model once via task queue), then explain.
+   * Do NOT also call loadModel / ensureReady in parallel — dual initLlama crashes iOS.
+   */
   const explain = useCallback(async () => {
     if (target.kind === 'unavailable') {
       setProposal(null);
@@ -172,12 +191,35 @@ export default function SlmExplainScreen() {
       return;
     }
 
-    if (target.kind === 'uc3') {
-      setLoading(true);
-      setError(null);
-      setProposal(null);
-      setStepResult(null);
-      try {
+    setLoading(true);
+    setError(null);
+    setProposal(null);
+    setStepResult(null);
+
+    const reason =
+      target.kind === 'uc3'
+        ? 'explain_rehab_trajectory'
+        : target.kind === 'uc4'
+          ? 'uc4_provider_summary_rewrite'
+          : 'explain_alert';
+
+    let lease: SlmTaskLease | null = screenLeaseRef.current;
+    try {
+      if (!lease) {
+        log('Loading Concierge (single screen lease)…');
+        lease = await acquireSlm(reason);
+        screenLeaseRef.current = lease;
+        log('Concierge ready.');
+      }
+
+      if (slm.provider.getModelInfo() === null) {
+        throw new Error(
+          slm.loadError ??
+            'Concierge model is not loaded. Free memory, unload other apps, then retry.',
+        );
+      }
+
+      if (target.kind === 'uc3') {
         log('Requesting Concierge rehab trajectory explanation...');
         const result = await orchestrator.explainRehabTrajectory(
           target.result.resultId,
@@ -185,22 +227,10 @@ export default function SlmExplainScreen() {
         );
         setProposal(result);
         log(`Explanation received. Citations: ${result.citations.length}.`);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setError(msg);
-        log(`Explain failed: ${msg}`);
-      } finally {
-        setLoading(false);
+        return;
       }
-      return;
-    }
 
-    if (target.kind === 'uc4') {
-      setLoading(true);
-      setError(null);
-      setProposal(null);
-      setStepResult(null);
-      try {
+      if (target.kind === 'uc4') {
         log('Requesting Concierge care focus explanation...');
         const result = await orchestrator.explainUc4PriorityCard(
           target.card.cardId,
@@ -208,46 +238,88 @@ export default function SlmExplainScreen() {
         );
         setProposal(result);
         log(`Explanation received. Citations: ${result.citations.length}.`);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setError(msg);
-        log(`Explain failed: ${msg}`);
-      } finally {
-        setLoading(false);
+        return;
       }
-      return;
-    }
 
-    setLoading(true);
-    setError(null);
-    setProposal(null);
-    setStepResult(null);
-    try {
-      if (slm.loadStatus !== 'ready') {
-        log('Loading Concierge model…');
-        await slm.loadModel(CAREGIVER_SLM_MODEL_ID);
-      }
       log('Requesting Concierge explanation…');
       const result = await orchestrator.explainAlert(target.alert.alertId, 'caregiver-1');
       setProposal(result);
       log(`Explanation received. Citations: ${result.citations.length}.`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
+      const friendly = formatLoadFailureMessage(msg);
+      setError(friendly);
       log(`Explain failed: ${msg}`);
     } finally {
       setLoading(false);
     }
-  }, [orchestrator, slm, log, target]);
+  }, [acquireSlm, orchestrator, log, target, slm.provider, slm.loadError]);
+
+  // E3 HOTFIX: recovery CTA when native SLM failed to load.
+  const handleLoadConcierge = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      screenLeaseRef.current?.release();
+      screenLeaseRef.current = null;
+      try {
+        await slm.unloadModel();
+      } catch {
+        // ignore
+      }
+      // Brief yield so native release can finish before re-mmap.
+      await new Promise((r) => setTimeout(r, 400));
+      log(`Loading Concierge model ${CAREGIVER_SLM_MODEL_ID}…`);
+      await slm.loadModel(CAREGIVER_SLM_MODEL_ID);
+      log('Concierge loaded. Retrying explanation…');
+      explainStartedRef.current = false;
+      await explain();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(formatLoadFailureMessage(msg));
+      log(`Load failed: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [slm, explain, log]);
+
+  // Reset auto-run when the explain target changes (new result / card / alert).
+  const targetKey =
+    target.kind === 'uc3'
+      ? `uc3:${target.result.resultId}`
+      : target.kind === 'uc4'
+        ? `uc4:${target.card.cardId}`
+        : target.kind === 'alert'
+          ? `alert:${target.alert.alertId}`
+          : `unavailable:${target.message}`;
 
   useEffect(() => {
-    // Defer so setState happens in an async callback, not synchronously in
-    // the effect body (keeps the render pure and avoids cascading renders).
+    explainStartedRef.current = false;
+  }, [targetKey]);
+
+  // One auto-run per target; lease released on unmount only.
+  useEffect(() => {
+    if (target.kind === 'unavailable') {
+      setError(target.message);
+      return;
+    }
+    if (explainStartedRef.current) return;
+    explainStartedRef.current = true;
     const timer = setTimeout(() => {
       void explain();
     }, 0);
-    return () => clearTimeout(timer);
-  }, [explain]);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [explain, target, targetKey]);
+
+  useEffect(() => {
+    return () => {
+      screenLeaseRef.current?.release();
+      screenLeaseRef.current = null;
+      explainStartedRef.current = false;
+    };
+  }, []);
 
   const answerQuestion = useCallback(
     async (option: string) => {
@@ -357,8 +429,32 @@ export default function SlmExplainScreen() {
 
         {error && (
           <View style={styles.errorBox}>
+            <Text style={styles.errorEyebrow}>Concierge unavailable</Text>
             <Text style={styles.errorText}>{error}</Text>
-            <Pressable style={styles.retryButton} onPress={explain}>
+            {isModelLoadError(error) ? (
+              <View style={styles.errorActions}>
+                <Pressable
+                  style={[styles.retryButton, styles.primaryButton]}
+                  onPress={handleLoadConcierge}
+                  accessibilityRole="button"
+                  accessibilityLabel="Load Concierge"
+                >
+                  <Text style={styles.buttonText}>Unload & reload Concierge</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.secondaryButton}
+                  onPress={() => {
+                    void slm.unloadModel();
+                    router.push('/models');
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open Models"
+                >
+                  <Text style={styles.secondaryButtonText}>Open Models</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            <Pressable style={styles.retryButton} onPress={() => void explain()}>
               <Text style={styles.buttonText}>Retry</Text>
             </Pressable>
           </View>
@@ -607,10 +703,39 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: RED,
   },
+  errorEyebrow: {
+    color: RED,
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
   errorText: {
     color: RED,
     fontSize: 14,
     fontWeight: '600',
+    lineHeight: 19,
+  },
+  errorActions: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  primaryButton: {
+    backgroundColor: TEAL,
+  },
+  secondaryButton: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD9D7',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+  },
+  secondaryButtonText: {
+    color: TEAL,
+    fontWeight: '700',
+    fontSize: 14,
   },
   retryButton: {
     backgroundColor: TEAL,

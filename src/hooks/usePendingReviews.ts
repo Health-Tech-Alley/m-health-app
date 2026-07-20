@@ -17,16 +17,19 @@ import { getActiveCareAlerts } from '@/services/care/careService';
 import { useFocusEffect } from 'expo-router';
 import { getAuditEntriesForResource } from '@/data/repositories/auditRepository';
 import { getAlertById } from '@/data';
+import { listPendingProposalSummaries } from '@/data/repositories/adcpRepository';
 
 export type PendingReview = {
   thresholdRecommendations: number;
   openNonEmergencyAlerts: number;
+  planProposals: number;
   total: number;
 };
 
 const EMPTY: PendingReview = {
   thresholdRecommendations: 0,
   openNonEmergencyAlerts: 0,
+  planProposals: 0,
   total: 0,
 };
 
@@ -35,17 +38,23 @@ const EMPTY: PendingReview = {
  *
  * "Pending" is intentionally broad: anything that requires the caregiver
  * to look at the app, decide, and act. Severity-3 alerts short-circuit the
- * HITL flow (confidence router), so they don't count.
+ * HITL flow (confidence router), so they don't count. Plan proposals in
+ * `awaiting_hitl` count toward HITL review (planning/39 §4.3 + L18).
  */
 export function countPendingReviews(patientId: string | null): PendingReview {
   if (!patientId) return EMPTY;
   const recs = getPendingThresholdRecommendations(patientId).filter((r) => r.status === 'pending');
   const alerts = getActiveCareAlerts(patientId);
   const openAlerts = alerts.filter((a) => a.severity <= 2 && a.status === 'open');
+  const proposals = listPendingProposalSummaries(patientId).filter(
+    (p) =>
+      p.status === 'draft' || p.status === 'awaiting_hitl' || p.status === 'awaiting_ml_vet',
+  );
   return {
     thresholdRecommendations: recs.length,
     openNonEmergencyAlerts: openAlerts.length,
-    total: recs.length + openAlerts.length,
+    planProposals: proposals.length,
+    total: recs.length + openAlerts.length + proposals.length,
   };
 }
 
@@ -74,6 +83,7 @@ function getStableSnapshot(patientId: string | null): PendingReview {
     cachedPatientId === patientId &&
     cachedSnapshot.thresholdRecommendations === fresh.thresholdRecommendations &&
     cachedSnapshot.openNonEmergencyAlerts === fresh.openNonEmergencyAlerts &&
+    cachedSnapshot.planProposals === fresh.planProposals &&
     cachedSnapshot.total === fresh.total
   ) {
     return cachedSnapshot;

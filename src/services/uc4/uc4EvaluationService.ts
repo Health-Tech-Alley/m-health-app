@@ -175,6 +175,13 @@ export function evaluateAndPersistUc4Priorities(
     at: nowIso,
   });
 
+  try {
+    const { drainPendingProposalsForPatient } = require('../carePlan/mlPlanProposalService') as typeof import('../carePlan/mlPlanProposalService');
+    drainPendingProposalsForPatient(patientId, 'uc4');
+  } catch (err) {
+    console.warn('[UC4] ADCP proposal drain failed:', err instanceof Error ? err.message : err);
+  }
+
   return {
     status: 'success',
     runId,

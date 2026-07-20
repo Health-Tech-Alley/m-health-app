@@ -167,61 +167,91 @@ export function SLMProvider({ children }: { children: ReactNode }) {
 
   const loadModel = useCallback(
     async (modelId: string) => {
+      // Single-flight: concurrent acquire + ensureReady + explain must share one load.
+      if (loadPromiseRef.current) {
+        console.log('[SLM] Joining in-flight loadModel');
+        await loadPromiseRef.current;
+        if (provider.getModelInfo() !== null) return;
+        // Prior load failed — allow a fresh attempt below.
+      }
+
+      if (provider.getModelInfo() !== null) {
+        setLoadStatus('ready');
+        setCurrentModelId((prev) => prev ?? modelId);
+        return;
+      }
+
       const entry = MODEL_CATALOG.find((m) => m.id === modelId);
       if (!entry) {
-        setLoadError(`Model not found: ${modelId}`);
+        const message = `Model not found: ${modelId}`;
+        setLoadError(message);
         setLoadStatus('error');
         hasLoadErrorRef.current = true;
-        return;
+        throw new Error(message);
       }
 
       // ── Pre-load RAM gate (shared by both modes) ──
       const gate = checkSlmRamGate(modelId);
       if (!gate.ok) {
-        setLoadError(`Not enough free memory to load Concierge. ${gate.reason}`);
+        const message = `Not enough free memory to load Concierge. ${gate.reason}`;
+        setLoadError(message);
         setLoadStatus('error');
         hasLoadErrorRef.current = true;
         freeMBAtFailRef.current = gate.freeMB;
         scheduleSingleOomRetry(modelId);
-        return;
+        throw new Error(message);
       }
 
-      setLoadStatus('loading');
-      setLoadError(null);
-      wasUnloadedRef.current = false;
-      hasLoadErrorRef.current = false;
-      oomRetryUsedRef.current = false;
-
-      try {
-        const path = resolveModelPath(entry.file);
-        await provider.loadModel(path, { nCtx: 8192 });
-        const info: ModelInfo | null = provider.getModelInfo();
-        setCurrentModelId(modelId);
-        setModelSizeGB(info ? info.sizeBytes / (1024 * 1024 * 1024) : null);
-        setLoadStatus('ready');
+      const run = (async () => {
+        setLoadStatus('loading');
+        setLoadError(null);
+        wasUnloadedRef.current = false;
         hasLoadErrorRef.current = false;
         oomRetryUsedRef.current = false;
-        freeMBAtFailRef.current = null;
-        if (oomRetryTimerRef.current) {
-          clearTimeout(oomRetryTimerRef.current);
-          oomRetryTimerRef.current = null;
-        }
-      } catch (err: any) {
-        setLoadError(err.message ?? 'Failed to load model');
-        setLoadStatus('error');
-        setCurrentModelId(null);
-        setModelSizeGB(null);
-        hasLoadErrorRef.current = true;
-        if (isNativeMemoryAvailable()) {
-          try {
-            const { freeMB } = getDeviceMemoryModule().getMemoryInfo();
-            freeMBAtFailRef.current = freeMB;
-          } catch {
-            // ignore
+
+        try {
+          const path = resolveModelPath(entry.file);
+          // Prefer 4096 ctx — 8192 doubles KV RAM and often OOMs on device with 2.9GB GGUF.
+          await provider.loadModel(path, { nCtx: 4096 });
+          const info: ModelInfo | null = provider.getModelInfo();
+          setCurrentModelId(modelId);
+          setModelSizeGB(info ? info.sizeBytes / (1024 * 1024 * 1024) : null);
+          setLoadStatus('ready');
+          hasLoadErrorRef.current = false;
+          oomRetryUsedRef.current = false;
+          freeMBAtFailRef.current = null;
+          if (oomRetryTimerRef.current) {
+            clearTimeout(oomRetryTimerRef.current);
+            oomRetryTimerRef.current = null;
           }
+        } catch (err: any) {
+          const message = err?.message ?? 'Failed to load model';
+          setLoadError(message);
+          setLoadStatus('error');
+          setCurrentModelId(null);
+          setModelSizeGB(null);
+          hasLoadErrorRef.current = true;
+          if (isNativeMemoryAvailable()) {
+            try {
+              const { freeMB } = getDeviceMemoryModule().getMemoryInfo();
+              freeMBAtFailRef.current = freeMB;
+            } catch {
+              // ignore
+            }
+          }
+          scheduleSingleOomRetry(modelId);
+          // Must rethrow so SlmTaskQueue.acquire() does not grant a lease on a
+          // failed load (UC3/UC4 explain was getting a lease then crashing in chat).
+          throw err instanceof Error ? err : new Error(message);
         }
-        scheduleSingleOomRetry(modelId);
-      }
+      })();
+
+      loadPromiseRef.current = run.finally(() => {
+        if (loadPromiseRef.current === run) {
+          loadPromiseRef.current = null;
+        }
+      });
+      await loadPromiseRef.current;
     },
     [provider, scheduleSingleOomRetry],
   );

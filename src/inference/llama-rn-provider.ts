@@ -38,8 +38,37 @@ function stripThinkMarkers(text: string): string {
 export class LlamaRnProvider implements InferenceProvider {
   private context: any = null;
   private modelInfo: ModelInfo | null = null;
+  /** Single-flight lock — concurrent initLlama races crash native llama.rn. */
+  private loadInflight: Promise<void> | null = null;
+  private loadedPath: string | null = null;
+  /** n_ctx of the successfully loaded context (prompt budgeting). */
+  private loadedNCtx: number | null = null;
 
   async loadModel(path: string, options?: LoadOptions): Promise<void> {
+    const cleanPath = path.replace(/^file:\/\//, '');
+
+    // Already loaded this file — no-op (callers often race acquire + ensureReady).
+    if (this.context && this.loadedPath === cleanPath) {
+      console.log('[LlamaRnProvider] Model already loaded; skipping re-init');
+      return;
+    }
+
+    // Join in-flight load instead of starting a second native init.
+    if (this.loadInflight) {
+      console.log('[LlamaRnProvider] Load already in progress; awaiting single-flight');
+      await this.loadInflight;
+      if (this.context && this.loadedPath === cleanPath) return;
+      // Previous attempt failed or loaded a different path — fall through once.
+    }
+
+    const work = this.loadModelExclusive(cleanPath, options);
+    this.loadInflight = work.finally(() => {
+      if (this.loadInflight === work) this.loadInflight = null;
+    });
+    await this.loadInflight;
+  }
+
+  private async loadModelExclusive(cleanPath: string, options?: LoadOptions): Promise<void> {
     let llamaRn: any;
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -50,15 +79,18 @@ export class LlamaRnProvider implements InferenceProvider {
       );
     }
 
+    // Release any prior context before a new mmap (never two contexts at once).
     if (this.context) {
       await this.release();
     }
 
-    console.log('[LlamaRnProvider] Loading model from:', path);
+    // resolveModelPath often returns a file:// URI; File accepts that form.
+    const pathForFs = cleanPath.startsWith('/') ? `file://${cleanPath}` : cleanPath;
+    console.log('[LlamaRnProvider] Loading model from:', pathForFs);
 
-    const file = new File(path);
+    const file = new File(pathForFs);
     if (!file.exists) {
-      throw new Error(`Model file not found at: ${path}`);
+      throw new Error(`Model file not found at: ${pathForFs}`);
     }
 
     const fileSize = file.size;
@@ -71,13 +103,8 @@ export class LlamaRnProvider implements InferenceProvider {
       );
     }
 
-    const cleanPath = path.replace(/^file:\/\//, '');
-
     // Surface the full error object from llama.rn — the JS bridge often
     // masks the native NSError as a generic "Failed to load model" string.
-    // The actual cause (Metal device init failed, mmap OOM, ggml backend
-    // mismatch, corrupt weights) lives in `.message`, `.code`, `.userInfo`,
-    // or `.nativeStack`. Log everything so the user can see the real reason.
     const describeLlamaErr = (err: any): string => {
       if (!err) return 'unknown';
       const parts: string[] = [err.message || err.toString() || 'no message'];
@@ -87,20 +114,18 @@ export class LlamaRnProvider implements InferenceProvider {
       return parts.join(' | ');
     };
 
-    // Each attempt: [{n_ctx, n_gpu_layers, label}]. We progressively shrink
-    // the context window AND fall back to CPU-only (n_gpu_layers=0). The
-    // GGUF + KV cache for a 2.4–2.9 GB model can exceed available contiguous
-    // RAM on memory-constrained iOS devices; Metal offload can also fail
-    // independently of RAM. Trying CPU-only at n_ctx=2048 is the last-ditch
-    // recovery so the app still gets a working model instead of a hard error.
+    // Prefer 4096 (fits explain prompts). Fall back to 3072 then 2048 — never
+    // 1024 (explain system+user always overflows and yields "context is full").
+    const preferredCtx = options?.nCtx ?? 4096;
     const attempts: { nCtx: number; gpuLayers: number; label: string }[] = [
-      { nCtx: options?.nCtx ?? 8192, gpuLayers: -1, label: 'n_ctx=8192 gpu=-1' },
-      { nCtx: 4096, gpuLayers: -1, label: 'n_ctx=4096 gpu=-1' },
-      { nCtx: 4096, gpuLayers: 0, label: 'n_ctx=4096 gpu=0 (CPU-only)' },
+      { nCtx: Math.min(preferredCtx, 4096), gpuLayers: -1, label: `n_ctx=${Math.min(preferredCtx, 4096)} gpu=-1` },
+      { nCtx: 3072, gpuLayers: -1, label: 'n_ctx=3072 gpu=-1' },
+      { nCtx: 2048, gpuLayers: -1, label: 'n_ctx=2048 gpu=-1' },
       { nCtx: 2048, gpuLayers: 0, label: 'n_ctx=2048 gpu=0 (CPU-only)' },
     ];
 
     let lastErr: any = null;
+    let usedNCtx = preferredCtx;
     for (const a of attempts) {
       try {
         console.log(`[LlamaRnProvider] Attempting initLlama (${a.label})`);
@@ -111,9 +136,14 @@ export class LlamaRnProvider implements InferenceProvider {
         });
         console.log(`[LlamaRnProvider] Model loaded successfully with ${a.label}`);
         lastErr = null;
+        this.loadedPath = cleanPath;
+        usedNCtx = a.nCtx;
+        this.loadedNCtx = a.nCtx;
         break;
       } catch (err: any) {
         lastErr = err;
+        this.context = null;
+        this.loadedNCtx = null;
         const detail = describeLlamaErr(err);
         console.warn(`[LlamaRnProvider] ${a.label} failed: ${detail}`);
         if (err?.stack) console.warn(`[LlamaRnProvider] stack: ${err.stack}`);
@@ -121,30 +151,52 @@ export class LlamaRnProvider implements InferenceProvider {
     }
 
     if (lastErr || !this.context) {
+      this.loadedPath = null;
+      this.loadedNCtx = null;
       const detail = describeLlamaErr(lastErr);
       console.error('[LlamaRnProvider] All load attempts failed. Last error:', detail);
       const hint = fileSize > 2_000_000_000
-        ? ' The model is large (~2.9 GB). Your device likely does not have enough free contiguous RAM to mmap the weights + KV cache. Try a smaller model (e.g. Gemma-4-E2B-it Q4_K_M ~2.4 GB), free device memory, or build with a smaller n_ctx default.'
+        ? ' The model is large (~2.9 GB). Free device RAM, close other apps, unload Concierge, and retry. Avoid opening Explain while chat is also loading the model.'
         : '';
       throw new Error(`Failed to load model: ${detail}.${hint}`);
     }
 
     this.modelInfo = {
-      sizeBytes: this.context.model?.size ?? 0,
+      sizeBytes: this.context.model?.size ?? fileSize,
       description: this.context.model?.desc ?? 'Unknown model',
+      nCtx: usedNCtx,
     };
   }
 
   async release(): Promise<void> {
+    // Wait for any in-flight load so we do not release mid-init (native crash).
+    if (this.loadInflight) {
+      try {
+        await this.loadInflight;
+      } catch {
+        // ignore load failure; still clear state below
+      }
+    }
     if (this.context) {
-      await this.context.release();
+      try {
+        await this.context.release();
+      } catch (err) {
+        console.warn('[LlamaRnProvider] context.release failed:', err);
+      }
       this.context = null;
       this.modelInfo = null;
+      this.loadedPath = null;
+      this.loadedNCtx = null;
     }
   }
 
   getModelInfo(): ModelInfo | null {
     return this.modelInfo;
+  }
+
+  /** Context window size of the loaded model (tokens). */
+  getContextSize(): number {
+    return this.loadedNCtx ?? this.modelInfo?.nCtx ?? 4096;
   }
 
   async chat(
@@ -161,12 +213,26 @@ export class LlamaRnProvider implements InferenceProvider {
     const t0 = Date.now();
     let tokensGenerated = 0;
 
-    // Effective llama.rn `n_predict`. This is a SINGLE combined cap over both
-    // the reasoning/`<think>` channel and the answer channel. effectiveNPredict
-    // ALWAYS adds maxReasoningTokens as headroom even when reasoningFormat is
-    // 'none' — Gemma 4 E2B may emit <think> anyway, and a starved answer
-    // budget produced empty/truncated responses. See planning/37 §6.2.
-    const nPredict = effectiveNPredict(options);
+    // Cap n_predict so generation cannot overflow remaining context.
+    // Unlimited (-1) explain was filling the whole window after a large prompt.
+    const nCtx = this.getContextSize();
+    const approxPromptTokens = Math.ceil(
+      messages.reduce((n, m) => n + (m.content?.length ?? 0), 0) / 4,
+    );
+    const remaining = Math.max(128, nCtx - approxPromptTokens - 32);
+    let nPredict = effectiveNPredict(options);
+    if (nPredict < 0 || nPredict > remaining) {
+      nPredict = remaining;
+      console.log(
+        `[LlamaRnProvider] n_predict capped to ${nPredict} (n_ctx=${nCtx}, prompt~${approxPromptTokens})`,
+      );
+    }
+    if (approxPromptTokens + 64 >= nCtx) {
+      throw new Error(
+        `Context is full (prompt ~${approxPromptTokens} tokens, model n_ctx=${nCtx}). ` +
+          'The explanation prompt was too large for the loaded context window. Try again after unloading Concierge, or free memory so a larger n_ctx can load.',
+      );
+    }
 
     // Streaming reasoning/answer splitter.
     //

@@ -6,7 +6,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -16,6 +15,9 @@ import { Uc4PriorityCard } from "@/components/care/Uc4PriorityCard";
 import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
+import { CareConciergeIntentsCard } from "@/components/careConcierge/CareConciergeIntentsCard";
+import { CarePlanInsightSheet } from "@/components/careConcierge/CarePlanInsightSheet";
+import { PendingPlanProposalsCard } from "@/components/careConcierge/PendingPlanProposalsCard";
 import { AppTheme } from "@/constants/theme";
 import { useCriticalAlert } from "@/contexts/critical-alert-context";
 import { getCurrentPatientSnapshot, usePatientRecord } from "@/contexts/patient-record-context";
@@ -64,6 +66,15 @@ import {
   type Uc4CardResponseAction,
   type Uc4EvaluationServiceResult,
 } from "@/services/uc4/uc4EvaluationService";
+import {
+  caregiverConfirmProposal as caregiverConfirmProposalForUi,
+  caregiverRejectProposal as caregiverRejectProposalForUi,
+} from "@/services/carePlan/mlPlanProposalService";
+import {
+  getIntentDefinition,
+} from "@/services/carePlan/intentRouter";
+import type { AdcpProposalIntentId } from "@/data/adcp/types";
+import type { CareIntentDefinition } from "@/services/carePlan/intentCatalog";
 
 type DailyCareEditField =
   | "setsCompleted"
@@ -196,6 +207,32 @@ export default function CareScreen() {
   const [therapyCompletionConfirmVisible, setTherapyCompletionConfirmVisible] = useState(false);
   const activeEditingField = editingPatientId === patientId ? editingField : null;
 
+  // Care Concierge (planning/39 P2): proposal handlers wired to the ADCP
+  // queue. Confirmation moves a proposal to `awaiting_ml_vet`; rejection
+  // stops at `rejected_by_caregiver` with no plan write.
+  const handleConfirmPendingProposal = useCallback(
+    (proposalId: string) => {
+      if (!patientId) return;
+      try {
+        caregiverConfirmProposalForUi(proposalId);
+      } finally {
+        refresh();
+      }
+    },
+    [patientId, refresh],
+  );
+  const handleRejectPendingProposal = useCallback(
+    (proposalId: string, reason: string) => {
+      if (!patientId) return;
+      try {
+        caregiverRejectProposalForUi(proposalId, reason);
+      } finally {
+        refresh();
+      }
+    },
+    [patientId, refresh],
+  );
+
   useEffect(() => {
     const handle = setTimeout(() => {
       setEditingField(null);
@@ -231,7 +268,17 @@ export default function CareScreen() {
     setEditingField(field);
     setEditingPatientId(patientId);
     setEditError("");
-    setEditDraft(String(dailyEntry?.[field] ?? ""));
+    const current = dailyEntry?.[field];
+    setEditDraft(Number.isFinite(current) ? String(current) : "");
+  };
+
+  const selectFieldOption = (field: DailyCareEditField, value: number) => {
+    if (!patientId) return;
+    saveDailyCarePatch({ [field]: value } as Partial<DailyCareEntry>);
+    setEditingField(null);
+    setEditingPatientId(null);
+    setEditDraft("");
+    setEditError("");
   };
 
   const saveDailyCarePatch = (patch: Partial<DailyCareEntry>): DailyCareEntry | null => {
@@ -370,25 +417,6 @@ export default function CareScreen() {
     });
   };
 
-  const saveFieldEdit = () => {
-    if (!activeEditingField || !patientId) {
-      setEditingField(null);
-      setEditingPatientId(null);
-      return;
-    }
-    const trimmedDraft = editDraft.trim();
-    const newValue = trimmedDraft.length > 0 ? Number(trimmedDraft) : undefined;
-    const validationError = validateDailyCareField(activeEditingField, newValue);
-    if (validationError) {
-      setEditError(validationError);
-      return;
-    }
-    saveDailyCarePatch({ [activeEditingField]: newValue } as Partial<DailyCareEntry>);
-    setEditingField(null);
-    setEditingPatientId(null);
-    setEditDraft("");
-    setEditError("");
-  };
   useEffect(() => {
     if (focus !== "rehab-check-in" || rehabCheckInY <= 0) return;
     const handle = setTimeout(() => {
@@ -404,6 +432,15 @@ export default function CareScreen() {
     safetyNotes.trim().length > 0 ? safetyNotes : "No safety notes provided.",
   );
   const [openConsideration, setOpenConsideration] = useState<string | null>(null);
+
+  // Care Concierge intent sheet (planning/39 P2).
+  const [intentSheetVisible, setIntentSheetVisible] = useState(false);
+  const [activeIntent, setActiveIntent] =
+    useState<CareIntentDefinition<any, any> | null>(null);
+  const handleLaunchIntent = useCallback((intentId: AdcpProposalIntentId) => {
+    setActiveIntent(getIntentDefinition(intentId));
+    setIntentSheetVisible(true);
+  }, []);
   const [slmOpen, setSlmOpen] = useState(false);
   const [slmPrompt, setSlmPrompt] = useState("");
   const explainUc3Result = () => {
@@ -526,10 +563,48 @@ export default function CareScreen() {
                 />
               </View>
 
+              {snapshot?.activeAdcpVersion ? (
+                <View style={styles.adcpVersionBadge}>
+                  <Text style={styles.adcpVersionKicker}>ADCP</Text>
+                  <Text style={styles.adcpVersionValue}>
+                    v{snapshot.activeAdcpVersion.version} · published{' '}
+                    {snapshot.activeAdcpVersion.publishedAt.slice(0, 10)}
+                  </Text>
+                  <Text style={styles.adcpVersionMeta}>
+                    Therapy contract:{' '}
+                    {snapshot.therapyContractPresent ? 'present' : 'not active'}
+                    {'  ·  '}
+                    Priorities: {snapshot.activeAdcpVersion.prioritiesCount}
+                  </Text>
+                </View>
+              ) : null}
+
               {rehabPlanMetrics.length > 0 ? (
                 <RehabPlanMetricList metrics={rehabPlanMetrics} />
               ) : null}
             </View>
+
+            {snapshot?.pendingPlanProposals &&
+            snapshot.pendingPlanProposals.filter((p) =>
+              ['draft', 'awaiting_hitl', 'awaiting_ml_vet'].includes(p.status),
+            ).length > 0 ? (
+              <PendingPlanProposalsCard
+                proposals={snapshot.pendingPlanProposals.filter((p) =>
+                  ['draft', 'awaiting_hitl', 'awaiting_ml_vet'].includes(p.status),
+                )}
+                onConfirm={handleConfirmPendingProposal}
+                onReject={handleRejectPendingProposal}
+              />
+            ) : null}
+
+            {snapshot?.therapyContractPresent === false ? (
+              <View style={styles.carePlanCard}>
+                <Text style={styles.carePlanKicker}>Therapy contract</Text>
+                <Text style={styles.emptyCarePlanText}>
+                  Therapy contract is not active for this patient. Daily rehab check-in is omitted.
+                </Text>
+              </View>
+            ) : null}
 
             <View
               style={styles.carePlanCard}
@@ -848,7 +923,7 @@ export default function CareScreen() {
               <Text style={styles.emptyCarePlanText}>No current care plans.</Text>
             </View>
           </>
-        ) : null}
+) : null}
 
         {careContextGroups.length > 0 ? (
           <View style={styles.contextGrid}>
@@ -859,6 +934,12 @@ export default function CareScreen() {
             </ContextCard>
           </View>
         ) : null}
+
+        {/* Care Concierge (planning/39 P2): structured intents + sheet */}
+        <CareConciergeIntentsCard
+          patientId={patientId}
+          onLaunch={handleLaunchIntent}
+        />
 
         <View style={styles.safetyCard}>
           <Text style={styles.safetyKicker}>Safety considerations</Text>
@@ -878,6 +959,20 @@ export default function CareScreen() {
             ))}
         </View>
       </ScrollView>
+
+      <CarePlanInsightSheet
+        visible={intentSheetVisible}
+        intent={activeIntent}
+        snapshot={snapshot}
+        onClose={() => setIntentSheetVisible(false)}
+        onProposalResolved={(res) => {
+          // The queued proposal is awaiting HITL — refresh so it shows up in
+          // the PendingPlanProposalsCard.
+          setIntentSheetVisible(false);
+          refresh();
+          void res;
+        }}
+      />
 
       <Modal
         visible={therapyCompletionConfirmVisible}
@@ -982,7 +1077,7 @@ export default function CareScreen() {
         prompt={slmPrompt}
       />
 
-      {/* Field edit modal */}
+      {/* Field edit modal — multiple-choice options for UC3 demo check-in */}
       <Modal
         visible={activeEditingField !== null}
         transparent
@@ -1001,16 +1096,47 @@ export default function CareScreen() {
         >
           <Pressable style={styles.editSheet} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.editTitle}>
-              {activeEditingField ? `Edit ${getDailyCareEditTitle(activeEditingField)}` : "Edit entry"}
+              {activeEditingField
+                ? `Select ${getDailyCareEditTitle(activeEditingField)}`
+                : "Select entry"}
             </Text>
-            <TextInput
-              style={styles.editInput}
-              value={editDraft}
-              onChangeText={setEditDraft}
-              placeholder={activeEditingField ? getDailyCareEditPlaceholder(activeEditingField) : "0"}
-              keyboardType="numeric"
-              autoFocus
-            />
+            {activeEditingField ? (
+              <Text style={styles.editHint}>
+                {getDailyCareEditHint(activeEditingField)}
+              </Text>
+            ) : null}
+            <View style={styles.reasonOptionGrid}>
+              {(activeEditingField
+                ? getDailyCareFieldOptions(activeEditingField)
+                : []
+              ).map((option) => {
+                const selected = editDraft === String(option.value);
+                return (
+                  <Pressable
+                    key={`${activeEditingField}-${option.value}`}
+                    style={[
+                      styles.reasonOption,
+                      selected && styles.reasonOptionSelected,
+                    ]}
+                    onPress={() => {
+                      if (!activeEditingField) return;
+                      selectFieldOption(activeEditingField, option.value);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                  >
+                    <Text
+                      style={[
+                        styles.reasonOptionText,
+                        selected && styles.reasonOptionTextSelected,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
             {editError ? <Text style={styles.editError}>{editError}</Text> : null}
             <View style={styles.editActions}>
               <Pressable
@@ -1021,9 +1147,6 @@ export default function CareScreen() {
                 }}
               >
                 <Text style={styles.editCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable style={styles.editButton} onPress={saveFieldEdit}>
-                <Text style={styles.editSaveText}>Save</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -1386,39 +1509,95 @@ function getDailyCareEditTitle(field: DailyCareEditField): string {
   }
 }
 
-function getDailyCareEditPlaceholder(field: DailyCareEditField): string {
+function getDailyCareEditHint(field: DailyCareEditField): string {
   switch (field) {
     case "setsCompleted":
-      return "Completed sets";
+      return "How many sets were completed today?";
     case "exerciseRepetitions":
-      return "Repetition count";
+      return "About how many total reps today?";
     case "romDegrees":
-      return "ROM degrees";
+      return "Best range of motion measured today (degrees).";
     case "walkingMinutes":
-      return "Walking minutes";
+      return "About how many minutes of walking today?";
     case "painScore":
-      return "Pain score";
+      return "Pain level (0 = none, 10 = worst).";
     case "fatigue":
-      return "Value";
+      return "Fatigue level (0 = none, 10 = exhausted).";
     default:
-      return "Value";
+      return "Choose the closest option.";
   }
 }
 
-function validateDailyCareField(field: DailyCareEditField, value: unknown): string {
-  if (value === undefined) return "";
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "Enter a valid number.";
+type DailyCareFieldOption = { value: number; label: string };
+
+/** Multiple-choice options for UC3 rehab check-in (demo-friendly discrete bins). */
+function getDailyCareFieldOptions(field: DailyCareEditField): DailyCareFieldOption[] {
+  switch (field) {
+    case "setsCompleted":
+      return [
+        { value: 0, label: "0 sets" },
+        { value: 1, label: "1 set" },
+        { value: 2, label: "2 sets" },
+        { value: 3, label: "3 sets" },
+        { value: 4, label: "4 sets" },
+        { value: 5, label: "5+ sets" },
+      ];
+    case "exerciseRepetitions":
+      return [
+        { value: 0, label: "0 reps" },
+        { value: 5, label: "5 reps" },
+        { value: 8, label: "8 reps" },
+        { value: 10, label: "10 reps" },
+        { value: 12, label: "12 reps" },
+        { value: 15, label: "15 reps" },
+        { value: 20, label: "20+ reps" },
+      ];
+    case "romDegrees":
+      // Flat/low values help demo trajectory plateau; higher = progress.
+      return [
+        { value: 30, label: "30°" },
+        { value: 35, label: "35°" },
+        { value: 40, label: "40°" },
+        { value: 42, label: "42°" },
+        { value: 45, label: "45°" },
+        { value: 50, label: "50°" },
+        { value: 55, label: "55°" },
+        { value: 60, label: "60°" },
+        { value: 70, label: "70°+" },
+      ];
+    case "walkingMinutes":
+      return [
+        { value: 0, label: "0 min" },
+        { value: 5, label: "5 min" },
+        { value: 8, label: "8 min" },
+        { value: 10, label: "10 min" },
+        { value: 15, label: "15 min" },
+        { value: 20, label: "20 min" },
+        { value: 30, label: "30+ min" },
+      ];
+    case "painScore":
+      return [
+        { value: 0, label: "0 — none" },
+        { value: 2, label: "2 — mild" },
+        { value: 4, label: "4 — moderate" },
+        { value: 5, label: "5" },
+        { value: 6, label: "6 — strong" },
+        { value: 8, label: "8 — severe" },
+        { value: 10, label: "10 — worst" },
+      ];
+    case "fatigue":
+      return [
+        { value: 0, label: "0 — none" },
+        { value: 2, label: "2 — mild" },
+        { value: 4, label: "4 — moderate" },
+        { value: 5, label: "5" },
+        { value: 6, label: "6 — tired" },
+        { value: 8, label: "8 — exhausted" },
+        { value: 10, label: "10 — max" },
+      ];
+    default:
+      return [];
   }
-  if (field === "painScore" || field === "fatigue") return "";
-  if (value < 0) return "Enter zero or a positive number.";
-  if (field === "walkingMinutes" && value > 1440) {
-    return "Walking minutes must fit within one day.";
-  }
-  if (field === "romDegrees" && value > 360) {
-    return "ROM degrees must be 360 or less.";
-  }
-  return "";
 }
 
 function getInitials(name: string): string {
@@ -1945,16 +2124,14 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.text,
     fontSize: 17,
     fontWeight: "900",
-    marginBottom: 14,
+    marginBottom: 8,
   },
-  editInput: {
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: AppTheme.colors.text,
+  editHint: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    marginBottom: 14,
   },
   editError: {
     color: AppTheme.colors.danger,
@@ -2387,6 +2564,32 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.text,
     fontSize: 14,
     fontWeight: "900",
+  },
+  adcpVersionBadge: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.brandSoft,
+  },
+  adcpVersionKicker: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  adcpVersionValue: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  adcpVersionMeta: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    marginTop: 4,
   },
   activitySubtitle: {
     color: AppTheme.colors.textSoft,

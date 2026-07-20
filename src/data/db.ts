@@ -136,6 +136,9 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS __migrations;
     DROP TABLE IF EXISTS secure_messaging_store;
     DROP TABLE IF EXISTS health_samples;
+    DROP TABLE IF EXISTS care_plan_revisions;
+    DROP TABLE IF EXISTS pending_plan_proposals;
+    DROP TABLE IF EXISTS plan_decision_log;
   `);
   closeDatabase();
   dbInstance = null;

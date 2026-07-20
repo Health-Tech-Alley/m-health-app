@@ -228,6 +228,10 @@ const SOURCE_LABELS: Record<string, string> = {
   'patient-plan': 'Care Plan',
   'patient-record': 'Patient Record',
   rxnorm: 'RxNorm',
+  // ADCP (planning/39 P4) — section chunks now surface as `[Care Plan #N]`
+  // so the citation tag is distinguishable from the legacy `patient-plan`
+  // chunks written by older paths.
+  adcp_plan: 'Care Plan',
 };
 
 type CitationMetadata = {
@@ -639,5 +643,39 @@ export async function retrieveClinicalChunksViaBm25(
     return fromRetriever;
   } catch {
     return retrieveClinicalChunks(query, limit, patientId);
+  }
+}
+
+/**
+ * Plan-first retrieval for the Care Concierge intent assembler
+ * (planning/39 §7.4.3). Filters `knowledge_cache` to ADCP chunks for the
+ * given patient only (drafted from the active ADCP revision by the indexer).
+ *
+ * Use this to surface [Care Plan #N] citations BEFORE literature so the
+ * patient-grounded answer comes first. Literature retrieval remains in
+ * `retrieveClinicalChunksViaBm25`.
+ */
+export function retrievePlanChunks(
+  patientId: string,
+  query: string,
+  limit = 4,
+): RetrievedCitation[] {
+  if (!query.trim() || !patientId) return [];
+  try {
+    const tokens = extractContentTokens(query);
+    const chunks =
+      tokens.length <= 1
+        ? searchKnowledgeCache(query.trim(), Math.max(limit * 3, 12))
+        : searchKnowledgeCacheMultiToken(tokens, limit, patientId);
+    return chunks
+      .filter(
+        (c) =>
+          (c.source === 'adcp_plan' || c.source === 'patient-plan') &&
+          chunkBelongsToPatient(c, patientId),
+      )
+      .slice(0, limit)
+      .map(citationFromKnowledgeChunk);
+  } catch {
+    return [];
   }
 }

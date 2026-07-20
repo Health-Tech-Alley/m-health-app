@@ -12,7 +12,8 @@ export type RecordConsentScope =
   | "ccda_export"
   | "fhir-share"
   | "pharmacy-communicator"
-  | "provider-message";
+  | "provider-message"
+  | "adcp_backup";
 
 const CCDA_EXPORT_SCOPE: RecordConsentScope = "ccda_export";
 

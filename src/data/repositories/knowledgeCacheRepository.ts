@@ -170,6 +170,33 @@ export function deleteKnowledgeChunksBySource(source: string): number {
   return result.changes;
 }
 
+/**
+ * Delete knowledge chunks for one source whose chunk_id starts with a prefix
+ * (e.g. ADCP: `source=adcp_plan` + `chunkIdPrefix=adcp:{patientId}:`).
+ * Prefer this over source-only delete when multiple patients share a source label.
+ */
+export function deleteKnowledgeChunksBySourceAndChunkPrefix(
+  source: string,
+  chunkIdPrefix: string,
+): number {
+  const db = getDatabase();
+  const like = `${chunkIdPrefix}%`;
+  const ids = db
+    .getAllSync<{ chunk_id: string }>(
+      'SELECT chunk_id FROM knowledge_cache WHERE source = ? AND chunk_id LIKE ?;',
+      source,
+      like,
+    )
+    .map((r) => r.chunk_id);
+  if (ids.length) deleteEdgesForChunks(ids);
+  const result = db.runSync(
+    'DELETE FROM knowledge_cache WHERE source = ? AND chunk_id LIKE ?;',
+    source,
+    like,
+  );
+  return result.changes;
+}
+
 export function deleteKnowledgeChunksByCondition(condition: string): number {
   const db = getDatabase();
   // conditions is a CSV column — match anywhere in the list.

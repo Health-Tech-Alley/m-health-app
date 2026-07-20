@@ -267,7 +267,13 @@ export function SlmInsightSheet({
     }
 
     // No native model available; do not synthesize replacement text.
-    setError('Concierge is unavailable because no native SLM model is loaded.');
+    // Recovery-oriented copy (planning/39 E3) — still fail-closed.
+    const installed = MODEL_CATALOG.filter(isModelInstalled);
+    setError(
+      installed.length === 0
+        ? 'Concierge is unavailable — no model is installed. Open Models to download one, then retry.'
+        : 'Concierge could not load a model. Open Models, load Concierge, then retry.',
+    );
     setPhase('error');
   }, [
     ensureModelAndLease,

@@ -161,6 +161,12 @@ export function evaluateAndPersistUc3Trajectory(
       throw new Error(`UC3 result ${saved.resultId} was saved but could not be re-read.`);
     }
     publishUc3PersistedResult(persistedResult, saved.inserted);
+    try {
+      const { drainPendingProposalsForPatient } = require('../carePlan/mlPlanProposalService') as typeof import('../carePlan/mlPlanProposalService');
+      drainPendingProposalsForPatient(patient.patientId, 'uc3');
+    } catch (err) {
+      console.warn('[UC3] ADCP proposal drain failed:', err instanceof Error ? err.message : err);
+    }
     return {
       status: 'success',
       evaluationKey,

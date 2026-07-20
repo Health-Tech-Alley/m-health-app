@@ -5,6 +5,9 @@
  * HITL items (open non-emergency alerts + pending threshold recommendations)
  * and surface a soft amber banner that scrolls the user to the relevant
  * section. This is the "first-class HITL" affordance the doc asks for.
+ *
+ * Updated for planning/39 §4.3 / L18 to also surface pending plan
+ * proposals (ADCP) so the caregiver has one HITL count for everything.
  */
 
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -36,7 +39,16 @@ export function NeedsYourReviewBanner({ patientId, onReviewPress }: Props) {
       `${reviews.thresholdRecommendations} threshold suggestion${reviews.thresholdRecommendations === 1 ? '' : 's'}`,
     );
   }
+  if (reviews.planProposals > 0) {
+    parts.push(
+      `${reviews.planProposals} plan proposal${reviews.planProposals === 1 ? '' : 's'}`,
+    );
+  }
   const breakdown = parts.join(' and ');
+  const hasPlanProposalsOnly =
+    reviews.planProposals > 0 &&
+    reviews.openNonEmergencyAlerts === 0 &&
+    reviews.thresholdRecommendations === 0;
 
   return (
     <View style={styles.banner}>
@@ -58,6 +70,16 @@ export function NeedsYourReviewBanner({ patientId, onReviewPress }: Props) {
         >
           <Text style={styles.reviewButtonText}>Review now</Text>
         </Pressable>
+        {hasPlanProposalsOnly ? (
+          <Pressable
+            style={styles.linkButton}
+            onPress={() => router.push('/care')}
+            accessibilityRole="link"
+            accessibilityLabel="Open Care tab to review plan proposals"
+          >
+            <Text style={styles.linkButtonText}>Open Care plan</Text>
+          </Pressable>
+        ) : null}
         {reviews.thresholdRecommendations > 0 ? (
           <Pressable
             style={styles.linkButton}

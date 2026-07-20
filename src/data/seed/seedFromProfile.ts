@@ -34,7 +34,8 @@ import { insertAppointment, deleteDemoAppointmentsForPatient } from '../reposito
 import { ensureDefaultNotificationPreferences } from '../repositories/notificationRepository';
 import { upsertSymptom, deleteSymptomsForPatient } from '../repositories/symptomRepository';
 import { upsertWearableDevice } from '../repositories/wearableDeviceRepository';
-import { setBundlePending, setBundleStatus } from '../repositories/patientRecordRepository';
+import { setBundlePending, setBundleStatus, getPatientRecordSnapshot } from '../repositories/patientRecordRepository';
+import { seedAdcpV1FromSnapshot } from '../repositories/adcpRepository';
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
@@ -338,6 +339,21 @@ export function seedDatabaseFromProfile(
 
   // -- Notification preferences -------------------------------------------
   ensureDefaultNotificationPreferences();
+
+  // -- ADCP v1 (planning/39 §3.5) -----------------------------------------
+  // Seed the AccessDP Care Plan v1 from the snapshot just built, so the Care
+  // and Dashboard surfaces have a non-empty plan to display on first launch.
+  // Idempotent — `seedAdcpV1FromSnapshot` returns the existing v1 if present.
+  try {
+    seedAdcpV1FromSnapshot({
+      patientId,
+      snapshot: getPatientRecordSnapshot(patientId),
+      source: 'seed:onboarding',
+    });
+  } catch (err) {
+    // ADCP seeding is best-effort — never block onboarding completion.
+    console.error('[seedFromProfile] ADCP v1 seed failed:', err);
+  }
 
   // -- Seed a demo appointment so the Schedule screen isn't empty -----------
   // Use a stable appointmentId derived from the patient so re-seeding on the

@@ -7,6 +7,8 @@ import { upsertPatientCareContextItem } from '../repositories/patientCareContext
 import { upsertPatientLongitudinalObservation } from '../repositories/patientLongitudinalObservationRepository';
 import { upsertPatientTimelineEvent } from '../repositories/patientTimelineEventRepository';
 import { upsertRehabilitationMeasurement } from '../repositories/rehabilitationMeasurementRepository';
+import { seedAdcpV1FromSnapshot } from '../repositories/adcpRepository';
+import { getPatientRecordSnapshot } from '../repositories/patientRecordRepository';
 import type {
   CarePlanRehabMetric,
   CarePlanRehabMetricKey,
@@ -114,6 +116,20 @@ export function saveFHIRBundleToDB(bundle: any): string | null {
       }
     }
   });
+
+  // ADCP v1 seed (planning/39 §3.5). After the FHIR imports, the snapshot has
+  // the new patient, conditions, meds, thresholds, and CarePlan; we read that
+  // snapshot once and seed a unified ADCP document so the Care and Dashboard
+  // surfaces have something to show.
+  try {
+    seedAdcpV1FromSnapshot({
+      patientId: canonicalPatientId,
+      snapshot: getPatientRecordSnapshot(canonicalPatientId),
+      source: 'seed:fhir_import',
+    });
+  } catch (err) {
+    console.error('[FHIR Import] ADCP v1 seed failed:', err);
+  }
 
   return canonicalPatientId;
 }

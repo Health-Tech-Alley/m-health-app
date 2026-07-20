@@ -335,6 +335,16 @@ export class AlertMlService {
       aeThreshold: this.model.threshold,
     });
 
+    const patientIdForDrain = input.patient_id?.trim();
+    if (patientIdForDrain) {
+      try {
+        const { drainPendingProposalsForPatient } = require('../carePlan/mlPlanProposalService') as typeof import('../carePlan/mlPlanProposalService');
+        drainPendingProposalsForPatient(patientIdForDrain, 'uc2');
+      } catch (err) {
+        console.warn('[AlertML] ADCP proposal drain failed:', err instanceof Error ? err.message : err);
+      }
+    }
+
     const aeScore = v2Result.ae?.ae_score ?? null;
     const isAnomaly = v2Result.ae?.is_anomaly ?? false;
     const finalDec = v2Result.final_decision;

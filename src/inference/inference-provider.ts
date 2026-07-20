@@ -39,6 +39,8 @@ export interface ChatResult {
 export interface ModelInfo {
   sizeBytes: number;
   description: string;
+  /** Actual n_ctx used when the model was loaded (for prompt budgeting). */
+  nCtx?: number;
 }
 
 /**
@@ -53,6 +55,8 @@ export interface InferenceProvider {
   loadModel(path: string, options?: LoadOptions): Promise<void>;
   release(): Promise<void>;
   getModelInfo(): ModelInfo | null;
+  /** Loaded n_ctx when known; default 4096 if not reported. */
+  getContextSize?(): number;
   chat(
     messages: ChatMessage[],
     onToken: TokenCallback,

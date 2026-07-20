@@ -121,11 +121,19 @@ const RECORD_CONSENT_OPTIONS: {
   },
 ];
 
-const initialRecordConsentState: Record<RecordConsentScope, boolean> = {
+const ADCP_BACKUP_CONSENT = {
+  scope: 'adcp_backup' as const,
+  emoji: '💾',
+  title: 'Care plan backup consent',
+  subtitle: 'Allow exporting and restoring the accessdp.careplan.v1 plan backup.',
+};
+
+const initialRecordConsentState: Record<RecordConsentScope | 'adcp_backup', boolean> = {
   ccda_export: false,
   'fhir-share': false,
   'pharmacy-communicator': false,
   'provider-message': false,
+  adcp_backup: false,
 };
 
 const EMPTY_CONDITIONS: PatientCondition[] = [];
@@ -143,7 +151,8 @@ type ExpandableId =
   | 'dynamic-slm-loading'
   | 'nlu-development-fallback'
   | 'evidence-development-fallback'
-  | 'knowledge-graph-expansion';
+  | 'knowledge-graph-expansion'
+  | 'consent-adcp_backup';
 
 export function SettingsScreen() {
   return <PreferencesScreen />;
@@ -158,6 +167,9 @@ export function PreferencesScreen() {
     useState<Record<RecordConsentScope, boolean>>(initialRecordConsentState);
   const [recordExportStatus, setRecordExportStatus] = useState(
     'Consent required before export',
+  );
+  const [adcpBackupStatus, setAdcpBackupStatus] = useState(
+    'Consent required before backup',
   );
 
   useEffect(() => {
@@ -228,6 +240,169 @@ export function PreferencesScreen() {
 
     setRecordExportStatus('Health record export failed');
     Alert.alert('Export failed', result.message);
+  }, [patientId]);
+
+  // ADCP plan backup handlers (planning/39 §7.5 P5)
+  // -------------------------------------------------------------------------
+  // Imports are deliberately dynamic so Track A dev-builds without
+  // expo-sharing / expo-document-picker can still render the screen.
+  const handleAdcpBundleExport = useCallback(async () => {
+    try {
+      const [{ snapshot }, { exportAdcpBundle }] = await Promise.all([
+        import('@/data/repositories/patientRecordRepository').then((m) => ({
+          snapshot: m.getPatientRecordSnapshot(patientId),
+        })),
+        import('@/services/carePlan/adcpExportService').then((m) => ({
+          exportAdcpBundle: m.exportAdcpBundle,
+        })),
+      ]);
+      // Consent-gated path (adcp_backup). autoGrant when toggle already on.
+      const result = exportAdcpBundle({
+        snapshot,
+        autoGrantConsent: recordConsentGranted.adcp_backup,
+      });
+      if (!result.ok || !result.json || !result.filename) {
+        if (result.consentRequired) {
+          setAdcpBackupStatus('Consent required before export.');
+          Alert.alert('Consent required', 'Enable Care plan backup consent, then try again.');
+          return;
+        }
+        setAdcpBackupStatus('Nothing to export.');
+        Alert.alert('No plan to export', result.reason ?? 'No active ADCP revision.');
+        return;
+      }
+      setAdcpBackupStatus(`Backup ready (${result.bundleSize ?? 0} bytes) — exporting…`);
+
+      // Prefer Share on devices; fall back to in-app preview only.
+      try {
+        const Sharing = await import('expo-sharing');
+        const { File, Paths } = await import('expo-file-system');
+        const tmpDir = Paths.cache?.uri ?? Paths.document?.uri ?? '';
+        const tmpPath = `${tmpDir.replace(/\/$/, '')}/${result.filename}`;
+        const file = new File(tmpPath);
+        await file.create();
+        await file.write(result.json);
+        await Sharing.shareAsync(file.uri, {
+          mimeType: 'application/json',
+          dialogTitle: 'Care plan backup',
+        });
+        setAdcpBackupStatus(`Exported ${result.filename} — ${result.bundleSize ?? 0} bytes.`);
+      } catch (shareErr) {
+        // Expo Go (Track A) lacks `expo-sharing`; surface as preview only.
+        console.warn('[adcpExport] share unavailable, preview only:', shareErr);
+        setAdcpBackupStatus(
+          `${result.filename} ready (${result.bundleSize ?? 0} bytes). Track-A preview — copy from logs if needed.`,
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAdcpBackupStatus(`Export failed: ${msg}`);
+      Alert.alert('Export failed', msg);
+    }
+  }, [patientId, recordConsentGranted.adcp_backup]);
+
+  const handleAdcpBundleRestore = useCallback(async () => {
+    try {
+      const DocumentPicker = await import('expo-document-picker');
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/json', 'public.json', '*/*'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || result.assets.length === 0) {
+        return;
+      }
+      const asset = result.assets[0];
+      if (!asset?.uri) {
+        Alert.alert('Restore failed', 'No file URI returned from picker.');
+        return;
+      }
+
+      const [{ File }] = await Promise.all([
+        import('expo-file-system').then((m) => ({ File: m.File })),
+      ]);
+      const file = new File(asset.uri);
+      const jsonText = await file.text();
+
+      const [{ importAdcpBundleFromJsonText }] = await Promise.all([
+        import('@/services/carePlan/adcpImportService').then((m) => ({
+          importAdcpBundleFromJsonText: m.importAdcpBundleFromJsonText,
+        })),
+      ]);
+      const outcome = importAdcpBundleFromJsonText({
+        jsonText,
+        activePatientId: patientId,
+      });
+
+      if (outcome.ok) {
+        setAdcpBackupStatus(`Restored as ADCP v${outcome.newPlanVersion}. Care badge updated.`);
+        Alert.alert(
+          'Restore complete',
+          `Care plan restored as ADCP v${outcome.newPlanVersion}.`,
+        );
+      } else {
+        setAdcpBackupStatus(`Restore rejected: ${outcome.reason}`);
+        Alert.alert('Restore rejected', outcome.reason ?? 'Bundle invalid.');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAdcpBackupStatus(`Restore failed: ${msg}`);
+      Alert.alert('Restore failed', msg);
+    }
+  }, [patientId]);
+
+  /** P5b — lossy FHIR Bundle share (dev / handoff demo). */
+  const handleAdcpFhirExport = useCallback(async () => {
+    try {
+      const [
+        { getPatientRecordSnapshot },
+        { getActiveAdcpRevisionForPatient },
+        { projectAdcpToFhirBundle, isAdcpFhirProjectionEnabled },
+      ] = await Promise.all([
+        import('@/data/repositories/patientRecordRepository'),
+        import('@/data/repositories/adcpRepository'),
+        import('@/data/fhir/adcp-to-fhir-bundle'),
+      ]);
+      if (!isAdcpFhirProjectionEnabled(true)) {
+        Alert.alert('Unavailable', 'FHIR ADCP projection is disabled in this build.');
+        return;
+      }
+      const snapshot = getPatientRecordSnapshot(patientId);
+      const plan = getActiveAdcpRevisionForPatient(patientId);
+      if (!plan) {
+        Alert.alert('No plan', 'No active ADCP revision to project.');
+        return;
+      }
+      const { bundle, warningCount } = projectAdcpToFhirBundle({
+        patientId,
+        plan,
+        snapshot,
+      });
+      const json = JSON.stringify(bundle, null, 2);
+      const filename = `adcp-fhir-${patientId}-v${plan.identity.version}.json`;
+      try {
+        const Sharing = await import('expo-sharing');
+        const { File, Paths } = await import('expo-file-system');
+        const tmpDir = Paths.cache?.uri ?? Paths.document?.uri ?? '';
+        const tmpPath = `${tmpDir.replace(/\/$/, '')}/${filename}`;
+        const file = new File(tmpPath);
+        await file.create();
+        await file.write(json);
+        await Sharing.shareAsync(file.uri, {
+          mimeType: 'application/fhir+json',
+          dialogTitle: 'ADCP FHIR Bundle',
+        });
+        setAdcpBackupStatus(
+          `FHIR Bundle shared (${json.length} bytes)${warningCount ? ` · ${warningCount} warnings` : ''}.`,
+        );
+      } catch (shareErr) {
+        console.warn('[adcpFhirExport] share unavailable:', shareErr);
+        setAdcpBackupStatus(`FHIR Bundle ready (${json.length} bytes) — share unavailable on Track A.`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAdcpBackupStatus(`FHIR export failed: ${msg}`);
+      Alert.alert('FHIR export failed', msg);
+    }
   }, [patientId]);
 
   return (
@@ -328,6 +503,51 @@ export function PreferencesScreen() {
                   ) : null}
                 </View>
               ))}
+
+              {/* ADCP plan backup consent (planning/39 §7.5 P5) */}
+              <View key="adcp-backup">
+                <CompactToggleRow
+                  id="consent-adcp_backup"
+                  emoji={ADCP_BACKUP_CONSENT.emoji}
+                  label={ADCP_BACKUP_CONSENT.title}
+                  value={recordConsentGranted.adcp_backup}
+                  expanded={false}
+                  onToggleExpand={() => {}}
+                  onValueChange={() => handleRecordConsentToggle(ADCP_BACKUP_CONSENT.scope)}
+                  accessibilityLabel={ADCP_BACKUP_CONSENT.title}
+                  accessibilityHint={ADCP_BACKUP_CONSENT.subtitle}
+                />
+
+                {recordConsentGranted.adcp_backup ? (
+                  <PlainActionRow
+                    emoji="💾"
+                    label="Export care plan backup"
+                    description={adcpBackupStatus}
+                    onPress={handleAdcpBundleExport}
+                    accessibilityLabel="Export care plan backup"
+                  />
+                ) : null}
+
+                {recordConsentGranted.adcp_backup ? (
+                  <PlainActionRow
+                    emoji="📥"
+                    label="Restore care plan backup"
+                    description="Pick a JSON backup file from Files to restore."
+                    onPress={handleAdcpBundleRestore}
+                    accessibilityLabel="Restore care plan backup"
+                  />
+                ) : null}
+
+                {__DEV__ && recordConsentGranted.adcp_backup ? (
+                  <PlainActionRow
+                    emoji="🏥"
+                    label="Export ADCP as FHIR Bundle (dev)"
+                    description="Lossy US Core–style CarePlan Bundle for handoff demos."
+                    onPress={handleAdcpFhirExport}
+                    accessibilityLabel="Export ADCP FHIR Bundle"
+                  />
+                ) : null}
+              </View>
             </View>
 
             <View style={styles.subsection}>
