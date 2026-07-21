@@ -332,9 +332,9 @@ function makeChunk(input: {
   text: string;
   sectionHeading: string;
   documentType: KnowledgeChunk['documentType'];
-  conditions: string;
   metadata: Record<string, unknown>;
   retrievedAt: string;
+  conditions?: string;
 }): KnowledgeChunk {
   return {
     chunkId: input.chunkId,
@@ -349,9 +349,14 @@ function makeChunk(input: {
   };
 }
 
-function joinConditions(label?: string, code?: string): string {
-  // CSV-shaped column. Empty string is allowed (chunk still indexed).
-  return [label, code].filter((p): p is string => Boolean(p?.trim())).join(',');
+function joinConditions(label?: string | null, code?: string | null): string | undefined {
+  // CSV-shaped column. Undefined means no condition value is available.
+  const parts = [label, code].filter((p): p is string => {
+    if (typeof p !== 'string') return false;
+    const normalized = p.trim().toLowerCase();
+    return normalized.length > 0 && normalized !== 'null' && normalized !== 'undefined';
+  });
+  return parts.length > 0 ? parts.join(',') : undefined;
 }
 
 function renderClinicalFraming(plan: AdcpPlanDocument): string {

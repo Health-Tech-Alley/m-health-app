@@ -80,7 +80,7 @@ export type OrchestrationEvent =
       severity: string;
       requiresHumanReview: boolean;
       emergencyThresholdBreach: boolean;
-      inserted?: boolean;
+      inserted: boolean;
       generatedAt: string;
       at: string;
     }
@@ -111,31 +111,5 @@ export type OrchestrationEvent =
       hypotheticalVitals: Partial<Record<'heart_rate' | 'blood_oxygen' | 'blood_pressure_systolic' | 'blood_pressure_diastolic' | 'glucose_level' | 'body_temperature' | 'respiratory_rate', number>>;
       mlResult: { severity: number; aeScore: number | null; threshold: number; isAnomaly: boolean; emergency: boolean; topFeatures: [string, number][] };
       requiresCaregiverConfirm: true;
-      at: string;
-    }
-  | {
-      type: 'uc3_trajectory_evaluated';
-      patientId: string;
-      resultId: string;
-      eventType: string;
-      severity: string;
-      requiresHumanReview: boolean;
-      emergencyThresholdBreach: boolean;
-      linkedAlertId?: string;
-      at: string;
-    }
-  | {
-      type: 'uc4_priorities_evaluated';
-      patientId: string;
-      runId: string;
-      paused: boolean;
-      cardCount: number;
-      at: string;
-    }
-  | {
-      type: 'uc4_caregiver_response';
-      patientId: string;
-      cardId: string;
-      action: string;
       at: string;
     };
