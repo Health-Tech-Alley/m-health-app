@@ -1,0 +1,79 @@
+{
+  "model_id": "MongoDB/mdbr-leaf-ir",
+  "query_prefix": "Represent this sentence for searching relevant passages: ",
+  "output_dim": 768,
+  "max_seq_length": 512,
+  "artifacts": {
+    "onnx_fp32": "assets/models/nlu/mdbr-leaf-ir-fp32.onnx",
+    "onnx_int8": "assets/models/nlu/mdbr-leaf-ir-int8.onnx",
+    "tflite": "assets/models/nlu/mdbr-leaf-ir.tflite",
+    "tokenizer_dir": "assets/models/nlu/tokenizer",
+    "tflite_note": "onnx2tf produced validated FP32 TFLite (91.6 MB). FP16 TFLite failed at runtime (GATHER float16). Weight-only INT8 TFLite (59.1 MB) produced via ai_edge_quantizer weight_only_wi8_afp32; 37 large int8 weight tensors; cos vs ST ~0.9998, ranking 1.0. ONNX INT8 (23 MB) remains the smallest offline artifact (needs ORT in-app).",
+    "tflite_fp32": "assets/models/nlu/mdbr-leaf-ir-fp32.tflite",
+    "tflite_int8": "assets/models/nlu/mdbr-leaf-ir-int8.tflite",
+    "tflite_dtype": "float32 primary; weight-only int8 available"
+  },
+  "validation": [
+    {
+      "name": "onnx_fp32",
+      "mean_cos": 1.0,
+      "min_cos": 0.9999999403953552,
+      "top1_agree": 1.0,
+      "top5_recall": 1.0,
+      "n_texts": 26,
+      "n_rank_queries": 10,
+      "output_dim": 768,
+      "passed": true,
+      "notes": ""
+    },
+    {
+      "name": "onnx_int8",
+      "mean_cos": 0.9820231795310974,
+      "min_cos": 0.9667695164680481,
+      "top1_agree": 1.0,
+      "top5_recall": 0.9,
+      "n_texts": 26,
+      "n_rank_queries": 10,
+      "output_dim": 768,
+      "passed": true,
+      "notes": ""
+    }
+  ],
+  "ship_recommendation": "Prefer assets/models/nlu/mdbr-leaf-ir-int8.tflite (weight-only INT8, ~59 MB, cos≈0.9998). Fallback: mdbr-leaf-ir.tflite FP32 (~92 MB). Query prefix required. ONNX INT8 (~23 MB) PASS offline only.",
+  "tflite_variants": {
+    "float16": {
+      "ok": false,
+      "meta": "Type 'FLOAT16' is not supported by gather.Node number 5 (GATHER) failed to prepare.",
+      "path": "/Users/ishahakase/Documents/Github/m-health-app/assets/models/nlu/_tf_saved_model/mdbr-leaf-ir-fp32_float16.tflite"
+    },
+    "float32": {
+      "ok": true,
+      "meta": {
+        "mean_cos": 1.0,
+        "min_cos": 0.9999998807907104,
+        "top1": 1.0,
+        "top5": 1.0,
+        "dim": 768,
+        "passed": true
+      },
+      "path": "/Users/ishahakase/Documents/Github/m-health-app/assets/models/nlu/_tf_saved_model/mdbr-leaf-ir-fp32_float32.tflite"
+    }
+  },
+  "int8_tflite": {
+    "path": "assets/models/nlu/mdbr-leaf-ir-int8.tflite",
+    "size_mb": 59.14552,
+    "method": "ai_edge_quantizer weight_only_wi8_afp32",
+    "dtype_counts": {
+      "<class 'numpy.int64'>": 7,
+      "<class 'numpy.float32'>": 497,
+      "<class 'numpy.int8'>": 37,
+      "<class 'numpy.bool'>": 43,
+      "<class 'numpy.int32'>": 486
+    },
+    "large_int8_tensors": 37,
+    "mean_cos_query_vs_st": 0.9997672319412232,
+    "mean_cos_passage_vs_st": 0.9998125195503235,
+    "top1_ranking_agreement": 1.0,
+    "status": "PASS"
+  }
+}

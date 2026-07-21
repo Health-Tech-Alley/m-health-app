@@ -114,6 +114,7 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS notifications;
     DROP TABLE IF EXISTS notification_preferences;
     DROP TABLE IF EXISTS app_settings;
+    DROP TABLE IF EXISTS knowledge_chunk_edges;
     DROP TABLE IF EXISTS knowledge_cache;
     DROP TABLE IF EXISTS patient_enrichment_log;
     DROP TABLE IF EXISTS symptoms;
@@ -135,6 +136,9 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS __migrations;
     DROP TABLE IF EXISTS secure_messaging_store;
     DROP TABLE IF EXISTS health_samples;
+    DROP TABLE IF EXISTS care_plan_revisions;
+    DROP TABLE IF EXISTS pending_plan_proposals;
+    DROP TABLE IF EXISTS plan_decision_log;
   `);
   closeDatabase();
   dbInstance = null;

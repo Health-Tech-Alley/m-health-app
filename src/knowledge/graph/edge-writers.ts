@@ -12,7 +12,7 @@ function now(): string {
   return new Date().toISOString();
 }
 
-export function writeGraphEdge(edge: Omit<GraphEdge, 'createdAt' | 'weight'> & { weight?: number }): void {
+export function writeGraphEdge(edge: Omit<GraphEdge, 'createdAt' | 'weight'> & { weight?: number }): GraphEdge {
   const db = getDatabase();
   db.runSync(
     `INSERT OR REPLACE INTO graph_edges
@@ -24,6 +24,7 @@ export function writeGraphEdge(edge: Omit<GraphEdge, 'createdAt' | 'weight'> & {
     edge.weight ?? 1.0,
     now(),
   );
+  return { ...edge, weight: edge.weight ?? 1.0, createdAt: now() };
 }
 
 export function writeSampleEdges(patientId: string, sampleId: string, vitalType: string): void {

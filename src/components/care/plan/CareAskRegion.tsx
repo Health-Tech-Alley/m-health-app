@@ -1,0 +1,103 @@
+/**
+ * CareAskRegion — Care tab region reserved for the future suggestion
+ * strip + ask input (planning/40) plus the existing Care Concierge
+ * intents card.
+ *
+ * Per planning/41 D10 the slot is stable so doc 40 can mount its strip
+ * here as children without redoing the Care tab IA. Read-only mode
+ * filters the intent catalog to non-mutating intents so caregivers see
+ * only what they can act on.
+ */
+
+import { useMemo, type ReactNode } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+
+import { CareConciergeIntentsCard } from '@/components/careConcierge/CareConciergeIntentsCard';
+import { AppTheme } from '@/constants/theme';
+import { isMutatingIntent } from '@/services/carePlan/carePlanMode';
+import { intentCatalogList } from '@/services/carePlan/intentRouter';
+import type { AdcpProposalIntentId } from '@/data/adcp/types';
+import { sectionStyles } from './carePlanSectionStyles';
+
+export interface CareAskRegionProps {
+  patientId: string | null;
+  writable: boolean;
+  onLaunchIntent: (intent: AdcpProposalIntentId) => void;
+  /**
+   * Reserved slot. Doc 40 mounts its suggestion strip + ask input here.
+   * Children render above the concierge intents card so the suggestion
+   * strip is the first thing the caregiver sees in this region.
+   */
+  children?: ReactNode;
+}
+
+export function CareAskRegion({
+  patientId,
+  writable,
+  onLaunchIntent,
+  children,
+}: CareAskRegionProps) {
+  const allIntents = useMemo(() => intentCatalogList(), []);
+
+  // Read-only mode hides mutating intents so the catalog matches what can run.
+  const visibleIntents = useMemo(
+    () => (writable ? allIntents : allIntents.filter((i) => !isMutatingIntent(i.intent))),
+    [allIntents, writable],
+  );
+
+  return (
+    <View style={styles.region} accessible accessibilityLabel="Care Concierge">
+      {!writable ? (
+        <View style={styles.banner} accessible accessibilityLabel="Read-only mode banner">
+          <Text style={styles.bannerTitle}>Care plan is in view-only mode</Text>
+          <Text style={styles.bannerBody}>
+            Concierge can still explain using your plan. Turn on Living care plan updates in More to make changes.
+          </Text>
+        </View>
+      ) : null}
+
+      {children}
+
+      {visibleIntents.length > 0 ? (
+        <CareConciergeIntentsCard
+          patientId={patientId}
+          onLaunch={onLaunchIntent}
+          intents={visibleIntents}
+        />
+      ) : (
+        <View style={sectionStyles.card}>
+          <Text style={sectionStyles.title}>Care Concierge</Text>
+          <Text style={sectionStyles.bodyMuted}>
+            No intents are available in view-only mode. Turn on Living care plan updates in More to ask Concierge about your plan.
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  region: {
+    marginBottom: 14,
+  },
+  banner: {
+    backgroundColor: AppTheme.colors.warningSoft,
+    borderRadius: AppTheme.radius.card,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.warning,
+    padding: 14,
+    marginBottom: 12,
+  },
+  bannerTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  bannerBody: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+});

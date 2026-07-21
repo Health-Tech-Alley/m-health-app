@@ -112,6 +112,15 @@ export function publishUc2ResultAsAlert(
         result.finalDecision?.final_notification_body || undefined,
     };
     bus.publish(event);
+    try {
+      const { drainPendingProposalsForPatient } = require('../carePlan/mlPlanProposalService') as typeof import('../carePlan/mlPlanProposalService');
+      drainPendingProposalsForPatient(patientId, 'uc2');
+    } catch (drainErr) {
+      console.warn(
+        '[publishUc2ResultAsAlert] ADCP proposal drain failed:',
+        drainErr instanceof Error ? drainErr.message : drainErr,
+      );
+    }
     return true;
   } catch (err) {
     console.warn('[publishUc2ResultAsAlert] failed:', err);

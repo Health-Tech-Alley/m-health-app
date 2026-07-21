@@ -112,3 +112,43 @@ export function getCarePlansForPatient(patientId: string): CarePlan[] {
     return { ...plan, activities };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Care plan goals (planning/41 §9.1 P2)
+// ---------------------------------------------------------------------------
+// FHIR Goal resources carry the goals referenced by a CarePlan via
+// `CarePlan.goal[]`. We persist a summary row in `care_plan_goals` so the
+// snapshot's `carePlanGoals` field reflects the import. The table already
+// exists (migration 2); this is a thin write helper that does not touch
+// `PatientRecordSnapshot`.
+
+export interface UpsertCarePlanGoalInput {
+  goalId: string;
+  planId: string;
+  description: string;
+  targetDate?: string | null;
+  status?: string;
+}
+
+export function upsertCarePlanGoal(goal: UpsertCarePlanGoalInput): void {
+  const db = getDatabase();
+  db.runSync(
+    `INSERT INTO care_plan_goals (goal_id, plan_id, description, target_date, status)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(goal_id) DO UPDATE SET
+       plan_id = excluded.plan_id,
+       description = excluded.description,
+       target_date = excluded.target_date,
+       status = excluded.status;`,
+    goal.goalId,
+    goal.planId,
+    goal.description,
+    goal.targetDate ?? null,
+    goal.status ?? 'active',
+  );
+}
+
+export function deleteCarePlanGoalsForPlan(planId: string): void {
+  const db = getDatabase();
+  db.runSync('DELETE FROM care_plan_goals WHERE plan_id = ?;', planId);
+}

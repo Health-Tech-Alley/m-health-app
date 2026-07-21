@@ -16,7 +16,10 @@ export type RetrievedChunkSource =
   | 'cdc-places'
   | 'semmeddb'
   | 'hedis'
-  | 'patient-record';
+  | 'patient-record'
+  // ADCP (planning/39 P4) — Care Concierge sections surfaced verbatim from
+  // the active care plan via the indexer.
+  | 'adcp_plan';
 
 export type RetrievedChunkDocumentType =
   | 'abstract'
@@ -24,7 +27,10 @@ export type RetrievedChunkDocumentType =
   | 'guideline'
   | 'systematic_review'
   | 'spl_full'
-  | 'synthetic';
+  | 'synthetic'
+  // ADCP (planning/39 P4) — section / rolling decision-log chunks
+  | 'care_plan_section'
+  | 'care_plan_decision_log';
 
 export type RetrievedChunkLengthTier = 'short' | 'medium' | 'long';
 

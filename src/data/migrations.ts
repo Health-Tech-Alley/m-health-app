@@ -1142,11 +1142,204 @@ export const MIGRATIONS: Migration[] = [
     created_at TEXT NOT NULL,
     PRIMARY KEY (from_chunk_id, to_chunk_id, type)
   );
-
+ 
   CREATE INDEX IF NOT EXISTS idx_kce_from
     ON knowledge_chunk_edges(from_chunk_id);
   CREATE INDEX IF NOT EXISTS idx_kce_to
     ON knowledge_chunk_edges(to_chunk_id);
   CREATE INDEX IF NOT EXISTS idx_kce_type
     ON knowledge_chunk_edges(type);`,
+
+  // 40: uc3_trajectory_results — UC3 Long-Term Trajectory Failure derived results (doc 38)
+  `CREATE TABLE IF NOT EXISTS uc3_trajectory_results (
+    id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    care_plan_id TEXT,
+    model_family TEXT NOT NULL,
+    model_version TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    input_window_start TEXT,
+    input_window_end TEXT,
+    event_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    requires_human_review INTEGER NOT NULL DEFAULT 0,
+    emergency_threshold_breach INTEGER NOT NULL DEFAULT 0,
+    review_priority_score REAL NOT NULL,
+    reason_codes_json TEXT NOT NULL,
+    explanations_json TEXT NOT NULL,
+    metric_analyses_json TEXT NOT NULL,
+    data_quality_json TEXT NOT NULL,
+    caregiver_message TEXT,
+    clinician_summary TEXT,
+    share_payload_json TEXT,
+    status TEXT NOT NULL DEFAULT 'active'
+      CHECK (status IN ('active', 'stale', 'superseded', 'acknowledged')),
+    linked_alert_id TEXT,
+    created_at TEXT NOT NULL,
+    superseded_at TEXT
+  );
+ 
+  CREATE INDEX IF NOT EXISTS idx_uc3_traj_patient_status
+    ON uc3_trajectory_results(patient_id, status, generated_at DESC);`,
+
+  // 41: uc4_priority_cards, uc4_caregiver_responses, uc4_recent_events, uc4_previous_priorities (doc 38)
+  `CREATE TABLE IF NOT EXISTS uc4_priority_cards (
+    card_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    priority_kind TEXT,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    body TEXT NOT NULL,
+    why_this_matters TEXT,
+    what_to_log_next_json TEXT NOT NULL,
+    what_to_log_next_schema_json TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    score REAL NOT NULL,
+    score_trace_json TEXT,
+    safety_tags_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active'
+      CHECK (status IN ('active', 'dismissed', 'acknowledged', 'superseded')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+ 
+  CREATE TABLE IF NOT EXISTS uc4_caregiver_responses (
+    event_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    originating_card_id TEXT,
+    originating_template_id TEXT,
+    timestamp_iso TEXT NOT NULL,
+    observation_codes_json TEXT NOT NULL,
+    context_codes_json TEXT NOT NULL,
+    caregiver_requested_provider_review INTEGER NOT NULL DEFAULT 0,
+    short_text TEXT,
+    free_text_used_for_scoring INTEGER NOT NULL DEFAULT 0,
+    used_for_scoring INTEGER NOT NULL DEFAULT 0,
+    action TEXT,
+    created_at TEXT NOT NULL
+  );
+ 
+  CREATE TABLE IF NOT EXISTS uc4_recent_events (
+    event_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    timestamp_iso TEXT NOT NULL,
+    source TEXT NOT NULL,
+    observation_codes_json TEXT NOT NULL,
+    context_codes_json TEXT NOT NULL,
+    severity INTEGER,
+    free_text_used_for_scoring INTEGER NOT NULL DEFAULT 0,
+    free_text_provider_context TEXT,
+    metadata_json TEXT,
+    created_at TEXT NOT NULL
+  );
+ 
+  CREATE TABLE IF NOT EXISTS uc4_previous_priorities (
+    id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    shown_at_iso TEXT NOT NULL,
+    caregiver_response TEXT,
+    created_at TEXT NOT NULL
+  );`,
+
+  // 47: ADCP — AccessDP Care Plan spine (planning/39_unified-care-plan-and-care-concierge.md §3.5, §13)
+  // care_plan_revisions   : immutable per-patient ADCP history
+  // pending_plan_proposals: ML-vetting queue (HITL → ML vet → apply/reject)
+  // plan_decision_log     : append-only audit of every ADCP event
+  (db: SQLiteDatabase) => {
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS care_plan_revisions (
+        revision_id TEXT PRIMARY KEY,
+        patient_id TEXT NOT NULL,
+        plan_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        supersedes TEXT,
+        source TEXT NOT NULL,
+        published_by TEXT NOT NULL CHECK (
+          published_by IN ('system', 'caregiver', 'ml', 'slm')
+        ),
+        published_at TEXT NOT NULL,
+        effective_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        section_hashes_json TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(patient_id, version)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_care_plan_revisions_patient_version
+        ON care_plan_revisions(patient_id, version DESC);
+      CREATE INDEX IF NOT EXISTS idx_care_plan_revisions_patient_published
+        ON care_plan_revisions(patient_id, published_at DESC);
+
+      CREATE TABLE IF NOT EXISTS pending_plan_proposals (
+        proposal_id TEXT PRIMARY KEY,
+        patient_id TEXT NOT NULL,
+        intent TEXT NOT NULL,
+        section TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (
+          status IN (
+            'draft',
+            'awaiting_hitl',
+            'awaiting_ml_vet',
+            'accepted',
+            'accepted_with_clip',
+            'rejected_by_ml',
+            'rejected_by_caregiver',
+            'applied',
+            'expired'
+          )
+        ),
+        payload_json TEXT NOT NULL,
+        drafted_by TEXT NOT NULL CHECK (
+          drafted_by IN ('slm', 'ml_engine', 'caregiver')
+        ),
+        ml_vet_json TEXT NOT NULL,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        resolved_at TEXT,
+        resolution_reason TEXT,
+        clipped_payload_json TEXT,
+        pending_overrides_json TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_pending_proposals_patient_status
+        ON pending_plan_proposals(patient_id, status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_pending_proposals_intent
+        ON pending_plan_proposals(intent, status);
+
+      CREATE TABLE IF NOT EXISTS plan_decision_log (
+        decision_id TEXT PRIMARY KEY,
+        patient_id TEXT NOT NULL,
+        proposal_id TEXT,
+        type TEXT NOT NULL CHECK (
+          type IN (
+            'plan_published',
+            'proposal_drafted',
+            'proposal_caregiver_confirmed',
+            'proposal_rejected',
+            'proposal_ml_accepted',
+            'proposal_ml_clipped',
+            'proposal_ml_rejected',
+            'proposal_applied',
+            'caregiver_override',
+            'ml_engine_eval'
+          )
+        ),
+        actor TEXT NOT NULL CHECK (actor IN ('caregiver', 'slm', 'ml', 'system')),
+        ref_ids_json TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        payload_json TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_plan_decisions_patient_time
+        ON plan_decision_log(patient_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_plan_decisions_proposal
+        ON plan_decision_log(proposal_id);
+    `);
+  },
 ];

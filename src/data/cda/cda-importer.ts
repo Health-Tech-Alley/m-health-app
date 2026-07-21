@@ -38,6 +38,10 @@ import {
   insertKnowledgeChunks,
 } from '@/data/repositories/knowledgeCacheRepository';
 import {
+  writeParentOfEdges,
+  writeSharesConditionEdges,
+} from '@/knowledge/graph/knowledge-chunk-edge-writers';
+import {
   upsertCarePlan,
 } from '@/data/repositories/carePlanRepository';
 import {
@@ -188,6 +192,12 @@ export function importCdaJsonDoc(
   if (chunks.length > 0) {
     try {
       insertKnowledgeChunks(chunks);
+      try {
+        writeParentOfEdges(chunks, 'cda_import');
+        writeSharesConditionEdges(chunks, { source: 'cda_import' });
+      } catch (err) {
+        // edges are best-effort only
+      }
       summary.narrativeChunks = chunks.length;
     } catch (err) {
       recordWarning(summary, `knowledge_chunks insert failed: ${(err as Error).message}`);

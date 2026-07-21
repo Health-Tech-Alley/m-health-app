@@ -28,6 +28,7 @@ import type {
   PatientCondition,
   PatientLongitudinalObservation,
   PatientTimelineEvent,
+  PendingPlanProposalSlice,
   RehabExerciseAssignment,
   Symptom,
   Threshold,
@@ -60,6 +61,12 @@ import {
   getLatestUc4RunSummary,
   getUc4CaregiverResponses,
 } from './uc4PriorityRepository';
+import {
+  getActiveAdcpVersionSummary,
+  getActiveAdcpRevisionForPatient,
+  listPendingProposalSummaries,
+  planHasTherapyContract,
+} from './adcpRepository';
 
 export type { BundleStatus, CarePlanGoalSummary, PatientRecordSnapshot } from '../types';
 
@@ -254,6 +261,17 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     (c) => c.needsReview && c !== primaryCondition,
   );
 
+  // ADCP (planning/39 E4 additive fields). Populated from the ADCP repos;
+  // earlier versions are excluded because the snapshot only exposes the
+  // summary, not the full document body. The full document remains available
+  // via getActiveAdcpRevisionForPatient(). Deliberately resilient: any ADCP
+  // read failure falls back to "no active version" so the rest of the
+  // snapshot still loads.
+  const adcpSummary = safeGetAdcpSummary(patientId);
+  const adcpPendingProposals = safeGetAdcpProposals(patientId);
+  const activeAdcpDocument = safeGetAdcpActive(patientId);
+  const therapyContractPresent = planHasTherapyContract(activeAdcpDocument);
+
   return {
     patient,
     safetyNotes: patient?.safetyNotes ?? '',
@@ -286,6 +304,40 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     enrichmentStats,
     bundlePending,
     bundleStatus,
+    activeAdcpVersion: adcpSummary,
+    pendingPlanProposals: adcpPendingProposals as PendingPlanProposalSlice[],
+    therapyContractPresent,
     lastRefreshedAt: new Date().toISOString(),
   };
+}
+
+function safeGetAdcpSummary(
+  patientId: string,
+): ReturnType<typeof getActiveAdcpVersionSummary> {
+  try {
+    return getActiveAdcpVersionSummary(patientId);
+  } catch (err) {
+    console.warn('[patientRecordRepository] ADCP summary read failed:', err);
+    return null;
+  }
+}
+
+function safeGetAdcpProposals(
+  patientId: string,
+): ReturnType<typeof listPendingProposalSummaries> {
+  try {
+    return listPendingProposalSummaries(patientId);
+  } catch (err) {
+    console.warn('[patientRecordRepository] ADCP proposals read failed:', err);
+    return [];
+  }
+}
+
+function safeGetAdcpActive(patientId: string) {
+  try {
+    return getActiveAdcpRevisionForPatient(patientId);
+  } catch (err) {
+    console.warn('[patientRecordRepository] ADCP revision read failed:', err);
+    return null;
+  }
 }

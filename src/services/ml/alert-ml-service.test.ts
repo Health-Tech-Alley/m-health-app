@@ -97,7 +97,7 @@ describe('AlertMlService legacy emergency fallback', () => {
     expect(result?.emergencyResult).toMatchObject({
       emergency: true,
       severity: 3,
-      reason: 'LOW_BLOOD_OXYGEN',
+      reason: 'SpO2 86 <= 88',
       pipelinePath: 'RULE_ENGINE_EMERGENCY_FAST_PATH',
     });
     expect(result?.finalDecision).toMatchObject({
@@ -120,7 +120,7 @@ describe('AlertMlService legacy emergency fallback', () => {
     expect(result?.emergencyResult).toMatchObject({
       emergency: true,
       severity: 3,
-      reason: 'EXTREME_HEART_RATE',
+      reason: 'Heart rate 145 >= 140',
       pipelinePath: 'RULE_ENGINE_EMERGENCY_FAST_PATH',
     });
     expect(result?.finalDecision.final_severity).toBe(3);

@@ -3,9 +3,43 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
+import type { LatestUc4CardSummary } from "@/data/repositories/patientRecordRepository";
 
-export function TodayPriorityCard() {
+interface TodayPriorityCardProps {
+  uc4Cards?: LatestUc4CardSummary[];
+}
+
+export function TodayPriorityCard({ uc4Cards }: TodayPriorityCardProps) {
   const router = useRouter();
+
+  if (uc4Cards && uc4Cards.length > 0) {
+    const topCard = uc4Cards[0];
+    return (
+      <Pressable style={styles.card} onPress={() => router.push("/care")}>
+        <View style={styles.iconCircle}>
+          <AppIcon name="heart" size={30} color={AppTheme.colors.warning} />
+        </View>
+
+        <View style={styles.content}>
+          <Text style={styles.eyebrow}>Care Focus</Text>
+          <Text style={styles.title} numberOfLines={2}>{topCard.title}</Text>
+          <Text style={styles.time}>
+            {topCard.score > 0 ? `Priority: ${(topCard.score * 100).toFixed(0)}%` : 'Check-in needed'}
+          </Text>
+        </View>
+
+        <View style={styles.rightBlock}>
+          <View style={styles.pendingPill}>
+            <Text style={styles.pendingText}>
+              {uc4Cards.length > 1 ? `${uc4Cards.length} items` : 'Review'}
+            </Text>
+          </View>
+
+          <AppIcon name="chevronRight" size={30} color="#C8D1E3" />
+        </View>
+      </Pressable>
+    );
+  }
 
   return (
     <Pressable style={styles.card} onPress={() => router.push("/medications")}>
@@ -24,11 +58,7 @@ export function TodayPriorityCard() {
           <Text style={styles.pendingText}>Pending</Text>
         </View>
 
-        <AppIcon
-          name="chevronRight"
-          size={30}
-          color="#C8D1E3"
-        />
+        <AppIcon name="chevronRight" size={30} color="#C8D1E3" />
       </View>
     </Pressable>
   );

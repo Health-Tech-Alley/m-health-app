@@ -1,0 +1,110 @@
+{
+  "version": "1.0",
+  "source": "use-cases-and-conditions.md",
+  "use_cases": {
+    "st01_sofia": {
+      "persona": "sofia",
+      "thread": "ST-01",
+      "conditions": [
+        "Spina Bifida", "myelomeningocele", "neurogenic bladder",
+        "neurogenic bowel", "hydrocephalus", "Chiari II",
+        "latex allergy", "UTI", "pressure injury"
+      ],
+      "medications": ["Oxybutynin", "baclofen", "PEG", "macrogol", "vitamin D"],
+      "themes": [
+        "autonomic dysreflexia", "catheter blockage", "bowel impaction",
+        "shunt malfunction", "pressure injury", "latex exposure",
+        "red flags", "headache", "high BP"
+      ],
+      "scales": []
+    },
+    "st02_james": {
+      "persona": "james",
+      "thread": "ST-02",
+      "conditions": [
+        "ischemic stroke", "post-stroke", "hemiparesis", "aphasia",
+        "dysphagia", "hypertension", "type 2 diabetes",
+        "post-stroke depression", "fall risk"
+      ],
+      "medications": [
+        "Aspirin", "clopidogrel", "atorvastatin",
+        "lisinopril", "metformin", "sertraline"
+      ],
+      "themes": [
+        "fatigue", "gait", "balance", "swallow safety",
+        "secondary prevention", "mood", "recovery plateau",
+        "visit prep", "portal messages"
+      ],
+      "scales": []
+    },
+    "st03_elena": {
+      "persona": "elena",
+      "thread": "ST-03",
+      "conditions": [
+        "COPD", "traumatic brain injury", "TBI", "anxiety",
+        "osteoporosis", "chronic respiratory failure"
+      ],
+      "medications": [
+        "albuterol", "tiotropium", "budesonide", "formoterol", "prednisone"
+      ],
+      "themes": [
+        "exacerbation", "SABA overuse", "desaturation", "confusion",
+        "hypoxia", "911", "ER", "NEMT", "rural access", "GOLD"
+      ],
+      "scales": []
+    },
+    "mike_cp": {
+      "persona": "mike",
+      "thread": "Mike-EHR-CP",
+      "conditions": [
+        "cerebral palsy", "spastic quadriplegic", "GMFCS Level V",
+        "neuromuscular scoliosis", "bilateral hip dysplasia",
+        "TBI", "GERD", "anemia", "seizure", "chronic secretions"
+      ],
+      "medications": [
+        "baclofen", "omeprazole", "levetiracetam", "iron",
+        "stool softener", "glycopyrrolate"
+      ],
+      "themes": [
+        "suction frequency", "spasticity", "seizure", "post-feed desats",
+        "positioning", "scoliosis", "G-tube", "GERD", "care coordination",
+        "ED utilization", "care gaps", "expert caregiver"
+      ],
+      "scales": ["GMFCS", "MACS", "CFCS", "EDACS"]
+    }
+  },
+  "all": {
+    "conditions": [
+      "Chiari II", "COPD", "GERD", "GMFCS Level V", "Spina Bifida",
+      "TBI", "UTI", "anemia", "anxiety", "aphasia",
+      "bilateral hip dysplasia", "cerebral palsy", "chronic respiratory failure",
+      "dysphagia", "fall risk", "hemiparesis", "hydrocephalus",
+      "hypertension", "ischemic stroke", "latex allergy",
+      "myelomeningocele", "neurogenic bladder", "neurogenic bowel",
+      "neuromuscular scoliosis", "osteoporosis", "post-stroke",
+      "post-stroke depression", "pressure injury", "seizure",
+      "chronic secretions", "spastic quadriplegic",
+      "traumatic brain injury", "type 2 diabetes"
+    ],
+    "medications": [
+      "Aspirin", "Oxybutynin", "PEG", "albuterol", "atorvastatin",
+      "baclofen", "budesonide", "clopidogrel", "formoterol",
+      "glycopyrrolate", "iron", "levetiracetam", "lisinopril",
+      "macrogol", "metformin", "omeprazole", "prednisone",
+      "sertraline", "stool softener", "tiotropium", "vitamin D"
+    ],
+    "themes": [
+      "911", "ED utilization", "ER", "G-tube", "GERD", "GOLD",
+      "NEMT", "SABA overuse", "autonomic dysreflexia", "balance",
+      "bowel impaction", "care coordination", "care gaps",
+      "catheter blockage", "confusion", "desaturation", "exacerbation",
+      "expert caregiver", "fatigue", "gait", "headache", "high BP",
+      "hypoxia", "latex exposure", "mood", "portal messages",
+      "positioning", "post-feed desats", "pressure injury",
+      "recovery plateau", "red flags", "rural access", "scoliosis",
+      "secondary prevention", "seizure", "shunt malfunction",
+      "spasticity", "suction frequency", "swallow safety", "visit prep"
+    ],
+    "scales": ["CFCS", "EDACS", "GMFCS", "MACS"]
+  }
+}

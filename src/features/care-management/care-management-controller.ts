@@ -185,9 +185,9 @@ async function buildExplanationPrompt(
     userContent +=
       `\n${citationBlock}\n\n` +
       `Ground your answer in the clinical knowledge above where relevant. ` +
-      `Add the source label in brackets after relevant statements ` +
-      `(e.g., "Common side effects include nausea [Drug Label]" or ` +
-      `"Studies show improved outcomes [PubMed]").\n`;
+      `Append the exact chunk tag after relevant statements ` +
+      `(e.g., "Common side effects include nausea [Drug Label #1]" or ` +
+      `"Studies show improved outcomes [PubMed #2]").\n`;
   }
 
   userContent +=

@@ -64,6 +64,7 @@ function relationshipBundle(patientId: string) {
     type: 'collection',
     entry: [
       {
+        fullUrl: `Patient/${patientId}`,
         resource: {
           resourceType: 'Patient',
           id: patientId,
@@ -78,6 +79,7 @@ function relationshipBundle(patientId: string) {
         },
       },
       {
+        fullUrl: `RelatedPerson/${patientId}-related`,
         resource: {
           resourceType: 'RelatedPerson',
           id: `${patientId}-related`,
@@ -96,6 +98,7 @@ function carePlanBundle(patientId: string) {
     type: 'collection',
     entry: [
       {
+        fullUrl: `Patient/${patientId}`,
         resource: {
           resourceType: 'Patient',
           id: patientId,
@@ -103,6 +106,7 @@ function carePlanBundle(patientId: string) {
         },
       },
       {
+        fullUrl: 'CarePlan/source-care-context',
         resource: {
           resourceType: 'CarePlan',
           id: 'source-care-context',
@@ -132,6 +136,7 @@ function observationBundle(patientId: string) {
     type: 'collection',
     entry: [
       {
+        fullUrl: `Patient/${patientId}`,
         resource: {
           resourceType: 'Patient',
           id: patientId,
@@ -139,12 +144,13 @@ function observationBundle(patientId: string) {
         },
       },
       {
+        fullUrl: 'Observation/heart-rate-observation',
         resource: {
           resourceType: 'Observation',
           id: 'heart-rate-observation',
           status: 'final',
           subject: { reference: `Patient/${patientId}` },
-          code: { coding: [{ code: '8867-4' }] },
+          code: { coding: [{ system: 'http://loinc.org', code: '8867-4' }] },
           valueQuantity: { value: 88, unit: 'beats/min' },
           effectiveDateTime: '2026-07-10T12:00:00.000Z',
         },

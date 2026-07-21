@@ -283,6 +283,8 @@ export interface FhirProvenance {
   recorded: string;
   activity?: FhirCodeableConcept;
   agent: FhirProvenanceAgent[];
+  /** ADCP (planning/39 P5b): reason the resource was authored — round-tripped as CodeableConcept. */
+  reason?: FhirCodeableConcept[];
 }
 
 export interface FhirCompositionSection {

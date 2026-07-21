@@ -28,11 +28,42 @@ const CAREGIVER_LABELS: Record<string, string> = {
   hedis: 'Quality measure',
 };
 
+const MAX_RELATED_CONTEXT_LABELS = 4;
+
 function toSuperscript(n: number): string {
   return String(n)
     .split('')
     .map((d) => SUPERSCRIPTS[Number(d)] ?? d)
     .join('');
+}
+
+function caregiverLabelForSource(source: string): string {
+  return CAREGIVER_LABELS[source] ?? citationSourceLabel(source);
+}
+
+/**
+ * Normalize list markers and collapse horizontal whitespace only.
+ * Preserves newlines so markdown bullet lists still parse.
+ */
+export function normalizeAnswerWhitespace(text: string): string {
+  return text
+    .replace(/^[ \t]*[•*][ \t]+/gm, '- ')
+    .replace(/[^\S\n]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function relatedContextLabels(chunks: RetrievedCitation[]): string[] {
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const c of chunks) {
+    const label = caregiverLabelForSource(c.source);
+    if (seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
+    if (labels.length >= MAX_RELATED_CONTEXT_LABELS) break;
+  }
+  return labels;
 }
 
 export type FootnoteFormatResult = {
@@ -44,6 +75,9 @@ export type FootnoteFormatResult = {
  * Map SLM citation tags to inline footnotes + Sources footer.
  * Only maps tags that match known 1-based indices in `chunks`.
  * Unknown tags are stripped.
+ *
+ * When chunks were retrieved but the answer has no valid tags, append a soft
+ * "Related context available" footer (no fake footnote numbers).
  */
 export function formatAnswerWithFootnotes(
   answer: string,
@@ -73,8 +107,7 @@ export function formatAnswerWithFootnotes(
     .sort((a, b) => a[1] - b[1])
     .map(([srcIndex, fn]) => {
       const c = byIndex.get(srcIndex)!;
-      const rawLabel = citationSourceLabel(c.source);
-      const label = CAREGIVER_LABELS[c.source] ?? rawLabel;
+      const label = caregiverLabelForSource(c.source);
       const snippet =
         c.text.length > snippetChars
           ? c.text.slice(0, snippetChars).trimEnd() + '\u2026'
@@ -87,7 +120,8 @@ export function formatAnswerWithFootnotes(
       };
     });
 
-  let displayText = body.replace(/\s{2,}/g, ' ').trim();
+  let displayText = normalizeAnswerWhitespace(body);
+
   if (sources.length > 0) {
     const footer = [
       '',
@@ -95,6 +129,11 @@ export function formatAnswerWithFootnotes(
       ...sources.map((s) => `${s.index}. ${s.label} \u2014 ${s.snippet}`),
     ].join('\n');
     displayText = `${displayText}\n${footer}`;
+  } else if (chunks.length > 0 && displayText.length > 0) {
+    const labels = relatedContextLabels(chunks);
+    if (labels.length > 0) {
+      displayText = `${displayText}\n\nRelated context available (not cited in this answer): ${labels.join(', ')}.`;
+    }
   }
 
   return { displayText, sources };

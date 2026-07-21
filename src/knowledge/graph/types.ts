@@ -46,7 +46,12 @@ export type EdgeType =
   | 'PART_OF'
   | 'INFLUENCED'
   | 'SIMILAR_TO'
-  | 'PRECEDED';
+  | 'PRECEDED'
+  // ADCP (planning/39 §9 planning/24 gaps)
+  | 'SUPERSEDES'
+  | 'REVISED_BY'
+  | 'SUPPORTED_BY'
+  | 'CONSTRAINS';
 
 export type GraphEdge = {
   from: string;
@@ -72,4 +77,21 @@ export type ContextSubgraph = {
   citations: GraphNode[];
   relatedMedications: GraphNode[];
   relatedConditions: GraphNode[];
+};
+
+/**
+ * Plan-rooted subgraph (planning/39 §9 P3) — used by Care Concierge intents
+ * to anchor RAG / KG context on the active ADCP revision.
+ */
+export type PlanRootedSubgraph = {
+  activeCarePlan: GraphNode | null;
+  recentRevisions: GraphNode[];
+  revisions: GraphNode[];
+  goals: GraphNode[];
+  triggerEvents: GraphNode[];
+  pendingProposals: GraphNode[];
+  appliedProposals: GraphNode[];
+  therapyContracts: GraphNode[];
+  decisionLog: GraphNode[];
+  edges: GraphEdge[];
 };

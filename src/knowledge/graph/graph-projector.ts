@@ -4,6 +4,10 @@
  * Builds an in-memory adjacency-list graph from the authoritative SQLite
  * tables. Only the last 90 days of dynamic data are loaded by default;
  * reference data (patients, meds, conditions) is loaded fully.
+ *
+ * ADCP (planning/39 P3): also projects CarePlan + Goal nodes from the
+ * `care_plan_revisions` table so the plan-rooted subgraph has something to
+ * anchor on after the first ADCP revision is seeded.
  */
 
 import {
@@ -15,6 +19,7 @@ import {
   getCaregiverForPatient,
   getRecentHealthSamples,
   getActionsForAlert,
+  listAdcpRevisionsForPatient,
   getDatabase,
   type HealthSampleType,
 } from '@/data';
@@ -115,6 +120,35 @@ export class GraphProjector {
         this.addEdge(`alert-${a.alertId}`, actionId, 'RESULTED_IN');
         this.addEdge(`action-${action.actionId}`, `alert-${a.alertId}`, 'RESPONDS_TO');
       }
+    }
+
+    // ADCP — project CarePlan + Goal nodes so the plan-rooted subgraph has
+    // something to anchor on (planning/39 §9 P3).
+    try {
+      const adcpRevisions = listAdcpRevisionsForPatient(patientId);
+      for (const rev of adcpRevisions) {
+        const cpId = `careplan-${rev.identity.planId}`;
+        if (!this.graph.nodes.has(cpId)) {
+          this.addNode(
+            node(cpId, 'CarePlan', `v${rev.identity.version} (${rev.identity.source})`, {
+              ...rev.identity,
+            }),
+          );
+        }
+        this.addEdge(`patient-${patientId}`, cpId, 'PART_OF');
+        for (const goal of rev.goals.goals) {
+          const goalId = `goal-${goal.goalId}`;
+          if (!this.graph.nodes.has(goalId)) {
+            this.addNode(node(goalId, 'Goal', goal.description, { ...goal }));
+          }
+          this.addEdge(goalId, cpId, 'PART_OF');
+          if (goal.measurementTarget?.metricKey) {
+            this.addEdge(goalId, `vital-${goal.measurementTarget.metricKey}`, 'CONSTRAINS');
+          }
+        }
+      }
+    } catch {
+      // ignore — KG projection is best-effort
     }
 
     // Edges from persistent graph_edges table

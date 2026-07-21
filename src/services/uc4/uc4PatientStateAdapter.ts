@@ -4,6 +4,11 @@ import type {
   PatientRecordSnapshot,
   Uc4CaregiverResponseSummary,
 } from '../../data/types';
+import { mapMedicationNameToWatchAreas } from '../../ml-models/uc4-micro-priorities/uc4MedicationWatchMapping';
+import {
+  categorizeCareText,
+  uc4FocusCodeForCategory,
+} from '../carePlan/careCategories';
 import type {
   ContextCode,
   ObservationCode,
@@ -79,8 +84,19 @@ function currentSeverityContext(
 
 function mapCarePlanFocusCodes(snapshot: PatientRecordSnapshot): string[] {
   const codes: string[] = [];
+  const addFromText = (text: string | null | undefined) => {
+    const focusCode = uc4FocusCodeForCategory(categorizeCareText(text));
+    if (focusCode) codes.push(focusCode);
+  };
+
   if (snapshot.rehabPlanMetrics.length > 0 || snapshot.rehabExerciseAssignments.length > 0) {
     codes.push('REHAB_THERAPY');
+  }
+  for (const condition of snapshot.conditions) addFromText(condition.name);
+  for (const symptom of snapshot.symptoms) addFromText(symptom.label);
+  for (const goal of snapshot.carePlanGoals) addFromText(goal.description);
+  for (const activity of snapshot.carePlan?.activities ?? []) {
+    addFromText(activity.description);
   }
   return unique(codes).sort();
 }
@@ -223,13 +239,6 @@ export function adaptPatientRecordSnapshotToUC4Input(
   }
   if (errors.length > 0) return { status: 'not_ready', errors, warnings };
 
-  if (snapshot.medications.some((medication) => medication.active)) {
-    warnings.push(issue(
-      'medication_watch_areas_omitted',
-      'Active medications exist, but no approved medication watch-area source is available.',
-      'snapshot.medications',
-    ));
-  }
   if (snapshot.wearable?.connected && !bundle.wearableSummary) {
     warnings.push(issue(
       'wearable_summary_omitted',
@@ -261,7 +270,7 @@ export function adaptPatientRecordSnapshotToUC4Input(
           patientId,
           medicationName: medication.name,
           synthetic: false,
-          watchAreas: [],
+          watchAreas: mapMedicationNameToWatchAreas(medication.name),
           scheduleText: compact([medication.dosage, medication.frequency]).join(' ') || undefined,
         })),
       recentEvents,

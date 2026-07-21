@@ -223,7 +223,8 @@ describe('demo onboarding presets', () => {
     for (const preset of Object.values(DEMO_ONBOARDING_PRESETS)) {
       const next = applyDemoOnboardingPreset(blankProfile(), preset.id);
 
-      expect(next.patient.age).toBe(preset.patient.age);
+      // Age is EHR-derived (bundle birthDate), never preset-supplied.
+      expect(next.patient.age).toBe('');
       expect(next.patient.conditions).toBe('');
       expect(next.patient.currentMedications).toBe('');
       expect(next.patient.spo2Cutoff).toBe('');
@@ -295,16 +296,16 @@ describe('demo onboarding presets', () => {
     expect(preset?.caregiver.name).toBe('Diane');
     expect(preset?.caregiver.relationship).toBe('Wife');
     expect(preset?.caregiver.mainConcern).toBe(
-      'James has been doing his exercises every day, but I am worried that the numbers may look better than his actual recovery. I want to know whether he is truly improving or compensating with his shoulder.',
+      'I want to keep James on track with his daily rehabilitation exercises, repetitions, range of motion, and walking activity, and I need to understand when pain, fatigue, or stalled progress means I should contact the rehabilitation team.',
     );
     expect(preset?.patient.baselineDailyRoutine).toBe(
-      'James does his prescribed shoulder range-of-motion and grip exercises at home every day. I help him stay on schedule, record his progress, and watch for pain, fatigue, balance problems, or changes in how he moves.',
+      'James does caregiver-supported home rehabilitation each day. I help track his exercise repetitions, range of motion, walking activity, pain, and fatigue, and I keep notes for the rehabilitation team.',
     );
     expect(preset?.caregiver.stressOrSupportNeeds).toBe(
-      'I need help recognizing meaningful progress, making sure he exercises safely, and knowing when he may need to be reassessed.',
+      'I need clear guidance for tracking home exercises safely, noticing changes in walking or range of motion, and knowing when to ask the rehabilitation team for help.',
     );
     expect(preset?.safety.safetyNotes).toBe(
-      'I am concerned that James may compensate with his shoulder or lose his balance during home exercises. I would stop the exercise and contact his care team if he develops new pain, marked weakness, dizziness, or worsening balance. I would seek urgent help for new facial droop, speech difficulty, or one-sided weakness.',
+      'I watch for new weakness, severe sudden pain, falls with injury, chest pain, or shortness of breath during James\'s home rehabilitation. I would stop activity and contact his care team for concerning changes, and seek urgent help for chest pain, shortness of breath, a fall with injury, new one-sided weakness, or speech trouble.',
     );
   });
 
@@ -333,8 +334,9 @@ describe('demo onboarding presets', () => {
     const next = applyDemoOnboardingPreset(blankProfile(), 'mike-ehr-v62');
 
     expect(preset?.patient.preferredName).toBe('Mike');
-    expect(preset?.patient.age).toBe('32');
-    expect(next.patient.age).toBe('32');
+    // Age is EHR-derived (bundle birthDate 1994-12-11), not a preset fact.
+    expect(preset?.patient.age).toBeUndefined();
+    expect(next.patient.age).toBe('');
     expect(preset?.caregiver.name).toBe('Denise Thompson');
     expect(preset?.caregiver.relationship).toBe('Mother');
     expect(preset?.caregiver.experience).toBe('Experienced');
@@ -388,12 +390,12 @@ describe('demo onboarding presets', () => {
     expect(getDemoOnboardingPreset('james-okafor')?.primaryCareProvider).toEqual({
       name: 'Adam Bricker, MD',
       phone: '(555) 030-1100',
-      email: 'james.provider@example.com',
+      email: 'adam.bricker@example.com',
     });
     expect(getDemoOnboardingPreset('sofia-reyes')?.primaryCareProvider).toEqual({
       name: 'Adam Bricker, MD',
-      phone: '(555) 030-1200',
-      email: 'sofia.provider@example.com',
+      phone: '(555) 030-1100',
+      email: 'adam.bricker@example.com',
     });
     expect(getDemoOnboardingPreset('elena-gracia')?.primaryCareProvider).toEqual({
       name: 'Dr. Avery Patel',
@@ -440,7 +442,7 @@ describe('demo onboarding presets', () => {
 
     expect(elenaPatient.name?.[0]?.given).toContain('Elena');
     expect(elenaPatient.name?.[0]?.family).toBe('Garcia');
-    expect(elenaPatient.birthDate).toBe('1994-06-01');
+    expect(elenaPatient.birthDate).toBe('1954-06-01');
     expect(elenaPreset?.patient.preferredName).toBe('Elena');
     expect(elenaPreset?.safety.safetyNotes).not.toMatch(/penicillin|allerg/i);
 
@@ -465,9 +467,9 @@ describe('demo onboarding presets', () => {
     expect(sofiaPreset?.safety.safetyNotes).not.toMatch(/allerg/i);
 
     expect(mikePatient.name?.[0]?.given).toContain('Mike');
-    expect(mikePatient.birthDate).toBeUndefined();
+    expect(mikePatient.birthDate).toBe('1994-12-11');
     expect(mikePreset?.patient.preferredName).toBe('Mike');
-    expect(mikePreset?.patient.age).toBe('32');
+    expect(mikePreset?.patient.age).toBeUndefined();
     expect(mikePreset?.safety.safetyNotes).toContain('choking');
     expect(mikePreset?.safety.safetyNotes).not.toMatch(/allerg/i);
   });
@@ -479,7 +481,7 @@ describe('demo onboarding presets', () => {
       .map((resource) => resource?.code?.text)
       .filter(Boolean);
 
-    expect(getPatient(mikeBundle).birthDate).toBeUndefined();
+    expect(getPatient(mikeBundle).birthDate).toBe('1994-12-11');
     expect(resources.filter((resource) => resource?.resourceType === 'Basic')).toHaveLength(90);
     expect(basicCodes).toContain('Functional/developmental support: feeding/nutrition');
     expect(basicCodes).toContain('Care-team history: Occupational therapy');
@@ -538,7 +540,7 @@ describe('demo onboarding presets', () => {
     expect(prepared.caregiver?.mainConcern).toBe('Edited concern');
   });
 
-  it('preserves Mike age on same-profile import when the EHR has no birthDate', () => {
+  it('preserves Mike onboarding values on same-profile import', () => {
     const current = applyDemoOnboardingPreset(blankProfile(), 'mike-ehr-v62');
 
     const prepared = prepareDemoOnboardingForImportedProfile({
@@ -548,9 +550,13 @@ describe('demo onboarding presets', () => {
       now: '2026-07-10T00:00:00.000Z',
     });
 
-    expect(getPatient(mikeBundle).birthDate).toBeUndefined();
+    // Mike's EHR now carries a birthDate, so age is EHR-derived; the preset
+    // itself stays free of clinical facts and same-profile import preserves
+    // the existing onboarding profile untouched.
+    expect(getPatient(mikeBundle).birthDate).toBe('1994-12-11');
     expect(prepared.preservedExistingOnboarding).toBe(true);
-    expect(prepared.profile.patient.age).toBe('32');
+    expect(prepared.profile).toBe(current);
+    expect(prepared.profile.patient.age).toBe('');
   });
 
   it('applies another bundled profile persona when importing a different profile', () => {
@@ -628,7 +634,7 @@ describe('demo onboarding presets', () => {
 
     expect(prepared.profile.caregiver.name).toBe('Denise Thompson');
     expect(prepared.profile.caregiver.relationship).toBe('Mother');
-    expect(prepared.profile.patient.age).toBe('32');
+    expect(prepared.profile.patient.age).toBe('');
     expect(prepared.profile.caregiver.address?.line1).toBe('318 Harbor View Place');
     expect(prepared.profile.caregiver.backupCaregiver).toBe(
       'Marcus Thompson, Brother - (555) 014-6630',
@@ -652,7 +658,7 @@ describe('demo onboarding presets', () => {
     );
 
     expect(context.caregiverName).toBe('Diane');
-    expect(context.caregiverMainConcern).toContain('actual recovery');
+    expect(context.caregiverMainConcern).toContain('rehabilitation team');
     expect(context.caregiverName).not.toBe('Luis Garcia');
   });
 

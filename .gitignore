@@ -79,3 +79,11 @@ planning/notebooks/synthetic/
 planning/
 AGENTS.md
 .claude/
+
+# NLU model binaries (large)
+assets/models/nlu/*.onnx
+assets/models/nlu/*.tflite
+assets/models/nlu/_tf_saved_model/
+planning/model.safetensors
+planning/python-testing/.venv/
+planning/python-testing/work/

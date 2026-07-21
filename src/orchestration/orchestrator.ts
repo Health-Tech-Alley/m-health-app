@@ -1083,36 +1083,45 @@ export class Orchestrator {
     const graph = this.graphProjector.build(patientId);
     const subgraph = buildContextSubgraph(graph, patientId, alertId);
 
-    let prompt = this.buildExplainPrompt(context, alert, agentProposals, subgraph, {
+    const activeSkill = 'explain-anomaly' as SkillId;
+    const systemPrompt = this.buildSystemPrompt(context, activeSkill);
+    let userPrompt = this.buildExplainPrompt(context, alert, agentProposals, subgraph, {
       topFeatures: mlTopFeatures,
       ruleEngine: mlRuleEngine,
       caregiverBlock: mlCaregiverBlock,
       rawVitals: mlRawVitals,
       confidenceRatio: mlConfidenceRatio,
     });
-    const reserveForGeneration = CONCIERGE_GENERATION_EXPLAIN.maxTokens > 0
-      ? CONCIERGE_GENERATION_EXPLAIN.maxTokens
-      : 2048; // unlimited generation — reserve a generous budget
-    prompt = this.truncateToTokenBudget(prompt, 4096 - reserveForGeneration);
+    const nCtx = this.getSlmContextSize();
+    const budgeted = this.budgetExplainPrompts(systemPrompt, userPrompt, nCtx);
+    userPrompt = budgeted.user;
 
     const turnId = `turn-${Date.now()}`;
 
-    this.addTrace({ agent: 'orchestrator', thought: 'Acquiring SLM lease for explain_alert.' });
+    this.addTrace({
+      agent: 'orchestrator',
+      thought: `Acquiring SLM lease for explain_alert (n_ctx=${nCtx}).`,
+    });
     const lease = await this.slmTasks.acquire('explain_alert');
 
     let slmResult;
     try {
       this.addTrace({ agent: 'orchestrator', thought: 'Selecting skill: explain-anomaly for alert-explain flow.' });
-      const activeSkill = 'explain-anomaly' as SkillId;
       this.addTrace({ agent: 'orchestrator', thought: 'Calling SLM with RAG context, skill prompt, and skill-filtered tool schemas.' });
       slmResult = await this.slm.chat(
         [
-          { role: 'system', content: this.buildSystemPrompt(context, activeSkill) },
-          { role: 'user', content: prompt },
+          { role: 'system', content: budgeted.system },
+          { role: 'user', content: userPrompt },
         ],
         () => {},
         new AbortController().signal,
-        { ...CONCIERGE_GENERATION_EXPLAIN, reasoningFormat: REASONING_FORMAT_EXPLAIN },
+        {
+          maxTokens: 768,
+          maxReasoningTokens: 384,
+          temperature: CONCIERGE_GENERATION_EXPLAIN.temperature,
+          topP: CONCIERGE_GENERATION_EXPLAIN.topP,
+          reasoningFormat: REASONING_FORMAT_EXPLAIN,
+        },
         // Capture reasoning for the transparency trace (D4). Not displayed
         // to the caregiver — the explain path waits for the full answer.
         (reasoningToken) => {
@@ -1224,29 +1233,27 @@ export class Orchestrator {
       context.priorDecisions = this.priorDecisionsProvider({ patientId });
     }
 
+    const metricSummary = this.summarizeUc3Metrics(result.metricAnalyses);
     const structuredBlock = [
       'UC3 REHAB TRAJECTORY RESULT (persisted - do not re-score or invent vitals)',
-      `resultId: ${result.resultId}`,
-      `carePlanId: ${result.carePlanId}`,
       `eventType: ${result.eventType}`,
       `severity: ${result.severity}`,
       `requiresHumanReview: ${result.requiresHumanReview}`,
       `emergencyThresholdBreach: ${result.emergencyThresholdBreach}`,
       `reviewPriorityScore: ${result.reviewPriorityScore}`,
-      `modelFamily: ${result.modelFamily}`,
-      `modelVersion: ${result.modelVersion}`,
-      `generatedAt: ${result.generatedAt}`,
       `reasonCodes: ${result.reasonCodes.join(', ')}`,
       'explanations:',
-      ...result.explanations.map((explanation) => `- ${explanation}`),
-      `metricAnalysesJson: ${JSON.stringify(result.metricAnalyses)}`,
-      `dataQualityJson: ${JSON.stringify(result.dataQuality)}`,
+      ...result.explanations.slice(0, 6).map((explanation) => `- ${explanation}`),
+      'keyMetrics:',
+      metricSummary,
+      `dataQuality: sufficient=${Boolean((result.dataQuality as { sufficientData?: boolean } | null)?.sufficientData)}`,
     ].join('\n');
 
     const activeSkill = 'explain-rehab-trajectory' as SkillId;
-    let prompt = [
-      this.buildSystemPrompt(context, activeSkill),
-      '',
+    // System once only — previously system was duplicated into the user message,
+    // which overflowed n_ctx ("context is full") on 2–4k windows.
+    const systemPrompt = this.buildSystemPrompt(context, activeSkill);
+    let userPrompt = [
       structuredBlock,
       '',
       rehabTrajectoryBlock(context.rehabTrajectory),
@@ -1255,18 +1262,18 @@ export class Orchestrator {
       '',
       'Explain this rehab trajectory result to the caregiver in plain language.',
       'Do not diagnose. Do not change severity. Do not invent measurements.',
+      'Keep the answer to a short paragraph plus a few bullets.',
     ].join('\n');
 
-    const reserveForGeneration =
-      CONCIERGE_GENERATION_EXPLAIN.maxTokens > 0
-        ? CONCIERGE_GENERATION_EXPLAIN.maxTokens
-        : 2048;
-    prompt = this.truncateToTokenBudget(prompt, 4096 - reserveForGeneration);
+    const nCtx = this.getSlmContextSize();
+    const budgeted = this.budgetExplainPrompts(systemPrompt, userPrompt, nCtx);
+    const finalSystem = budgeted.system;
+    userPrompt = budgeted.user;
 
     const turnId = `turn-uc3-${Date.now()}`;
     this.addTrace({
       agent: 'orchestrator',
-      thought: 'Acquiring SLM lease for explain_rehab_trajectory.',
+      thought: `UC3 explain budget n_ctx=${nCtx} system~${Math.ceil(finalSystem.length / 4)} user~${Math.ceil(userPrompt.length / 4)} tokens.`,
     });
     const lease = await this.slmTasks.acquire('explain_rehab_trajectory');
 
@@ -1278,12 +1285,19 @@ export class Orchestrator {
       });
       slmResult = await this.slm.chat(
         [
-          { role: 'system', content: this.buildSystemPrompt(context, activeSkill) },
-          { role: 'user', content: prompt },
+          { role: 'system', content: finalSystem },
+          { role: 'user', content: userPrompt },
         ],
         () => {},
         new AbortController().signal,
-        { ...CONCIERGE_GENERATION_EXPLAIN, reasoningFormat: REASONING_FORMAT_EXPLAIN },
+        // Finite budgets — unlimited explain + huge prompt filled the window.
+        {
+          maxTokens: 512,
+          maxReasoningTokens: 256,
+          temperature: CONCIERGE_GENERATION_EXPLAIN.temperature,
+          topP: CONCIERGE_GENERATION_EXPLAIN.topP,
+          reasoningFormat: REASONING_FORMAT_EXPLAIN,
+        },
         (reasoningToken) => {
           this.addTrace({
             agent: 'slm',
@@ -1369,30 +1383,35 @@ export class Orchestrator {
     ].join('\n');
 
     const activeSkill = 'uc4-provider-summary-rewrite' as SkillId;
+    const systemPrompt = this.buildSystemPrompt(context, activeSkill);
+    let userPrompt = [
+      'Explain the following deterministic UC4 care focus card for a family caregiver.',
+      'Keep all facts, scores, template IDs, and safety boundaries unchanged.',
+      'No diagnosis. No medication causality. No treatment changes.',
+      'Keep the answer short (one short paragraph + bullets).',
+      '',
+      deterministicSummary,
+    ].join('\n');
+    const nCtx = this.getSlmContextSize();
+    const budgeted = this.budgetExplainPrompts(systemPrompt, userPrompt, nCtx);
     const lease = await this.slmTasks.acquire('uc4_provider_summary_rewrite');
     const turnId = `turn-uc4-${Date.now()}`;
     let slmResult;
     try {
       slmResult = await this.slm.chat(
         [
-          {
-            role: 'system',
-            content: this.buildSystemPrompt(context, activeSkill),
-          },
-          {
-            role: 'user',
-            content: [
-              'Explain the following deterministic UC4 care focus card for a family caregiver.',
-              'Keep all facts, scores, template IDs, and safety boundaries unchanged.',
-              'No diagnosis. No medication causality. No treatment changes.',
-              '',
-              deterministicSummary,
-            ].join('\n'),
-          },
+          { role: 'system', content: budgeted.system },
+          { role: 'user', content: budgeted.user },
         ],
         () => {},
         new AbortController().signal,
-        { ...CONCIERGE_GENERATION_EXPLAIN, reasoningFormat: REASONING_FORMAT_EXPLAIN },
+        {
+          maxTokens: 512,
+          maxReasoningTokens: 256,
+          temperature: CONCIERGE_GENERATION_EXPLAIN.temperature,
+          topP: CONCIERGE_GENERATION_EXPLAIN.topP,
+          reasoningFormat: REASONING_FORMAT_EXPLAIN,
+        },
       );
     } finally {
       lease.release();
@@ -1664,7 +1683,7 @@ export class Orchestrator {
     const approxTokens = Math.ceil(prompt.length / 4);
     if (approxTokens <= maxTokens) return prompt;
 
-    const maxChars = maxTokens * 4;
+    const maxChars = Math.max(0, maxTokens) * 4;
     const truncated = prompt.slice(0, maxChars);
     const lastNewline = truncated.lastIndexOf('\n');
     const result = lastNewline > 0 ? truncated.slice(0, lastNewline) : truncated;
@@ -1673,6 +1692,69 @@ export class Orchestrator {
       thought: `Prompt truncated from ~${approxTokens} to ~${Math.ceil(result.length / 4)} tokens.`,
     });
     return result + '\n\n[Context truncated to fit model context window.]';
+  }
+
+  /** Loaded model n_ctx (falls back to 4096). */
+  private getSlmContextSize(): number {
+    const fromProvider = this.slm.getContextSize?.();
+    if (typeof fromProvider === 'number' && fromProvider > 0) return fromProvider;
+    const info = this.slm.getModelInfo?.();
+    if (info && typeof info.nCtx === 'number' && info.nCtx > 0) return info.nCtx;
+    return 4096;
+  }
+
+  /** Compact UC3 metric dump for explain prompts (avoids multi-KB JSON). */
+  private summarizeUc3Metrics(metricAnalyses: unknown): string {
+    if (!metricAnalyses || typeof metricAnalyses !== 'object') return '- (none)';
+    const lines: string[] = [];
+    for (const [key, raw] of Object.entries(metricAnalyses as Record<string, unknown>)) {
+      if (!raw || typeof raw !== 'object') continue;
+      const m = raw as Record<string, unknown>;
+      const bits = [
+        m.finalActual != null ? `actual=${m.finalActual}` : null,
+        m.finalExpected != null ? `expected=${m.finalExpected}` : null,
+        m.gapPercent != null ? `gap=${m.gapPercent}` : null,
+        m.plateauDays != null ? `plateauDays=${m.plateauDays}` : null,
+      ].filter(Boolean);
+      if (bits.length > 0) lines.push(`- ${key}: ${bits.join(', ')}`);
+      if (lines.length >= 6) break;
+    }
+    return lines.length > 0 ? lines.join('\n') : '- (none)';
+  }
+
+  /**
+   * Fit system + user explain prompts into n_ctx with room for generation.
+   * Shrinks user first, then system (tools/RAG), never drops the UC3/UC4 core block if possible.
+   */
+  private budgetExplainPrompts(
+    system: string,
+    user: string,
+    nCtx: number,
+  ): { system: string; user: string } {
+    // Leave headroom for chat template + generation (answer + short think).
+    const reserveGen = Math.min(768, Math.max(256, Math.floor(nCtx * 0.2)));
+    const overhead = 48;
+    let budget = Math.max(512, nCtx - reserveGen - overhead);
+
+    let sys = system;
+    let usr = user;
+    const tokens = (s: string) => Math.ceil(s.length / 4);
+
+    // Prefer keeping user (structured UC result) and trim bloated system first.
+    if (tokens(sys) + tokens(usr) > budget) {
+      const maxSys = Math.min(tokens(sys), Math.floor(budget * 0.55));
+      sys = this.truncateToTokenBudget(sys, maxSys);
+    }
+    if (tokens(sys) + tokens(usr) > budget) {
+      const maxUsr = Math.max(200, budget - tokens(sys));
+      usr = this.truncateToTokenBudget(usr, maxUsr);
+    }
+    // Last resort: hard-cap both.
+    if (tokens(sys) + tokens(usr) > budget) {
+      sys = this.truncateToTokenBudget(sys, Math.floor(budget / 2));
+      usr = this.truncateToTokenBudget(usr, Math.floor(budget / 2));
+    }
+    return { system: sys, user: usr };
   }
 
   /**

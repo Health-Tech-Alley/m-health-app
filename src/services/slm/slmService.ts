@@ -97,7 +97,7 @@ export function buildCaregiverAssistantContextFromSnapshot(
     : confirmedConditions.filter((c) => c !== primary);
 
   return {
-    patientName: snapshot.patient?.name,
+    patientName: snapshot.patient?.preferredName?.trim() || snapshot.patient?.name,
     patientAge: snapshot.patient?.age,
     patientConditions: snapshot.patient?.conditions,
     primaryCondition: primary
@@ -283,6 +283,10 @@ export function buildCaregiverSystemContext(
     "- Never prescribe, change a dose, or stop a medication. Restate the regimen; flag when to call the prescriber.",
     "- Never replace a clinician, an emergency line, or the care plan.",
     "- Never invent numbers, medication names, or thresholds that aren't in the care context.",
+    "",
+    "IDENTITY LOCK",
+    `- You are speaking only to ${caregiverFirst} about ${patientFirst} (the loaded patient record).`,
+    `- If the user clearly refers to a different patient or claims to be a different caregiver, do NOT apply this record's meds/conditions to that other person. Ask them to confirm identity or switch profiles first.`,
     "",
     escalationBlock(context.primaryCareProviderName),
     "",

@@ -32,6 +32,30 @@ export type HealthSampleType =
   | 'sleep'
   | 'coughing';
 
+/**
+ * Frozen list of `HealthSampleType` values for runtime membership checks
+ * (e.g. FHIR projection of Alert ML thresholds). Keeping this a separate
+ * const makes the "is N a known vital type?" predicate deterministic
+ * without re-enumerating the type union by hand.
+ */
+export const HEALTH_SAMPLE_TYPES: readonly HealthSampleType[] = [
+  'spo2',
+  'heart_rate',
+  'respiratory_rate',
+  'blood_pressure_systolic',
+  'blood_pressure_diastolic',
+  'temperature',
+  'weight',
+  'height',
+  'bmi',
+  'blood_glucose',
+  'steps',
+  'distance',
+  'flights_climbed',
+  'sleep',
+  'coughing',
+];
+
 export interface HealthSample {
   sampleId: string;
   patientId: string;
@@ -563,7 +587,9 @@ export type KnowledgeSource =
   | 'synthetic'
   | 'hedis'
   | 'patient-plan'
-  | 'patient-record';
+  | 'patient-record'
+  // ADCP (planning/39 P4) — chunks projected from the per-patient care plan
+  | 'adcp_plan';
 
 /** Coarse chunk-depth tier used by the prompt-budget router (planning/32 §12.4). */
 export type KnowledgeDocumentType =
@@ -572,7 +598,10 @@ export type KnowledgeDocumentType =
   | 'guideline'
   | 'systematic_review'
   | 'spl_full'
-  | 'synthetic';
+  | 'synthetic'
+  // ADCP (planning/39 P4) — section / rolling decision-log chunks
+  | 'care_plan_section'
+  | 'care_plan_decision_log';
 
 /** Length tier for budget-aware prompt injection. */
 export type KnowledgeLengthTier = 'short' | 'medium' | 'long';
@@ -800,6 +829,7 @@ export interface NotificationPreferences {
 
 export type AppMode = 'demo' | 'developer';
 export type ThemePreference = 'light' | 'dark' | 'system';
+export type CarePlanMode = 'full' | 'read_only';
 
 export interface AppSettings {
   mode: AppMode;
@@ -817,6 +847,13 @@ export interface AppSettings {
   evidenceDevelopmentFallback: boolean;
   /** Evidence graph expansion for RAG retrieval (doc 36). Default false. */
   knowledgeGraphExpansion: boolean;
+  /**
+   * Living care plan mutation policy (planning/41 D1).
+   * 'full' (default): Concierge can queue proposal → HITL → ML vet → publish.
+   * 'read_only': display + RAG + explain intents + export; no plan mutations
+   * (restore allowed with explicit confirm + consent).
+   */
+  carePlanMode: CarePlanMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -1038,6 +1075,41 @@ export interface BundleStatus {
   updatedAt?: string;
 }
 
+/**
+ * Narrow ADCP summary surfaced through the snapshot per planning/39
+ * `E4 Snapshot RFC fields (minimum)`.
+ *
+ * Full history/detail lives in `care_plan_revisions` and `pending_plan_proposals`.
+ */
+export interface ActiveAdcpVersionSlice {
+  planId: string;
+  version: number;
+  publishedAt: string;
+  source: 'seed:onboarding' | 'seed:fhir_import' | 'ml_apply' | 'caregiver_confirm' | 'slm_apply_with_hitl';
+  therapyContractPresent: boolean;
+  prioritiesCount: number;
+  medicationBindingsCount: number;
+}
+
+/**
+ * Alias of the repository-side summary shape. Kept as a separate name so
+ * consumers can wire to the snapshot field without importing the ADCP repo.
+ */
+export interface PendingPlanProposalSlice {
+  proposalId: string;
+  patientId: string;
+  intent: string;
+  section: string;
+  kind: string;
+  status: string;
+  summary: string;
+  rationale: string;
+  draftedBy: 'slm' | 'ml_engine' | 'caregiver';
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+}
+
 export interface PatientRecordSnapshot {
   patient: Patient | null;
   safetyNotes: string;
@@ -1074,6 +1146,10 @@ export interface PatientRecordSnapshot {
   };
   bundlePending: boolean;
   bundleStatus: BundleStatus;
+  // ADCP (planning/39 E4) — additive summary fields, populated by adcpRepository.
+  activeAdcpVersion: ActiveAdcpVersionSlice | null;
+  pendingPlanProposals: PendingPlanProposalSlice[];
+  therapyContractPresent: boolean;
   lastRefreshedAt: string;
 }
 
