@@ -80,13 +80,6 @@ export * from './repositories/uc3TrajectoryResultRepository';
 export * from './repositories/uc4PriorityCardRepository';
 export * from './repositories/uc4CaregiverResponseRepository';
 export * from './repositories/uc4RecentEventRepository';
-// Re-export non-conflicting names only; `uc4PreviousPriorityRepository` also
-// exports `getPreviousUc4Priorities` so its wildcard clashes with
-// `uc4PriorityRepository`'s same-named export. Callers should import directly
-// from the dedicated module when they need the previous-priority surface.
-export {
-  type PreviousUC4Priority,
-} from './repositories/uc4PreviousPriorityRepository';
 export * from './repositories/adcpRepository';
 export * from './adcp/types';
 export * from './sensors';

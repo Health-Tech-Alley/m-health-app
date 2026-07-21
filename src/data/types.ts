@@ -1085,7 +1085,7 @@ export interface ActiveAdcpVersionSlice {
   planId: string;
   version: number;
   publishedAt: string;
-  source: 'seed:onboarding' | 'seed:fhir_import' | 'ml_apply' | 'caregiver_confirm' | 'slm_apply_with_hitl';
+  source: 'seed:onboarding' | 'seed:fhir_import' | 'seed:restore' | 'ml_apply' | 'caregiver_confirm' | 'slm_apply_with_hitl';
   therapyContractPresent: boolean;
   prioritiesCount: number;
   medicationBindingsCount: number;
