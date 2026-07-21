@@ -1,7 +1,7 @@
 // src/data/fhir-import.ts
 
 import { getDatabase } from '../db';
-import { upsertCarePlan } from '../repositories/carePlanRepository';
+import { upsertCarePlan, upsertCarePlanGoal } from '../repositories/carePlanRepository';
 import { replaceCarePlanRehabMetrics } from '../repositories/carePlanRehabMetricRepository';
 import { upsertPatientCareContextItem } from '../repositories/patientCareContextRepository';
 import { upsertPatientLongitudinalObservation } from '../repositories/patientLongitudinalObservationRepository';
@@ -1075,6 +1075,14 @@ function upsertFHIRCarePlan(
     .map((reference: any) => resolveReferenceDisplay(reference, practitionerDisplayByReference))
     .filter((display: string | null): display is string => Boolean(display));
 
+  // planning/41 §9.1: CarePlan.note[] → safetyNotes. The existing
+  // upsertCarePlan does not overwrite safety_notes on conflict unless we
+  // explicitly set it, so this lets a richer safety note supersede.
+  const safetyFromNotes = (Array.isArray(r.note) ? r.note : [])
+    .map((n: any) => (n && typeof n.text === 'string' ? n.text.trim() : ''))
+    .filter((s: string) => s.length > 0)
+    .join('\n');
+
   upsertCarePlan({
     planId: r.id,
     patientId,
@@ -1087,7 +1095,7 @@ function upsertFHIRCarePlan(
     periodStart: r.period?.start ?? null,
     periodEnd: r.period?.end ?? null,
     careTeamDisplayJson: JSON.stringify(careTeamDisplay),
-    safetyNotes: undefined,
+    safetyNotes: safetyFromNotes || undefined,
     emergencyContact: undefined,
     createdAt: now,
     activities: (r.activity ?? []).map((activity: any, index: number) => ({
@@ -1112,6 +1120,64 @@ function upsertFHIRCarePlan(
       now,
     ),
   );
+
+  // planning/41 §9.1: import Goal resources referenced by this CarePlan
+  // into the `care_plan_goals` table. Goals that target the same patient
+  // but different plans are kept (the table is keyed by goal_id).
+  importCarePlanGoalsFromReferences(
+    r,
+    patientId,
+    activePatientId,
+    patientReferenceMap,
+    rehabPlanResourceIndex,
+  );
+}
+
+function importCarePlanGoalsFromReferences(
+  carePlan: any,
+  patientId: string,
+  activePatientId: string,
+  patientReferenceMap: Map<string, string> | undefined,
+  rehabPlanResourceIndex: RehabPlanResourceIndex,
+): void {
+  const goalReferences = Array.isArray(carePlan?.goal) ? carePlan.goal : [];
+  for (const goalReference of goalReferences) {
+    const goal = rehabPlanResourceIndex.goalsByReference.get(goalReference?.reference);
+    if (!goal?.id) continue;
+    const goalPatientId = getImportedPatientId(goal, activePatientId, patientReferenceMap);
+    if (goalPatientId !== patientId) continue;
+
+    const description =
+      goal.description?.text ??
+      (Array.isArray(goal.description?.coding) && goal.description.coding[0]?.display) ??
+      'Goal';
+    const dueDate = goal.target?.find((t: any) => t?.dueDate)?.dueDate ?? null;
+    const status = mapFhirGoalStatusToLocal(goal.lifecycleStatus);
+
+    upsertCarePlanGoal({
+      goalId: goal.id,
+      planId: carePlan.id,
+      description,
+      targetDate: typeof dueDate === 'string' ? dueDate : null,
+      status,
+    });
+  }
+}
+
+function mapFhirGoalStatusToLocal(
+  status: string | undefined,
+): 'active' | 'completed' | 'cancelled' {
+  switch ((status ?? '').toLowerCase()) {
+    case 'completed':
+    case 'achieved':
+      return 'completed';
+    case 'cancelled':
+    case 'abandoned':
+    case 'rejected':
+      return 'cancelled';
+    default:
+      return 'active';
+  }
 }
 
 function buildCarePlanRehabMetrics(

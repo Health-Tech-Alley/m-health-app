@@ -1,15 +1,12 @@
 /**
  * CareConciergeIntentsCard — the entry point to all Plan-supported intents
- * (planning/39 §4, §4.2, P2).
+ * (planning/39 §4, §4.2, P2; planning/41 D1/D3).
  *
- * Lists ≥5 caregiver-facing intents. Tapping one calls the router with the
- * snapshot; Concierge tab's `CarePlanInsightSheet` renders the result plus
- * a confirm/reject affordance that calls `caregiverConfirmProposal` /
- * `caregiverRejectProposal`.
+ * Lists caregiver-facing intents. Optional `intents` prop lets CareAskRegion
+ * pass a read-only-filtered catalog so mutating actions are not shown when
+ * Living care plan updates is off.
  *
- * Care SLM is **never** on a fast path / no-SLM path (L8). When no native
- * SLM is available the sheet gracefully shows the schema + "Concierge
- * unavailable" state.
+ * Care Concierge is **never** on a fast path (L8).
  */
 
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -19,32 +16,40 @@ import { AppTheme } from '@/constants/theme';
 import { intentCatalogList } from '@/services/carePlan/intentRouter';
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
 
+type IntentListItem = ReturnType<typeof intentCatalogList>[number];
+
 const INTENT_DESCRIPTION: Partial<Record<AdcpProposalIntentId, string>> = {
   review_monitoring_contract:
-    'Inspect active thresholds + queue personalized updates (ML-vetted before apply).',
+    'Inspect active thresholds and queue personalized updates for your review.',
   propose_therapy_contract_patch:
-    'Today\u2019s rehab check-in + therapy metrics inform a queued contract patch.',
+    'Today\u2019s rehab check-in and therapy metrics inform a queued plan update.',
   explain_uc4_card:
-    'Plain-language explanation of why a care-focus card surfaced now.',
+    'Plain-language explanation of why a care-focus item surfaced now.',
   promote_uc4_to_plan_task:
-    'Promote a card to a durable plan priority. ML vetting required before apply.',
+    'Add a care-focus item to the durable care plan after your review.',
   suggest_todays_logging:
-    'Metric-tied checklist based on plan gaps + what UC4 wants logged today.',
+    'Metric-tied checklist based on plan gaps and what to log today.',
   weekly_care_plan_review:
     'Multi-section review of the last 7 days; queues plan proposals with rationale.',
   handoff_summary:
-    'Narrative summary suitable for a backup caregiver + the audit trail.',
-  explain_uc3_result: 'Explain the latest rehabilitation trajectory result.',
-  explain_uc2_alert: 'Route through the alerts path; open the Care insight sheet.',
+    'Narrative summary suitable for a backup caregiver and the audit trail.',
+  explain_uc3_result: 'Explain the latest rehabilitation progress result.',
+  explain_uc2_alert: 'Open an explanation of a Health Monitor alert.',
 };
 
 export interface CareConciergeIntentsCardProps {
   patientId: string | null;
   onLaunch: (intent: AdcpProposalIntentId) => void;
+  /** When provided, only these intents are shown (e.g. read-only filter). */
+  intents?: IntentListItem[];
 }
 
-export function CareConciergeIntentsCard({ patientId, onLaunch }: CareConciergeIntentsCardProps) {
-  const intents = intentCatalogList();
+export function CareConciergeIntentsCard({
+  patientId,
+  onLaunch,
+  intents: intentsProp,
+}: CareConciergeIntentsCardProps) {
+  const intents = intentsProp ?? intentCatalogList();
   const handlePress = (intent: AdcpProposalIntentId) => {
     if (!patientId) return;
     onLaunch(intent);
@@ -57,7 +62,7 @@ export function CareConciergeIntentsCard({ patientId, onLaunch }: CareConciergeI
         <Text style={styles.title}>Care Concierge</Text>
       </View>
       <Text style={styles.subtitle}>
-        Pick a plan-aware question. Concierge waits for your review before any change goes to the engines.
+        Pick a plan-aware question. Concierge waits for your review before any change is applied.
       </Text>
       {intents.map((intent) => (
         <Pressable

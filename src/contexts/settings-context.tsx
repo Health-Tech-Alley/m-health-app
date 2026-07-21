@@ -11,6 +11,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import {
   getAppSettings,
   updateAppMode,
+  updateCarePlanMode,
   updateTheme,
   updateNotificationPreferences,
   updateDemoDefaultModelId,
@@ -20,7 +21,12 @@ import {
   updateKnowledgeGraphExpansion,
   type AppSettings,
 } from '@/data';
-import type { AppMode, ThemePreference, NotificationPreferences } from '@/data/types';
+import type {
+  AppMode,
+  CarePlanMode,
+  ThemePreference,
+  NotificationPreferences,
+} from '@/data/types';
 
 interface SettingsContextValue {
   settings: AppSettings;
@@ -35,6 +41,7 @@ interface SettingsContextValue {
   setNluDevelopmentFallback: (enabled: boolean) => void;
   setEvidenceDevelopmentFallback: (enabled: boolean) => void;
   setKnowledgeGraphExpansion: (enabled: boolean) => void;
+  setCarePlanMode: (mode: CarePlanMode) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -87,6 +94,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSettings(updated);
   }, []);
 
+  const setCarePlanMode = useCallback((mode: CarePlanMode) => {
+    const updated = updateCarePlanMode(mode);
+    setSettings(updated);
+  }, []);
+
   const value = useMemo<SettingsContextValue>(
     () => ({
       settings,
@@ -101,6 +113,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setNluDevelopmentFallback,
       setEvidenceDevelopmentFallback,
       setKnowledgeGraphExpansion,
+      setCarePlanMode,
     }),
     [
       settings,
@@ -113,6 +126,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setNluDevelopmentFallback,
       setEvidenceDevelopmentFallback,
       setKnowledgeGraphExpansion,
+      setCarePlanMode,
     ],
   );
 

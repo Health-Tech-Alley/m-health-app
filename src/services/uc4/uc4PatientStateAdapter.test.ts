@@ -91,10 +91,88 @@ describe('adaptPatientRecordSnapshotToUC4Input', () => {
     });
     expect(result.input.currentSeverityContext).toBe('uc2_severity_2_provider_review');
     expect(result.input.uc1ActiveEmergency).toBe(false);
-    expect(result.input.medications[0].watchAreas).toEqual([]);
+    expect(result.input.medications[0].watchAreas).toEqual([
+      'MEDICATION_TIMING_CONTEXT_NEEDED',
+      'MISSED_OR_DELAYED_DOSE',
+    ]);
     expect(result.warnings.map((warning) => warning.code)).toEqual([
-      'medication_watch_areas_omitted',
       'wearable_summary_omitted',
+    ]);
+  });
+
+  it('maps known medication classes to their watch areas', () => {
+    const result = adaptPatientRecordSnapshotToUC4Input({
+      snapshot: snapshot({
+        medications: [
+          { medicationId: 'med-1', patientId: 'patient-1', name: 'Baclofen 10mg', active: true },
+        ],
+      }),
+      activeAlerts: [],
+      previousPriorities: [],
+      nowIso: '2026-07-17T12:00:00.000Z',
+    });
+
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.input.medications[0].watchAreas).toEqual([
+      'SLEEPINESS_FATIGUE',
+      'WEAKNESS_OR_LOW_TONE_CONCERN',
+      'DIZZINESS_OR_LIGHTHEADEDNESS',
+      'MEDICATION_TIMING_CONTEXT_NEEDED',
+    ]);
+  });
+
+  it('derives care plan focus codes from conditions, symptoms, goals, and activities', () => {
+    const result = adaptPatientRecordSnapshotToUC4Input({
+      snapshot: snapshot({
+        conditions: [
+          { conditionId: 'cond-1', patientId: 'patient-1', name: 'Chronic constipation' },
+        ],
+        rehabPlanMetrics: [],
+        rehabExerciseAssignments: [],
+        symptoms: [
+          {
+            symptomId: 'sym-1',
+            patientId: 'patient-1',
+            label: 'Shortness of breath',
+            category: 'respiratory',
+            createdAt: '2026-07-01T00:00:00.000Z',
+          },
+        ],
+        carePlanGoals: [
+          {
+            goalId: 'goal-1',
+            description: 'Reposition every 2 hours to protect skin',
+            targetDate: null,
+            status: 'active',
+          },
+        ],
+        carePlan: {
+          planId: 'plan-1',
+          patientId: 'patient-1',
+          activities: [
+            {
+              activityId: 'act-1',
+              planId: 'plan-1',
+              status: 'active',
+              description: 'Watch for unusual responsiveness during the day',
+              sequence: 0,
+            },
+          ],
+        } as never,
+      }),
+      activeAlerts: [],
+      previousPriorities: [],
+      nowIso: '2026-07-17T12:00:00.000Z',
+    });
+
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.input.patient.carePlanFocusCodes).toEqual([
+      'BOWEL_BLADDER',
+      'BREATHING_CONTEXT',
+      'RESPONSIVENESS_CONTEXT',
+      'SKIN_PRESSURE',
     ]);
   });
 

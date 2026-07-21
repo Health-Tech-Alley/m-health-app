@@ -35,13 +35,18 @@ export default function DashboardRoute() {
   const caregiverFirstName = getFirstName(getCaregiverDisplay(activePatient));
   const patientFirstName = getFirstName(getPatientDisplayName(activePatient));
   const greeting = `${timeOfDayGreeting()}, ${caregiverFirstName}`;
-  const hasDocumentedRehabPlan = Boolean(
-    snapshot?.carePlan &&
-      ((snapshot.carePlan.activities?.length ?? 0) > 0 ||
-        (snapshot.rehabPlanMetrics?.length ?? 0) > 0),
+  // planning/41 §4 + §11: rehab reminder only when a therapy contract is
+  // present. Use the snapshot's `therapyContractPresent` flag (set by the
+  // ADCP spine) as the single source of truth so the Dashboard + Care tab
+  // agree on the same presence signal.
+  const therapyContractPresent = Boolean(
+    snapshot?.therapyContractPresent ||
+      (snapshot?.carePlan &&
+        ((snapshot.carePlan.activities?.length ?? 0) > 0 ||
+          (snapshot.rehabPlanMetrics?.length ?? 0) > 0)),
   );
   const showRehabReminder =
-    hasDocumentedRehabPlan && snapshot?.todayDailyCareEntry?.therapyCompleted !== true;
+    therapyContractPresent && snapshot?.todayDailyCareEntry?.therapyCompleted !== true;
   const topUc4Priority = snapshot?.latestUc4PriorityCards?.[0] ?? null;
   const uc3Result = snapshot?.latestUc3TrajectoryResult ?? null;
   const showUc3Status =

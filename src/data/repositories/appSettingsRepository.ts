@@ -5,7 +5,13 @@
 
 import { getDatabase } from '../db';
 import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
-import type { AppSettings, AppMode, ThemePreference, NotificationPreferences } from '../types';
+import type {
+  AppSettings,
+  AppMode,
+  CarePlanMode,
+  ThemePreference,
+  NotificationPreferences,
+} from '../types';
 
 const SETTINGS_KEY = 'app_settings';
 const ACTIVE_PATIENT_KEY = 'active_patient_id';
@@ -28,6 +34,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   nluDevelopmentFallback: false,
   evidenceDevelopmentFallback: false,
   knowledgeGraphExpansion: false,
+  carePlanMode: 'full',
 };
 
 export function getAppSettings(): AppSettings {
@@ -115,6 +122,13 @@ export function updateEvidenceDevelopmentFallback(enabled: boolean): AppSettings
 export function updateKnowledgeGraphExpansion(enabled: boolean): AppSettings {
   const current = getAppSettings();
   const updated = { ...current, knowledgeGraphExpansion: enabled };
+  saveAppSettings(updated);
+  return updated;
+}
+
+export function updateCarePlanMode(mode: CarePlanMode): AppSettings {
+  const current = getAppSettings();
+  const updated = { ...current, carePlanMode: mode };
   saveAppSettings(updated);
   return updated;
 }

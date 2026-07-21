@@ -43,6 +43,14 @@ jest.mock('../../data/repositories/adcpRepository', () => ({
   setProposalStatus: () => {},
 }));
 
+// planning/41 D1 — read-only gate reads app_settings. Mock with default 'full'
+// so existing tests keep their original behavior.
+jest.mock('../../data/repositories/appSettingsRepository', () => ({
+  __esModule: true,
+  getAppSettings: () => ({ carePlanMode: 'full' }),
+  updateCarePlanMode: (mode: 'full' | 'read_only') => ({ carePlanMode: mode }),
+}));
+
 // Mock the audit service so HealthMonitor/queue lookups don't blow up.
 jest.mock('../../services/audit/auditService', () => ({
   audit: () => undefined,

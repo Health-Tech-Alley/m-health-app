@@ -72,7 +72,10 @@ export function CarePlanInsightSheet({
   const {
     acquireSlm,
     loadModel: slmLoadModel,
+    unloadModel: slmUnloadModel,
     currentModelId: slmCurrentModelId,
+    taskQueue,
+    policy: slmPolicy,
   } = slm;
   const { settings } = useSettings();
   const { snapshot: liveSnapshot } = usePatientRecord();
@@ -88,21 +91,42 @@ export function CarePlanInsightSheet({
   const abortRef = useRef<AbortController | null>(null);
   const cancelRef = useRef(false);
   const leaseRef = useRef<SlmTaskLease | null>(null);
+  const loadedBySheetRef = useRef(false);
+  const ranRef = useRef(false);
   const scrollRef = useRef<ScrollView | null>(null);
+  const answerAccRef = useRef('');
 
   const [panY] = useState(() => new Animated.Value(0));
   const dragThreshold = 90;
   const effectiveSnapshot = snapshot ?? liveSnapshot;
 
+  const releaseLease = useCallback(() => {
+    const hadLease = leaseRef.current !== null;
+    leaseRef.current?.release();
+    leaseRef.current = null;
+    // If we loaded the model explicitly and never got a queue lease, unload
+    // under auto policy so Care doesn't pin RAM after dismiss.
+    if (
+      loadedBySheetRef.current &&
+      !hadLease &&
+      slmPolicy === 'auto' &&
+      taskQueue.activeLeaseCount === 0
+    ) {
+      void slmUnloadModel();
+    }
+    loadedBySheetRef.current = false;
+  }, [slmPolicy, slmUnloadModel, taskQueue]);
+
   /**
-   * Align with SlmInsightSheet (E3): acquire lease, else load any installed
-   * model and re-acquire. Fail closed with a recovery hint — never fake text.
+   * Align with SlmInsightSheet (E3): single-flight lease via task queue.
+   * Never call loadModel in parallel with another path (dual initLlama OOMs iOS).
    */
   const ensureModelAndLease = useCallback(async (): Promise<SlmTaskLease | null> => {
+    loadedBySheetRef.current = false;
     try {
       return await acquireSlm('care_concierge');
     } catch {
-      /* fall through */
+      /* fall through to explicit load */
     }
     const installed = MODEL_CATALOG.filter(isModelInstalled);
     if (installed.length === 0) return null;
@@ -112,11 +136,15 @@ export function CarePlanInsightSheet({
     } catch {
       return null;
     }
+    loadedBySheetRef.current = true;
+    // Let React commit loadStatus='ready' so the queue grants a tracked lease.
     await new Promise((r) => setTimeout(r, 0));
     if (cancelRef.current) return null;
     try {
       return await acquireSlm('care_concierge');
     } catch {
+      // Proceed without lease only if provider is actually ready; close path
+      // will unload if we loaded without a lease.
       return null;
     }
   }, [acquireSlm, defaultModelId, slmLoadModel]);
@@ -129,6 +157,7 @@ export function CarePlanInsightSheet({
     setError(null);
     setResult(null);
     setProposalResolvedAt(null);
+    answerAccRef.current = '';
     cancelRef.current = false;
     leaseRef.current?.release();
     leaseRef.current = null;
@@ -142,6 +171,8 @@ export function CarePlanInsightSheet({
     setCurrentModelId(slmCurrentModelId);
 
     const activeProvider = slm.provider;
+    // Prefer provider.getModelInfo() over loadStatus — after await, React may
+    // not have re-rendered yet (same pattern as SlmInsightSheet).
     if (!activeProvider?.getModelInfo()) {
       lease?.release();
       leaseRef.current = null;
@@ -149,7 +180,7 @@ export function CarePlanInsightSheet({
       setError(
         installed.length === 0
           ? 'Concierge is unavailable — no model is installed. Open Models to download one, then retry.'
-          : 'Concierge could not load a model. Open Models, load Concierge, then retry this intent.',
+          : 'Concierge could not load a model. Free memory, open Models, load Concierge, then retry.',
       );
       setPhase('error');
       return;
@@ -163,8 +194,6 @@ export function CarePlanInsightSheet({
       const args: Record<string, unknown> = {};
       const retrievalQuery = buildRetrievalQuery(conditionName, intent.caregiverLabel);
       const patientId = effectiveSnapshot.patient?.patientId ?? '';
-      // P4 plan-first: ADCP section chunks before literature so answers ground
-      // in *this* patient's plan, then clinical evidence.
       const planCitations: RetrievedCitation[] = patientId
         ? retrievePlanChunks(patientId, retrievalQuery, 4)
         : [];
@@ -188,7 +217,6 @@ export function CarePlanInsightSheet({
       ];
       const citationBlock = formatCitationsForPrompt(mergedCitations);
 
-      // Run the intent router with the SLM completion channel.
       const routerResult = await runIntent<AnyIntentOutput>({
         snapshot: effectiveSnapshot,
         intent: intent.intentId,
@@ -199,16 +227,22 @@ export function CarePlanInsightSheet({
             : params.userPrompt;
           let firstToken = false;
           setCurrentModelId(slmCurrentModelId);
+          answerAccRef.current = '';
           const text = await runSlmCompletion({
             provider: activeProvider,
             systemContext: params.systemContext,
             userPrompt: enrichedUser,
             signal: abortRef.current?.signal,
+            onToken: (token) => {
+              if (cancelRef.current) return;
+              if (!firstToken) {
+                firstToken = true;
+                setPhase('streaming');
+              }
+              answerAccRef.current += token;
+              setAnswer(answerAccRef.current);
+            },
           });
-          if (!firstToken) {
-            firstToken = true;
-            setPhase('streaming');
-          }
           if (!cancelRef.current) setAnswer(text);
           return text;
         },
@@ -216,13 +250,17 @@ export function CarePlanInsightSheet({
 
       if (cancelRef.current) return;
       const outputAny = routerResult.output as { explanation?: string };
-      const cleaned = stripControlTokens(outputAny?.explanation ?? answer).answer;
-      setFinalText(cleaned);
+      const raw =
+        outputAny?.explanation?.trim() ||
+        answerAccRef.current ||
+        '';
+      const cleaned = stripControlTokens(raw).answer;
+      setFinalText(cleaned || null);
       setResult(routerResult);
       setPhase('done');
     } catch (err) {
       if (cancelRef.current || abortRef.current?.signal.aborted) {
-        setPhase('done');
+        setPhase('idle');
         return;
       }
       setError(err instanceof Error ? err.message : String(err));
@@ -237,17 +275,33 @@ export function CarePlanInsightSheet({
     slm.provider,
     slmCurrentModelId,
     retriever,
-    answer,
   ]);
 
+  // One auto-run per open+intent; StrictMode-safe via ranRef.
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      ranRef.current = false;
+      return;
+    }
+    if (ranRef.current) return;
+    ranRef.current = true;
     const handle = setTimeout(() => {
       void runExplain();
     }, 0);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, intent?.intentId]);
+
+  // When parent hides the sheet without handleClose (e.g. proposal resolve),
+  // still abort work and drop the lease so the task queue can unload.
+  useEffect(() => {
+    if (visible) return;
+    cancelRef.current = true;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    releaseLease();
+    setPhase('idle');
+  }, [visible, releaseLease]);
 
   useEffect(() => {
     if (!visible) return;
@@ -263,10 +317,34 @@ export function CarePlanInsightSheet({
   const handleClose = useCallback(() => {
     cancelRef.current = true;
     abortRef.current?.abort();
-    leaseRef.current?.release();
-    leaseRef.current = null;
+    abortRef.current = null;
+    releaseLease();
+    ranRef.current = false;
     onClose();
-  }, [onClose]);
+  }, [onClose, releaseLease]);
+
+  const handleRetryLoad = useCallback(async () => {
+    setPhase('loading');
+    setError(null);
+    cancelRef.current = false;
+    try {
+      releaseLease();
+      try {
+        await slmUnloadModel();
+      } catch {
+        /* ignore */
+      }
+      // Brief yield so native mmap can release before re-load (iOS OOM path).
+      await new Promise((r) => setTimeout(r, 400));
+      if (cancelRef.current) return;
+      ranRef.current = false;
+      ranRef.current = true;
+      await runExplain();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setPhase('error');
+    }
+  }, [releaseLease, slmUnloadModel, runExplain]);
 
   useEffect(() => {
     return () => {
@@ -344,9 +422,21 @@ export function CarePlanInsightSheet({
             showsVerticalScrollIndicator
           >
             {phase === 'error' ? (
-              <Text style={styles.errorText}>
-                Couldn&apos;t run this intent: {error}
-              </Text>
+              <View>
+                <Text style={styles.errorText}>
+                  Couldn&apos;t run this intent: {error}
+                </Text>
+                <Pressable
+                  style={styles.retryButton}
+                  onPress={() => {
+                    void handleRetryLoad();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry loading Concierge"
+                >
+                  <Text style={styles.retryButtonText}>Retry Concierge load</Text>
+                </Pressable>
+              </View>
             ) : null}
 
             {(phase === 'loading' || phase === 'thinking') ? (
@@ -373,9 +463,12 @@ export function CarePlanInsightSheet({
                     onPress={() => {
                       setProposalResolvedAt(new Date().toISOString());
                       onProposalResolved?.(result);
+                      // Always release lease via handleClose — parent may only
+                      // flip visible=false without calling onClose itself.
+                      handleClose();
                     }}
                   >
-                    <Text style={styles.confirmText}>Send to ML vetting</Text>
+                    <Text style={styles.confirmText}>Send for your review</Text>
                   </Pressable>
                 </View>
                 {proposalResolvedAt ? (
@@ -525,6 +618,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontStyle: 'italic',
+  },
+  retryButton: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  retryButtonText: {
+    color: AppTheme.colors.white,
+    fontSize: 13,
+    fontWeight: '900',
   },
   errorText: {
     color: AppTheme.colors.danger,

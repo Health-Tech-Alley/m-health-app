@@ -82,6 +82,7 @@ import {
   type Uc3DeveloperEvaluationStatus,
 } from '@/services/uc3/uc3DeveloperEvaluationPresenter';
 import { evaluateAndPersistUc4Priorities } from '@/services/uc4/uc4EvaluationService';
+import { isNativeMemoryAvailable, useMemoryInfo } from '@/services/device-memory';
 
 const teal = '#0E6F68';
 const darkText = '#123433';
@@ -125,7 +126,7 @@ const ADCP_BACKUP_CONSENT = {
   scope: 'adcp_backup' as const,
   emoji: '💾',
   title: 'Care plan backup consent',
-  subtitle: 'Allow exporting and restoring the accessdp.careplan.v1 plan backup.',
+  subtitle: 'Allow exporting and restoring a care plan backup file.',
 };
 
 const initialRecordConsentState: Record<RecordConsentScope | 'adcp_backup', boolean> = {
@@ -162,6 +163,7 @@ export function PreferencesScreen() {
   const router = useRouter();
   const { settings, setTheme } = useSettings();
   const patientId = useOrchestratorPatientId();
+  const { refresh: refreshPatientRecord } = usePatientRecord();
   const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
   const [recordConsentGranted, setRecordConsentGranted] =
     useState<Record<RecordConsentScope, boolean>>(initialRecordConsentState);
@@ -268,7 +270,7 @@ export function PreferencesScreen() {
           return;
         }
         setAdcpBackupStatus('Nothing to export.');
-        Alert.alert('No plan to export', result.reason ?? 'No active ADCP revision.');
+        Alert.alert('No plan to export', result.reason ?? 'No active care plan revision.');
         return;
       }
       setAdcpBackupStatus(`Backup ready (${result.bundleSize ?? 0} bytes) — exporting…`);
@@ -334,10 +336,13 @@ export function PreferencesScreen() {
       });
 
       if (outcome.ok) {
-        setAdcpBackupStatus(`Restored as ADCP v${outcome.newPlanVersion}. Care badge updated.`);
+        setAdcpBackupStatus(
+          `Restored as care plan v${outcome.newPlanVersion}. Care tab updated.`,
+        );
+        refreshPatientRecord();
         Alert.alert(
           'Restore complete',
-          `Care plan restored as ADCP v${outcome.newPlanVersion}.`,
+          `Care plan restored as v${outcome.newPlanVersion}.`,
         );
       } else {
         setAdcpBackupStatus(`Restore rejected: ${outcome.reason}`);
@@ -348,7 +353,7 @@ export function PreferencesScreen() {
       setAdcpBackupStatus(`Restore failed: ${msg}`);
       Alert.alert('Restore failed', msg);
     }
-  }, [patientId]);
+  }, [patientId, refreshPatientRecord]);
 
   /** P5b — lossy FHIR Bundle share (dev / handoff demo). */
   const handleAdcpFhirExport = useCallback(async () => {
@@ -363,13 +368,13 @@ export function PreferencesScreen() {
         import('@/data/fhir/adcp-to-fhir-bundle'),
       ]);
       if (!isAdcpFhirProjectionEnabled(true)) {
-        Alert.alert('Unavailable', 'FHIR ADCP projection is disabled in this build.');
+        Alert.alert('Unavailable', 'FHIR care plan projection is disabled in this build.');
         return;
       }
       const snapshot = getPatientRecordSnapshot(patientId);
       const plan = getActiveAdcpRevisionForPatient(patientId);
       if (!plan) {
-        Alert.alert('No plan', 'No active ADCP revision to project.');
+        Alert.alert('No plan', 'No active care plan revision to project.');
         return;
       }
       const { bundle, warningCount } = projectAdcpToFhirBundle({
@@ -389,7 +394,7 @@ export function PreferencesScreen() {
         await file.write(json);
         await Sharing.shareAsync(file.uri, {
           mimeType: 'application/fhir+json',
-          dialogTitle: 'ADCP FHIR Bundle',
+          dialogTitle: 'Care plan FHIR Bundle',
         });
         setAdcpBackupStatus(
           `FHIR Bundle shared (${json.length} bytes)${warningCount ? ` · ${warningCount} warnings` : ''}.`,
@@ -541,10 +546,10 @@ export function PreferencesScreen() {
                 {__DEV__ && recordConsentGranted.adcp_backup ? (
                   <PlainActionRow
                     emoji="🏥"
-                    label="Export ADCP as FHIR Bundle (dev)"
+                    label="Export care plan as FHIR Bundle (dev)"
                     description="Lossy US Core–style CarePlan Bundle for handoff demos."
                     onPress={handleAdcpFhirExport}
-                    accessibilityLabel="Export ADCP FHIR Bundle"
+                    accessibilityLabel="Export care plan FHIR Bundle"
                   />
                 ) : null}
               </View>
@@ -576,6 +581,8 @@ export function AdvancedDeveloperSettingsScreen() {
     setKnowledgeGraphExpansion,
   } = useSettings();
   const slm = useSLM();
+  const memoryInfo = useMemoryInfo(2000);
+  const hasNativeMemory = isNativeMemoryAvailable();
   const patientId = useOrchestratorPatientId();
   const {
     patientId: patientRecordPatientId,
@@ -1002,7 +1009,11 @@ export function AdvancedDeveloperSettingsScreen() {
               <Text style={styles.devInfo}>
                 Policy: {slm.policy} - Status: {slm.loadStatus}
                 {slm.currentModelId ? ` - Model: ${slm.currentModelId}` : ''}
+                {slm.modelSizeGB != null ? ` - Size: ${slm.modelSizeGB.toFixed(2)} GB` : ''}
               </Text>
+              {slm.loadError ? (
+                <Text style={styles.devInfo}>Load error: {slm.loadError}</Text>
+              ) : null}
               <View style={styles.modelRow}>
                 {MODEL_CATALOG.map((m) => {
                   const installed = isModelInstalled(m);
@@ -1145,6 +1156,38 @@ export function AdvancedDeveloperSettingsScreen() {
                 onPress={handleDeleteAll}>
                 <Text style={styles.actionButtonText}>Delete All Models</Text>
               </Pressable>
+
+              <View style={styles.ramBlock}>
+                <Text style={styles.devLabel}>Device RAM</Text>
+                {hasNativeMemory && memoryInfo ? (
+                  <>
+                    <Text style={styles.devInfo}>
+                      {memoryInfo.usedMB.toFixed(0)} / {memoryInfo.totalMB.toFixed(0)} MB used
+                      {' · '}Free: {memoryInfo.freeMB.toFixed(0)} MB
+                      {' · '}App: {memoryInfo.appMB.toFixed(0)} MB
+                      {slm.modelSizeGB != null
+                        ? ` · Model: ${slm.modelSizeGB.toFixed(2)} GB`
+                        : ''}
+                    </Text>
+                    <View style={styles.progressBar}>
+                      <View
+                        style={[
+                          styles.progressFill,
+                          {
+                            width: `${Math.min((memoryInfo.usedMB / memoryInfo.totalMB) * 100, 100)}%`,
+                          },
+                          memoryInfo.usedMB / memoryInfo.totalMB > 0.8 && styles.progressFillHot,
+                        ]}
+                      />
+                    </View>
+                  </>
+                ) : (
+                  <Text style={styles.devInfo}>
+                    RAM measurement unavailable in this build. Concierge loads on demand with
+                    conservative cleanup.
+                  </Text>
+                )}
+              </View>
 
               <Pressable
                 style={styles.actionButton}
@@ -3022,6 +3065,13 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: teal,
     borderRadius: 2,
+  },
+  progressFillHot: {
+    backgroundColor: '#B42318',
+  },
+  ramBlock: {
+    marginTop: 12,
+    marginBottom: 4,
   },
   thresholdBlock: {
     padding: 12,

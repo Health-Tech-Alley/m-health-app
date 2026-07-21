@@ -62,15 +62,9 @@ import { CHAT_UNLOAD_GRACE_MS, useSLM } from '@/contexts/slm-context';
 import { useOrchestratorSafe, useOrchestratorRetriever, useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { useTheme } from '@/hooks/use-theme';
 import type { ChatMessage as ProviderChatMessage } from '@/inference/inference-provider';
-import { MODEL_CATALOG } from '@/inference/model-catalog';
-import { isNativeMemoryAvailable, useMemoryInfo } from '@/services/device-memory';
-import { isModelInstalled } from '@/services/model-storage';
 import {
   buildCaregiverAssistantContextFromSnapshot,
   buildCaregiverSystemContext,
-  CAREGIVER_SLM_MODEL_ID,
-  downloadCaregiverSLMModel,
-  isCaregiverSLMModelInstalled,
   type CaregiverAssistantContext,
 } from '@/services/slm/slmService';
 import { detectIdentityMismatches } from '@/services/slm/identity-guardrails';
@@ -92,6 +86,11 @@ import {
   InChatScheduleAppointmentCard,
   type InChatScheduleResult,
 } from '@/components/concierge/InChatScheduleAppointmentCard';
+import { ConciergeSuggestionBox } from '@/components/concierge/ConciergeSuggestionBox';
+import { CarePlanInsightSheet } from '@/components/careConcierge/CarePlanInsightSheet';
+import { getIntentDefinition } from '@/services/carePlan/intentRouter';
+import type { AdcpProposalIntentId } from '@/data/adcp/types';
+import type { CareIntentDefinition } from '@/services/carePlan/intentCatalog';
 
 /** Cap Pre-SLM NLU so empty-cache / live network never blocks Concierge. */
 const NLU_TIMEOUT_MS = 2500;
@@ -555,8 +554,6 @@ export default function SLMScreen({
   const patientId = useOrchestratorPatientId();
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [inputText, setInputText] = useState('');
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [inputHeight, setInputHeight] = useState(PROMPT_INPUT_MIN_HEIGHT);
   const [showReasoningFor, setShowReasoningFor] = useState<Set<string>>(new Set());
   const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(new Set());
@@ -588,8 +585,8 @@ export default function SLMScreen({
   const [reviewCodesByMessage, setReviewCodesByMessage] = useState<
     Record<string, string[]>
   >({});
-  const memoryInfo = useMemoryInfo(2000);
-  const hasNativeMemory = isNativeMemoryAvailable();
+  const [activeSuggestionIntent, setActiveSuggestionIntent] =
+    useState<CareIntentDefinition<any, any> | null>(null);
   const allowDevelopmentNluFallback =
     __DEV__ && isDeveloper && settings.nluDevelopmentFallback === true;
   const canUseLocalAppointmentDemo = __DEV__ && isDeveloper;
@@ -631,11 +628,6 @@ export default function SLMScreen({
       };
     },
     [snapshot, medicationNames],
-  );
-
-  const installedModels = useMemo(
-    () => MODEL_CATALOG.filter(isModelInstalled),
-    [],
   );
 
   // Doc 34 + chat grace: focus-bound session lease. On blur, keep the lease
@@ -745,35 +737,8 @@ export default function SLMScreen({
     flatListRef.current?.scrollToEnd({ animated: true });
   }, [state.messages]);
 
-  const handleLoadNativeModel = useCallback(
-    async (modelId: string) => {
-      try {
-        setIsDownloading(true);
-        setDownloadProgress(null);
-
-        if (modelId === CAREGIVER_SLM_MODEL_ID && !isCaregiverSLMModelInstalled()) {
-          await downloadCaregiverSLMModel({ onProgress: setDownloadProgress });
-        }
-
-        await slm.loadModel(modelId);
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : 'Failed to download or load the Concierge model.';
-        dispatch({
-          type: 'send-error',
-          payload: { assistantId: generateId(), error: message },
-        });
-      } finally {
-        setIsDownloading(false);
-      }
-    },
-    [slm],
-  );
-
-  const handleAskAssistant = useCallback(async () => {
-    const trimmed = inputText.trim();
+  const handleAskAssistant = useCallback(async (overrideText?: string) => {
+    const trimmed = (typeof overrideText === 'string' ? overrideText : inputText).trim();
     if (!trimmed || state.runStatus === 'streaming') return;
     const contextForRequest: CaregiverAssistantContext = caregiverContext ?? {};
 
@@ -2114,114 +2079,6 @@ export default function SLMScreen({
             icon="assistant"
           />
 
-          <View style={styles.statusCard}>
-            <Text style={styles.cardTitle}>Model Status</Text>
-            <Text style={styles.statusText}>Status: {slm.loadStatus}</Text>
-            {slm.currentModelId ? (
-              <Text style={styles.statusText}>Model: {slm.currentModelId}</Text>
-            ) : null}
-            {slm.modelSizeGB ? (
-              <Text style={styles.statusText}>Size: {slm.modelSizeGB.toFixed(2)} GB</Text>
-            ) : null}
-            {slm.loadError ? <Text style={styles.errorText}>{slm.loadError}</Text> : null}
-
-            {installedModels.length === 0 ? (
-              <Text style={styles.helperText}>
-                No models installed. Use the Models screen to download a model first.
-              </Text>
-            ) : (
-              <View style={styles.modelSelector}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {installedModels.map((entry) => (
-                    <Pressable
-                      key={entry.id}
-                      onPress={() => handleLoadNativeModel(entry.id)}
-                      disabled={isDownloading || state.runStatus === 'streaming'}
-                      style={[
-                        styles.modelButton,
-                        slm.currentModelId === entry.id && styles.modelButtonSelected,
-                        {
-                          borderColor:
-                            slm.currentModelId === entry.id ? '#0E6F68' : theme.textSecondary + '30',
-                          backgroundColor:
-                            slm.currentModelId === entry.id ? '#0E6F68' : '#FFFFFF',
-                        },
-                      ]}>
-                      <Text
-                        style={{
-                          color: slm.currentModelId === entry.id ? '#FFFFFF' : theme.text,
-                          fontWeight: slm.currentModelId === entry.id ? '600' : '400',
-                        }}>
-                        {entry.displayName}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-
-                {slm.loadStatus === 'ready' ? (
-                  <Pressable onPress={slm.unloadModel} style={styles.secondaryButton}>
-                    <Text style={styles.secondaryButtonText}>Unload Concierge model</Text>
-                  </Pressable>
-                ) : (
-                  <Pressable
-                    onPress={() => handleLoadNativeModel(CAREGIVER_SLM_MODEL_ID)}
-                    style={[styles.secondaryButton, isDownloading && styles.disabledButton]}
-                    disabled={isDownloading}>
-                    <Text style={styles.secondaryButtonText}>
-                      {isDownloading
-                        ? `Downloading${downloadProgress !== null ? ` ${downloadProgress}%` : ''}`
-                        : 'Download / load Concierge model'}
-                    </Text>
-                  </Pressable>
-                )}
-              </View>
-            )}
-          </View>
-
-          {slm.loadStatus === 'ready' || slm.loadStatus === 'loading' ? (
-            <View style={[styles.memoryCard, { backgroundColor: theme.backgroundElement }]}>
-              {hasNativeMemory && memoryInfo ? (
-                <>
-                  <View style={styles.memoryHeader}>
-                    <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Device RAM</Text>
-                    <Text style={[styles.statusText, { marginBottom: 0 }]}>
-                      {memoryInfo.usedMB.toFixed(0)} / {memoryInfo.totalMB.toFixed(0)} MB
-                    </Text>
-                  </View>
-                  <View style={styles.progressBarBg}>
-                    <View
-                      style={[
-                        styles.progressBarFill,
-                        {
-                          width: `${Math.min((memoryInfo.usedMB / memoryInfo.totalMB) * 100, 100)}%`,
-                          backgroundColor:
-                            memoryInfo.usedMB / memoryInfo.totalMB > 0.8 ? '#B42318' : '#0E6F68',
-                        },
-                      ]}
-                    />
-                  </View>
-                  <View style={styles.memoryDetails}>
-                    <Text style={styles.statusText}>Free: {memoryInfo.freeMB.toFixed(0)} MB</Text>
-                    {slm.modelSizeGB !== null ? (
-                      <Text style={styles.statusText}>Model: {slm.modelSizeGB.toFixed(2)} GB</Text>
-                    ) : null}
-                    <Text style={styles.statusText}>App: {memoryInfo.appMB.toFixed(0)} MB</Text>
-                  </View>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.cardTitle}>Device RAM</Text>
-                  <Text style={styles.statusText}>
-                    RAM measurement unavailable in this build. Concierge loads on demand with conservative cleanup.
-                  </Text>
-                  {slm.modelSizeGB !== null ? (
-                    <Text style={styles.statusText}>Model: {slm.modelSizeGB.toFixed(2)} GB</Text>
-                  ) : null}
-                </>
-              )}
-            </View>
-          ) : null}
-
           <View style={styles.contextCard}>
             <Text style={styles.cardTitle}>Care Context</Text>
             {patientRecordLoading ? (
@@ -2341,24 +2198,33 @@ export default function SLMScreen({
           </View>
 
           {state.messages.length === 0 ? (
-            <View style={styles.howToCard}>
-              <Text style={styles.howToTitle}>How Health Monitor works in chat</Text>
-              <Text style={styles.howToBody}>
-                1. Ask a vitals or what-if question (e.g. “What if SpO2 is 86% and heart rate is 118?”).
-              </Text>
-              <Text style={styles.howToBody}>
-                2. When vitals are detected, you’ll see “activating Health Monitor” and it runs right away.
-              </Text>
-              <Text style={styles.howToBody}>
-                3. Severity 1-2 may ask for observations. In developer mode, it may also offer a local demo follow-up appointment.
-              </Text>
-              <Text style={styles.howToBody}>
-                4. After you finish, Concierge explains with that context. Severity 3 skips review/scheduling and may show a critical banner — never auto-calls 911.
-              </Text>
-              <Text style={styles.howToFootnote}>
-                SpO2 is percent (86, not 0.86). Pure med/schedule questions skip Health Monitor.
-              </Text>
-            </View>
+            <>
+              <ConciergeSuggestionBox
+                onSendPrompt={(prompt) => void handleAskAssistant(prompt)}
+                onLaunchIntent={(intentId: AdcpProposalIntentId) =>
+                  setActiveSuggestionIntent(getIntentDefinition(intentId))
+                }
+                disabled={state.runStatus === 'streaming'}
+              />
+              <View style={styles.howToCard}>
+                <Text style={styles.howToTitle}>How Health Monitor works in chat</Text>
+                <Text style={styles.howToBody}>
+                  1. Ask a vitals or what-if question (e.g. “What if SpO2 is 86% and heart rate is 118?”).
+                </Text>
+                <Text style={styles.howToBody}>
+                  2. When vitals are detected, you’ll see “activating Health Monitor” and it runs right away.
+                </Text>
+                <Text style={styles.howToBody}>
+                  3. Severity 1-2 may ask for observations. In developer mode, it may also offer a local demo follow-up appointment.
+                </Text>
+                <Text style={styles.howToBody}>
+                  4. After you finish, Concierge explains with that context. Severity 3 skips review/scheduling and may show a critical banner — never auto-calls 911.
+                </Text>
+                <Text style={styles.howToFootnote}>
+                  SpO2 is percent (86, not 0.86). Pure med/schedule questions skip Health Monitor.
+                </Text>
+              </View>
+            </>
           ) : (
             <View style={styles.card}>
               <FlatList
@@ -2406,7 +2272,7 @@ export default function SLMScreen({
             </Pressable>
           ) : (
             <Pressable
-              onPress={handleAskAssistant}
+              onPress={() => void handleAskAssistant()}
               disabled={!inputText.trim() || isInputDisabled}
               style={[
                 styles.sendButton,
@@ -2426,6 +2292,14 @@ export default function SLMScreen({
           )}
         </View>
       </KeyboardAvoidingView>
+
+      <CarePlanInsightSheet
+        visible={activeSuggestionIntent !== null}
+        intent={activeSuggestionIntent}
+        snapshot={snapshot}
+        onClose={() => setActiveSuggestionIntent(null)}
+        onProposalResolved={() => setActiveSuggestionIntent(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -2519,12 +2393,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 13,
   },
-  statusCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 18,
-    marginBottom: 16,
-  },
   contextCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
@@ -2617,21 +2485,11 @@ const styles = StyleSheet.create({
     padding: 18,
     marginBottom: 16,
   },
-  memoryCard: {
-    borderRadius: 20,
-    padding: 18,
-    marginBottom: 16,
-    gap: 8,
-  },
   cardTitle: {
     fontSize: 18,
     fontWeight: '800',
     color: '#123433',
     marginBottom: 10,
-  },
-  statusText: {
-    color: '#526866',
-    marginBottom: 4,
   },
   contextText: {
     color: '#526866',
@@ -2677,64 +2535,9 @@ const styles = StyleSheet.create({
     marginTop: 12,
     textAlign: 'center',
   },
-  helperText: {
-    marginTop: 10,
-    color: '#6B7C7B',
-    fontSize: 13,
-    lineHeight: 19,
-  },
   errorText: {
     color: '#B42318',
     marginTop: 8,
-  },
-  modelSelector: {
-    marginTop: 10,
-    gap: 12,
-  },
-  modelButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 16,
-    borderWidth: 1,
-    marginRight: 10,
-  },
-  modelButtonSelected: {
-    backgroundColor: '#0E6F68',
-    borderColor: '#0E6F68',
-  },
-  secondaryButton: {
-    marginTop: 14,
-    borderWidth: 1,
-    borderColor: '#0E6F68',
-    borderRadius: 16,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  secondaryButtonText: {
-    color: '#0E6F68',
-    fontWeight: '800',
-  },
-  memoryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  progressBarBg: {
-    height: 6,
-    backgroundColor: '#88888830',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  memoryDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
   },
   messagesContent: {
     gap: 12,

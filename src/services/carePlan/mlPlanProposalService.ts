@@ -37,6 +37,7 @@ import type {
   PendingPlanProposal,
 } from '@/data/adcp/types';
 import { audit } from '@/services/audit/auditService';
+import { assertCarePlanWritable } from './carePlanMode';
 
 const VET_FALLBACK_HOURS = 24;
 
@@ -53,11 +54,36 @@ export function enqueueProposal(input: EnqueueProposalInput): PendingPlanProposa
 /**
  * Caregiver-confirms a proposal. Moves it into the ML-vetting queue. The
  * engines will pick it up on the next pass.
+ *
+ * In read-only mode (planning/41 D1) the plan rejects any new mutation,
+ * so confirm is a no-op. The proposal is returned untouched with
+ * `planApplied: false` and a `blocked` field for callers that want to
+ * surface a caregiver-safe message.
  */
 export function caregiverConfirmProposal(
   proposalId: string,
   options?: { note?: string },
-): { proposal: PendingPlanProposal; planApplied: boolean } {
+): {
+  proposal: PendingPlanProposal;
+  planApplied: boolean;
+  blocked?: boolean;
+  blockReason?: 'read_only_mode';
+  blockMessage?: string;
+} {
+  const gate = assertCarePlanWritable();
+  if (!gate.ok) {
+    const existing = getProposalById(proposalId);
+    if (!existing) {
+      throw new Error(`Proposal not found: ${proposalId}`);
+    }
+    return {
+      proposal: existing,
+      planApplied: false,
+      blocked: true,
+      blockReason: 'read_only_mode',
+      blockMessage: gate.message,
+    };
+  }
   const proposal = getProposalById(proposalId);
   if (!proposal) {
     throw new Error(`Proposal not found: ${proposalId}`);
@@ -455,6 +481,13 @@ export function drainPendingProposalsForPatient(
   patientId: string,
   engine: DrainEngine = 'all',
 ): DrainResult {
+  // Read-only mode (planning/41 D1) short-circuits the queue — no ML vet,
+  // no apply, no rejection. Caregiver must toggle Living care plan updates
+  // on in Settings before drains can publish.
+  const gate = assertCarePlanWritable();
+  if (!gate.ok) {
+    return { applied: 0, rejected: 0, deferred: 0 };
+  }
   const proposals = listPendingProposals(patientId).filter(
     (p) => p.status === 'awaiting_ml_vet',
   );

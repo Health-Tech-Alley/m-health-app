@@ -123,11 +123,10 @@ describe('evaluateAndPersistUc4Priorities', () => {
       status: 'completed',
       cardCount: 1,
     }));
-    expect(mockDispatch).toHaveBeenCalledWith(expect.objectContaining({
-      scope: 'care_task',
-      severity: 1,
-      bypassDnd: false,
-    }));
+    // Notification is the orchestrator's job: it reacts to the
+    // uc4_priorities_evaluated event and dispatches a consent-gated standard
+    // notification. The service itself never notifies directly.
+    expect(mockDispatch).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       status: 'success',
       runStatus: 'completed',

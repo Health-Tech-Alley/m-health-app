@@ -291,10 +291,25 @@ export function SlmInsightSheet({
   useEffect(() => {
     if (!visible) {
       ranRef.current = false;
+      // Parent may flip visible=false without handleClose — still drop lease.
+      cancelRef.current = true;
+      abortRef.current?.abort();
+      abortRef.current = null;
+      leaseRef.current?.release();
+      leaseRef.current = null;
+      if (
+        loadedBySheetRef.current &&
+        slmPolicy === 'auto' &&
+        taskQueue.activeLeaseCount === 0
+      ) {
+        void slmUnloadModel();
+      }
+      loadedBySheetRef.current = false;
       return;
     }
     if (ranRef.current) return;
     ranRef.current = true;
+    cancelRef.current = false;
     const handle = setTimeout(() => {
       void runExplain();
     }, 0);

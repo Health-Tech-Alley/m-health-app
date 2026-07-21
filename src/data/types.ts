@@ -829,6 +829,7 @@ export interface NotificationPreferences {
 
 export type AppMode = 'demo' | 'developer';
 export type ThemePreference = 'light' | 'dark' | 'system';
+export type CarePlanMode = 'full' | 'read_only';
 
 export interface AppSettings {
   mode: AppMode;
@@ -846,6 +847,13 @@ export interface AppSettings {
   evidenceDevelopmentFallback: boolean;
   /** Evidence graph expansion for RAG retrieval (doc 36). Default false. */
   knowledgeGraphExpansion: boolean;
+  /**
+   * Living care plan mutation policy (planning/41 D1).
+   * 'full' (default): Concierge can queue proposal → HITL → ML vet → publish.
+   * 'read_only': display + RAG + explain intents + export; no plan mutations
+   * (restore allowed with explicit confirm + consent).
+   */
+  carePlanMode: CarePlanMode;
 }
 
 // ---------------------------------------------------------------------------

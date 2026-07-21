@@ -32,7 +32,10 @@ export type SlmTaskReason =
   | 'explain_rehab_trajectory'
   | 'uc4_provider_summary_rewrite'
   // Doc 39 (P0–P3): Care Concierge plan-aware intents — always lease, never fast path.
-  | 'care_concierge';
+  | 'care_concierge'
+  // Care tab rework: transient explain popups (priorities, goals, timeline,
+  // considerations). Load → stream → unload; never a fast path.
+  | 'care_explain';
 
 export type SlmLoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type SlmPolicy = 'manual' | 'auto';

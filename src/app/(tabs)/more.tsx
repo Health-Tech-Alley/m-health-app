@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
@@ -9,6 +9,7 @@ import { YourDecisionsSection } from "@/components/concierge/YourDecisionsSectio
 import { AppTheme } from "@/constants/theme";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
 import { usePatientRecord } from '@/contexts/patient-record-context';
+import { useSettings } from "@/contexts/settings-context";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 import { useActivePatientView } from '@/hooks/useActivePatientView';
@@ -35,6 +36,7 @@ export default function MoreScreen() {
   const patientId = useOrchestratorPatientId();
   const { importFHIRBundle, refresh } = usePatientRecord();
   const [importing, setImporting] = useState(false);
+  const { settings, setCarePlanMode } = useSettings();
 
   useEffect(() => {
     if (params.focus !== "ehr-import") return;
@@ -96,6 +98,13 @@ export default function MoreScreen() {
               subtitle="Caregiver and patient details"
               onPress={() => router.push("/profile" as never)}
               accessibilityLabel="Open patient and caregiver profiles"
+            />
+          </SettingsSection>
+
+          <SettingsSection title="Care plan">
+            <CarePlanModeToggle
+              mode={settings.carePlanMode ?? 'full'}
+              onChange={setCarePlanMode}
             />
           </SettingsSection>
 
@@ -259,6 +268,41 @@ function getInitials(name: string): string {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+}
+
+function CarePlanModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: 'full' | 'read_only';
+  onChange: (next: 'full' | 'read_only') => void;
+}) {
+  const isFull = mode === 'full';
+  return (
+    <View
+      style={styles.carePlanModeRow}
+      accessible
+      accessibilityRole="switch"
+      accessibilityLabel="Living care plan updates"
+      accessibilityState={{ checked: isFull }}
+    >
+      <View style={styles.carePlanModeText}>
+        <Text style={styles.carePlanModeTitle}>Living care plan updates</Text>
+        <Text style={styles.carePlanModeSubtitle}>
+          {isFull
+            ? "Concierge can suggest plan changes for your review."
+            : "Care plan stays as imported or last saved. Concierge can still explain using your plan."}
+        </Text>
+      </View>
+      <Switch
+        value={isFull}
+        onValueChange={(next) => onChange(next ? 'full' : 'read_only')}
+        trackColor={{ false: AppTheme.colors.border, true: AppTheme.colors.brand }}
+        thumbColor={AppTheme.colors.white}
+        accessibilityLabel="Toggle living care plan updates"
+      />
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -516,6 +560,28 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.white,
     fontSize: 13,
     fontWeight: "800",
+  },
+  carePlanModeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    gap: 14,
+  },
+  carePlanModeText: {
+    flex: 1,
+  },
+  carePlanModeTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  carePlanModeSubtitle: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    marginTop: 4,
   },
 });
 

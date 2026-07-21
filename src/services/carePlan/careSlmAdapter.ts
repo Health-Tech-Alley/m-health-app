@@ -6,8 +6,8 @@
  *   - System prompt comes from the **context assembler** (ADCP + UC2/3/4).
  *   - The reasoning channel is on (`reasoningFormat: 'auto'`). Care is not
  *     on the fast importance-router path (L8).
- *   - Streaming is intentionally optional — Care tab uses non-streaming
- *     (one-shot) when the answer cards are already in the proposal sheet.
+ *   - Streaming is supported via onToken so the Care insight sheet can show
+ *     progress (same lease/load path as SlmInsightSheet).
  */
 
 import type { InferenceProvider, GenerateOptions } from '@/inference/inference-provider';
@@ -24,6 +24,8 @@ export async function runSlmCompletion(params: {
   systemContext: string;
   userPrompt: string;
   signal?: AbortSignal;
+  /** Stream answer tokens to the UI (control tokens are still stripped at end). */
+  onToken?: (token: string) => void;
 }): Promise<string> {
   const provider = params.provider;
   if (!provider.getModelInfo()) {
@@ -38,6 +40,7 @@ export async function runSlmCompletion(params: {
     ],
     (token) => {
       accumulator += token;
+      params.onToken?.(token);
     },
     params.signal ?? new AbortController().signal,
     CARE_OPTIONS,

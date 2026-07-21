@@ -20,6 +20,7 @@ import {
   type CareIntentDefinition,
 } from './intentCatalog';
 import { buildPromptContext, promptContextToSystemContext } from './contextAssembler';
+import { assertCarePlanWritable, isCarePlanWritable, isMutatingIntent } from './carePlanMode';
 import type { PatientRecordSnapshot } from '@/data/types';
 import type {
   AdcpProposalIntentId,
@@ -59,6 +60,10 @@ export interface RunIntentResult<O extends AnyIntentOutput> {
   };
   enqueuedProposalIds: string[];
   proposalQueueStatus: AdcpProposalStatus;
+  /** Read-only mode (planning/41 D1) blocked the intent before the SLM ran. */
+  blocked?: boolean;
+  blockReason?: 'read_only_mode';
+  blockMessage?: string;
 }
 
 export async function runIntent<O extends AnyIntentOutput>(
@@ -69,6 +74,30 @@ export async function runIntent<O extends AnyIntentOutput>(
   if (!def) {
     throw new Error(`Unknown intent: ${intent}`);
   }
+
+  // Read-only mode (planning/41 D1) blocks mutating intents before the SLM
+  // runs. Explain / handoff / logging-suggest remain available.
+  if (isMutatingIntent(intent)) {
+    const gate = assertCarePlanWritable();
+    if (!gate.ok) {
+      return {
+        intent,
+        caregiverLabel: def.caregiverLabel,
+        resultShape: def.resultShape,
+        output: def.buildOutput(
+          def.buildInput(snapshot, args),
+          '',
+        ) as O,
+        prompts: { systemContext: '', userPrompt: '' },
+        enqueuedProposalIds: [],
+        proposalQueueStatus: 'draft',
+        blocked: true,
+        blockReason: 'read_only_mode',
+        blockMessage: gate.message,
+      };
+    }
+  }
+
   const input = def.buildInput(snapshot, args);
   const promptContext = buildPromptContext(snapshot, intent, { additionalCitations: input.snapshot?.patient?.patientId ? [] : [] });
   const systemContext = promptContextToSystemContext(promptContext);
@@ -85,7 +114,7 @@ export async function runIntent<O extends AnyIntentOutput>(
   const enqueuedProposalIds: string[] = [];
   let proposalQueueStatus: AdcpProposalStatus = 'draft';
 
-  if (proposalPayload) {
+  if (proposalPayload && isCarePlanWritable()) {
     const proposal = enqueueProposalFromIntent({
       patientId: snapshot.patient?.patientId ?? '',
       intent,
