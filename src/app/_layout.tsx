@@ -9,14 +9,14 @@
  * the SLM system prompt both consume.
  */
 
-import { useEffect, useState } from 'react';
 import { DefaultTheme, Stack, ThemeProvider, useRouter } from "expo-router";
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { CriticalAlertDialog } from "@/components/critical-alert-dialog";
-import { InAppBanner } from "@/components/notifications/in-app-banner";
 import { HypotheticalCriticalBanner } from "@/components/notifications/hypothetical-critical-banner";
+import { InAppBanner } from "@/components/notifications/in-app-banner";
 import { CriticalAlertProvider } from "@/contexts/critical-alert-context";
 import { OrchestratorProvider } from "@/contexts/orchestrator-context";
 import { PatientRecordProvider } from "@/contexts/patient-record-context";
@@ -24,12 +24,15 @@ import { SensorProvider } from "@/contexts/sensor-context";
 import { SettingsProvider, useSettings } from "@/contexts/settings-context";
 import { SLMProvider, useSLM } from "@/contexts/slm-context";
 import { UC2RuntimeProvider } from "@/contexts/uc2-runtime-context";
-import { Provider } from 'react-redux';
-import { store } from '@/store';
 import { initializeDatabase } from '@/data';
+import { store } from '@/store';
+import { Provider } from 'react-redux';
 
 import * as Notifications from 'expo-notifications';
 import { AndroidNotificationPriority } from 'expo-notifications';
+
+import { Directory, Paths } from "expo-file-system";
+import { FileLogger } from "react-native-file-logger";
 
 // Add this OUTSIDE any component, at the module level
 Notifications.setNotificationHandler({
@@ -44,6 +47,27 @@ Notifications.setNotificationHandler({
     priority: AndroidNotificationPriority.MAX,
   }),
 });
+
+function LoggerInit() {
+  useEffect(() => {
+    (async () => {
+      try {
+        const logsDir = new Directory(Paths.document, "logs");
+        if (!logsDir.exists) {
+          logsDir.create();
+        }
+        await FileLogger.configure({
+          logsDirectory: logsDir.uri,
+        });
+        console.log("FileLogger configured, dir:", logsDir.uri);
+        FileLogger.info("Logger test entry");
+      } catch (err) {
+        console.error('Failed to configure FileLogger', err);
+      }
+    })();
+  }, []);
+  return null;
+}
 
 function SlmPolicySync() {
   const { mode, settings } = useSettings();
@@ -151,6 +175,7 @@ export default function RootLayout() {
           <PatientRecordProvider>
             <SLMProvider>
               <SlmPolicySync />
+              <LoggerInit />
               <NotificationInit />
               <NotificationResponseInit />
               <SensorProvider>

@@ -10,26 +10,15 @@ import { AppTheme } from "@/constants/theme";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
-import * as DocumentPicker from 'expo-document-picker';
-import { File } from 'expo-file-system';
-import {
-  exportPatientCcda,
-  getRecordConsentStatus,
-  setRecordConsent,
-  type RecordConsentScope,
-} from "@/services/records/recordsService";
 
-import { importCdaJsonString, importCdaZip } from '@/data/cda';
-import { dispatchImmediate } from '@/services/notifications';
-import { useAppDispatch } from '@/store/hooks';
 import { useActivePatientView } from '@/hooks/useActivePatientView';
+import { useAppDispatch } from '@/store/hooks';
 import {
   getCaregiverDisplay,
   getCaregiverRoleDisplay,
   getPatientAgeDisplay,
   getPatientDisplayName,
 } from '@/utils/patientDisplay';
-import { audit } from '@/services/audit/auditService';
 
 export default function MoreScreen() {
   const router = useRouter();
@@ -61,6 +50,11 @@ export default function MoreScreen() {
   async function handleOpenEHRImport() {
     router.push("/select-fhir-profile" as never);
   }
+
+  async function handleOpenLogs() {
+    router.push("/logs" as never);
+  }
+
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -143,6 +137,13 @@ export default function MoreScreen() {
               title="Import from health record"
               subtitle={importing ? "Importing health record..." : "Import a FHIR JSON, a single CDA JSON, or a zip of CDA JSONs"}
               onPress={handleOpenEHRImport}
+            />
+
+            <SettingsRow
+              icon="plus"
+              title="View Logs"
+              subtitle="View app logs for debugging and diagnostics"
+              onPress={handleOpenLogs}
             />
 
             <SettingsRow
