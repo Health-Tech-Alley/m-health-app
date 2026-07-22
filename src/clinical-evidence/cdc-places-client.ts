@@ -134,6 +134,6 @@ function fixtureFetch(params: CdcPlacesParams): CdcPlacesRecord | null {
   const lc = params.location.toLowerCase();
   return (
     FIXTURES.find((f) => f.locationName.toLowerCase().includes(lc) || lc.includes(f.locationName.toLowerCase())) ??
-    FIXTURES[0]
+    null
   );
 }

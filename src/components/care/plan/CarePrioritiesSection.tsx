@@ -92,7 +92,10 @@ export function CarePrioritiesSection({
   }`;
 
   useEffect(() => {
-    setWatchAreasExpanded(false);
+    // Defer so the state update does not run synchronously within the effect
+    // (react-hooks/set-state-in-effect).
+    const handle = setTimeout(() => setWatchAreasExpanded(false), 0);
+    return () => clearTimeout(handle);
   }, [watchAreaListKey]);
 
   return (

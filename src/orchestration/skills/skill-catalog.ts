@@ -172,28 +172,34 @@ const SKILLS: Skill[] = [
 - When the record includes severe or terminal events (cardiac arrest, ICU, hospice, death), mention them plainly but tenderly — never lead with the worst outcome, never dwell. One sentence, then move to what it means for the caregiver now.`,
   },
   {
-    // planning/33 §11.2 — cross-reference the EHR against HEDIS measures
-    // and identify care gaps. Read-only, no tools beyond patient profile.
+    // Disability-first care gaps for complex home care (not ambulatory HEDIS panels).
     id: 'detect-care-gaps',
     name: 'Detect care gaps',
     purpose:
-      'Cross-reference the patient\'s imported EHR (conditions, meds, ' +
-      'immunizations, vitals) against HEDIS-style care-gap measures. ' +
-      'Output a bulleted list of gaps with recommended actions.',
-    tulaAnalog: '(new — HEDIS-style gap analysis on imported data)',
+      'Cross-reference the patient\'s imported EHR and care context against ' +
+      'disability-relevant home-care gaps (airway, aspiration, skin, seizure ' +
+      'rescue, autonomic dysreflexia, transfers, therapy follow-through). ' +
+      'Output a bulleted list of gaps with recommended caregiver actions.',
+    tulaAnalog: '(disability-first gap analysis on imported data)',
     allowedTools: ['get_patient_profile', 'get_recent_vitals'],
     evalTaskIds: ['ST-care-gaps-cited', 'ST-care-gaps-actionable'],
     promptFragment: `SKILL: detect-care-gaps
-- The user wants a care-gap analysis based on the imported EHR.
-- Cross-reference the patient's conditions, medications, and vitals
-  against the HEDIS-style measures surfaced in the system prompt.
-- Identify:
-  • Missing immunizations (compare against the immunization list).
-  • Medication gaps (e.g., no rescue inhaler for asthma; no bowel
-    regimen for CP with constipation).
-  • Uncontrolled vitals (BP above target, SpO2 below the patient's
-    personalized cutoff, HR outside the baseline range).
-  • Missing screenings (colonoscopy, depression, fall risk).
+- The user wants a care-gap analysis based on the imported EHR and care plan.
+- Focus on severely disabled / complex home-care risks — NOT generic adult
+  preventive panels (do not prioritize colonoscopy schedules, routine adult
+  immunization checklists, or ambulatory HEDIS boilerplate unless the EHR
+  explicitly documents that gap as clinically material).
+- Identify gaps such as:
+  • Airway / breathing supports (suction plan, SpO2 cutoff awareness,
+    rescue inhaler or BiPAP when respiratory conditions are present).
+  • Aspiration / feeding safety (dysphagia precautions, G-tube plan).
+  • Skin & pressure (repositioning schedule, brace/splint skin checks).
+  • Seizure rescue med available and known when epilepsy/seizure history.
+  • Autonomic dysreflexia awareness when Spina Bifida / SCI at T6 or above.
+  • Transfer / fall-risk supports and equipment when mobility is limited.
+  • Bowel/bladder program when incontinence or neurogenic bladder is present.
+  • Missed or overdue therapy / specialist follow-up documented in the record.
+  • Vitals outside the patient's personalized thresholds.
 - Output: a bulleted list. Each gap should cite the source
   ([CDA-DOCxxxx-...] for EHR data, [PMID-...] for evidence) and propose
   ONE concrete action the caregiver can take.`,

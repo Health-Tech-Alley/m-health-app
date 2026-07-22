@@ -29,6 +29,8 @@ import { fetchCdcPlaces, cdcToChunks } from './cdc-places-client';
 const SDOH_KEYWORDS = /\b(rural|urban|transport|access|barrier|insurance|near me|nearby|hospital|clinic|pharmacy|medicaid|medicare)\b/i;
 
 export interface ContextRouterArgs {
+  /** Active patient — required for knowledge isolation. */
+  patientId?: string;
   /** Caregiver's free-text message (used to decide whether SDOH tier fires). */
   message?: string;
   /** Patient's confirmed conditions — gates T1 (condition-tagged chunks). */
@@ -60,9 +62,9 @@ export interface SelectedContext {
  * SDOH chunk source pulled directly from the knowledge_cache. Keeps the
  * router free of async live-network calls — bundler pre-populates these.
  */
-function getSdohChunk(location?: string): RetrievedChunk | null {
-  if (!location) return null;
-  const chunks = getKnowledgeChunksByCondition('SDOH');
+function getSdohChunk(location?: string, patientId?: string): RetrievedChunk | null {
+  if (!location || !patientId?.trim()) return null;
+  const chunks = getKnowledgeChunksByCondition('SDOH', patientId);
   const lc = location.toLowerCase();
   const hit = chunks.find((c) => c.text.toLowerCase().includes(lc)) ?? chunks[0];
   if (!hit) return null;
@@ -73,6 +75,7 @@ function getSdohChunk(location?: string): RetrievedChunk | null {
     source: 'cdc-places' as const,
     documentType: hit.documentType,
     lengthTier: hit.lengthTier,
+    patientId,
   };
 }
 
@@ -100,11 +103,15 @@ async function fetchSdohLive(location: string): Promise<RetrievedChunk | null> {
   }
 }
 
-function deepChunksFromStore(conditions: string[], kDeep: number): RetrievedChunk[] {
-  if (conditions.length === 0) return [];
+function deepChunksFromStore(
+  conditions: string[],
+  kDeep: number,
+  patientId?: string,
+): RetrievedChunk[] {
+  if (conditions.length === 0 || !patientId?.trim()) return [];
   const all: RetrievedChunk[] = [];
   for (const cond of conditions) {
-    const chunks = getKnowledgeChunksByCondition(cond);
+    const chunks = getKnowledgeChunksByCondition(cond, patientId);
     for (const c of chunks) {
       const dt = c.documentType;
       if (
@@ -121,6 +128,7 @@ function deepChunksFromStore(conditions: string[], kDeep: number): RetrievedChun
           documentType: c.documentType,
           lengthTier: c.lengthTier,
           sectionHeading: c.sectionHeading,
+          patientId,
         });
       }
     }
@@ -161,7 +169,9 @@ export async function selectContextForPrompt(
   const queryIds = new Set(queryChunks.map((c) => c.docId));
   const conditionTagged: RetrievedChunk[] = [];
   for (const cond of args.conditions) {
-    const tagged = getKnowledgeChunksByCondition(cond);
+    const tagged = args.patientId
+      ? getKnowledgeChunksByCondition(cond, args.patientId)
+      : [];
     for (const c of tagged) {
       if (queryIds.has(c.chunkId)) continue;
        conditionTagged.push({
@@ -172,6 +182,7 @@ export async function selectContextForPrompt(
          documentType: c.documentType,
          lengthTier: c.lengthTier,
          sectionHeading: c.sectionHeading,
+         patientId: args.patientId,
        });
       queryIds.add(c.chunkId);
     }
@@ -179,13 +190,14 @@ export async function selectContextForPrompt(
 
   // T3 — deep docs (only when reasoning is 'auto').
   const deep = args.reasoningMode === 'auto'
-    ? deepChunksFromStore(args.snapshotConditions ?? args.conditions, kDeep)
+    ? deepChunksFromStore(args.snapshotConditions ?? args.conditions, kDeep, args.patientId)
     : [];
 
   // T4 — SDOH chunk, only when the message touches access/barriers/rural.
   let sdoh: RetrievedChunk | null = null;
-  if (args.location && (SDOH_KEYWORDS.test(args.message ?? '') || args.location)) {
-    sdoh = getSdohChunk(args.location);
+  // Require SDOH language in the message — do not always inject when location is set.
+  if (args.location && SDOH_KEYWORDS.test(args.message ?? '')) {
+    sdoh = getSdohChunk(args.location, args.patientId);
     if (!sdoh) sdoh = await fetchSdohLive(args.location);
   }
 

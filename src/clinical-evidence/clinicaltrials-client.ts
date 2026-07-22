@@ -1,15 +1,10 @@
 /**
- * ClinicalTrials.gov API v2 client.
+ * ClinicalTrials.gov API v2 client — research / dev only.
  *
- * Calls clinicaltrials.gov/api/v2/studies (REST, no auth) to retrieve study
- * protocols — full summaries, outcome measures, eligibility criteria,
- * locations, status, and phase. Per planning/26, this is one of the four
- * new clients added to deepen the knowledge cache for caregivers of
- * severely disabled loved ones (CP, TBI, COPD, etc.).
- *
- * Track A: ships with realistic fixture data so the cache is exercised in
- * code without live network. The fixture shape mirrors the live response
- * 1:1 so the live fetch path is a one-flag flip in Track B.
+ * Not wired into onboarding or default Concierge retrieval. Trial protocol
+ * text is a poor fit for home-care NLU (eligibility, phase, sites) and can
+ * pollute BM25. Keep this client for re-download of existing clinicaltrials
+ * chunks and future explicit "find trials" skill work — do not auto-bundle.
  *
  * See planning/26_clinical-data-sources-research.md §1.
  */
@@ -234,6 +229,5 @@ const FIXTURES: ClinicalTrialRecord[] = [
 function fixtureSearch(params: ClinicalTrialSearchParams): ClinicalTrialRecord[] {
   const lower = params.condition.toLowerCase();
   const matches = FIXTURES.filter((t) => t.condition.toLowerCase().includes(lower) || lower.includes(t.condition.toLowerCase()));
-  if (matches.length === 0) return FIXTURES.slice(0, 2);
   return matches;
 }

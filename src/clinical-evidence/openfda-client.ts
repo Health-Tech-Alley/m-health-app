@@ -4,6 +4,10 @@
  * Fetches adverse event reports and drug recalls. Returns KnowledgeChunk rows.
  * Adverse event chunks have a 30-day TTL (passive surveillance data changes).
  *
+ * Volume policy (NLU hygiene): collapse AE rows into **one summary chunk per
+ * drug** plus up to a few recall chunks — never dump 5 raw AE reports into
+ * BM25.
+ *
  * See planning/22_clinical-data-gathering.md §5e.
  */
 
@@ -13,14 +17,14 @@ import { getOpenFdaApiKey } from '@/services/openfda-token-store';
 const OPENFDA_BASE = 'https://api.fda.gov';
 const TIMEOUT_MS = 15_000;
 const ADVERSE_EVENT_TTL_DAYS = 30;
+/** Fetch more rows than we store so the summary can merge reaction terms. */
+const AE_FETCH_LIMIT = 10;
+const RECALL_LIMIT = 3;
 
 /**
  * MedDRA reaction terms that are too blunt to lead an adverse-event chunk.
  * These get moved to a trailing "serious outcomes reported in some cases"
- * clause so the SLM grounds in common reaction types first. The facts are
- * preserved (clinicians still need them) — only the ordering and framing
- * change. See planning/16 (caregiver tone) + the sensitive-topics prompt
- * instruction in prompt-fragments.ts.
+ * clause so the SLM grounds in common reaction types first.
  */
 const SEVERE_MEDDRA_TERMS = new Set([
   'Death',
@@ -39,86 +43,114 @@ const SEVERE_MEDDRA_TERMS = new Set([
   'Accidental overdose',
 ]);
 
+function slugDrug(drugName: string): string {
+  return drugName.toLowerCase().replace(/\s+/g, '-');
+}
+
+/**
+ * One consolidated adverse-event summary per drug (not one chunk per report).
+ */
 export async function fetchAdverseEvents(drugName: string): Promise<KnowledgeChunk[]> {
   const url = new URL(`${OPENFDA_BASE}/drug/event.json`);
   url.searchParams.set('search', `patient.drug.medicinalproduct:"${drugName}"`);
-  url.searchParams.set('limit', '5');
+  url.searchParams.set('limit', String(AE_FETCH_LIMIT));
   const apiKey = await getOpenFdaApiKey();
   if (apiKey) url.searchParams.set('api_key', apiKey);
 
   const response = await fetchWithTimeout(url.toString());
   if (!response.ok) {
-    if (response.status === 404) return []; // no results
+    if (response.status === 404) return [];
     throw new Error(`OpenFDA adverse events failed: ${response.status}`);
   }
 
   const json = await response.json();
-  const now = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + ADVERSE_EVENT_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  const chunks: KnowledgeChunk[] = [];
-
   const results = json?.results ?? [];
-  for (let i = 0; i < results.length; i++) {
-    const event = results[i];
+  if (results.length === 0) return [];
+
+  const reactionCounts = new Map<string, number>();
+  for (const event of results) {
     const patient = event?.patient ?? {};
-    const allReactions = (patient?.reaction ?? []).map((r: any) => r?.reactionmeddrapt).filter(Boolean) as string[];
-    const drugs = (patient?.drug ?? []).map((d: any) => d?.medicinalproduct).filter(Boolean);
-
-    // Order mild/common reaction types first; move the most terminal MedDRA
-    // terms (Death, Completed suicide, Cardiac arrest, …) to a trailing
-    // "serious outcomes" clause so the chunk never leads with "Death". The
-    // facts are preserved — only the ordering + framing change.
-    const common = allReactions.filter((r) => !SEVERE_MEDDRA_TERMS.has(r));
-    const severe = allReactions.filter((r) => SEVERE_MEDDRA_TERMS.has(r));
-    const reactionParts: string[] = [];
-    if (common.length > 0) {
-      reactionParts.push(`Reported reactions (commonly reported types first): ${common.join(', ')}.`);
+    const reactions = (patient?.reaction ?? [])
+      .map((r: { reactionmeddrapt?: string }) => r?.reactionmeddrapt)
+      .filter(Boolean) as string[];
+    for (const r of reactions) {
+      reactionCounts.set(r, (reactionCounts.get(r) ?? 0) + 1);
     }
-    if (severe.length > 0) {
-      reactionParts.push(`Serious outcomes reported in some cases: ${severe.join(', ')}.`);
-    }
-    const reactionsLine = reactionParts.join(' ') || 'Reactions: not specified.';
+  }
 
-    const text = [
-      `Adverse event report for ${drugName} (passive surveillance — spontaneous reports to FDA, not incidence rates).`,
-      reactionsLine,
-      `Drugs involved: ${drugs.join(', ') || 'not specified'}.`,
-      `Received date: ${event?.receivedate ?? 'unknown'}.`,
-    ].join(' ');
+  const ranked = [...reactionCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const common = ranked
+    .map(([r]) => r)
+    .filter((r) => !SEVERE_MEDDRA_TERMS.has(r))
+    .slice(0, 12);
+  const severe = ranked
+    .map(([r]) => r)
+    .filter((r) => SEVERE_MEDDRA_TERMS.has(r))
+    .slice(0, 6);
 
-    if (text.length < 30) continue;
+  const reactionParts: string[] = [];
+  if (common.length > 0) {
+    reactionParts.push(
+      `Most commonly reported reaction types (passive surveillance, not incidence rates): ${common.join(', ')}.`,
+    );
+  }
+  if (severe.length > 0) {
+    reactionParts.push(
+      `Serious outcomes also appear in some spontaneous reports: ${severe.join(', ')}.`,
+    );
+  }
+  if (reactionParts.length === 0) {
+    reactionParts.push('Reaction types were not specified in the sampled reports.');
+  }
 
-    const docId = `OPENFDA-AE-${drugName.toLowerCase().replace(/\s+/g, '-')}-${i}`;
-    chunks.push({
-      chunkId: docId,
+  const text = [
+    `Adverse event summary for ${drugName} (FDA FAERS passive surveillance — spontaneous reports, not incidence rates).`,
+    `Based on ${results.length} recent report(s) in this query sample.`,
+    ...reactionParts,
+    'Discuss new or worsening symptoms with the care team; do not stop prescribed medicines without clinician guidance.',
+  ].join(' ');
+
+  const now = new Date().toISOString();
+  const expiresAt = new Date(
+    Date.now() + ADVERSE_EVENT_TTL_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  return [
+    {
+      chunkId: `OPENFDA-AE-${slugDrug(drugName)}-summary`,
       source: 'openfda',
       text: text.slice(0, 1500),
       retrievedAt: now,
       expiresAt,
       useCount: 0,
-      metadataJson: JSON.stringify({ drugName, index: i }),
-    });
-  }
-
-  return chunks;
+      conditions: drugName,
+      metadataJson: JSON.stringify({
+        drugName,
+        kind: 'ae_summary',
+        sampleSize: results.length,
+      }),
+    },
+  ];
 }
 
 export async function fetchDrugRecalls(drugName: string): Promise<KnowledgeChunk[]> {
   const url = new URL(`${OPENFDA_BASE}/drug/enforcement.json`);
   url.searchParams.set('search', `product_description:"${drugName}"`);
-  url.searchParams.set('limit', '5');
+  url.searchParams.set('limit', String(RECALL_LIMIT));
   const apiKey = await getOpenFdaApiKey();
   if (apiKey) url.searchParams.set('api_key', apiKey);
 
   const response = await fetchWithTimeout(url.toString());
   if (!response.ok) {
-    if (response.status === 404) return []; // no results
+    if (response.status === 404) return [];
     throw new Error(`OpenFDA recalls failed: ${response.status}`);
   }
 
   const json = await response.json();
   const now = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + ADVERSE_EVENT_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(
+    Date.now() + ADVERSE_EVENT_TTL_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
   const chunks: KnowledgeChunk[] = [];
 
   const results = json?.results ?? [];
@@ -134,15 +166,15 @@ export async function fetchDrugRecalls(drugName: string): Promise<KnowledgeChunk
 
     if (text.length < 30) continue;
 
-    const docId = `OPENFDA-RECALL-${drugName.toLowerCase().replace(/\s+/g, '-')}-${i}`;
     chunks.push({
-      chunkId: docId,
+      chunkId: `OPENFDA-RECALL-${slugDrug(drugName)}-${i}`,
       source: 'openfda',
       text: text.slice(0, 1500),
       retrievedAt: now,
       expiresAt,
       useCount: 0,
-      metadataJson: JSON.stringify({ drugName, index: i }),
+      conditions: drugName,
+      metadataJson: JSON.stringify({ drugName, index: i, kind: 'recall' }),
     });
   }
 

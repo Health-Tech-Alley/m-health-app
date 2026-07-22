@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   Modal,
@@ -300,7 +301,10 @@ export function CarePlanInsightSheet({
     abortRef.current?.abort();
     abortRef.current = null;
     releaseLease();
-    setPhase('idle');
+    // Defer so the state update does not run synchronously within the effect
+    // (react-hooks/set-state-in-effect).
+    const handle = setTimeout(() => setPhase('idle'), 0);
+    return () => clearTimeout(handle);
   }, [visible, releaseLease]);
 
   useEffect(() => {
@@ -314,7 +318,12 @@ export function CarePlanInsightSheet({
     return () => clearTimeout(handle);
   }, [visible, phase, answer, finalText]);
 
-  const handleClose = useCallback(() => {
+  const phaseRef = useRef<Phase>('idle');
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  const performClose = useCallback(() => {
     cancelRef.current = true;
     abortRef.current?.abort();
     abortRef.current = null;
@@ -322,6 +331,25 @@ export function CarePlanInsightSheet({
     ranRef.current = false;
     onClose();
   }, [onClose, releaseLease]);
+
+  const handleClose = useCallback(() => {
+    const running =
+      phaseRef.current === 'loading' ||
+      phaseRef.current === 'thinking' ||
+      phaseRef.current === 'streaming';
+    if (running) {
+      Alert.alert(
+        'Stop Concierge?',
+        'Concierge is still generating. Closing now will cancel this explanation.',
+        [
+          { text: 'Keep going', style: 'cancel' },
+          { text: 'Stop', style: 'destructive', onPress: performClose },
+        ],
+      );
+      return;
+    }
+    performClose();
+  }, [performClose]);
 
   const handleRetryLoad = useCallback(async () => {
     setPhase('loading');
@@ -359,9 +387,10 @@ export function CarePlanInsightSheet({
     panY.setValue(0);
   }, [visible, panY]);
 
-  /* eslint-disable react-hooks/exhaustive-deps --
-     PanResponder.create returns handlers that capture refs/closures intentionally;
-     recreating on every callback change would tear down the gesture. */
+  /* eslint-disable react-hooks/refs --
+     PanResponder callbacks fire at event time, not during render;
+     handleClose/panY are captured, not invoked. Same pattern as
+     SlmInsightSheet's swipe-to-dismiss. */
   const panResponder = useMemo(
     () =>
       PanResponder.create({

@@ -1,11 +1,12 @@
 /**
  * Shared multi-select chip picker for the UC2 caregiver observation codes.
  *
- * Used by the Care Management analysis harness (and, later, the alert-detail
- * HITL flow). Renders the 13-code taxonomy from the UC2 decision layer as
- * toggleable chips, themed with AppTheme brand teal.
+ * Renders the taxonomy in plain-language categories with title-case labels
+ * (no underscores). Categories are collapsed by default. Used by Care
+ * Management, alert detail, Concierge chat, and in-card rehab explain HITL.
  */
-import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { CAREGIVER_OBSERVATION_CODES } from '@/ml-models/uc2-decision-layer';
@@ -21,7 +22,7 @@ const FRIENDLY_LABEL: Record<string, string> = {
   POOR_SLEEP: 'Poor sleep',
   STRESS: 'Stress',
   LOW_INTAKE: 'Low intake',
-  MED_CHANGE: 'Med change',
+  MED_CHANGE: 'Medication change',
   BATHROOM_CHANGE: 'Bathroom change',
   VOMITING_DIARRHEA: 'Vomiting / diarrhea',
   WEAK_CONFUSED: 'Weak / confused',
@@ -32,8 +33,50 @@ const FRIENDLY_LABEL: Record<string, string> = {
   NOT_SURE: 'Not sure',
 };
 
+type ObservationCategory = {
+  key: string;
+  label: string;
+  codes: readonly string[];
+};
+
+const OBSERVATION_CATEGORIES: ObservationCategory[] = [
+  {
+    key: 'daily',
+    label: 'Daily routine',
+    codes: ['EXERCISE_ACTIVITY', 'POOR_SLEEP', 'STRESS', 'LOW_INTAKE'],
+  },
+  {
+    key: 'body',
+    label: 'Body changes',
+    codes: ['PAIN', 'BREATHING_CHANGE', 'WEAK_CONFUSED', 'VOMITING_DIARRHEA', 'BATHROOM_CHANGE'],
+  },
+  {
+    key: 'care',
+    label: 'Care & devices',
+    codes: ['MED_CHANGE', 'SENSOR_ISSUE'],
+  },
+  {
+    key: 'overall',
+    label: 'Overall',
+    codes: ['NOTHING_UNUSUAL', 'NOT_SURE'],
+  },
+];
+
+function labelForCode(code: string): string {
+  if (FRIENDLY_LABEL[code]) return FRIENDLY_LABEL[code];
+  return code
+    .toLowerCase()
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 export function ObservationPicker({ selected, onChange, enabled = true }: ObservationPickerProps) {
   const selectedSet = new Set(selected);
+  const known = new Set(OBSERVATION_CATEGORIES.flatMap((c) => [...c.codes]));
+  const extras = CAREGIVER_OBSERVATION_CODES.filter((code) => !known.has(code));
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
   const toggle = (code: string) => {
     if (!enabled) return;
@@ -44,40 +87,102 @@ export function ObservationPicker({ selected, onChange, enabled = true }: Observ
     }
   };
 
+  const toggleCategory = (key: string) => {
+    setExpandedCategories((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+  };
+
+  const selectedCountIn = (codes: readonly string[]) =>
+    codes.reduce((count, code) => count + (selectedSet.has(code) ? 1 : 0), 0);
+
+  const renderChip = (code: string) => {
+    const active = selectedSet.has(code);
+    return (
+      <Pressable
+        key={code}
+        onPress={() => toggle(code)}
+        disabled={!enabled}
+        style={[
+          styles.chip,
+          active ? styles.chipActive : styles.chipIdle,
+          !enabled && styles.chipDisabled,
+        ]}
+        accessibilityRole="button"
+        accessibilityState={{ selected: active, disabled: !enabled }}
+        accessibilityLabel={labelForCode(code)}
+      >
+        <Text
+          style={[
+            styles.chipText,
+            active ? styles.chipTextActive : styles.chipTextIdle,
+          ]}
+        >
+          {labelForCode(code)}
+        </Text>
+      </Pressable>
+    );
+  };
+
+  const renderCategory = (key: string, label: string, codes: readonly string[]) => {
+    const expanded = Boolean(expandedCategories[key]);
+    const selectedCount = selectedCountIn(codes);
+    return (
+      <View key={key} style={styles.category}>
+        <Pressable
+          style={styles.categoryHeader}
+          onPress={() => toggleCategory(key)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          accessibilityLabel={`${label}${expanded ? ' — collapse' : ' — expand'}`}
+        >
+          <Text style={styles.categoryLabel}>{label}</Text>
+          <Text style={styles.categoryMeta}>
+            {selectedCount > 0 ? `${selectedCount} selected · ` : ''}
+            {expanded ? '▾' : '▸'}
+          </Text>
+        </Pressable>
+        {expanded ? <View style={styles.grid}>{codes.map(renderChip)}</View> : null}
+      </View>
+    );
+  };
+
   return (
-    <ScrollView
-      horizontal={false}
-      contentContainerStyle={styles.grid}
-    >
-      {CAREGIVER_OBSERVATION_CODES.map((code) => {
-        const active = selectedSet.has(code);
-        return (
-          <Pressable
-            key={code}
-            onPress={() => toggle(code)}
-            disabled={!enabled}
-            style={[
-              styles.chip,
-              active ? styles.chipActive : styles.chipIdle,
-              !enabled && styles.chipDisabled,
-            ]}
-          >
-            <Text
-              style={[
-                styles.chipText,
-                active ? styles.chipTextActive : styles.chipTextIdle,
-              ]}
-            >
-              {FRIENDLY_LABEL[code] ?? code}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
+    <View style={styles.root}>
+      {OBSERVATION_CATEGORIES.map((category) =>
+        renderCategory(category.key, category.label, category.codes),
+      )}
+      {extras.length > 0 ? renderCategory('other', 'Other', extras) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    gap: AppTheme.spacing.sm,
+  },
+  category: {
+    gap: 6,
+  },
+  categoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 34,
+    paddingVertical: 4,
+  },
+  categoryLabel: {
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+    flex: 1,
+  },
+  categoryMeta: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

@@ -235,13 +235,8 @@ describe('demo onboarding presets', () => {
     }
   });
 
-  it('does not request a generated HEDIS care plan before EHR import', () => {
+  it('never requests HEDIS care-plan auto-goals (disabled)', () => {
     const next = applyDemoOnboardingPreset(blankProfile(), 'sofia-reyes');
-
-    expect(shouldBundleHedisMeasures(next)).toBe(false);
-  });
-
-  it('allows HEDIS bundling only after clinical import data exists', () => {
     const imported = {
       ...blankProfile(),
       clinicalImport: {
@@ -254,7 +249,8 @@ describe('demo onboarding presets', () => {
       },
     } as OnboardingProfile;
 
-    expect(shouldBundleHedisMeasures(imported)).toBe(true);
+    expect(shouldBundleHedisMeasures(next)).toBe(false);
+    expect(shouldBundleHedisMeasures(imported)).toBe(false);
   });
 
   it('keeps safety notes distinct by demo case', () => {

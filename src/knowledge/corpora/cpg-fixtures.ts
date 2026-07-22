@@ -111,8 +111,63 @@ export const CPG_FIXTURES: RetrievedChunk[] = [
     sectionHeading: 'Urological surveillance',
     text: 'SBAA — Urological surveillance: regular bladder monitoring (urodynamics, renal ultrasound) is essential to prevent kidney damage. Clean intermittent catheterization (CIC) is standard. Urinary tract infections require prompt treatment; asymptomatic bacteriuria is generally not treated.',
   },
+
+  // -- Traumatic brain injury (rehab / caregiver home care) ---------------
+  {
+    docId: 'CPG-TBI-rehab-home',
+    source: 'synthetic',
+    score: 0,
+    documentType: 'guideline',
+    lengthTier: 'medium',
+    sectionHeading: 'Home rehab & safety',
+    text: 'TBI home-care guidance (rehab consensus framing): prioritize task-specific therapy continuity after discharge; pace activity to limit cognitive fatigue; fall and agitation safety at home; monitor for new or worsening headache, confusion, weakness, seizure, or swallowing difficulty. Caregivers should keep a simple log of sleep, mood, and function changes and escalate red flags promptly. Coordinate with outpatient rehab and neurology; do not stop antiseizure or other prescribed meds without clinician direction.',
+  },
+  {
+    docId: 'CPG-TBI-seizure-mood',
+    source: 'synthetic',
+    score: 0,
+    documentType: 'guideline',
+    lengthTier: 'medium',
+    sectionHeading: 'Seizure & behavior surveillance',
+    text: 'Post-TBI surveillance: post-traumatic epilepsy risk varies with injury severity. Ensure caregivers know seizure first aid and any prescribed rescue medication. Track behavior, irritability, depression, and sleep disruption — common after TBI and relevant to care burden. Sudden severe headache with vomiting, unequal pupils, or declining responsiveness is an emergency.',
+  },
+];
+
+/** Condition keywords → CPG docIds that should seed for matching patients. */
+export const CPG_CONDITION_MATCHERS: { match: RegExp; docIds: string[] }[] = [
+  {
+    match: /cerebral\s*palsy|\bcp\b|gmfcs|spastic\s+quad|spastic\s+dipleg/i,
+    docIds: ['CPG-AAN-CP-2017', 'CPG-AAN-CP-dysphagia', 'CPG-AAN-CP-seizure'],
+  },
+  {
+    match: /copd|chronic\s*obstructive|emphysema/i,
+    docIds: ['CPG-GOLD-2024-stepwise', 'CPG-GOLD-2024-exacerbation', 'CPG-GOLD-2024-oxygen'],
+  },
+  {
+    match: /stroke|cva|cerebrovascular|hemipleg/i,
+    docIds: ['CPG-AHA-ASA-stroke-2021', 'CPG-AHA-ASA-stroke-recovery'],
+  },
+  {
+    match: /spina\s*bifida|myelomeningocele|neural\s*tube/i,
+    docIds: ['CPG-SBAA-autonomic-dysreflexia', 'CPG-SBAA-urological'],
+  },
+  {
+    match: /traumatic\s*brain|\btbi\b|head\s*injur|brain\s*injur/i,
+    docIds: ['CPG-TBI-rehab-home', 'CPG-TBI-seizure-mood'],
+  },
 ];
 
 export function getAllCpgFixtures(): RetrievedChunk[] {
   return CPG_FIXTURES;
+}
+
+export function selectCpgFixturesForConditions(conditionNames: string[]): RetrievedChunk[] {
+  const haystack = conditionNames.join(' | ');
+  const ids = new Set<string>();
+  for (const row of CPG_CONDITION_MATCHERS) {
+    if (row.match.test(haystack)) {
+      for (const id of row.docIds) ids.add(id);
+    }
+  }
+  return CPG_FIXTURES.filter((c) => ids.has(c.docId));
 }

@@ -393,7 +393,7 @@ export function seedDatabaseFromProfile(
   // on this; the retriever uses synthetic fixtures until the cache is populated,
   // then picks up the cached chunks on the next index rebuild.
   // (See planning/22_clinical-data-gathering.md §9a)
-  void import('@/clinical-evidence/condition-bundler').then(({ bundleConditionPack, bundleMedicationPack, bundleSdohPack, bundleMeasurePack }) => {
+  void import('@/clinical-evidence/condition-bundler').then(({ bundleConditionPack, bundleMedicationPack, bundleSdohPack }) => {
     void bundleConditionPack(patientId).catch((err) => {
       console.error('[seedFromProfile] condition bundle failed:', err);
     });
@@ -403,11 +403,6 @@ export function seedDatabaseFromProfile(
     void bundleSdohPack(patientId, profile.patient.location).catch((err) => {
       console.error('[seedFromProfile] SDOH bundle failed:', err);
     });
-    if (shouldBundleHedisMeasures(profile)) {
-      void bundleMeasurePack(patientId).catch((err) => {
-        console.error('[seedFromProfile] HEDIS bundle failed:', err);
-      });
-    }
   }).catch((err) => {
     console.error('[seedFromProfile] Failed to load condition-bundler:', err);
   });
@@ -415,8 +410,9 @@ export function seedDatabaseFromProfile(
   return patientId;
 }
 
-export function shouldBundleHedisMeasures(profile: OnboardingProfile): boolean {
-  return Boolean(profile.clinicalImport);
+/** @deprecated HEDIS auto-goals disabled — always false. */
+export function shouldBundleHedisMeasures(_profile: OnboardingProfile): boolean {
+  return false;
 }
 
 /**

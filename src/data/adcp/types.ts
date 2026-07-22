@@ -185,9 +185,29 @@ export interface AdcpPlanDocument {
   medicationBindings: AdcpMedicationBindingsSection;
   decisionLog: AdcpDecisionLogSectionView;
   evidenceAnchors: AdcpEvidenceAnchorsSection;
-  /** Untyped bag for SDOH / equipment / school-work (L20 — post-P3 only). */
+  /**
+   * Untyped bag for SDOH / equipment / school-work, plus structured care-context
+   * narratives seeded from onboarding (see `AdcpCareContextExtension`).
+   */
   extensions: Record<string, unknown>;
 }
+
+/**
+ * Preferred shape under `extensions.careContext` — caregiver-facing narratives
+ * that are not clinical directives. Free-form so future onboarding fields can
+ * land without a schema migration.
+ */
+export type AdcpCareContextExtension = {
+  mainConcern?: string;
+  supportNeeds?: string;
+  dailyRoutine?: string;
+  /** Plain-language mobility / function summary (scales expanded separately). */
+  mobilitySummary?: string;
+  otherNotes?: string;
+};
+
+/** Well-known extension keys reserved for Care tab / Concierge context. */
+export const ADCP_EXTENSION_CARE_CONTEXT = 'careContext' as const;
 
 /** Avoid name conflict until the real shape lands in P3. */
 export type AdcpCarePrioritiesSectionPlaceholder = AdcpCarePrioritySection;

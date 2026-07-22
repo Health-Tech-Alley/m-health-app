@@ -3,72 +3,124 @@
  *
  * Two-step fetch:
  *   1. Search `/spls.json?drug_name=X` → get setids (metadata only)
- *   2. Fetch `/spls/{setid}` → full SPL XML → extract sections
+ *   2. Fetch `/spls/{setid}.xml` → full SPL XML → extract sections
  *
- * The search endpoint returns only metadata (setid, title, version). The full
- * drug label content (indications, warnings, dosage, adverse reactions) is
- * only available via the per-setid XML endpoint.
+ * Upstream DailyMed is flaky under load (intermittent 5xx / HTML error pages).
+ * This client normalizes noisy medication strings, retries transient failures,
+ * and soft-fails to `[]` so profile switches never surface redbox errors.
  *
  * See planning/22_clinical-data-gathering.md §5d.
  */
 
 import type { KnowledgeChunk } from '@/data/types';
 import { extractSectionsFromSplXml, buildDrugLabelText } from './dailymed-spl-parser';
-import { withRetry } from './rate-limiter';
+import { sleep, withRetry } from './rate-limiter';
 
 const DAILYMED_BASE = 'https://dailymed.nlm.nih.gov/dailymed/services/v2';
 const TIMEOUT_MS = 15_000;
-const FETCH_DELAY_MS = 600;
+const FETCH_DELAY_MS = 900;
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Reduce free-text medication labels to a DailyMed-friendly query.
+ * "Albuterol 90mcg inhaler PRN" → "Albuterol"
+ * "diazePAM (VALIUM) 2 MG tablet" → "diazepam"
+ * "cholecalciferol / Vitamin D3 tablet" → "cholecalciferol"
+ */
+export function normalizeDailyMedDrugQuery(drugName: string): string {
+  let s = drugName.trim();
+  if (!s) return drugName;
+
+  // Drop parenthetical brand aliases first.
+  s = s.replace(/\([^)]*\)/g, ' ');
+  // Prefer the token before a slash when both sides look like names.
+  if (s.includes('/')) {
+    const [left] = s.split('/');
+    if (left.trim().split(/\s+/).length <= 3) {
+      s = left;
+    }
+  }
+
+  s = s
+    .replace(/\b\d+(\.\d+)?\s*(mg|mcg|µg|ug|g|ml|mL|%|iu|units?)\b[^\s,]*/gi, ' ')
+    .replace(/\b\d+(\.\d+)?\s*\/\s*\d+(\.\d+)?\s*(hr|h|hour|day)\b/gi, ' ')
+    .replace(
+      /\b(tablet|tablets|capsule|capsules|inhaler|patch|ointment|cream|powder|solution|suspension|injection|oral|topical|nasal|extended[-\s]?release|delayed[-\s]?release|immediate[-\s]?release|er|xr|sr|cr|dr|prn|daily|twice|once|bid|tid|qid|qhs|qam|as needed|with food|by mouth)\b/gi,
+      ' ',
+    )
+    .replace(/[,;:+]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const parts = s.split(' ').filter(Boolean);
+  if (parts.length === 0) {
+    return drugName.trim().split(/\s+/)[0] ?? drugName.trim();
+  }
+  // Generic name is almost always the first 1–2 tokens.
+  return parts.slice(0, Math.min(2, parts.length)).join(' ');
 }
 
 export async function fetchDrugLabel(drugName: string, fullSpl = false): Promise<KnowledgeChunk[]> {
-  // Step 1: Search for setids
+  const query = normalizeDailyMedDrugQuery(drugName);
+  if (!query) return [];
+
+  // Step 1: Search for setids (soft-fail on upstream 5xx / empty / HTML).
   const searchUrl = new URL(`${DAILYMED_BASE}/spls.json`);
-  searchUrl.searchParams.set('drug_name', drugName);
+  searchUrl.searchParams.set('drug_name', query);
   searchUrl.searchParams.set('pagesize', '3');
 
-  const searchResponse = await fetchWithTimeout(searchUrl.toString());
-  if (!searchResponse.ok) {
-    throw new Error(`DailyMed search failed: ${searchResponse.status}`);
+  const searchResponse = await fetchDailyMed(searchUrl.toString(), 'search');
+  if (!searchResponse) return [];
+
+  let searchJson: { data?: Array<{ setid?: string; title?: string }> };
+  try {
+    searchJson = (await searchResponse.json()) as typeof searchJson;
+  } catch {
+    console.warn(`[dailymed] Non-JSON search response for "${query}"`);
+    return [];
   }
 
-  const searchJson = await searchResponse.json();
-  const spls = searchJson?.data ?? [];
-  if (spls.length === 0) return [];
+  const spls = Array.isArray(searchJson?.data) ? searchJson.data : [];
+  if (spls.length === 0) {
+    // Retry once with the first token only when the normalized query was multi-word.
+    const first = query.split(/\s+/)[0];
+    if (first && first.toLowerCase() !== query.toLowerCase()) {
+      return fetchDrugLabel(first, fullSpl);
+    }
+    return [];
+  }
 
   const now = new Date().toISOString();
   const chunks: KnowledgeChunk[] = [];
-
-  // Step 2: Fetch full SPL XML for top 1-2 results
-  const setidsToFetch = spls.slice(0, 2).map((s: any) => s.setid).filter(Boolean);
+  const setidsToFetch = spls
+    .slice(0, 2)
+    .map((s) => s.setid)
+    .filter((id): id is string => Boolean(id));
 
   for (let i = 0; i < setidsToFetch.length; i++) {
     const setId = setidsToFetch[i];
-    
-    // Throttle between XML fetches to avoid overwhelming the API
     if (i > 0) {
-      await delay(FETCH_DELAY_MS);
+      await sleep(FETCH_DELAY_MS);
     }
 
     try {
       const xmlUrl = `${DAILYMED_BASE}/spls/${setId}.xml`;
-      const xmlResponse = await fetchWithTimeout(xmlUrl);
-      if (!xmlResponse.ok) continue;
+      const xmlResponse = await fetchDailyMed(xmlUrl, 'spl');
+      if (!xmlResponse) continue;
 
       const xmlText = await xmlResponse.text();
-      const sections = extractSectionsFromSplXml(xmlText);
+      // Upstream sometimes returns an HTML error page with a 200.
+      if (!xmlText.includes('<') || /something went wrong|Web application could not be started/i.test(xmlText)) {
+        console.warn(`[dailymed] Bad SPL payload for setid ${setId}`);
+        continue;
+      }
 
+      const sections = extractSectionsFromSplXml(xmlText);
       if (sections.size === 0) continue;
 
-      // Find the title from the search results
-      const spl = spls.find((s: any) => s.setid === setId);
+      const spl = spls.find((s) => s.setid === setId);
       const title = spl?.title ?? drugName;
 
       if (fullSpl) {
-        // Emit one chunk per section (deep mode)
         for (const [code, section] of sections) {
           chunks.push({
             chunkId: `DAILYMED-${setId}-${code}`,
@@ -79,11 +131,16 @@ export async function fetchDrugLabel(drugName: string, fullSpl = false): Promise
             documentType: 'spl_full',
             lengthTier: 'long',
             sectionHeading: section.heading,
-            metadataJson: JSON.stringify({ drugName, setId, title, section: section.heading }),
+            metadataJson: JSON.stringify({
+              drugName,
+              query,
+              setId,
+              title,
+              section: section.heading,
+            }),
           });
         }
       } else {
-        // Combine all sections into one chunk (default mode)
         const combinedText = buildDrugLabelText(title, sections);
         if (combinedText.length < 100) continue;
 
@@ -93,29 +150,70 @@ export async function fetchDrugLabel(drugName: string, fullSpl = false): Promise
           text: combinedText.slice(0, 8000),
           retrievedAt: now,
           useCount: 0,
-          metadataJson: JSON.stringify({ drugName, setId, title, fullSpl }),
+          metadataJson: JSON.stringify({ drugName, query, setId, title, fullSpl }),
         });
       }
     } catch (err) {
-      console.error(`[dailymed] Failed to fetch SPL XML for setid ${setId}:`, err);
+      console.warn(
+        `[dailymed] SPL fetch skipped for setid ${setId}:`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 
   return chunks;
 }
 
-async function fetchWithTimeout(url: string): Promise<Response> {
-  return withRetry(async () => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    try {
-      const response = await fetch(url, { signal: controller.signal });
-      if (!response.ok) {
-        throw new Error(`DailyMed request failed: ${response.status}`);
-      }
-      return response;
-    } finally {
-      clearTimeout(timer);
-    }
-  }, { maxRetries: 2, baseDelayMs: 1500, maxDelayMs: 8000 });
+/**
+ * Fetch DailyMed with timeout + retries on transient failures.
+ * Returns null on exhausted retries / non-OK so callers can soft-fail.
+ */
+async function fetchDailyMed(
+  url: string,
+  kind: 'search' | 'spl',
+): Promise<Response | null> {
+  try {
+    const result = await withRetry(
+      async (): Promise<Response | 'soft-fail'> => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        try {
+          const response = await fetch(url, {
+            signal: controller.signal,
+            headers: {
+              Accept:
+                kind === 'search' ? 'application/json' : 'application/xml,text/xml,*/*',
+            },
+          });
+          if (response.ok) return response;
+
+          const status = response.status;
+          // Retryable upstream / rate-limit statuses.
+          if (status === 429 || status >= 500) {
+            throw new DailyMedTransientError(status, kind);
+          }
+          // Other 4xx: not retryable — soft-fail.
+          console.warn(`[dailymed] ${kind} HTTP ${status}`);
+          return 'soft-fail';
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+      { maxRetries: 3, baseDelayMs: 1200, maxDelayMs: 10_000 },
+    );
+    return result === 'soft-fail' ? null : result;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[dailymed] ${kind} unavailable: ${msg}`);
+    return null;
+  }
+}
+
+class DailyMedTransientError extends Error {
+  readonly status: number;
+  constructor(status: number, kind: string) {
+    super(`DailyMed ${kind} failed: ${status}`);
+    this.name = 'DailyMedTransientError';
+    this.status = status;
+  }
 }

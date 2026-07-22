@@ -1055,10 +1055,11 @@ export class Orchestrator {
 
     if ('retrieveDeep' in this.retriever && typeof (this.retriever as { retrieveDeep?: unknown }).retrieveDeep === 'function') {
       try {
+        const primaryOnly = (context.patient.conditions ?? []).slice(0, 1);
         const deepResult = await (this.retriever as { retrieveDeep: (q: { intent: string; conditions: string[]; activeMeds: string[]; kTools: number; kChunks: number }) => Promise<{ chunks: RetrievedChunk[] }> }).retrieveDeep({
           intent,
-          conditions: context.patient.conditions,
-          activeMeds: (context.patient.medications ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+          conditions: primaryOnly,
+          activeMeds: [],
           kTools: 3,
           kChunks: 12,
         });

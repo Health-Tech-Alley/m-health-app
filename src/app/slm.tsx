@@ -36,7 +36,11 @@ import {
   messageHasClinicalKeywords,
   retrieveClinicalChunksViaBm25,
 } from '@/clinical-evidence/retrieval-helper';
-import { selectChatGeneration, formatAnswerWithFootnotes } from '@/clinical-evidence';
+import {
+  buildMedSafetyContext,
+  selectChatGeneration,
+  formatAnswerWithFootnotes,
+} from '@/clinical-evidence';
 import { createReadyEmbedder } from '@/knowledge/embedder';
 import type { McpToolSummary } from '@/knowledge/types';
 import {
@@ -558,6 +562,8 @@ export default function SLMScreen({
   const [showReasoningFor, setShowReasoningFor] = useState<Set<string>>(new Set());
   const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(new Set());
   const [expandedCareSections, setExpandedCareSections] = useState<Set<string>>(new Set());
+  const [careContextExpanded, setCareContextExpanded] = useState(false);
+  const [howMonitorExpanded, setHowMonitorExpanded] = useState(false);
 
   const handleInputChange = useCallback((text: string) => {
     setInputText(text);
@@ -891,26 +897,62 @@ export default function SLMScreen({
       systemContext = `${systemContext}\n\n${identityGuard.systemPromptBlock}`;
     }
 
+    // On-demand RxNorm DDI when this turn is med-related (chat, not Meds-tab-only).
+    const mentionedMeds = (nluPacket?.entities ?? [])
+      .filter((e) => e.type === 'medication')
+      .map((e) => e.label);
+    let medSafetyChunks: {
+      docId: string;
+      source: string;
+      text: string;
+    }[] = [];
+    try {
+      const medSafety = await Promise.race([
+        buildMedSafetyContext({
+          medicationNames: [...new Set([...mentionedMeds, ...medNames])],
+          intent: nluPacket?.intent.primary ?? null,
+          hasMedicationEntities: mentionedMeds.length > 0,
+          message: trimmed,
+        }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 4_000)),
+      ]);
+      if (medSafety?.chunks.length) {
+        medSafetyChunks = medSafety.chunks.map((c) => ({
+          docId: c.docId,
+          source: String(c.source),
+          text: c.text,
+        }));
+        console.log(
+          `[SLM Chat] Med safety DDI: ${medSafety.chunks.length} chunks (${medSafety.reason})`,
+        );
+      }
+    } catch (medErr) {
+      console.warn('[SLM Chat] Med safety context skipped:', medErr);
+    }
+
     // Use NLU chunks if available, otherwise fall back to keyword-based retrieval
     if (nluPacket && nluPacket.chunks.length > 0) {
       const entityHint = formatEntityHint(nluPacket.entities);
       const maxChunkChars = nluPacket.budget.maxChunkChars;
       const citationBlock = formatCitationsForPrompt(
-        nluPacket.chunks.map((c) => ({
-          docId: c.docId,
-          source: String(c.source),
-          text: c.text,
-          patientId: c.patientId,
-          sourceId: c.sourceId,
-          sourceType: c.sourceType,
-          resourceId: c.resourceId,
-          effectiveAt: c.effectiveAt,
-          createdAt: c.createdAt,
-          synthetic: c.synthetic,
-          retrievalMethod: c.retrievalMethod,
-          graphRelation: c.graphRelation,
-          graphSeedId: c.graphSeedId,
-        })),
+        [
+          ...nluPacket.chunks.map((c) => ({
+            docId: c.docId,
+            source: String(c.source),
+            text: c.text,
+            patientId: c.patientId,
+            sourceId: c.sourceId,
+            sourceType: c.sourceType,
+            resourceId: c.resourceId,
+            effectiveAt: c.effectiveAt,
+            createdAt: c.createdAt,
+            synthetic: c.synthetic,
+            retrievalMethod: c.retrievalMethod,
+            graphRelation: c.graphRelation,
+            graphSeedId: c.graphSeedId,
+          })),
+          ...medSafetyChunks,
+        ],
         maxChunkChars,
       );
       if (citationBlock) {
@@ -920,7 +962,10 @@ export default function SLMScreen({
       }
     } else if (nluPacket && nluPacket.entities.length > 0) {
       const entityHint = formatEntityHint(nluPacket.entities);
-      userContent = `${trimmed}\n${entityHint}`;
+      const ddiBlock = medSafetyChunks.length
+        ? `\n\n${formatCitationsForPrompt(medSafetyChunks)}`
+        : '';
+      userContent = `${trimmed}\n${entityHint}${ddiBlock}`;
     } else {
       const hasClinicalIntent = messageHasClinicalKeywords(
         trimmed,
@@ -942,10 +987,16 @@ export default function SLMScreen({
         console.log(
           `[SLM Chat] Clinical intent fallback. Query: "${retrievalQuery}". Chunks: ${citations.length}`,
         );
-        const citationBlock = formatCitationsForPrompt(citations);
+        const citationBlock = formatCitationsForPrompt([
+          ...citations,
+          ...medSafetyChunks,
+        ]);
         if (citationBlock) {
           userContent = `${trimmed}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above where relevant. After claims drawn from a chunk, append that chunk's exact tag (e.g. [PubMed #1], [Drug Label #2], [Care Plan #3]) — include the # number.`;
         }
+      } else if (medSafetyChunks.length > 0) {
+        const citationBlock = formatCitationsForPrompt(medSafetyChunks);
+        userContent = `${trimmed}\n\n${citationBlock}\n\nGround medication safety claims in the knowledge above where relevant.`;
       } else {
         console.log(
           `[SLM Chat] No clinical intent. Conditions: [${conditionNames.join(', ')}], Meds: [${medNames.join(', ')}]`,
@@ -2080,121 +2131,152 @@ export default function SLMScreen({
           />
 
           <View style={styles.contextCard}>
-            <Text style={styles.cardTitle}>Care Context</Text>
-            {patientRecordLoading ? (
-              <Text style={styles.contextText}>Loading patient record...</Text>
-            ) : patientRecordError ? (
-              <Text style={styles.errorText}>
-                Patient record unavailable: {patientRecordError.message}
-              </Text>
-            ) : !snapshot?.patient ? (
-              <Text style={styles.contextText}>
-                No persisted patient record is available. Import or create a patient record before asking the Concierge.
-              </Text>
-            ) : (
+            <Pressable
+              style={styles.collapsibleCardHeader}
+              onPress={() => setCareContextExpanded((v) => !v)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: careContextExpanded }}
+              accessibilityLabel={`Care Context${careContextExpanded ? ' — collapse' : ' — expand'}`}
+            >
+              <View style={styles.collapsibleCardHeaderText}>
+                <Text style={styles.cardTitle}>Care Context</Text>
+                {!careContextExpanded ? (
+                  <Text style={styles.collapsibleCardSummary} numberOfLines={1}>
+                    {snapshot?.patient
+                      ? `${snapshot.patient.preferredName?.trim() || snapshot.patient.name} · tap to expand`
+                      : 'Tap to expand patient and care details'}
+                  </Text>
+                ) : null}
+              </View>
+              <Text style={styles.collapsibleChevron}>{careContextExpanded ? '▾' : '▸'}</Text>
+            </Pressable>
+
+            {careContextExpanded ? (
               <>
-                <CollapsibleCareSection
-                  id="patient"
-                  title="Patient"
-                  summary={`${snapshot.patient.preferredName?.trim() || snapshot.patient.name} · age ${caregiverContext?.patientAge ?? 'Not provided'}`}
-                  expanded={expandedCareSections.has('patient')}
-                  onToggle={toggleCareSection}
-                >
-                  <Text style={styles.contextText}>
-                    Conditions: {snapshot.conditions.map((condition: PatientCondition) => condition.name).filter(Boolean).join(', ') || 'No conditions provided'}
+                {patientRecordLoading ? (
+                  <Text style={styles.contextText}>Loading patient record...</Text>
+                ) : patientRecordError ? (
+                  <Text style={styles.errorText}>
+                    Patient record unavailable: {patientRecordError.message}
                   </Text>
+                ) : !snapshot?.patient ? (
                   <Text style={styles.contextText}>
-                    Medications: {medicationNames.join(', ') || 'No medications provided'}
+                    No persisted patient record is available. Import or create a patient record before asking the Concierge.
                   </Text>
-                  <Text style={styles.contextText}>
-                    Baseline routine: {snapshot.patient.baselineDailyRoutine ?? 'Not provided'}
-                  </Text>
-                  <Text style={styles.contextText}>
-                    SpO2 cutoff: {snapshot.patient.spo2Cutoff ?? 'Not provided'} · Baseline HR: {snapshot.patient.baselineHeartRate ?? 'Not provided'}
-                  </Text>
-                </CollapsibleCareSection>
-
-                <CollapsibleCareSection
-                  id="caregiver"
-                  title="Caregiver"
-                  summary={
-                    snapshot.caregiver
-                      ? `${snapshot.caregiver.name} (${snapshot.caregiver.relationship ?? 'N/A'})`
-                      : 'Not provided'
-                  }
-                  expanded={expandedCareSections.has('caregiver')}
-                  onToggle={toggleCareSection}
-                >
-                  {snapshot.caregiver ? (
-                    <>
+                ) : (
+                  <>
+                    <CollapsibleCareSection
+                      id="patient"
+                      title="Patient"
+                      summary={`${snapshot.patient.preferredName?.trim() || snapshot.patient.name} · age ${caregiverContext?.patientAge ?? 'Not provided'}`}
+                      expanded={expandedCareSections.has('patient')}
+                      onToggle={toggleCareSection}
+                    >
                       <Text style={styles.contextText}>
-                        {snapshot.caregiver.name} ({snapshot.caregiver.relationship ?? 'relationship not provided'}) · {snapshot.caregiver.experience ?? 'experience not provided'} · {snapshot.caregiver.availability ?? 'availability not provided'}
+                        Conditions: {snapshot.conditions.map((condition: PatientCondition) => condition.name).filter(Boolean).join(', ') || 'No conditions provided'}
                       </Text>
                       <Text style={styles.contextText}>
-                        Language: {snapshot.caregiver.languagePreference ?? 'Not provided'} · Comfort: {snapshot.caregiver.medicalComfortLevel ?? 'Not provided'}
+                        Medications: {medicationNames.join(', ') || 'No medications provided'}
                       </Text>
                       <Text style={styles.contextText}>
-                        Active concern: {snapshot.caregiver.mainConcern ?? 'Not provided'}
+                        Baseline routine: {snapshot.patient.baselineDailyRoutine ?? 'Not provided'}
                       </Text>
                       <Text style={styles.contextText}>
-                        Backup: {snapshot.caregiver.backupCaregiver ?? 'Not provided'}
+                        SpO2 cutoff: {snapshot.patient.spo2Cutoff ?? 'Not provided'} · Baseline HR: {snapshot.patient.baselineHeartRate ?? 'Not provided'}
                       </Text>
-                    </>
-                  ) : (
-                    <Text style={styles.contextText}>No caregiver information was provided.</Text>
-                  )}
-                </CollapsibleCareSection>
+                    </CollapsibleCareSection>
 
-                <CollapsibleCareSection
-                  id="care-team"
-                  title="Care Team"
-                  summary={`PCP: ${caregiverContext?.primaryCareProviderName ?? 'Not provided'}`}
-                  expanded={expandedCareSections.has('care-team')}
-                  onToggle={toggleCareSection}
-                >
-                  <Text style={styles.contextText}>
-                    PCP: {caregiverContext?.primaryCareProviderName ?? 'Not provided'}
-                    {caregiverContext?.primaryCareProviderPhone ? ` · ${caregiverContext.primaryCareProviderPhone}` : ''}
-                  </Text>
-                  {caregiverContext?.primaryCareProviderEmail ? (
-                    <Text style={styles.contextText}>
-                      Email: {caregiverContext.primaryCareProviderEmail}
-                    </Text>
-                  ) : null}
-                </CollapsibleCareSection>
+                    <CollapsibleCareSection
+                      id="caregiver"
+                      title="Caregiver"
+                      summary={
+                        snapshot.caregiver
+                          ? `${snapshot.caregiver.name} (${snapshot.caregiver.relationship ?? 'N/A'})`
+                          : 'Not provided'
+                      }
+                      expanded={expandedCareSections.has('caregiver')}
+                      onToggle={toggleCareSection}
+                    >
+                      {snapshot.caregiver ? (
+                        <>
+                          <Text style={styles.contextText}>
+                            {snapshot.caregiver.name} ({snapshot.caregiver.relationship ?? 'relationship not provided'}) · {snapshot.caregiver.experience ?? 'experience not provided'} · {snapshot.caregiver.availability ?? 'availability not provided'}
+                          </Text>
+                          <Text style={styles.contextText}>
+                            Language: {snapshot.caregiver.languagePreference ?? 'Not provided'} · Comfort: {snapshot.caregiver.medicalComfortLevel ?? 'Not provided'}
+                          </Text>
+                          <Text style={styles.contextText}>
+                            Active concern: {snapshot.caregiver.mainConcern ?? 'Not provided'}
+                          </Text>
+                          <Text style={styles.contextText}>
+                            Backup: {snapshot.caregiver.backupCaregiver ?? 'Not provided'}
+                          </Text>
+                        </>
+                      ) : (
+                        <Text style={styles.contextText}>No caregiver information was provided.</Text>
+                      )}
+                    </CollapsibleCareSection>
 
-                <CollapsibleCareSection
-                  id="safety"
-                  title="Safety"
-                  summary={`Emergency: ${caregiverContext?.emergencyContact ?? 'Not provided'}`}
-                  expanded={expandedCareSections.has('safety')}
-                  onToggle={toggleCareSection}
-                >
-                  <Text style={styles.contextText}>
-                    Emergency contact: {caregiverContext?.emergencyContact ?? 'Not provided'}
-                  </Text>
-                  <Text style={styles.contextText}>
-                    Safety notes: {caregiverContext?.safetyNotes ?? 'Not provided'}
-                  </Text>
-                </CollapsibleCareSection>
+                    <CollapsibleCareSection
+                      id="care-team"
+                      title="Care Team"
+                      summary={`PCP: ${caregiverContext?.primaryCareProviderName ?? 'Not provided'}`}
+                      expanded={expandedCareSections.has('care-team')}
+                      onToggle={toggleCareSection}
+                    >
+                      <Text style={styles.contextText}>
+                        PCP: {caregiverContext?.primaryCareProviderName ?? 'Not provided'}
+                        {caregiverContext?.primaryCareProviderPhone ? ` · ${caregiverContext.primaryCareProviderPhone}` : ''}
+                      </Text>
+                      {caregiverContext?.primaryCareProviderEmail ? (
+                        <Text style={styles.contextText}>
+                          Email: {caregiverContext.primaryCareProviderEmail}
+                        </Text>
+                      ) : null}
+                    </CollapsibleCareSection>
 
-                <CollapsibleCareSection
-                  id="clinical"
-                  title="Clinical"
-                  summary={`${dedupedSymptoms.length} symptom${dedupedSymptoms.length === 1 ? '' : 's'} · ${snapshot.thresholds.length} active threshold${snapshot.thresholds.length === 1 ? '' : 's'}`}
-                  expanded={expandedCareSections.has('clinical')}
-                  onToggle={toggleCareSection}
+                    <CollapsibleCareSection
+                      id="safety"
+                      title="Safety"
+                      summary={`Emergency: ${caregiverContext?.emergencyContact ?? 'Not provided'}`}
+                      expanded={expandedCareSections.has('safety')}
+                      onToggle={toggleCareSection}
+                    >
+                      <Text style={styles.contextText}>
+                        Emergency contact: {caregiverContext?.emergencyContact ?? 'Not provided'}
+                      </Text>
+                      <Text style={styles.contextText}>
+                        Safety notes: {caregiverContext?.safetyNotes ?? 'Not provided'}
+                      </Text>
+                    </CollapsibleCareSection>
+
+                    <CollapsibleCareSection
+                      id="clinical"
+                      title="Clinical"
+                      summary={`${dedupedSymptoms.length} symptom${dedupedSymptoms.length === 1 ? '' : 's'} · ${snapshot.thresholds.length} active threshold${snapshot.thresholds.length === 1 ? '' : 's'}`}
+                      expanded={expandedCareSections.has('clinical')}
+                      onToggle={toggleCareSection}
+                    >
+                      <Text style={styles.contextText}>
+                        Symptoms: {dedupedSymptoms.join(', ') || 'No symptoms provided'}
+                      </Text>
+                      <Text style={styles.contextText}>
+                        Active thresholds: {snapshot.thresholds.length}
+                      </Text>
+                    </CollapsibleCareSection>
+                  </>
+                )}
+                <Pressable
+                  style={styles.editProfilesButton}
+                  onPress={() => router.push('/profile' as never)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open edit profiles"
                 >
-                  <Text style={styles.contextText}>
-                    Symptoms: {dedupedSymptoms.join(', ') || 'No symptoms provided'}
-                  </Text>
-                  <Text style={styles.contextText}>
-                    Active thresholds: {snapshot.thresholds.length}
-                  </Text>
-                </CollapsibleCareSection>
+                  <Text style={styles.editProfilesButtonText}>Edit profiles</Text>
+                </Pressable>
+                <Text style={styles.tagline}>The Concierge suggests. You decide.</Text>
               </>
-            )}
-            <Text style={styles.tagline}>The Concierge suggests. You decide.</Text>
+            ) : null}
           </View>
 
           {state.messages.length === 0 ? (
@@ -2207,22 +2289,35 @@ export default function SLMScreen({
                 disabled={state.runStatus === 'streaming'}
               />
               <View style={styles.howToCard}>
-                <Text style={styles.howToTitle}>How Health Monitor works in chat</Text>
-                <Text style={styles.howToBody}>
-                  1. Ask a vitals or what-if question (e.g. “What if SpO2 is 86% and heart rate is 118?”).
-                </Text>
-                <Text style={styles.howToBody}>
-                  2. When vitals are detected, you’ll see “activating Health Monitor” and it runs right away.
-                </Text>
-                <Text style={styles.howToBody}>
-                  3. Severity 1-2 may ask for observations. In developer mode, it may also offer a local demo follow-up appointment.
-                </Text>
-                <Text style={styles.howToBody}>
-                  4. After you finish, Concierge explains with that context. Severity 3 skips review/scheduling and may show a critical banner — never auto-calls 911.
-                </Text>
-                <Text style={styles.howToFootnote}>
-                  SpO2 is percent (86, not 0.86). Pure med/schedule questions skip Health Monitor.
-                </Text>
+                <Pressable
+                  style={styles.collapsibleCardHeader}
+                  onPress={() => setHowMonitorExpanded((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: howMonitorExpanded }}
+                  accessibilityLabel={`How Health Monitor works${howMonitorExpanded ? ' — collapse' : ' — expand'}`}
+                >
+                  <Text style={styles.howToTitle}>How Health Monitor works in chat</Text>
+                  <Text style={styles.collapsibleChevron}>{howMonitorExpanded ? '▾' : '▸'}</Text>
+                </Pressable>
+                {howMonitorExpanded ? (
+                  <>
+                    <Text style={styles.howToBody}>
+                      1. Ask a vitals or what-if question (e.g. “What if SpO2 is 86% and heart rate is 118?”).
+                    </Text>
+                    <Text style={styles.howToBody}>
+                      2. When vitals are detected, you’ll see “activating Health Monitor” and it runs right away.
+                    </Text>
+                    <Text style={styles.howToBody}>
+                      3. Severity 1-2 may ask for observations. In developer mode, it may also offer a local demo follow-up appointment.
+                    </Text>
+                    <Text style={styles.howToBody}>
+                      4. After you finish, Concierge explains with that context. Severity 3 skips review/scheduling and may show a critical banner — never auto-calls 911.
+                    </Text>
+                    <Text style={styles.howToFootnote}>
+                      SpO2 is percent (86, not 0.86). Pure med/schedule questions skip Health Monitor.
+                    </Text>
+                  </>
+                ) : null}
               </View>
             </>
           ) : (
@@ -2413,11 +2508,46 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#C5DDD9',
   },
+  collapsibleCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  collapsibleCardHeaderText: {
+    flex: 1,
+  },
+  collapsibleCardSummary: {
+    color: '#526866',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  collapsibleChevron: {
+    color: '#526866',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  editProfilesButton: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    backgroundColor: '#E8F5F3',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#0E6F68',
+  },
+  editProfilesButtonText: {
+    color: '#0E6F68',
+    fontSize: 13,
+    fontWeight: '900',
+  },
   howToTitle: {
+    flex: 1,
     fontSize: 16,
     fontWeight: '800',
     color: '#123433',
-    marginBottom: 10,
+    marginBottom: 0,
   },
   howToBody: {
     color: '#526866',

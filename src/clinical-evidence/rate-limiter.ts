@@ -66,7 +66,7 @@ export async function withRetry<T>(
       return await fn();
     } catch (err) {
       lastError = err;
-      const isRetryable = is429Error(err) || isNetworkError(err);
+      const isRetryable = is429Error(err) || is5xxError(err) || isNetworkError(err);
       if (!isRetryable || attempt === maxRetries) {
         throw err;
       }
@@ -87,9 +87,21 @@ function is429Error(err: unknown): boolean {
   return false;
 }
 
+function is5xxError(err: unknown): boolean {
+  if (err instanceof Error) {
+    // Match "failed: 500", "HTTP 503", status property on custom errors.
+    if (/5\d\d/.test(err.message) && /fail|http|status|dailymed|request/i.test(err.message)) {
+      return true;
+    }
+    const status = (err as { status?: number }).status;
+    if (typeof status === 'number' && status >= 500 && status < 600) return true;
+  }
+  return false;
+}
+
 function isNetworkError(err: unknown): boolean {
   if (err instanceof Error) {
-    return /network|timeout|abort|fetch failed/i.test(err.message);
+    return /network|timeout|abort|fetch failed|canceled|cancelled/i.test(err.message);
   }
   return false;
 }

@@ -300,8 +300,10 @@ export default function SlmExplainScreen() {
   // One auto-run per target; lease released on unmount only.
   useEffect(() => {
     if (target.kind === 'unavailable') {
-      setError(target.message);
-      return;
+      // Defer so the state update does not run synchronously within the
+      // effect (react-hooks/set-state-in-effect).
+      const errorTimer = setTimeout(() => setError(target.message), 0);
+      return () => clearTimeout(errorTimer);
     }
     if (explainStartedRef.current) return;
     explainStartedRef.current = true;

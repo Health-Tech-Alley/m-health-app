@@ -22,7 +22,7 @@ import type {
   RetrievedChunk,
 } from '@/knowledge/types';
 import {
-  getAllKnowledgeChunks,
+  getKnowledgeChunksForPatient,
   clearExpiredKnowledgeChunks,
 } from '@/data/repositories/knowledgeCacheRepository';
 import type { KnowledgeChunk } from '@/data/types';
@@ -66,15 +66,16 @@ function metadataPatientId(chunk: KnowledgeChunk): string | undefined {
 
 function chunkBelongsToPatient(chunk: KnowledgeChunk, patientId?: string): boolean {
   const chunkPatientId = metadataPatientId(chunk);
-  if (!chunkPatientId) return true;
-  return Boolean(patientId && chunkPatientId === patientId);
+  // Fail closed: unscoped rows never enter retrieval.
+  if (!patientId?.trim() || !chunkPatientId) return false;
+  return chunkPatientId === patientId;
 }
 
 function knowledgeChunkToRetrievedChunk(
   chunk: KnowledgeChunk,
   score: number,
   retrievalMethod = 'bm25',
-): RetrievedChunk {
+): RetrievedChunk & { feedbackScore?: number } {
   const metadata = parseChunkMetadata(chunk);
   const patientRecord =
     metadata.sourceType === 'patient-record' || metadata.kind === 'cda_narrative';
@@ -100,6 +101,7 @@ function knowledgeChunkToRetrievedChunk(
       metadata.synthetic ??
       (chunk.source === 'synthetic' && !patientRecord),
     retrievalMethod: chunk.retrievalMethod ?? retrievalMethod,
+    feedbackScore: chunk.feedbackScore ?? 0,
   };
 }
 
@@ -142,15 +144,20 @@ export class CachedFusedRetriever implements FusedRetriever {
   }
 
   private async buildIndexes(options: CachedFusedRetrieverOptions): Promise<void> {
-    // Clear expired OpenFDA chunks before building
-    clearExpiredKnowledgeChunks();
+    // Fail closed: no patient → empty clinical corpus (never load all patients).
+    if (!this.patientId?.trim()) {
+      this.ready = true;
+      return;
+    }
 
-    // Load cached chunks from knowledge_cache table
-    const cachedChunks = getAllKnowledgeChunks().filter((chunk) =>
-      chunkBelongsToPatient(chunk, this.patientId),
-    );
+    // Clear expired OpenFDA chunks for this patient before building
+    clearExpiredKnowledgeChunks(this.patientId);
 
-    // Combine: synthetic fixtures (fallback) + cached clinical chunks
+    // Load ONLY this patient's knowledge_cache rows
+    const cachedChunks = getKnowledgeChunksForPatient(this.patientId);
+
+    // Optional dev fixtures are tagged with this patient id so they don't
+    // pollute other profiles' indexes.
     const fixtureChunks: RetrievedChunk[] = [];
     if (shouldUseDevelopmentEvidenceFixtures()) {
       const {
@@ -170,7 +177,6 @@ export class CachedFusedRetriever implements FusedRetriever {
       );
     }
 
-    // Build a combined set — fixtures first (lower priority), then cached
     const allChunks: { docId: string; text: string; chunk: RetrievedChunk }[] = [];
 
     for (const c of fixtureChunks) {
@@ -179,7 +185,7 @@ export class CachedFusedRetriever implements FusedRetriever {
         score: 0,
         synthetic: true,
         retrievalMethod: 'development_fixture',
-        patientId: c.patientId ?? this.patientId,
+        patientId: this.patientId,
       };
       this.chunkMap.set(c.docId, retrieved);
       allChunks.push({ docId: c.docId, text: `${c.docId} ${c.text}`, chunk: retrieved });
@@ -187,7 +193,6 @@ export class CachedFusedRetriever implements FusedRetriever {
 
     for (const c of cachedChunks) {
       const retrieved = knowledgeChunkToRetrievedChunk(c, 0);
-      // Don't overwrite fixtures with cached chunks of the same docId
       if (!this.chunkMap.has(c.chunkId)) {
         this.chunkMap.set(c.chunkId, retrieved);
         allChunks.push({ docId: c.chunkId, text: `${c.chunkId} ${c.text}`, chunk: retrieved });
@@ -236,7 +241,12 @@ export class CachedFusedRetriever implements FusedRetriever {
     await this.ensureReady();
 
     const t0 = performance.now();
-    const query = [q.intent, ...q.conditions, ...q.activeMeds].join(' ');
+    // Prefer intent text; only append caller-scoped conditions/meds (NLU
+    // passes turn entities or primary-only — never the full EHR dump).
+    const query = [q.intent, ...q.conditions, ...q.activeMeds]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(' ');
     const kChunks = q.kChunks ?? 8;
     const overFetch = Math.max(kChunks * 3, 12);
 
@@ -302,14 +312,44 @@ export class CachedFusedRetriever implements FusedRetriever {
       );
     }
 
+    // Patient-conditioned boosts for NLU relevance:
+    // condition/med token overlap + caregiver feedback on this patient's corpus.
+    const conditionTokens = new Set(
+      [...q.conditions, ...this.patientConditions]
+        .flatMap((c) => c.toLowerCase().split(/[^a-z0-9]+/))
+        .filter((t) => t.length >= 3),
+    );
+    const medTokens = new Set(
+      [...q.activeMeds, ...(this.options.activeMeds ?? [])]
+        .flatMap((m) => m.toLowerCase().split(/[^a-z0-9]+/))
+        .filter((t) => t.length >= 3),
+    );
+
     const rankedChunks: RetrievedChunk[] = chunkRank
       .map((r): RetrievedChunk | null => {
         const chunk = this.chunkMap.get(r.docId);
         if (!chunk) return null;
+        // Hard isolation: never return another patient's chunk.
+        if (chunk.patientId && this.patientId && chunk.patientId !== this.patientId) {
+          return null;
+        }
         const rel = relationByDoc.get(r.docId);
+        const hay = `${chunk.docId} ${chunk.text}`.toLowerCase();
+        let boost = 0;
+        for (const t of conditionTokens) {
+          if (hay.includes(t)) boost += 0.08;
+        }
+        for (const t of medTokens) {
+          if (hay.includes(t)) boost += 0.06;
+        }
+        // feedbackScore lives on KnowledgeChunk → RetrievedChunk via map if present
+        const fb = (chunk as RetrievedChunk & { feedbackScore?: number }).feedbackScore ?? 0;
+        boost += fb * 0.25;
+        // Cap boost so BM25 remains primary
+        boost = Math.max(-0.4, Math.min(0.6, boost));
         return {
           ...chunk,
-          score: r.score,
+          score: r.score * (1 + boost),
           retrievalMethod: rel
             ? 'bm25_graph'
             : chunk.retrievalMethod ?? (mode === 'deep' ? 'deep_bm25' : 'bm25'),
@@ -321,7 +361,8 @@ export class CachedFusedRetriever implements FusedRetriever {
             : {}),
         };
       })
-      .filter((c): c is RetrievedChunk => Boolean(c));
+      .filter((c): c is RetrievedChunk => Boolean(c))
+      .sort((a, b) => b.score - a.score);
 
     let chunks = mergeByParent<RetrievedChunk>(rankedChunks, 1).slice(0, kChunks);
 

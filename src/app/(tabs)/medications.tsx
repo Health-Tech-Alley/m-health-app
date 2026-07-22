@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Modal,
@@ -34,6 +34,10 @@ import {
   type MedicationSchedule,
 } from "@/data";
 import { audit } from "@/services/audit/auditService";
+import {
+  getMedKnowledgeGlance,
+  type MedKnowledgeGlance,
+} from "@/services/medications/medKnowledgeGlance";
 import { getPatientDisplayName } from "@/utils/patientDisplay";
 
 type MedStatus = "pending" | "confirmed";
@@ -494,6 +498,7 @@ export default function MedicationsScreen() {
         onClose={() => setSlmCheckMed(null)}
         title="Concierge medication check"
         reason="custom_med_check"
+        allowMinimize={false}
         prompt={
           slmCheckMed
             ? `A caregiver is considering adding the medication "${slmCheckMed.name}" (${slmCheckMed.dosage ?? "dose not specified"}, ${slmCheckMed.frequency ?? "frequency not specified"}) for ${snapshot?.patient?.name ?? "the selected patient"}, who has these conditions: ${snapshot?.conditions.map((condition) => condition.name).filter(Boolean).join(", ") || "not specified"} and takes these current medications: ${snapshot?.medications.map((medication) => medication.name).filter(Boolean).join(", ") || "none listed"}. Is this a reasonable choice? In plain, calm language for a family caregiver, summarize the main considerations, potential interactions or red flags to watch for, and whether to keep, modify, or remove it — and always recommend confirming with the prescriber.`
@@ -522,6 +527,18 @@ function MedicationCard({
   const isConfirmed = row.status === "confirmed";
   const isCustom = row.med.source === "custom";
   const showConfirmationUi = row.confirmationRequired;
+  const [openSection, setOpenSection] = useState<
+    null | 'indication' | 'sideEffects' | 'warnings' | 'other'
+  >(null);
+  const { patientId: activePatientId } = usePatientRecord();
+  const glance = useMemo(
+    () => getMedKnowledgeGlance(row.med.name, activePatientId),
+    [row.med.name, activePatientId],
+  );
+
+  const toggleSection = (key: NonNullable<typeof openSection>) => {
+    setOpenSection((current) => (current === key ? null : key));
+  };
 
   return (
     <View style={styles.medicationCard}>
@@ -555,6 +572,13 @@ function MedicationCard({
           ⏰ {timeLabel}
         </Text>
       </View>
+
+      <MedKnowledgeCollapsibles
+        glance={glance}
+        medIndication={row.med.indication}
+        openSection={openSection}
+        onToggle={toggleSection}
+      />
 
       <View style={styles.actionRow}>
         {showConfirmationUi ? (
@@ -592,6 +616,73 @@ function MedicationCard({
           </Pressable>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+function MedKnowledgeCollapsibles({
+  glance,
+  medIndication,
+  openSection,
+  onToggle,
+}: {
+  glance: MedKnowledgeGlance | null;
+  medIndication?: string;
+  openSection: null | 'indication' | 'sideEffects' | 'warnings' | 'other';
+  onToggle: (key: 'indication' | 'sideEffects' | 'warnings' | 'other') => void;
+}) {
+  const indicationText = glance?.indication ?? medIndication?.trim() ?? null;
+  const sideEffects = glance?.sideEffects ?? null;
+  const warnings = glance?.warnings ?? null;
+  const other = glance?.other ?? null;
+  const hasAny = Boolean(indicationText || sideEffects || warnings || other);
+  if (!hasAny) return null;
+
+  const rows: Array<{
+    key: 'indication' | 'sideEffects' | 'warnings' | 'other';
+    label: string;
+    body: string;
+  }> = [];
+  if (indicationText) {
+    rows.push({ key: 'indication', label: 'What it addresses', body: indicationText });
+  }
+  if (sideEffects) {
+    rows.push({ key: 'sideEffects', label: 'Common side effects', body: sideEffects });
+  }
+  if (warnings) {
+    rows.push({ key: 'warnings', label: 'Warnings to watch', body: warnings });
+  }
+  if (other && !indicationText && !sideEffects && !warnings) {
+    rows.push({ key: 'other', label: 'From knowledge', body: other });
+  }
+
+  return (
+    <View style={styles.knowledgeBlock}>
+      {rows.map((row) => {
+        const open = openSection === row.key;
+        return (
+          <View key={row.key} style={styles.knowledgeRow}>
+            <Pressable
+              style={styles.knowledgeHeader}
+              onPress={() => onToggle(row.key)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: open }}
+              accessibilityLabel={`${row.label}${open ? ' — collapse' : ' — expand'}`}
+            >
+              <Text style={styles.knowledgeLabel}>{row.label}</Text>
+              <Text style={styles.knowledgeChevron}>{open ? '▾' : '▸'}</Text>
+            </Pressable>
+            {open ? (
+              <Text style={styles.knowledgeBody}>{row.body}</Text>
+            ) : null}
+          </View>
+        );
+      })}
+      {glance?.sourceLabels?.length ? (
+        <Text style={styles.knowledgeSources}>
+          Sources: {glance.sourceLabels.join(' · ')}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -784,6 +875,51 @@ const styles = StyleSheet.create({
   candidateCard: {
     borderColor: AppTheme.colors.brandSoft,
     backgroundColor: "#FBFFFE",
+  },
+  knowledgeBlock: {
+    marginBottom: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.softSurface,
+    overflow: "hidden",
+  },
+  knowledgeRow: {
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.colors.border,
+  },
+  knowledgeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 40,
+  },
+  knowledgeLabel: {
+    color: AppTheme.colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+    flex: 1,
+  },
+  knowledgeChevron: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  knowledgeBody: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
+  knowledgeSources: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 11,
+    fontWeight: "700",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   medicationHeader: {
     flexDirection: "row",

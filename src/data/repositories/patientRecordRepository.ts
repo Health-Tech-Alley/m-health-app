@@ -240,7 +240,7 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   const careContextItems = getPatientCareContextItems(patientId);
   const timelineEvents = getPatientTimelineEvents(patientId);
   const carePlanGoals = getCarePlanGoals(patientId);
-  const knowledgeStats = getKnowledgeCacheStats();
+  const knowledgeStats = getKnowledgeCacheStats(patientId);
   const enrichmentStats = getEnrichmentStats(patientId);
   const bundleStatus = getBundleStatus(patientId);
   const bundlePending = bundleStatus.state === 'in_flight';

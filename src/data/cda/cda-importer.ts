@@ -191,7 +191,12 @@ export function importCdaJsonDoc(
   const chunks = mapCdaDocToKnowledgeChunks(cda, patientId, docId);
   if (chunks.length > 0) {
     try {
-      insertKnowledgeChunks(chunks);
+      insertKnowledgeChunks(
+        chunks.map((c) => ({
+          ...c,
+          patientId,
+        })),
+      );
       try {
         writeParentOfEdges(chunks, 'cda_import');
         writeSharesConditionEdges(chunks, { source: 'cda_import' });

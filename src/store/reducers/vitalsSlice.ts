@@ -1,4 +1,4 @@
-import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import { createSelector, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
 import type {
   HealthSample,
@@ -17,6 +17,9 @@ export type LiveVitalReading = {
   recordedAt: string;
   receivedAt: string;
 };
+
+/** Stable empty list — never return a fresh `[]` from selectors. */
+const EMPTY_LIVE_READINGS: LiveVitalReading[] = [];
 
 export type VitalsStatus = 'idle' | 'loading' | 'ready' | 'unavailable' | 'error';
 
@@ -228,35 +231,66 @@ export default vitalsSlice.reducer;
 
 export const selectLiveVitalsState = (state: RootState) => state.vitals;
 export const selectLiveVitalReadings = (state: RootState) => state.vitals.readings;
+
+const selectVitalsReadings = (state: RootState) => state.vitals.readings;
+
+/**
+ * Memoized production wearable readings for a patient.
+ * Always returns a stable reference when inputs are unchanged (fixes Redux
+ * "selector returned a different result" loops that can force-crash).
+ */
+export const selectProductionWearableReadingsForPatient = createSelector(
+  [
+    selectVitalsReadings,
+    (_state: RootState, patientId: string | null | undefined) => patientId ?? '',
+  ],
+  (readings, patientId): LiveVitalReading[] => {
+    if (!patientId) return EMPTY_LIVE_READINGS;
+    const filtered = filterLiveVitalReadingsForPatient(readings, patientId, {
+      sources: PRODUCTION_WEARABLE_SOURCES,
+    });
+    return filtered.length === 0 ? EMPTY_LIVE_READINGS : filtered;
+  },
+);
+
 export const selectLiveVitalReadingsForPatient = (
   state: RootState,
   patientId: string,
   options?: LiveVitalReadingFilter,
-) => filterLiveVitalReadingsForPatient(state.vitals.readings, patientId, options);
-export const selectProductionWearableReadingsForPatient = (
-  state: RootState,
-  patientId: string,
-  options?: Omit<LiveVitalReadingFilter, 'sources'>,
-) =>
-  filterLiveVitalReadingsForPatient(state.vitals.readings, patientId, {
-    ...options,
-    sources: PRODUCTION_WEARABLE_SOURCES,
-  });
-export const selectSimulatedReadingsForPatient = (
-  state: RootState,
-  patientId: string,
-  options?: Omit<LiveVitalReadingFilter, 'sources'>,
-) =>
-  filterLiveVitalReadingsForPatient(state.vitals.readings, patientId, {
-    ...options,
-    sources: SIMULATED_SAMPLE_SOURCES,
-  });
+): LiveVitalReading[] => {
+  if (!patientId) return EMPTY_LIVE_READINGS;
+  const filtered = filterLiveVitalReadingsForPatient(
+    state.vitals.readings,
+    patientId,
+    options,
+  );
+  return filtered.length === 0 ? EMPTY_LIVE_READINGS : filtered;
+};
+
+export const selectSimulatedReadingsForPatient = createSelector(
+  [
+    selectVitalsReadings,
+    (_state: RootState, patientId: string | null | undefined) => patientId ?? '',
+  ],
+  (readings, patientId): LiveVitalReading[] => {
+    if (!patientId) return EMPTY_LIVE_READINGS;
+    const filtered = filterLiveVitalReadingsForPatient(readings, patientId, {
+      sources: SIMULATED_SAMPLE_SOURCES,
+    });
+    return filtered.length === 0 ? EMPTY_LIVE_READINGS : filtered;
+  },
+);
+
 export const selectLatestLiveVitalReading = (
   state: RootState,
   type: HealthSampleType,
 ) => state.vitals.readings.find((reading) => reading.type === type) ?? null;
+
 export const selectLatestProductionWearableReading = (
   state: RootState,
   patientId: string,
   type: HealthSampleType,
-) => selectProductionWearableReadingsForPatient(state, patientId, { type, limit: 1 })[0] ?? null;
+) => {
+  const readings = selectProductionWearableReadingsForPatient(state, patientId);
+  return readings.find((reading) => reading.type === type) ?? null;
+};

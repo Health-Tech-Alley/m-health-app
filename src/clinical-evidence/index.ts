@@ -41,7 +41,19 @@ export type { CdcPlacesRecord, CdcPlacesParams } from './cdc-places-client';
 
 export { setLiveClinicalFetch, isFixtureMode } from './fixture-mode';
 
-export { bundleConditionPack, bundleMedicationPack, bundleSdohPack, bundleMeasurePack, bundleSystematicReviewPack, bundleFullSplPack, liveSupplement } from './condition-bundler';
+export {
+  bundleConditionPack,
+  bundleMedicationPack,
+  bundleSdohPack,
+  bundleMeasurePack,
+  bundleSystematicReviewPack,
+  bundleFullSplPack,
+  bundleCuratedKnowledgePacks,
+  liveSupplement,
+} from './condition-bundler';
+export { seedCuratedKnowledgePacks } from './curated-knowledge-packs';
+export { buildMedSafetyContext, shouldRunMedSafetyContext } from './med-safety-context';
+export type { MedSafetyContextResult } from './med-safety-context';
 export { HEDIS_MEASURES, measuresForPatient } from './hedis-measures';
 export type { HedisMeasure } from './hedis-measures';
 export { redownloadForChunk, redownloadAllForPatient } from './re-download';

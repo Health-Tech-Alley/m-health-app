@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   evidenceDevelopmentFallback: false,
   knowledgeGraphExpansion: false,
   carePlanMode: 'full',
+  healthKitIntegrationEnabled: true,
 };
 
 export function getAppSettings(): AppSettings {
@@ -129,6 +130,13 @@ export function updateKnowledgeGraphExpansion(enabled: boolean): AppSettings {
 export function updateCarePlanMode(mode: CarePlanMode): AppSettings {
   const current = getAppSettings();
   const updated = { ...current, carePlanMode: mode };
+  saveAppSettings(updated);
+  return updated;
+}
+
+export function updateHealthKitIntegrationEnabled(enabled: boolean): AppSettings {
+  const current = getAppSettings();
+  const updated = { ...current, healthKitIntegrationEnabled: enabled };
   saveAppSettings(updated);
   return updated;
 }

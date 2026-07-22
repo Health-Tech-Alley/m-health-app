@@ -102,7 +102,10 @@ export class TrackAFusedRetriever implements FusedRetriever {
     }
 
     const t0 = performance.now();
-    const query = [q.intent, ...q.conditions, ...q.activeMeds].join(' ');
+    const query = [q.intent, ...q.conditions, ...q.activeMeds]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(' ');
 
     const toolBm25Rank = this.toolBm25.search(query, q.kTools ?? 3);
     const toolDenseRank = await this.toolDense.search(query, q.kTools ?? 3);

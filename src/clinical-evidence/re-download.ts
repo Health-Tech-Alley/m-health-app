@@ -17,7 +17,6 @@
 import {
   deleteKnowledgeChunk,
   getKnowledgeChunk,
-  getAllKnowledgeChunks,
 } from '@/data/repositories/knowledgeCacheRepository';
 import type { KnowledgeChunk, KnowledgeSource } from '@/data/types';
 import { getActiveMedications, getConditionsForPatient } from '@/data/repositories/patientRepository';
@@ -177,8 +176,10 @@ export async function redownloadForChunk(
 
     // Persist the new chunks
     if (newChunks.length > 0) {
-      const { insertKnowledgeChunks } = await import('@/data/repositories/knowledgeCacheRepository');
-      insertKnowledgeChunks(newChunks);
+      const { insertKnowledgeChunksForPatient } = await import(
+        '@/data/repositories/knowledgeCacheRepository'
+      );
+      insertKnowledgeChunksForPatient(patientId, newChunks);
     }
 
     return {
@@ -200,10 +201,19 @@ export async function redownloadForChunk(
  */
 export async function redownloadAllForPatient(patientId: string): Promise<{ reDownloaded: number; errors: string[] }> {
   const errors: string[] = [];
-  const { bundleConditionPack, bundleMedicationPack, bundleSdohPack, bundleMeasurePack, bundleSystematicReviewPack, bundleFullSplPack } = await import('./condition-bundler');
-  // Wipe the cache for this patient's tags first.
-  const { clearKnowledgeCache } = await import('@/data/repositories/knowledgeCacheRepository');
-  clearKnowledgeCache();
+  // Default re-download: condition + med + SDOH only.
+  // Full SPL / systematic-review packs are deep-mode only (explicit opt-in
+  // below stays available for power users via the same entry if flags grow).
+  // HEDIS measure packs are permanently disabled (no auto-goals / BM25 noise).
+  const { bundleConditionPack, bundleMedicationPack, bundleSdohPack, bundleCuratedKnowledgePacks } =
+    await import('./condition-bundler');
+  // Wipe literature only — keep ADCP plan + CDA patient-record chunks.
+  const {
+    clearLiteratureKnowledgeCacheForPatient,
+    getKnowledgeChunksForPatient,
+  } = await import('@/data/repositories/knowledgeCacheRepository');
+  // Active patient only — never wipe other profiles' corpora.
+  clearLiteratureKnowledgeCacheForPatient(patientId);
 
   // Re-download always hits the live APIs (not fixtures) — the user explicitly
   // asked for fresh data from all available clinical sources.
@@ -212,10 +222,8 @@ export async function redownloadAllForPatient(patientId: string): Promise<{ reDo
   try { await bundleConditionPack(patientId); } catch (e) { errors.push(`condition: ${e}`); }
   try { await bundleMedicationPack(patientId); } catch (e) { errors.push(`medication: ${e}`); }
   try { await bundleSdohPack(patientId); } catch (e) { errors.push(`sdoh: ${e}`); }
-  try { await bundleMeasurePack(patientId); } catch (e) { errors.push(`measure: ${e}`); }
-  try { await bundleSystematicReviewPack(patientId); } catch (e) { errors.push(`systematic_review: ${e}`); }
-  try { await bundleFullSplPack(patientId); } catch (e) { errors.push(`full_spl: ${e}`); }
+  try { await bundleCuratedKnowledgePacks(patientId); } catch (e) { errors.push(`curated: ${e}`); }
   // Silence unused-import warning for the active meds/conditions helpers.
   void getActiveMedications; void getConditionsForPatient;
-  return { reDownloaded: getAllKnowledgeChunks().length, errors };
+  return { reDownloaded: getKnowledgeChunksForPatient(patientId).length, errors };
 }

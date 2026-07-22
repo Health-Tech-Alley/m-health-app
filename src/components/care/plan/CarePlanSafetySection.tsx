@@ -46,7 +46,7 @@ export function CarePlanSafetySection({ lines, onExplainLine }: CarePlanSafetySe
         <Text style={sectionStyles.title}>Safety</Text>
       </View>
       <Text style={sectionStyles.subtitle}>
-        Always/never rules + any safety notes. Tap to ask Concierge for a plain-language explanation.
+        Always / never rules from the care plan. Tap a line to ask Concierge for a plain-language explanation.
       </Text>
       {lines.map((line, idx) => (
         <Pressable

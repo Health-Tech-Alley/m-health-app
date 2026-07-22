@@ -8,6 +8,8 @@
  *     normal NLU + skills pipeline answers it);
  *   - plan-action suggestions open the structured intent sheet (proposal
  *     flow with caregiver review).
+ *
+ * Categories are collapsed by default; tap a group header to expand sample prompts.
  */
 
 import { useState } from 'react';
@@ -31,8 +33,6 @@ interface SuggestionGroup {
   label: string;
   suggestions: ConciergeSuggestion[];
 }
-
-const MAX_VISIBLE_PER_GROUP = 3;
 
 const SUGGESTION_GROUPS: SuggestionGroup[] = [
   {
@@ -128,6 +128,7 @@ export function ConciergeSuggestionBox({
   onLaunchIntent,
   disabled = false,
 }: ConciergeSuggestionBoxProps) {
+  const [cardExpanded, setCardExpanded] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const handlePress = (suggestion: ConciergeSuggestion) => {
@@ -141,47 +142,71 @@ export function ConciergeSuggestionBox({
 
   return (
     <View style={styles.card} accessible accessibilityLabel="Suggestions">
-      <Text style={styles.title}>Try asking</Text>
-      <Text style={styles.subtitle}>
-        A few starting points, grouped so they are easier to scan.
-      </Text>
-      {SUGGESTION_GROUPS.map((group) => {
-        const expanded = Boolean(expandedGroups[group.key]);
-        const visible = expanded
-          ? group.suggestions
-          : group.suggestions.slice(0, MAX_VISIBLE_PER_GROUP);
-        const hiddenCount = group.suggestions.length - visible.length;
-        return (
-          <View key={group.key} style={styles.group}>
-            <Text style={styles.groupLabel}>{group.label}</Text>
-            <View style={styles.chips}>
-              {visible.map((suggestion) => (
+      <Pressable
+        style={styles.cardHeader}
+        onPress={() => setCardExpanded((v) => !v)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: cardExpanded }}
+        accessibilityLabel={`Try asking${cardExpanded ? ' — collapse' : ' — expand'}`}
+      >
+        <View style={styles.cardHeaderText}>
+          <Text style={styles.title}>Try asking</Text>
+          {!cardExpanded ? (
+            <Text style={styles.subtitleCollapsed}>
+              Sample prompts by category — tap to expand
+            </Text>
+          ) : null}
+        </View>
+        <Text style={styles.chevron}>{cardExpanded ? '▾' : '▸'}</Text>
+      </Pressable>
+
+      {cardExpanded ? (
+        <>
+          <Text style={styles.subtitle}>
+            A few starting points, grouped so they are easier to scan.
+          </Text>
+          {SUGGESTION_GROUPS.map((group) => {
+            const expanded = Boolean(expandedGroups[group.key]);
+            return (
+              <View key={group.key} style={styles.group}>
                 <Pressable
-                  key={suggestion.id}
-                  style={[styles.chip, disabled && styles.chipDisabled]}
-                  onPress={() => handlePress(suggestion)}
-                  disabled={disabled}
-                  accessibilityRole="button"
-                  accessibilityLabel={suggestion.label}
-                >
-                  <Text style={styles.chipText}>{suggestion.label}</Text>
-                </Pressable>
-              ))}
-              {hiddenCount > 0 ? (
-                <Pressable
+                  style={styles.groupHeader}
                   onPress={() =>
-                    setExpandedGroups((current) => ({ ...current, [group.key]: true }))
+                    setExpandedGroups((current) => ({
+                      ...current,
+                      [group.key]: !expanded,
+                    }))
                   }
                   accessibilityRole="button"
-                  accessibilityLabel={`Show ${hiddenCount} more suggestions`}
+                  accessibilityState={{ expanded }}
+                  accessibilityLabel={`${group.label}${expanded ? ' — collapse' : ' — expand'}`}
                 >
-                  <Text style={styles.moreLink}>+{hiddenCount} more</Text>
+                  <Text style={styles.groupLabel}>{group.label}</Text>
+                  <Text style={styles.groupMeta}>
+                    {group.suggestions.length} · {expanded ? '▾' : '▸'}
+                  </Text>
                 </Pressable>
-              ) : null}
-            </View>
-          </View>
-        );
-      })}
+                {expanded ? (
+                  <View style={styles.chips}>
+                    {group.suggestions.map((suggestion) => (
+                      <Pressable
+                        key={suggestion.id}
+                        style={[styles.chip, disabled && styles.chipDisabled]}
+                        onPress={() => handlePress(suggestion)}
+                        disabled={disabled}
+                        accessibilityRole="button"
+                        accessibilityLabel={suggestion.label}
+                      >
+                        <Text style={styles.chipText}>{suggestion.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </>
+      ) : null}
     </View>
   );
 }
@@ -195,6 +220,14 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
   },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cardHeaderText: {
+    flex: 1,
+  },
   title: {
     color: AppTheme.colors.text,
     fontSize: 15,
@@ -204,25 +237,48 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.textMuted,
     fontSize: 12,
     fontWeight: '600',
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  subtitleCollapsed: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
     marginTop: 2,
-    marginBottom: 8,
+  },
+  chevron: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 16,
+    fontWeight: '900',
   },
   group: {
-    marginTop: 6,
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+    paddingTop: 8,
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 36,
   },
   groupLabel: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 11,
+    color: AppTheme.colors.text,
+    fontSize: 13,
     fontWeight: '900',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    marginBottom: 6,
+  },
+  groupMeta: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
   },
   chips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
     alignItems: 'center',
+    marginTop: 8,
   },
   chip: {
     borderRadius: 999,
@@ -237,11 +293,5 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.brand,
     fontSize: 12,
     fontWeight: '800',
-  },
-  moreLink: {
-    color: AppTheme.colors.brand,
-    fontSize: 12,
-    fontWeight: '900',
-    paddingHorizontal: 4,
   },
 });

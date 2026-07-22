@@ -1,4 +1,8 @@
-import { citationSourceLabel, formatCitationTag } from './retrieval-helper';
+import {
+  citationDetailLabel,
+  citationSourceLabel,
+  formatCitationTag,
+} from './retrieval-helper';
 import type { RetrievedCitation } from './retrieval-helper';
 
 const TAG_RE = /\[([^\]]+?)\s*#(\d+)\]/g;
@@ -24,6 +28,9 @@ const CAREGIVER_LABELS: Record<string, string> = {
   'local-fixture': 'Sample guidance',
   'patient-plan': 'Care plan',
   'care-plan': 'Care plan',
+  adcp_plan: 'Care plan',
+  care_plan_section: 'Care plan',
+  care_plan_decision_log: 'Care plan',
   'patient-record': 'Patient record',
   hedis: 'Quality measure',
 };
@@ -39,6 +46,12 @@ function toSuperscript(n: number): string {
 
 function caregiverLabelForSource(source: string): string {
   return CAREGIVER_LABELS[source] ?? citationSourceLabel(source);
+}
+
+function caregiverLabelForCitation(citation: RetrievedCitation): string {
+  const base = caregiverLabelForSource(citation.source);
+  const detail = citationDetailLabel(citation);
+  return detail ? `${base} · ${detail}` : base;
 }
 
 /**
@@ -57,7 +70,7 @@ function relatedContextLabels(chunks: RetrievedCitation[]): string[] {
   const seen = new Set<string>();
   const labels: string[] = [];
   for (const c of chunks) {
-    const label = caregiverLabelForSource(c.source);
+    const label = caregiverLabelForCitation(c);
     if (seen.has(label)) continue;
     seen.add(label);
     labels.push(label);
@@ -107,7 +120,7 @@ export function formatAnswerWithFootnotes(
     .sort((a, b) => a[1] - b[1])
     .map(([srcIndex, fn]) => {
       const c = byIndex.get(srcIndex)!;
-      const label = caregiverLabelForSource(c.source);
+      const label = caregiverLabelForCitation(c);
       const snippet =
         c.text.length > snippetChars
           ? c.text.slice(0, snippetChars).trimEnd() + '\u2026'
@@ -116,7 +129,7 @@ export function formatAnswerWithFootnotes(
         index: fn,
         label,
         snippet,
-        tag: formatCitationTag(c.source, srcIndex),
+        tag: formatCitationTag(c, srcIndex),
       };
     });
 

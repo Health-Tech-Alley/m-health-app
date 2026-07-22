@@ -85,7 +85,10 @@ export function PendingPlanProposalsCard({
     actionable.length === 1 ? 'Plan update needs your review' : 'Plan updates need your review';
 
   useEffect(() => {
-    setExpanded(actionable.length > 0);
+    // Defer so the state update does not run synchronously within the effect
+    // (react-hooks/set-state-in-effect).
+    const handle = setTimeout(() => setExpanded(actionable.length > 0), 0);
+    return () => clearTimeout(handle);
   }, [actionable.length, actionableKey]);
 
   const handleConfirm = useCallback(

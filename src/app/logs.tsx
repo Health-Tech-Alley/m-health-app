@@ -6,12 +6,12 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  NativeModules,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { FileLogger } from "react-native-file-logger";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type LogFile = {
@@ -27,14 +27,37 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isFileLoggerNativeAvailable(): boolean {
+  const bridge = NativeModules.FileLogger as { configure?: unknown } | null | undefined;
+  return Boolean(bridge && typeof bridge.configure === "function");
+}
+
+async function loadFileLogger() {
+  if (!isFileLoggerNativeAvailable()) return null;
+  try {
+    const mod = await import("react-native-file-logger");
+    return mod.FileLogger;
+  } catch {
+    return null;
+  }
+}
+
 export default function LogsScreen() {
   const insets = useSafeAreaInsets();
   const [files, setFiles] = useState<LogFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
 
   const loadFiles = useCallback(async () => {
     setLoading(true);
     try {
+      const FileLogger = await loadFileLogger();
+      if (!FileLogger) {
+        setUnavailable(true);
+        setFiles([]);
+        return;
+      }
+      setUnavailable(false);
       const paths = await FileLogger.getLogFilePaths();
       const infos = paths.map((path) => {
         const file = new File(path);
@@ -49,13 +72,19 @@ export default function LogsScreen() {
       setFiles(infos);
     } catch (err) {
       console.error("Failed to load log files", err);
+      setUnavailable(true);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadFiles();
+    // Defer to a microtask so the state updates inside loadFiles do not run
+    // synchronously within the effect (react-hooks/set-state-in-effect).
+    const handle = setTimeout(() => {
+      void loadFiles();
+    }, 0);
+    return () => clearTimeout(handle);
   }, [loadFiles]);
 
   const handleShare = async (path: string) => {
@@ -74,6 +103,8 @@ export default function LogsScreen() {
         text: "Delete",
         style: "destructive",
         onPress: async () => {
+          const FileLogger = await loadFileLogger();
+          if (!FileLogger) return;
           await FileLogger.deleteLogFiles();
           loadFiles();
         },
@@ -81,7 +112,12 @@ export default function LogsScreen() {
     ]);
   };
 
-  function sendLogsByEmail() {
+  const sendLogsByEmail = async () => {
+    const FileLogger = await loadFileLogger();
+    if (!FileLogger) {
+      Alert.alert("File logging unavailable in this build");
+      return;
+    }
     FileLogger.sendLogFilesByEmail({
       to: "rahalncm@gmail.com",
       subject: "Log files from M-Health App",
@@ -90,7 +126,7 @@ export default function LogsScreen() {
     }).catch((err) => {
       console.error("Failed to send log files by email", err);
     });
-  }
+  };
 
   return (
     <View
@@ -126,45 +162,50 @@ export default function LogsScreen() {
         </View>
       ) : (
         <View style={{ flex: 1 }}>
-        <FlatList
-          data={files}
-          keyExtractor={(item) => item.path}
-          onRefresh={loadFiles}
-          refreshing={loading}
-          contentContainerStyle={
-            files.length === 0 ? styles.emptyContainer : styles.listContent
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>No log files yet</Text>
-              <Text style={styles.emptySubtitle}>
-                Log files will appear here once the app writes some.
-              </Text>
-            </View>
-          }
-          renderItem={({ item }) => (
-            <Pressable
-              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-              onPress={() => handleShare(item.path)}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.fileName} numberOfLines={1}>
-                  {item.name}
+          <FlatList
+            data={files}
+            keyExtractor={(item) => item.path}
+            onRefresh={loadFiles}
+            refreshing={loading}
+            contentContainerStyle={
+              files.length === 0 ? styles.emptyContainer : styles.listContent
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyTitle}>
+                  {unavailable ? "Logging unavailable" : "No log files yet"}
                 </Text>
-                <Text style={styles.fileMeta}>
-                  {formatBytes(item.size)}
-                  {item.modificationTime
-                    ? ` · ${new Date(item.modificationTime).toLocaleString()}`
-                    : ""}
+                <Text style={styles.emptySubtitle}>
+                  {unavailable
+                    ? "File logging unavailable in this build (native module not linked)."
+                    : "Log files will appear here once the app writes some."}
                 </Text>
               </View>
-              <Text style={styles.shareLabel}>Share</Text>
-            </Pressable>
-          )}
-
-        />
-        <Pressable
-            onPress={sendLogsByEmail}
+            }
+            renderItem={({ item }) => (
+              <Pressable
+                style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+                onPress={() => handleShare(item.path)}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fileName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  <Text style={styles.fileMeta}>
+                    {formatBytes(item.size)}
+                    {item.modificationTime
+                      ? ` · ${new Date(item.modificationTime).toLocaleString()}`
+                      : ""}
+                  </Text>
+                </View>
+                <Text style={styles.shareLabel}>Share</Text>
+              </Pressable>
+            )}
+          />
+          <Pressable
+            onPress={() => {
+              void sendLogsByEmail();
+            }}
             hitSlop={5}
             style={({ pressed }) => [
               styles.sendLogsButton,
@@ -174,8 +215,6 @@ export default function LogsScreen() {
             <Text style={styles.sendLogsButtonText}>Send logs by email</Text>
           </Pressable>
         </View>
-
-        
       )}
     </View>
   );
