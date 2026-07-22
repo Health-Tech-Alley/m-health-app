@@ -152,6 +152,29 @@ export function clearKnowledgeCache(): void {
   db.runSync('DELETE FROM knowledge_cache;');
 }
 
+/**
+ * Wipe literature / remote evidence only. Preserves patient-scoped truth:
+ * ADCP plan chunks and CDA/EHR narrative (`patient-record`).
+ * Used by re-download-all so refreshing PubMed does not erase the care plan.
+ */
+const PRESERVED_KNOWLEDGE_SOURCES: KnowledgeSource[] = ['adcp_plan', 'patient-record'];
+
+export function clearLiteratureKnowledgeCache(): number {
+  const db = getDatabase();
+  const placeholders = PRESERVED_KNOWLEDGE_SOURCES.map(() => '?').join(', ');
+  const doomed = db.getAllSync<{ chunk_id: string }>(
+    `SELECT chunk_id FROM knowledge_cache WHERE source NOT IN (${placeholders});`,
+    ...PRESERVED_KNOWLEDGE_SOURCES,
+  );
+  const ids = doomed.map((r) => r.chunk_id);
+  if (ids.length) deleteEdgesForChunks(ids);
+  const result = db.runSync(
+    `DELETE FROM knowledge_cache WHERE source NOT IN (${placeholders});`,
+    ...PRESERVED_KNOWLEDGE_SOURCES,
+  );
+  return result.changes;
+}
+
 export function deleteKnowledgeChunk(chunkId: string): void {
   deleteEdgesForChunks([chunkId]);
   getDatabase().runSync('DELETE FROM knowledge_cache WHERE chunk_id = ?;', chunkId);

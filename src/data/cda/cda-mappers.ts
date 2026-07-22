@@ -430,6 +430,7 @@ export function mapCdaSectionToKnowledgeChunk(
   item: { source_section_title?: string | null; source_section_code?: { code?: string | null; code_system?: string | null } | null; narrative_text?: string | null },
   sourceDocId: string,
   patientId: string,
+  conditionTags?: string,
 ): KnowledgeChunk | null {
   const title = firstNonEmpty(item.source_section_title) ?? 'Untitled';
   const rawText = (item.narrative_text ?? '').trim();
@@ -440,9 +441,9 @@ export function mapCdaSectionToKnowledgeChunk(
   const lengthTier: 'short' | 'medium' | 'long' = text.length > 2000 ? 'long' : text.length > 500 ? 'medium' : 'short';
   return {
     chunkId: makeChunkId(sourceDocId, title),
-    source: 'synthetic', // close enough — T1 router will retrieve by content
+    source: 'patient-record',
     text: `[${title}]\n${text}`,
-    conditions: 'EHR',
+    conditions: conditionTags?.trim() || undefined,
     retrievedAt: new Date().toISOString(),
     useCount: 0,
     documentType: 'guideline', // treat as a deep doc tier (T3) per D4
@@ -458,6 +459,23 @@ export function mapCdaSectionToKnowledgeChunk(
   };
 }
 
+/** Collect display names from CDA condition entries for BM25 condition tags. */
+export function conditionTagsFromCdaDoc(cda: CdaJsonDoc): string {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const cond of cda.conditions ?? []) {
+    const mapped = mapCdaConditionToPatientCondition(cond, 'tag', 'tag', false);
+    const name = mapped?.name;
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+    if (names.length >= 8) break;
+  }
+  return names.join(',');
+}
+
 /** Map a CDA document's narrative sections, care_plan, and functional_status
  *  → knowledge_cache chunks. Dedup is handled by the importer (stable
  *  chunkId → idempotent upsert). */
@@ -466,6 +484,7 @@ export function mapCdaDocToKnowledgeChunks(
   patientId: string,
   sourceDocId: string,
 ): KnowledgeChunk[] {
+  const conditionTags = conditionTagsFromCdaDoc(cda);
   const chunks: KnowledgeChunk[] = [];
   const narrative = cda.narrative_sections ?? [];
   for (const section of narrative as CdaNarrativeSection[]) {
@@ -477,17 +496,18 @@ export function mapCdaDocToKnowledgeChunks(
       },
       sourceDocId,
       patientId,
+      conditionTags,
     );
     if (chunk) chunks.push(chunk);
   }
   const carePlan = cda.care_plan ?? [];
   for (const item of carePlan as CdaCarePlanItem[]) {
-    const chunk = mapCdaSectionToKnowledgeChunk(item, sourceDocId, patientId);
+    const chunk = mapCdaSectionToKnowledgeChunk(item, sourceDocId, patientId, conditionTags);
     if (chunk) chunks.push(chunk);
   }
   const fs = cda.functional_status ?? [];
   for (const item of fs as CdaFunctionalStatusItem[]) {
-    const chunk = mapCdaSectionToKnowledgeChunk(item, sourceDocId, patientId);
+    const chunk = mapCdaSectionToKnowledgeChunk(item, sourceDocId, patientId, conditionTags);
     if (chunk) chunks.push(chunk);
   }
   return chunks;

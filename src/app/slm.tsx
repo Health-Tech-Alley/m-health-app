@@ -36,7 +36,11 @@ import {
   messageHasClinicalKeywords,
   retrieveClinicalChunksViaBm25,
 } from '@/clinical-evidence/retrieval-helper';
-import { selectChatGeneration, formatAnswerWithFootnotes } from '@/clinical-evidence';
+import {
+  buildMedSafetyContext,
+  selectChatGeneration,
+  formatAnswerWithFootnotes,
+} from '@/clinical-evidence';
 import { createReadyEmbedder } from '@/knowledge/embedder';
 import type { McpToolSummary } from '@/knowledge/types';
 import {
@@ -891,26 +895,62 @@ export default function SLMScreen({
       systemContext = `${systemContext}\n\n${identityGuard.systemPromptBlock}`;
     }
 
+    // On-demand RxNorm DDI when this turn is med-related (chat, not Meds-tab-only).
+    const mentionedMeds = (nluPacket?.entities ?? [])
+      .filter((e) => e.type === 'medication')
+      .map((e) => e.label);
+    let medSafetyChunks: {
+      docId: string;
+      source: string;
+      text: string;
+    }[] = [];
+    try {
+      const medSafety = await Promise.race([
+        buildMedSafetyContext({
+          medicationNames: [...new Set([...mentionedMeds, ...medNames])],
+          intent: nluPacket?.intent.primary ?? null,
+          hasMedicationEntities: mentionedMeds.length > 0,
+          message: trimmed,
+        }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 4_000)),
+      ]);
+      if (medSafety?.chunks.length) {
+        medSafetyChunks = medSafety.chunks.map((c) => ({
+          docId: c.docId,
+          source: String(c.source),
+          text: c.text,
+        }));
+        console.log(
+          `[SLM Chat] Med safety DDI: ${medSafety.chunks.length} chunks (${medSafety.reason})`,
+        );
+      }
+    } catch (medErr) {
+      console.warn('[SLM Chat] Med safety context skipped:', medErr);
+    }
+
     // Use NLU chunks if available, otherwise fall back to keyword-based retrieval
     if (nluPacket && nluPacket.chunks.length > 0) {
       const entityHint = formatEntityHint(nluPacket.entities);
       const maxChunkChars = nluPacket.budget.maxChunkChars;
       const citationBlock = formatCitationsForPrompt(
-        nluPacket.chunks.map((c) => ({
-          docId: c.docId,
-          source: String(c.source),
-          text: c.text,
-          patientId: c.patientId,
-          sourceId: c.sourceId,
-          sourceType: c.sourceType,
-          resourceId: c.resourceId,
-          effectiveAt: c.effectiveAt,
-          createdAt: c.createdAt,
-          synthetic: c.synthetic,
-          retrievalMethod: c.retrievalMethod,
-          graphRelation: c.graphRelation,
-          graphSeedId: c.graphSeedId,
-        })),
+        [
+          ...nluPacket.chunks.map((c) => ({
+            docId: c.docId,
+            source: String(c.source),
+            text: c.text,
+            patientId: c.patientId,
+            sourceId: c.sourceId,
+            sourceType: c.sourceType,
+            resourceId: c.resourceId,
+            effectiveAt: c.effectiveAt,
+            createdAt: c.createdAt,
+            synthetic: c.synthetic,
+            retrievalMethod: c.retrievalMethod,
+            graphRelation: c.graphRelation,
+            graphSeedId: c.graphSeedId,
+          })),
+          ...medSafetyChunks,
+        ],
         maxChunkChars,
       );
       if (citationBlock) {
@@ -920,7 +960,10 @@ export default function SLMScreen({
       }
     } else if (nluPacket && nluPacket.entities.length > 0) {
       const entityHint = formatEntityHint(nluPacket.entities);
-      userContent = `${trimmed}\n${entityHint}`;
+      const ddiBlock = medSafetyChunks.length
+        ? `\n\n${formatCitationsForPrompt(medSafetyChunks)}`
+        : '';
+      userContent = `${trimmed}\n${entityHint}${ddiBlock}`;
     } else {
       const hasClinicalIntent = messageHasClinicalKeywords(
         trimmed,
@@ -942,10 +985,16 @@ export default function SLMScreen({
         console.log(
           `[SLM Chat] Clinical intent fallback. Query: "${retrievalQuery}". Chunks: ${citations.length}`,
         );
-        const citationBlock = formatCitationsForPrompt(citations);
+        const citationBlock = formatCitationsForPrompt([
+          ...citations,
+          ...medSafetyChunks,
+        ]);
         if (citationBlock) {
           userContent = `${trimmed}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above where relevant. After claims drawn from a chunk, append that chunk's exact tag (e.g. [PubMed #1], [Drug Label #2], [Care Plan #3]) — include the # number.`;
         }
+      } else if (medSafetyChunks.length > 0) {
+        const citationBlock = formatCitationsForPrompt(medSafetyChunks);
+        userContent = `${trimmed}\n\n${citationBlock}\n\nGround medication safety claims in the knowledge above where relevant.`;
       } else {
         console.log(
           `[SLM Chat] No clinical intent. Conditions: [${conditionNames.join(', ')}], Meds: [${medNames.join(', ')}]`,

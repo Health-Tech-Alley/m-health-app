@@ -204,10 +204,13 @@ export async function redownloadAllForPatient(patientId: string): Promise<{ reDo
   // Full SPL / systematic-review packs are deep-mode only (explicit opt-in
   // below stays available for power users via the same entry if flags grow).
   // HEDIS measure packs are permanently disabled (no auto-goals / BM25 noise).
-  const { bundleConditionPack, bundleMedicationPack, bundleSdohPack } = await import('./condition-bundler');
-  // Wipe the cache for this patient's tags first.
-  const { clearKnowledgeCache } = await import('@/data/repositories/knowledgeCacheRepository');
-  clearKnowledgeCache();
+  const { bundleConditionPack, bundleMedicationPack, bundleSdohPack, bundleCuratedKnowledgePacks } =
+    await import('./condition-bundler');
+  // Wipe literature only — keep ADCP plan + CDA patient-record chunks.
+  const { clearLiteratureKnowledgeCache } = await import(
+    '@/data/repositories/knowledgeCacheRepository'
+  );
+  clearLiteratureKnowledgeCache();
 
   // Re-download always hits the live APIs (not fixtures) — the user explicitly
   // asked for fresh data from all available clinical sources.
@@ -216,6 +219,7 @@ export async function redownloadAllForPatient(patientId: string): Promise<{ reDo
   try { await bundleConditionPack(patientId); } catch (e) { errors.push(`condition: ${e}`); }
   try { await bundleMedicationPack(patientId); } catch (e) { errors.push(`medication: ${e}`); }
   try { await bundleSdohPack(patientId); } catch (e) { errors.push(`sdoh: ${e}`); }
+  try { await bundleCuratedKnowledgePacks(patientId); } catch (e) { errors.push(`curated: ${e}`); }
   // Silence unused-import warning for the active meds/conditions helpers.
   void getActiveMedications; void getConditionsForPatient;
   return { reDownloaded: getAllKnowledgeChunks().length, errors };

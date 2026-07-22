@@ -1,25 +1,14 @@
 /**
- * Orphanet (Orphadata) client.
+ * Orphanet (Orphadata) client — fixtures-first.
  *
- * Pulls expert-authored rare-disease clinical descriptions, care guidelines,
- * and management recommendations. Per planning/26, this enriches the
- * knowledge cache for CP-specific guidance (CP is included in Orphanet's
- * rare disease list) and supports the SLM's ability to give condition-
- * specific answers for rare/complex conditions.
- *
- * Track A: ships with realistic fixtures for CP and Spina Bifida. Live
- * fetch from orphadata.org requires no API key but ships a large XML
- * payload per disease.
+ * Expert-authored rare/complex disease care guidance for CP, Spina Bifida,
+ * and TBI. Live Orphadata parse is not implemented; we always use curated
+ * fixtures so Track A and production demos stay honest and offline-safe.
  *
  * See planning/26_clinical-data-sources-research.md §4.
  */
 
 import type { KnowledgeChunk } from '@/data/types';
-import { withRetry } from './rate-limiter';
-import { isFixtureMode } from './fixture-mode';
-
-const ORPHANET_BASE = 'https://www.orphadata.com/data';
-const TIMEOUT_MS = 15_000;
 
 export interface OrphanetRecord {
   /** Orphanet ORPHAcode (numeric). */
@@ -40,25 +29,11 @@ export interface OrphanetSearchParams {
 }
 
 /**
- * Search Orphanet for a rare-disease record. Returns the first match.
+ * Search Orphanet fixtures for a disease record. Live network fetch is not
+ * used — fixtures are the product source until a real Orphadata parser lands.
  */
 export async function searchOrphanet(params: OrphanetSearchParams): Promise<OrphanetRecord | null> {
-  if (isFixtureMode()) {
-    return fixtureSearch(params);
-  }
-  const { disease } = params;
-  const url = new URL(`${ORPHANET_BASE}/en/products.json`);
-  url.searchParams.set('disease', disease);
-  try {
-    await fetchWithTimeout(url.toString());
-  } catch {
-    // 404 is expected for non-rare conditions (COPD, TBI, etc.) — Orphanet
-    // only covers rare diseases. Not an error; just no data.
-    return null;
-  }
-  // Live response parsing would depend on the actual Orphadata JSON
-  // schema. Returning null until the dev build wires it up.
-  return null;
+  return fixtureSearch(params);
 }
 
 export function orphanetToChunks(record: OrphanetRecord | null): KnowledgeChunk[] {
@@ -74,37 +49,21 @@ export function orphanetToChunks(record: OrphanetRecord | null): KnowledgeChunk[
       text: `${record.name}\n\n${record.summary}\n\nCare: ${record.careGuidelines}${crosswalkText}`,
       retrievedAt: now,
       useCount: 0,
-      metadataJson: JSON.stringify({ orphaCode: record.orphaCode }),
+      metadataJson: JSON.stringify({ orphaCode: record.orphaCode, fixture: true }),
     },
   ];
 }
 
-async function fetchWithTimeout(url: string): Promise<Response> {
-  return withRetry(async () => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    try {
-      const response = await fetch(url, { signal: controller.signal });
-      if (!response.ok) {
-        throw new Error(`Orphanet request failed: ${response.status}`);
-      }
-      return response;
-    } finally {
-      clearTimeout(timer);
-    }
-  }, { maxRetries: 2, baseDelayMs: 1500, maxDelayMs: 8000 });
-}
-
-// ---------- Fixtures (Track A) ----------
+// ---------- Fixtures (authoritative offline pack) ----------
 
 const FIXTURES: OrphanetRecord[] = [
   {
     orphaCode: 'ORPHA:210',
     name: 'Spastic cerebral palsy',
     summary:
-      'Cerebral palsy (CP) is a group of permanent disorders of the development of movement and posture, causing activity limitation, that are attributed to non-progressive disturbances that occurred in the developing fetal or infant brain. The spastic form is characterized by increased muscle tone and exaggerated reflexes.',
+      'Cerebral palsy (CP) is a group of permanent disorders of the development of movement and posture, causing activity limitation, attributed to non-progressive disturbances in the developing fetal or infant brain. The spastic form features increased muscle tone and exaggerated reflexes. GMFCS Level V indicates the most severe mobility limitation: transported in a manual wheelchair, limited antigravity head and trunk control, and total dependence for transfers and most ADLs.',
     careGuidelines:
-      'Multidisciplinary care including physiotherapy, occupational therapy, and orthopedic management. Spasticity management (oral medications, botulinum toxin, intrathecal baclofen, selective dorsal rhizotomy) as indicated. Surveillance for hip displacement, scoliosis, and feeding difficulties. Respiratory care for those with severe motor impairment.',
+      'Multidisciplinary home care for GMFCS IV–V: physiotherapy and positioning; spasticity management (oral meds, botulinum toxin, intrathecal baclofen as prescribed); hip and scoliosis surveillance; skin and pressure checks under braces/splints; dysphagia and aspiration precautions with supervised or texture-modified feeds / G-tube plans; seizure first aid and rescue med access when epilepsy is present; airway/suction readiness when secretions or low SpO2 are issues; caregiver education on red flags (fever with respiratory distress, new seizure pattern, skin breakdown). Coordinate PT/OT/speech and specialty clinics; document changes in tone, comfort, breathing, and energy in the care log.',
     crosswalks: [
       { vocabulary: 'ICD10', code: 'G80.0', term: 'Spastic quadriplegic CP' },
       { vocabulary: 'ICD10', code: 'G80.1', term: 'Spastic diplegic CP' },
@@ -116,9 +75,9 @@ const FIXTURES: OrphanetRecord[] = [
     orphaCode: 'ORPHA:823',
     name: 'Spina bifida',
     summary:
-      'Spina bifida is a group of neural tube defects characterized by failure of fusion of the vertebral arches with varying degrees of protrusion of neural tissue. Open forms (myelomeningocele) carry risks of hydrocephalus, Chiari II malformation, and neurogenic bladder/bowel.',
+      'Spina bifida is a neural tube defect with failed fusion of vertebral arches and varying protrusion of neural tissue. Open forms (myelomeningocele) carry risks of hydrocephalus, Chiari II malformation, and neurogenic bladder/bowel. Lesion level drives motor level, sensation, and autonomic risk.',
     careGuidelines:
-      'Lifelong multidisciplinary care: neurosurgery for tethered cord / hydrocephalus surveillance; urology for bladder management and renal protection; orthopedics for mobility; dermatology for skin surveillance; bowel program. Caregiver education on autonomic dysreflexia warning signs is essential for lesions at T6 and above.',
+      'Lifelong multidisciplinary care: neurosurgery surveillance (shunt, tethered cord); urology for CIC, renal protection, and UTI recognition; bowel program; orthopedics and mobility equipment; skin surveillance over pressure points and bracing. For lesions at T6 and above, teach autonomic dysreflexia (AD): sudden hypertension, pounding headache, flushing/sweating above the lesion — sit upright, loosen clothing, check bladder/bowel/skin, call 911 if unresolved. Latex precautions when relevant. Caregiver education is essential for home emergency recognition.',
     crosswalks: [
       { vocabulary: 'ICD10', code: 'Q05.9', term: 'Spina bifida, unspecified' },
       { vocabulary: 'SNOMED', code: '67531005', term: 'Spina bifida' },
@@ -129,9 +88,9 @@ const FIXTURES: OrphanetRecord[] = [
     orphaCode: 'ORPHA:90056',
     name: 'Traumatic brain injury',
     summary:
-      'Traumatic brain injury (TBI) is an injury to the brain caused by an external mechanical force. Severity ranges from mild concussion to severe diffuse axonal injury. Long-term sequelae include cognitive, behavioral, and physical impairments.',
+      'Traumatic brain injury (TBI) is brain injury from external mechanical force. Severity ranges from mild concussion to severe diffuse axonal injury. Long-term sequelae include cognitive, behavioral, motor, seizure, and fatigue impairments that affect home caregiving load.',
     careGuidelines:
-      'Acute care in neurotrauma ICU; rehabilitation (inpatient and outpatient) emphasizing early mobilization, cognitive therapy, and psychosocial support. Long-term surveillance for post-traumatic seizures, mood disorders, and post-concussion symptoms.',
+      'After acute neurotrauma care: structured rehab (PT/OT/speech, cognitive therapy), gradual activity pacing, and home safety for falls and agitation. Long-term surveillance for post-traumatic seizures (rescue plan if prescribed), mood/behavior changes, sleep disruption, headaches, and swallowing risk. Caregivers should track new weakness, confusion, severe headache, or seizure and know when to escalate. Coordinate with rehab and neurology; keep medication timing consistent and document functional changes against baseline.',
     crosswalks: [
       { vocabulary: 'ICD10', code: 'S06.9', term: 'Unspecified intracranial injury' },
       { vocabulary: 'MeSH', code: 'D020197', term: 'Brain Injuries' },
@@ -139,10 +98,22 @@ const FIXTURES: OrphanetRecord[] = [
   },
 ];
 
+const ALIASES: { match: RegExp; orphaCode: string }[] = [
+  { match: /cerebral\s*palsy|\bcp\b|gmfcs|spastic\s+quad/i, orphaCode: 'ORPHA:210' },
+  { match: /spina\s*bifida|myelomeningocele|neural\s*tube/i, orphaCode: 'ORPHA:823' },
+  { match: /traumatic\s*brain|\btbi\b|head\s*injur/i, orphaCode: 'ORPHA:90056' },
+];
+
 function fixtureSearch(params: OrphanetSearchParams): OrphanetRecord | null {
   const lc = params.disease.toLowerCase();
-  return (
-    FIXTURES.find((f) => f.name.toLowerCase().includes(lc) || lc.includes(f.name.toLowerCase())) ??
-    null
+  const byName = FIXTURES.find(
+    (f) => f.name.toLowerCase().includes(lc) || lc.includes(f.name.toLowerCase()),
   );
+  if (byName) return byName;
+  for (const alias of ALIASES) {
+    if (alias.match.test(params.disease)) {
+      return FIXTURES.find((f) => f.orphaCode === alias.orphaCode) ?? null;
+    }
+  }
+  return null;
 }

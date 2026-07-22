@@ -35,6 +35,7 @@ import { lookupUmls, umlsToChunks } from './umls-client';
 import { fetchCdcPlaces, cdcToChunks } from './cdc-places-client';
 import { RateLimiter } from './rate-limiter';
 import { sectionChunkKnowledgeBatch } from './section-chunk-helper';
+import { seedCuratedKnowledgePacks } from './curated-knowledge-packs';
 import {
   writeParentOfEdges,
   writeSharesConditionEdges,
@@ -276,6 +277,16 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
         console.error(`[condition-bundler] Orphanet failed for ${conditionName}:`, err);
       }
     }
+    // Offline CPG + disability care-gap packs (stable ids, small volume).
+    try {
+      const curated = seedCuratedKnowledgePacks(conditions.map((c) => c.name));
+      totalChunks += curated.cpgCount + curated.gapCount;
+      console.log(
+        `[condition-bundler] Curated packs: ${curated.cpgCount} CPG, ${curated.gapCount} care-gap`,
+      );
+    } catch (err) {
+      console.error('[condition-bundler] Curated knowledge packs failed:', err);
+    }
   } catch (err) {
     // A top-level failure (e.g. repository read threw) — record and degrade.
     lastError = err instanceof Error ? err.message : String(err);
@@ -293,6 +304,15 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
     setBundlePending(patientId, false);
     console.log(`[condition-bundler] Bundle finished for ${patientId}: ${status.state} (${totalChunks} chunks)`);
   }
+}
+
+/**
+ * Seed CPG + disability care-gap packs only (used after literature wipe on
+ * re-download so offline guidance returns without waiting on PubMed).
+ */
+export async function bundleCuratedKnowledgePacks(patientId: string): Promise<void> {
+  const conditions = selectConditionsForBundling(patientId);
+  seedCuratedKnowledgePacks(conditions.map((c) => c.name));
 }
 
 /**
