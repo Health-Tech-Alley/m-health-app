@@ -68,7 +68,7 @@ export default function DashboardRoute() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.root}>
         <ScrollView
           ref={scrollRef}
@@ -76,24 +76,38 @@ export default function DashboardRoute() {
           contentContainerStyle={styles.content}
         >
           <MainTabHeader
-            title="Caregiver Concierge"
-            eyebrow="ACCESS-DP"
+            title="Home"
+            eyebrow="Caregiver Concierge"
             subtitle={`${greeting}. Here's ${patientFirstName}'s status.`}
             logoSource={require("@/assets/images/hta-logo.png")}
             rightContent={
-              <Pressable
-                style={styles.bellButton}
-                onPress={scrollToAlertsLog}
-                accessibilityRole="button"
-                accessibilityLabel="View alerts"
-              >
-                <AppIcon
-                  name="bell"
-                  size={25}
-                  color={AppTheme.colors.textMuted}
-                />
-                <View style={styles.bellDot} />
-              </Pressable>
+              <>
+                <Pressable
+                  style={styles.bellButton}
+                  onPress={scrollToAlertsLog}
+                  accessibilityRole="button"
+                  accessibilityLabel="View alerts"
+                >
+                  <AppIcon
+                    name="bell"
+                    size={25}
+                    color={AppTheme.colors.textMuted}
+                  />
+                  <View style={styles.bellDot} />
+                </Pressable>
+                <Pressable
+                  style={styles.gearButton}
+                  onPress={() => router.push("/(tabs)/more" as never)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open More"
+                >
+                  <AppIcon
+                    name="settings"
+                    size={22}
+                    color={AppTheme.colors.textMuted}
+                  />
+                </Pressable>
+              </>
             }
           />
 
@@ -253,6 +267,14 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: AppTheme.colors.danger,
+  },
+  gearButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: AppTheme.colors.softSurface,
+    alignItems: "center",
+    justifyContent: "center",
   },
   greeting: {
     marginTop: 18,

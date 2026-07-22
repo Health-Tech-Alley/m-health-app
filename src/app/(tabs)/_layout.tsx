@@ -50,6 +50,7 @@ export default function TabsLayout() {
           name={tab.name}
           options={{
             title: tab.label,
+            href: tab.name === "more" ? null : undefined,
             tabBarLabel: ({ color }) => (
               <Text
                 style={[styles.tabLabel, { color }]}

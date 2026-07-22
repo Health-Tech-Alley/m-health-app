@@ -2104,23 +2104,21 @@ export default function SLMScreen({
   const isInputDisabled = slm.loadStatus !== 'ready' && slm.loadStatus !== 'idle';
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: AppTheme.colors.screen }]} edges={['top', 'bottom']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: AppTheme.colors.screen }]}
+      edges={showBackButton ? ['top', 'bottom'] : ['top']}
+    >
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}>
-        <View style={[styles.headerRow, !showBackButton && styles.headerRowTab]}>
-          {showBackButton ? (
+        {showBackButton ? (
+          <View style={styles.headerRow}>
             <Pressable onPress={() => router.back()} style={styles.backButton}>
               <Text style={styles.backText}>← Back</Text>
             </Pressable>
-          ) : (
-            <Text style={styles.headerTabTitle}>Concierge</Text>
-          )}
-          <Pressable onPress={handleNewConversation} style={styles.newConvButton}>
-            <Text style={styles.newConvButtonText}>New conversation</Text>
-          </Pressable>
-        </View>
+          </View>
+        ) : null}
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           <MainTabHeader
@@ -2128,6 +2126,16 @@ export default function SLMScreen({
             eyebrow="Caregiver Concierge"
             subtitle="Ask practical questions using the caregiver profile and patient context."
             icon="assistant"
+            rightContent={
+              <Pressable
+                onPress={handleNewConversation}
+                style={styles.newConvButton}
+                accessibilityRole="button"
+                accessibilityLabel="New conversation"
+              >
+                <Text style={styles.newConvButtonText} numberOfLines={1}>New</Text>
+              </Pressable>
+            }
           />
 
           <View style={styles.contextCard}>
@@ -2477,11 +2485,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   newConvButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    minWidth: 44,
+    minHeight: 44,
+    paddingHorizontal: 10,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#0E6F68',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   newConvButtonText: {
     color: '#0E6F68',

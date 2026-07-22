@@ -444,7 +444,7 @@ export default function ScheduleScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.root}>
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -455,11 +455,7 @@ export default function ScheduleScreen() {
             title="Schedule"
             eyebrow="Caregiver Concierge"
             subtitle="Create doctor appointments and caregiver reminders."
-            rightContent={
-              <View style={styles.headerIconCircle}>
-                <AppIcon name="calendarPlus" size={30} color={AppTheme.colors.brand} />
-              </View>
-            }
+            icon="schedule"
           />
 
           <View style={styles.nextAppointmentCard}>
@@ -964,7 +960,7 @@ function compareAppointmentsByDateTime(a: Appointment, b: Appointment): number {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: AppTheme.colors.screen },
   root: { flex: 1, backgroundColor: AppTheme.colors.screen },
-  content: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 124 },
+  content: { paddingHorizontal: 24, paddingTop: 22, paddingBottom: 124 },
   headerIconCircle: {
     width: 56,
     height: 56,

@@ -293,7 +293,7 @@ export default function MedicationsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.root}>
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -301,9 +301,8 @@ export default function MedicationsScreen() {
         >
           <MainTabHeader
             title="Medication Management"
-            eyebrow="Caregiver Concierge ACCESS-DP"
+            eyebrow="Caregiver Concierge"
             icon="pill"
-            rightContent={<Text style={styles.patientName}>{patientFirstName}</Text>}
           />
 
           {nextDue ? (
@@ -771,7 +770,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 24,
-    paddingTop: 18,
+    paddingTop: 22,
     paddingBottom: 124,
   },
   patientName: {

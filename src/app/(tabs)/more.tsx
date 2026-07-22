@@ -59,7 +59,7 @@ export default function MoreScreen() {
 
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.root}>
         <ScrollView
           ref={scrollRef}
@@ -316,7 +316,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingTop: 22,
     paddingBottom: 40,
   },
   profileCard: {

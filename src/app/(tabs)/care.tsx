@@ -471,7 +471,7 @@ export default function CareScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.root}>
         <ScrollView
           ref={scrollRef}
@@ -484,8 +484,8 @@ export default function CareScreen() {
           <View style={styles.headerBleed}>
             <MainTabHeader
               title="Care"
-              eyebrow="Caregiver Concierge ACCESS-DP"
-              rightContent={<Text style={styles.patientName}>{patientName}</Text>}
+              eyebrow="Caregiver Concierge"
+              icon="care"
             />
           </View>
 
@@ -671,7 +671,7 @@ const styles = StyleSheet.create({
   },
   content: {
     // Left gutter reserved for the spine so lines never sit under the cards.
-    // Header/hero pull back with negative margin so they keep the normal 18px inset.
+    // Header/hero pull back from the spine gutter; header uses normal tab gutters.
     paddingLeft: SPINE_GUTTER + 8,
     paddingRight: 18,
     paddingTop: 18,
@@ -680,9 +680,11 @@ const styles = StyleSheet.create({
   contentWithMiniBar: {
     paddingBottom: 120,
   },
-  // Align header with the app's normal 18px left inset (not the spine gutter).
+  // Align header with the normal tab header inset, separate from hero/socket geometry.
   headerBleed: {
-    marginLeft: -(SPINE_GUTTER + 8 - 18),
+    marginLeft: -(SPINE_GUTTER + 8 - 24),
+    marginRight: 24 - 18,
+    marginTop: 4,
   },
   // Hero spans full width including the spine gutter so the socket + spine line up.
   heroBleed: {
