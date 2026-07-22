@@ -10,7 +10,7 @@
  * rule registry.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Uc4PriorityCard } from '@/components/care/Uc4PriorityCard';
@@ -69,6 +69,7 @@ export function CarePrioritiesSection({
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [openBucket, setOpenBucket] = useState<CareTimelineBucketKey | null>(null);
+  const [watchAreasExpanded, setWatchAreasExpanded] = useState(false);
 
   const timelineCounts = useMemo(
     () => new Map(view.timeline.map((bucket) => [bucket.key, bucket.items.length])),
@@ -78,6 +79,21 @@ export function CarePrioritiesSection({
   const openBucketItems = openBucket
     ? view.timeline.find((bucket) => bucket.key === openBucket)?.items ?? []
     : [];
+  const watchAreaListKey = useMemo(
+    () =>
+      view.watchAreas
+        .map((area) => `${area.medicationId}:${area.medicationName}:${area.watchAreas.join(',')}`)
+        .join('|'),
+    [view.watchAreas],
+  );
+  const watchAreaMedicationCount = view.watchAreas.length;
+  const watchAreaCountLabel = `${watchAreaMedicationCount} ${
+    watchAreaMedicationCount === 1 ? 'medication' : 'medications'
+  }`;
+
+  useEffect(() => {
+    setWatchAreasExpanded(false);
+  }, [watchAreaListKey]);
 
   return (
     <View style={sectionStyles.card} accessible accessibilityLabel="Your priorities">
@@ -165,18 +181,31 @@ export function CarePrioritiesSection({
 
       {view.watchAreas.length > 0 ? (
         <View style={styles.watchBlock}>
-          <Text style={styles.subTitle}>Areas to watch</Text>
-          <Text style={styles.watchSubtitle}>
-            Known things to keep an eye on with current medications.
-          </Text>
-          {view.watchAreas.map((area) => (
-            <MedicationWatchRow
-              key={area.medicationId}
-              area={area}
-              onExplain={onExplainWatchArea}
-              onAddToPlan={onAddWatchAreaToPlan}
-            />
-          ))}
+          <Pressable
+            style={styles.watchHeader}
+            onPress={() => setWatchAreasExpanded((current) => !current)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: watchAreasExpanded }}
+            accessibilityLabel={`Medication areas to watch, ${watchAreaCountLabel}`}
+          >
+            <Text style={styles.watchHeaderTitle}>Medication areas to watch</Text>
+            <View style={styles.watchHeaderMeta}>
+              <Text style={styles.watchCount}>{watchAreaCountLabel}</Text>
+              <Text style={styles.chevron}>{watchAreasExpanded ? 'v' : '>'}</Text>
+            </View>
+          </Pressable>
+          {watchAreasExpanded ? (
+            <View style={styles.watchList}>
+              {view.watchAreas.map((area) => (
+                <MedicationWatchRow
+                  key={area.medicationId}
+                  area={area}
+                  onExplain={onExplainWatchArea}
+                  onAddToPlan={onAddWatchAreaToPlan}
+                />
+              ))}
+            </View>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -357,9 +386,9 @@ function MedicationWatchRow({
             <Pressable
               onPress={() => onAddToPlan(area)}
               accessibilityRole="button"
-              accessibilityLabel={`Add watch areas for ${area.medicationName} to the care plan`}
+              accessibilityLabel={`Review watch areas for ${area.medicationName} for the care plan`}
             >
-              <Text style={styles.explainLink}>Add to plan</Text>
+              <Text style={styles.explainLink}>Review for care plan</Text>
             </Pressable>
           ) : null}
         </View>
@@ -525,12 +554,31 @@ const styles = StyleSheet.create({
     marginTop: 6,
     paddingTop: 6,
   },
-  watchSubtitle: {
+  watchHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingVertical: 6,
+  },
+  watchHeaderTitle: {
+    flex: 1,
+    color: AppTheme.colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  watchHeaderMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  watchCount: {
     color: AppTheme.colors.textMuted,
     fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '600',
-    marginBottom: 8,
+    fontWeight: '800',
+  },
+  watchList: {
+    paddingTop: 4,
   },
   watchRow: {
     marginBottom: 8,

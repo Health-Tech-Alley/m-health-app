@@ -48,6 +48,16 @@ type DailyCareEditField =
   | 'painScore'
   | 'fatigue';
 
+type RequiredDailyLogField = Exclude<DailyCareEditField, 'setsCompleted'>;
+
+const REQUIRED_DAILY_LOG_FIELDS: RequiredDailyLogField[] = [
+  'exerciseRepetitions',
+  'romDegrees',
+  'walkingMinutes',
+  'painScore',
+  'fatigue',
+];
+
 export interface CarePlanTherapySectionProps {
   patientId: string;
   patientName: string;
@@ -148,6 +158,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
   const [skippedReasonExpanded, setSkippedReasonExpanded] = useState(false);
   const [assignedExercisesExpanded, setAssignedExercisesExpanded] = useState(false);
   const [urgentSymptomsExpanded, setUrgentSymptomsExpanded] = useState(false);
+  const [therapyExpanded, setTherapyExpanded] = useState(false);
   const [editingField, setEditingField] = useState<DailyCareEditField | null>(null);
   const [editDraft, setEditDraft] = useState<string>('');
   const [editError, setEditError] = useState<string>('');
@@ -170,6 +181,24 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
       ),
     [dailyEntry?.completedExerciseKeys, rehabExerciseAssignments],
   );
+  const activeAssignmentListKey = useMemo(
+    () => activeAssignedExercises.map((exercise) => exercise.key).join('|'),
+    [activeAssignedExercises],
+  );
+  const therapySessionDate = dailyEntry?.entryDate ?? new Date().toISOString().slice(0, 10);
+  const dailyLogCompletedCount = countCompletedDailyLogFields(dailyEntry);
+  const completedAssignedExerciseCount = completedAssignedExerciseKeySet.size;
+  const assignedExerciseTotalCount = activeAssignedExercises.length;
+  const assignedExerciseValueLabel =
+    assignedExerciseTotalCount > 0
+      ? `${completedAssignedExerciseCount} / ${assignedExerciseTotalCount}`
+      : 'No exercises assigned';
+  const assignedExerciseAccessibilityLabel =
+    assignedExerciseTotalCount > 0
+      ? `${completedAssignedExerciseCount} of ${assignedExerciseTotalCount} assigned ${
+          assignedExerciseTotalCount === 1 ? 'exercise' : 'exercises'
+        } completed`
+      : 'No exercises assigned';
   const selectedUrgentSymptomCodes: DailyCareUrgentSymptomCode[] = useMemo(
     () =>
       DAILY_CARE_URGENT_SYMPTOM_OPTIONS
@@ -206,6 +235,10 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setEditError('');
   }, [patientId]);
+
+  useEffect(() => {
+    setTherapyExpanded(false);
+  }, [patientId, therapySessionDate, activeAssignmentListKey]);
 
   const saveDailyCarePatch = (patch: Partial<DailyCareEntry>): DailyCareEntry | null => {
     if (!patientId) return null;
@@ -257,7 +290,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
       refresh();
       const uc4Snapshot = getCurrentPatientSnapshot();
       if (!uc4Snapshot?.patient) {
-        setUc3CompletionStatus(`${uc3Message} Care focus could not run because patient state is not ready.`);
+        setUc3CompletionStatus(`${uc3Message} Care focus is not ready to update yet.`);
         return;
       }
       try {
@@ -267,12 +300,12 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
             ? uc4Result.runStatus === "completed"
               ? uc4Result.cards.length > 0
                 ? "Care focus checklist updated."
-                : "Care focus ran with no new checklist cards."
+                : "Care focus updated with no new checklist cards."
               : uc4Result.runStatus === "paused"
                 ? uc4Result.pauseReason
                   ? `Care focus paused: ${uc4Result.pauseReason}.`
                   : "Care focus paused."
-                : "Care focus ran with no new checklist cards."
+                : "Care focus updated with no new checklist cards."
             : uc4Result.status === "not_ready"
               ? "Care focus is not ready to update yet."
               : "Care focus could not be updated.";
@@ -423,16 +456,70 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
     [saveDailyCarePatch],
   );
 
+  if (!therapyExpanded) {
+    return (
+      <View style={sectionStyles.card}>
+        <Text style={sectionStyles.title}>Therapy</Text>
+        <View style={styles.compactStatsRow}>
+          <View
+            style={styles.compactStat}
+            accessible
+            accessibilityLabel={`Daily logs ${dailyLogCompletedCount} of ${REQUIRED_DAILY_LOG_FIELDS.length} completed`}
+          >
+            <Text style={styles.compactStatLabel}>Daily logs</Text>
+            <Text style={styles.compactStatValue}>
+              {dailyLogCompletedCount} / {REQUIRED_DAILY_LOG_FIELDS.length}
+            </Text>
+          </View>
+          <View
+            style={styles.compactStat}
+            accessible
+            accessibilityLabel={assignedExerciseAccessibilityLabel}
+          >
+            <Text style={styles.compactStatLabel}>Assigned exercises</Text>
+            <Text
+              style={[
+                styles.compactStatValue,
+                assignedExerciseTotalCount === 0 && styles.compactStatValueLong,
+              ]}
+            >
+              {assignedExerciseValueLabel}
+            </Text>
+          </View>
+        </View>
+        <Pressable
+          style={styles.continueButton}
+          onPress={() => setTherapyExpanded(true)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: false }}
+          accessibilityLabel="Continue therapy session and show details"
+        >
+          <Text style={styles.continueButtonText}>Continue</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   return (
     <View style={sectionStyles.card} accessible accessibilityLabel="Therapy">
       <View style={sectionStyles.headerRow}>
         <Text style={sectionStyles.title}>Therapy</Text>
-        <View style={sectionStyles.pill}>
-          <Text style={sectionStyles.pillText}>{activeAssignedExercises.length}</Text>
+        <View style={styles.expandedHeaderActions}>
+          <Pressable
+            onPress={() => setTherapyExpanded(false)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: true }}
+            accessibilityLabel="Show less therapy details"
+          >
+            <Text style={styles.showLessText}>Show less</Text>
+          </Pressable>
+          <View style={sectionStyles.pill}>
+            <Text style={sectionStyles.pillText}>{activeAssignedExercises.length}</Text>
+          </View>
         </View>
       </View>
       <Text style={sectionStyles.subtitle}>
-        Daily rehab check-in + therapy progress. The plan-as-RAG + Concierge continue to read from your plan, even when Living updates is off.
+        Daily rehab check-in and therapy progress. Use this when today's routine is done or symptoms change.
       </Text>
 
       <View style={styles.completionRow}>
@@ -901,7 +988,66 @@ function formatSets(entry: DailyCareEntry | null): string {
   return String(entry.setsCompleted);
 }
 
+function countCompletedDailyLogFields(entry: DailyCareEntry | null): number {
+  if (!entry) return 0;
+  return REQUIRED_DAILY_LOG_FIELDS.filter((field) => Number.isFinite(entry[field])).length;
+}
+
 const styles = StyleSheet.create({
+  compactStatsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 18,
+  },
+  compactStat: {
+    flex: 1,
+    minHeight: 72,
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: AppTheme.colors.softSurface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  compactStatLabel: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  compactStatValue: {
+    color: AppTheme.colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+    marginTop: 6,
+  },
+  compactStatValueLong: {
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  continueButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 46,
+    marginTop: 16,
+    borderRadius: 12,
+    backgroundColor: AppTheme.colors.brand,
+  },
+  continueButtonText: {
+    color: AppTheme.colors.white,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  expandedHeaderActions: {
+    marginLeft: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  showLessText: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   completionRow: {
     flexDirection: 'row',
     alignItems: 'center',

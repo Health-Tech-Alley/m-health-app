@@ -356,14 +356,6 @@ export default function CareScreen() {
           whatChangedCount={vm.decisionDigest.length}
         />
 
-        {vm.sections.showReview ? (
-          <CarePlanReviewSection
-            proposals={pendingProposals}
-            onConfirm={handleConfirmPendingProposal}
-            onReject={handleRejectPendingProposal}
-          />
-        ) : null}
-
         <CarePrioritiesSection
           view={prioritiesView}
           onExplainCard={(card) => explainUc4Card(card.cardId)}
@@ -373,22 +365,13 @@ export default function CareScreen() {
           onRespond={handleUc4Respond}
         />
 
-        {vm.sections.showGoals || hasCareConsiderations ? (
-          <CarePlanGoalsSection
-            primaryPlan={primaryPlan}
-            secondaryPlanCount={secondaryPlanCount}
-            goals={goals}
-            caregiver={snapshot?.caregiver ?? null}
-            symptoms={snapshot?.symptoms ?? []}
-            safetyNotes={snapshot?.safetyNotes ?? ''}
-            safetyLines={vm.safetyLines}
-            onExplainItem={handleExplainGoalItem}
-            onExplainCategory={handleExplainCategory}
-            onExplainConsideration={handleExplainConsideration}
+        {vm.sections.showReview ? (
+          <CarePlanReviewSection
+            proposals={pendingProposals}
+            onConfirm={handleConfirmPendingProposal}
+            onReject={handleRejectPendingProposal}
           />
         ) : null}
-
-        <CarePlanMonitoringSection thresholds={thresholds} />
 
         {vm.sections.showTherapy && patientId ? (
           <View
@@ -408,6 +391,23 @@ export default function CareScreen() {
             />
           </View>
         ) : null}
+
+        {vm.sections.showGoals || hasCareConsiderations ? (
+          <CarePlanGoalsSection
+            primaryPlan={primaryPlan}
+            secondaryPlanCount={secondaryPlanCount}
+            goals={goals}
+            caregiver={snapshot?.caregiver ?? null}
+            symptoms={snapshot?.symptoms ?? []}
+            safetyNotes={snapshot?.safetyNotes ?? ''}
+            safetyLines={vm.safetyLines}
+            onExplainItem={handleExplainGoalItem}
+            onExplainCategory={handleExplainCategory}
+            onExplainConsideration={handleExplainConsideration}
+          />
+        ) : null}
+
+        <CarePlanMonitoringSection thresholds={thresholds} />
 
         <CarePlanBackupSection
           patientId={patientId}

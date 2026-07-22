@@ -1,12 +1,11 @@
 /**
- * PendingPlanProposalsCard — surfaced on Care (planning/39 §4.3, L18).
+ * PendingPlanProposalsCard - surfaced on Care (planning/39 section 4.3, L18).
  *
- * Lists `draft | awaiting_hitl | awaiting_ml_vet` proposals that the
- * caregiver can confirm (move to awaiting_ml_vet) or reject. ML is the only
- * authority that promotes a proposal to `applied`.
+ * Shows caregiver-actionable plan updates first. Once the caregiver has acted,
+ * the same pending proposal queue is represented as a compact Concierge status.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon } from '@/components/AppIcon';
@@ -14,39 +13,27 @@ import { AppTheme } from '@/constants/theme';
 import type { PendingPlanProposalSlice } from '@/data/types';
 
 const STATUS_LABEL: Record<string, string> = {
-  draft: 'Draft',
-  awaiting_hitl: 'Awaiting your review',
-  awaiting_ml_vet: 'Awaiting ML vet',
-};
-
-const SECTION_LABEL: Record<string, string> = {
-  monitoringContract: 'Monitoring contract',
-  therapyContract: 'Therapy contract',
-  carePriorities: 'Care priorities',
-  medicationBindings: 'Medication bindings',
-  goals: 'Goals',
-  extensions: 'Note',
+  draft: 'Needs your review',
+  awaiting_hitl: 'Needs your review',
+  awaiting_ml_vet: 'Concierge is reviewing',
+  accepted: 'Added to care plan',
+  applied: 'Added to care plan',
+  accepted_with_clip: 'Added with adjustments',
+  rejected_by_ml: 'Not added',
+  rejected_by_caregiver: 'Not added',
+  expired: 'Not added',
 };
 
 const KIND_LABEL: Record<string, string> = {
-  threshold_patch: 'Threshold update',
-  therapy_patch: 'Therapy update',
-  priority_promote: 'Priority promote',
+  threshold_patch: 'Monitoring update',
+  therapy_patch: 'Therapy plan update',
+  priority_promote: 'Care priority update',
   goal_patch: 'Goal update',
-  note_wording: 'Note rewrite',
+  note_wording: 'Care note update',
 };
 
-const INTENT_LABEL: Record<string, string> = {
-  explain_uc2_alert: 'Explain Health Monitor result',
-  review_monitoring_contract: 'Review monitoring settings',
-  explain_uc3_result: 'Explain therapy progress',
-  propose_therapy_contract_patch: 'Therapy plan tweaks',
-  explain_uc4_card: 'Explain care focus',
-  promote_uc4_to_plan_task: 'Add priority to plan',
-  suggest_todays_logging: "What to log today",
-  weekly_care_plan_review: 'Weekly review',
-  handoff_summary: 'Handoff / backup summary',
-};
+const ACTIONABLE_STATUSES = new Set(['draft', 'awaiting_hitl']);
+const PROCESSING_STATUS = 'awaiting_ml_vet';
 
 export interface PendingPlanProposalsCardProps {
   proposals: PendingPlanProposalSlice[];
@@ -63,7 +50,10 @@ export function PendingPlanProposalsCard({
   const sorted = useMemo(
     () =>
       proposals.slice().sort((a, b) => {
-        const orderRank = { awaiting_hitl: 0, awaiting_ml_vet: 1, draft: 2 } as Record<string, number>;
+        const orderRank = { awaiting_hitl: 0, draft: 1, awaiting_ml_vet: 2 } as Record<
+          string,
+          number
+        >;
         const aRank = orderRank[a.status] ?? 9;
         const bRank = orderRank[b.status] ?? 9;
         if (aRank !== bRank) return aRank - bRank;
@@ -71,7 +61,32 @@ export function PendingPlanProposalsCard({
       }),
     [proposals],
   );
-  const header = `${proposals.length} pending plan update${proposals.length === 1 ? '' : 's'}`;
+  const actionable = useMemo(
+    () => sorted.filter((proposal) => ACTIONABLE_STATUSES.has(proposal.status)),
+    [sorted],
+  );
+  const processing = useMemo(
+    () => sorted.filter((proposal) => proposal.status === PROCESSING_STATUS),
+    [sorted],
+  );
+  const actionableKey = useMemo(
+    () =>
+      actionable
+        .map((proposal) =>
+          `${proposal.patientId}:${proposal.proposalId}:${proposal.status}:${proposal.updatedAt}`,
+        )
+        .join('|'),
+    [actionable],
+  );
+  const actionCountLabel = `${actionable.length} plan update${
+    actionable.length === 1 ? '' : 's'
+  }`;
+  const headerTitle =
+    actionable.length === 1 ? 'Plan update needs your review' : 'Plan updates need your review';
+
+  useEffect(() => {
+    setExpanded(actionable.length > 0);
+  }, [actionable.length, actionableKey]);
 
   const handleConfirm = useCallback(
     (proposalId: string) => {
@@ -82,8 +97,8 @@ export function PendingPlanProposalsCard({
   const handleReject = useCallback(
     (proposalId: string) => {
       Alert.alert(
-        'Reject this plan proposal?',
-        'The plan will not change. This action is logged for the audit trail.',
+        'Reject this plan update?',
+        'The care plan will not change.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -97,6 +112,20 @@ export function PendingPlanProposalsCard({
     [onReject],
   );
 
+  if (actionable.length === 0) {
+    if (processing.length === 0) return null;
+    const statusText =
+      processing.length === 1
+        ? 'Concierge is reviewing your update'
+        : 'Concierge is reviewing your updates';
+    return (
+      <View style={[styles.card, styles.statusCard]} accessible accessibilityLabel={statusText}>
+        <AppIcon name="heart" size={18} color={AppTheme.colors.brand} />
+        <Text style={styles.statusTitle}>{statusText}</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.card}>
       <Pressable
@@ -104,60 +133,45 @@ export function PendingPlanProposalsCard({
         onPress={() => setExpanded((value) => !value)}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
-        accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} ${header}`}
+        accessibilityLabel={`${headerTitle}, ${actionCountLabel}, ${
+          expanded ? 'expanded' : 'collapsed'
+        }`}
       >
         <AppIcon name="heart" size={18} color={AppTheme.colors.brand} />
-        <Text style={styles.title}>Needs your review</Text>
-        <Text style={styles.count}>{proposals.length}</Text>
+        <Text style={styles.title}>{headerTitle}</Text>
+        <Text style={styles.count}>{actionable.length}</Text>
         <Text style={styles.chevron}>{expanded ? 'v' : '>'}</Text>
       </Pressable>
 
-      <Text style={styles.subtitle}>
-        These plan updates were drafted by Concierge or the engines. Confirm to send to ML vetting; reject to skip.
-      </Text>
-
       {expanded ? (
-        <View>
-          {sorted.map((proposal) => (
+        <View style={styles.proposalList}>
+          {actionable.map((proposal) => (
             <View key={proposal.proposalId} style={styles.row}>
               <View style={styles.rowHeader}>
-                <View style={styles.rowHeaderLeft}>
-                  <Text style={styles.kind}>{KIND_LABEL[proposal.kind] ?? proposal.kind}</Text>
-                  <Text style={styles.section}>
-                    {SECTION_LABEL[proposal.section] ?? proposal.section}
-                  </Text>
-                </View>
+                <Text style={styles.kind}>{proposalTitle(proposal)}</Text>
                 <View style={styles.statusBadge}>
-                  <Text style={styles.statusText}>{STATUS_LABEL[proposal.status] ?? proposal.status}</Text>
+                  <Text style={styles.statusText}>{displayStatus(proposal.status)}</Text>
                 </View>
               </View>
-              <Text style={styles.intent}>{INTENT_LABEL[proposal.intent] ?? proposal.intent}</Text>
-              <Text style={styles.summary}>{proposal.summary}</Text>
-              {proposal.rationale ? <Text style={styles.rationale}>{proposal.rationale}</Text> : null}
+              <Text style={styles.summary}>{proposalSummary(proposal)}</Text>
 
               <View style={styles.actionsRow}>
-                {proposal.status === 'awaiting_hitl' || proposal.status === 'draft' ? (
-                  <Pressable
-                    style={[styles.actionButton, styles.confirmButton]}
-                    onPress={() => handleConfirm(proposal.proposalId)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Confirm proposal ${proposal.proposalId}`}
-                  >
-                    <Text style={styles.confirmText}>Confirm</Text>
-                  </Pressable>
-                ) : (
-                  <Text style={styles.waitingNote}>In ML vetting — no action needed</Text>
-                )}
-                {proposal.status !== 'applied' ? (
-                  <Pressable
-                    style={[styles.actionButton, styles.rejectButton]}
-                    onPress={() => handleReject(proposal.proposalId)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Reject proposal ${proposal.proposalId}`}
-                  >
-                    <Text style={styles.rejectText}>Reject</Text>
-                  </Pressable>
-                ) : null}
+                <Pressable
+                  style={[styles.actionButton, styles.confirmButton]}
+                  onPress={() => handleConfirm(proposal.proposalId)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Confirm plan update"
+                >
+                  <Text style={styles.confirmText}>Confirm</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionButton, styles.rejectButton]}
+                  onPress={() => handleReject(proposal.proposalId)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Reject plan update"
+                >
+                  <Text style={styles.rejectText}>Reject</Text>
+                </Pressable>
               </View>
             </View>
           ))}
@@ -165,6 +179,38 @@ export function PendingPlanProposalsCard({
       ) : null}
     </View>
   );
+}
+
+function displayStatus(status: string): string {
+  if (/fail/i.test(status)) return "Couldn't review update";
+  return STATUS_LABEL[status] ?? 'Needs your review';
+}
+
+function proposalTitle(proposal: PendingPlanProposalSlice): string {
+  if (proposal.kind === 'priority_promote' && /^Promote:\s*Watch\s+/i.test(proposal.summary)) {
+    return 'Medication monitoring update';
+  }
+  return KIND_LABEL[proposal.kind] ?? 'Plan update';
+}
+
+function proposalSummary(proposal: PendingPlanProposalSlice): string {
+  const summary = proposal.summary.trim();
+  const watchMatch = /^Promote:\s*Watch\s+(.+)\s+with\s+(.+)$/i.exec(summary);
+  if (watchMatch) {
+    const watchAreaLabel = watchMatch[1] ?? '';
+    const medicationLabel = watchMatch[2] ?? '';
+    return `Review adding ${watchAreaLabel.toLowerCase()} monitoring for ${medicationLabel}`;
+  }
+  if (/^Promote:\s*/i.test(summary)) {
+    return summary.replace(/^Promote:\s*/i, 'Review adding ');
+  }
+  if (proposal.kind === 'threshold_patch' || proposal.kind === 'goal_patch') {
+    return `Review ${summary.charAt(0).toLowerCase()}${summary.slice(1)}`;
+  }
+  if (proposal.kind === 'therapy_patch') {
+    return 'Review the therapy plan update';
+  }
+  return summary;
 }
 
 const styles = StyleSheet.create({
@@ -177,16 +223,26 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     ...AppTheme.shadow,
   },
+  statusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  statusTitle: {
+    flex: 1,
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 6,
   },
   title: {
     flex: 1,
     color: AppTheme.colors.text,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '900',
   },
   count: {
@@ -203,11 +259,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900',
   },
-  subtitle: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 12,
-    lineHeight: 18,
-    marginBottom: 10,
+  proposalList: {
+    marginTop: 10,
   },
   row: {
     paddingVertical: 12,
@@ -218,21 +271,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  rowHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   kind: {
+    flex: 1,
     color: AppTheme.colors.text,
     fontSize: 14,
     fontWeight: '900',
-  },
-  section: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
   },
   statusBadge: {
     paddingHorizontal: 8,
@@ -245,25 +290,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '900',
   },
-  intent: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 11,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    marginTop: 6,
-  },
   summary: {
     color: AppTheme.colors.text,
     fontSize: 14,
     lineHeight: 20,
-    marginTop: 4,
-  },
-  rationale: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 13,
-    lineHeight: 18,
-    fontStyle: 'italic',
-    marginTop: 4,
+    marginTop: 5,
   },
   actionsRow: {
     flexDirection: 'row',
@@ -293,11 +324,5 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.text,
     fontSize: 13,
     fontWeight: '900',
-  },
-  waitingNote: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
-    fontStyle: 'italic',
   },
 });
