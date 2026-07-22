@@ -29,7 +29,7 @@ export class AlertAutoencoder implements AlertMlModel {
   }
 
   get threshold(): number {
-    return this.metadata?.threshold ?? 1.13;
+    return this.metadata?.threshold ?? 1.1447161;
   }
 
   /**
@@ -45,22 +45,23 @@ export class AlertAutoencoder implements AlertMlModel {
     if (this.loaded) return;
 
     try {
-      this.scaler = require('./tiny_uc2_scaler.json') as StandardScalerParams;
-      this.metadata = require('./tiny_uc2_metadata.json') as ModelMetadata;
+      // Watch12 artifacts — must match tiny_uc2_scaler12.json feature order exactly.
+      this.scaler = require('./tiny_uc2_scaler12.json') as StandardScalerParams;
+      this.metadata = require('./tiny_uc2_metadata12.json') as ModelMetadata;
 
       this.model = await loadTensorflowModel(
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        require('./tiny_uc2_autoencoder.tflite'),
+        require('./tiny_uc2_autoencoder12.tflite'),
         nativeMlDelegates,
       );
 
       this.loaded = true;
-      console.log('[AlertAutoencoder] Model loaded successfully');
+      console.log('[AlertAutoencoder] Watch12 model loaded successfully');
       console.log('[AlertAutoencoder] Inputs:', this.model.inputs);
       console.log('[AlertAutoencoder] Outputs:', this.model.outputs);
     } catch (err: any) {
-      console.error('[AlertAutoencoder] Failed to load model:', err);
-      throw new Error(`Failed to load autoencoder: ${err.message || 'Unknown error'}`);
+      console.error('[AlertAutoencoder] Failed to load Watch12 model:', err);
+      throw new Error(`Failed to load Watch12 autoencoder: ${err.message || 'Unknown error'}`);
     }
   }
 
@@ -89,30 +90,38 @@ export class AlertAutoencoder implements AlertMlModel {
     return { valid: errors.length === 0, errors };
   }
 
+  /**
+   * Build the Watch12 12-dimensional feature vector from CoreVitals and ExtendedVitals.
+   *
+   * Watch-native AE features only (12D canonical order):
+   *   heart_rate, blood_oxygen, respiratory_rate, hrv_sdnn, body_temperature,
+   *   activity_level, steps_count, calories_burned, sleep_quality,
+   *   hour_sin, hour_cos, is_sleep_window
+   *
+   * BP, glucose, pulse_pressure, mean_arterial_pressure, and stress_level
+   * are explicitly EXCLUDED — they are not part of the Watch12 AE tensor.
+   *
+   * @deprecated Prefer buildCompletedFeatureVector() from featureEngineering.ts
+   * for new code that uses RawObservationInput. This method is retained for
+   * backward compatibility with callers that still use CoreVitals/ExtendedVitals.
+   */
   buildFeatureVector(core: CoreVitals, extended: ExtendedVitals, timestamp?: Date): number[] {
     const hour = timestamp ? timestamp.getHours() + timestamp.getMinutes() / 60 : 12;
-    const pulsePressure = core.blood_pressure_systolic - core.blood_pressure_diastolic;
-    const map = core.blood_pressure_diastolic + pulsePressure / 3;
     const hourSin = Math.sin((2 * Math.PI * hour) / 24);
     const hourCos = Math.cos((2 * Math.PI * hour) / 24);
     const isSleepWindow = hour >= 22 || hour < 6 ? 1 : 0;
 
+    // Watch12 canonical 12D order — must match tiny_uc2_scaler12.json feature_cols
     return [
       core.heart_rate,
       core.blood_oxygen,
-      core.blood_pressure_systolic,
-      core.blood_pressure_diastolic,
-      core.glucose_level,
-      core.body_temperature,
       extended.respiratory_rate,
-      extended.activity_level,
-      extended.sleep_quality,
-      extended.stress_level,
       extended.hrv_sdnn,
+      core.body_temperature,
+      extended.activity_level,
       extended.steps_count,
       extended.calories_burned,
-      pulsePressure,
-      map,
+      extended.sleep_quality,
       hourSin,
       hourCos,
       isSleepWindow,
@@ -131,7 +140,7 @@ export class AlertAutoencoder implements AlertMlModel {
   }
 
   /**
-   * Run the TFLite autoencoder on an already-scaled 18-feature vector and
+   * Run the TFLite autoencoder on an already-scaled 12-feature Watch12 vector and
    * return the reconstruction vector. Used by the UC2 decision layer runner
    * bridge so the decision layer can compute its own MSE reconstruction error
    * and per-feature contributions (matching the notebook / model_handoff).

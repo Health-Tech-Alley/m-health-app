@@ -5,6 +5,7 @@ import {
     CaregiverFinalAction,
     CaregiverObservationCode,
     DecisionLayerResult,
+    ExternalMeasurements,
     FeatureQualityTag,
     FinalNotificationLevel,
     FinalNotificationType,
@@ -14,6 +15,7 @@ import {
     PatientProfile,
     PatientProfileDefaults,
     PostHitlAnomalyType,
+    PreviousObservationInput,
     RawObservationInput,
     ScalerParams,
     SensorAnomalyType,
@@ -49,6 +51,8 @@ import {
 import { runTinyAutoencoderTflite, TfliteInterpreterLike } from "./tfliteModelAdapter";
 import { evaluatePersonalizedThresholds } from "./personalizedThresholds";
 import { evaluateRecurrenceRisk } from "./recurrenceRisk";
+import { validateSignalPhysiologicBounds } from "./signalValidation";
+import { evaluateSustainedDuration } from "./sustainedDuration";
 
 // --- Old types for compat ---
 export type TFLiteAutoencoderRunner = (
@@ -97,7 +101,19 @@ export type UC2DecisionResult = {
     audit_event?: AuditEvent;
 };
 
-// @compat Old function preserved
+/**
+ * @deprecated Legacy 18D compat function. MUST NOT drive production AE scoring.
+ * This function:
+ *   - Uses buildUC2FeatureVector (18D) + scaleFeatures (no 12D enforcement)
+ *   - Uses the old UC2_FEATURE_ORDER (18 features including BP/glucose)
+ *   - Cannot use scaleVector (which enforces 12D)
+ *   - Does NOT call signalValidation, sustainedDuration, or personalizedThresholds
+ *
+ * Production runtime uses runUC2DecisionLayerV2.
+ * This function is retained only for parity.ts and the demo controller
+ * side-by-side comparison view. Its runTFLiteAutoencoder callback MUST
+ * use the legacy 18D model if called with a real model.
+ */
 export async function runUC2DecisionLayer(params: {
     eventId: string;
     input: AppleWatchVitalsInput;
@@ -360,7 +376,30 @@ function legacyContextualToPostHitlType(ctx: UC2ContextualType): PostHitlAnomaly
     }
 }
 
-// New in v2
+/**
+ * Watch12 production decision layer (v2).
+ *
+ * Pipeline ordering:
+ *   1. Build 12D Watch-native feature vector
+ *   2. Signal artifact validation (BEFORE emergency rules)
+ *   3. If artifact → route to INSUFFICIENT_DATA, return early
+ *   4. Run emergency rules (hard safety thresholds)
+ *   5. Emergency short-circuits at severity 3
+ *   6. Evaluate personalized thresholds (AE features + external measurements)
+ *   7. Scale 12D vector with strict validation
+ *   8. Run 12D TFLite AE
+ *   9. Compute 12D AE score + top_contributors
+ *  10. Classify sensor anomaly (Watch12 routing groups)
+ *  11. Evaluate caregiver HITL
+ *  12. Provisional final decision (for recurrence risk input)
+ *  13. Evaluate recurrence risk
+ *  14. Evaluate sustained duration
+ *  15. Make final decision (all floors including sustained)
+ *  16. Build payloads when appropriate
+ *
+ * Enforces 12D through the entire pipeline.
+ * BP/glucose resolved from externalMeasurements — never from AE features.
+ */
 export async function runUC2DecisionLayerV2(params: {
     raw: RawObservationInput;
     profile?: PatientProfile;
@@ -369,9 +408,83 @@ export async function runUC2DecisionLayerV2(params: {
     scaler: ScalerParams;
     interpreter?: TfliteInterpreterLike;
     aeThreshold?: number;
+    /**
+     * Previous observation for signal rate-of-change validation.
+     * When provided, enables HR/SpO2 artifact detection.
+     */
+    previous?: PreviousObservationInput;
+    /**
+     * External measurements (BP, glucose) for personalized threshold rules.
+     * These are NOT fed into the AE feature vector.
+     * If not supplied, values are sourced from raw.blood_pressure_systolic etc.
+     */
+    externalMeasurements?: ExternalMeasurements;
 }): Promise<DecisionLayerResult> {
+
+    // 1. Build 12D Watch-native feature vector
     const built = buildCompletedFeatureVector(params.raw, params.profile);
 
+    // Collect external measurements: prefer explicit param, fall back to raw fields
+    const external: ExternalMeasurements = params.externalMeasurements ?? {
+        blood_pressure_systolic: params.raw.blood_pressure_systolic,
+        blood_pressure_diastolic: params.raw.blood_pressure_diastolic,
+        glucose_level: params.raw.glucose_level,
+    };
+
+    // 2. Signal artifact validation — BEFORE emergency rules
+    const signal_validation = validateSignalPhysiologicBounds({
+        current: params.raw,
+        previous: params.previous,
+    });
+
+    // 3. Artifact path: route to INSUFFICIENT_DATA without triggering emergency
+    if (signal_validation.isArtifact) {
+        // Merge artifact quality tags with feature quality tags
+        const mergedTags = [
+            ...built.feature_quality_tags,
+            ...signal_validation.feature_quality_tags,
+        ];
+
+        const emergency = runEmergencyRuleEngine(built.features);
+        // Override emergency — artifact signals MUST NOT fire emergency
+        const safeEmergency = { ...emergency, is_emergency: false, emergency: false };
+
+        const final_decision = makeFinalDecision({
+            emergency: safeEmergency,
+            sensor: {
+                sensor_anomaly_type: "INSUFFICIENT_DATA",
+                pre_hitl_severity: 1,
+                reasons: signal_validation.reasons,
+            },
+            caregiver: null,
+            personalized: null,
+            recurrence: null,
+            sustained: null,
+        });
+
+        return {
+            emergency: safeEmergency,
+            features: built.features,
+            feature_vector: built.feature_vector,
+            feature_quality_tags: mergedTags,
+            ae: null,
+            sensor_classification: {
+                sensor_anomaly_type: "INSUFFICIENT_DATA",
+                pre_hitl_severity: 1,
+                reasons: signal_validation.reasons,
+            },
+            caregiver_hitl: null,
+            personalized_thresholds: null,
+            recurrence: null,
+            sustained_duration: null,
+            signal_validation,
+            final_decision,
+            initial_mcp_payload: null,
+            final_slm_payload: null,
+        };
+    }
+
+    // 4. Emergency rules (hard safety thresholds — run after artifact check)
     const emergency = runEmergencyRuleEngine(built.features);
 
     if (emergency.is_emergency) {
@@ -381,6 +494,7 @@ export async function runUC2DecisionLayerV2(params: {
             caregiver: null,
             personalized: null,
             recurrence: null,
+            sustained: null,
         });
 
         return {
@@ -393,23 +507,31 @@ export async function runUC2DecisionLayerV2(params: {
             caregiver_hitl: null,
             personalized_thresholds: null,
             recurrence: null,
+            sustained_duration: null,
+            signal_validation: null,
             final_decision,
             initial_mcp_payload: null,
             final_slm_payload: null,
         };
     }
 
+    // 6. Personalized thresholds (AE features + external measurements)
     const personalized = evaluatePersonalizedThresholds(
         built.features,
-        params.profile
+        params.profile,
+        external
     );
 
+    // 7. Scale 12D vector — strict validation, rejects 18D scalers
     const scaled = scaleVector(built.feature_vector, params.scaler);
+
+    // 8. Run 12D TFLite AE — strict 12D output validation
     const reconstructed = await runTinyAutoencoderTflite(
         scaled,
         params.interpreter
     );
 
+    // 9. Compute 12D AE score
     const ae = computeAutoencoderScore(
         scaled,
         reconstructed,
@@ -417,22 +539,27 @@ export async function runUC2DecisionLayerV2(params: {
         params.aeThreshold
     );
 
-    const sensor = classifySensorAnomaly(built.features, ae);
+    // 10. Classify sensor anomaly (Watch12 routing groups)
+    const sensor = classifySensorAnomaly(built.features, ae, null);
 
+    // 11. Evaluate caregiver HITL
     const caregiver = evaluateCaregiverHitl(
         params.caregiverInput,
         sensor.sensor_anomaly_type,
         sensor.pre_hitl_severity
     );
 
+    // 12. Provisional final decision (feeds recurrence with post_hitl_anomaly_type)
     const provisionalFinal = makeFinalDecision({
         emergency,
         sensor,
         caregiver,
         personalized,
         recurrence: null,
+        sustained: null,
     });
 
+    // 13. Evaluate recurrence risk
     const recurrence = evaluateRecurrenceRisk({
         patient_id: params.raw.patient_id,
         timestamp_iso: params.raw.timestamp_iso,
@@ -441,14 +568,26 @@ export async function runUC2DecisionLayerV2(params: {
         emergencyAlreadyDetected: false,
     });
 
+    // 14. Evaluate sustained duration
+    const sustained = evaluateSustainedDuration({
+        patient_id: params.raw.patient_id,
+        timestamp_iso: params.raw.timestamp_iso,
+        current_sensor_anomaly_type: sensor.sensor_anomaly_type,
+        current_pre_hitl_severity: sensor.pre_hitl_severity,
+        history: params.history,
+    });
+
+    // 15. Final decision (all floors including sustained)
     const final_decision = makeFinalDecision({
         emergency,
         sensor,
         caregiver,
         personalized,
         recurrence,
+        sustained,
     });
 
+    // 16. Build payloads
     const initial_mcp_payload =
         final_decision.should_build_initial_mcp_payload && ae.is_anomaly
             ? buildInitialMcpPayload({
@@ -457,6 +596,7 @@ export async function runUC2DecisionLayerV2(params: {
                 sensor,
                 ae,
                 feature_quality_tags: built.feature_quality_tags,
+                signal_validation,
             })
             : null;
 
@@ -474,6 +614,8 @@ export async function runUC2DecisionLayerV2(params: {
                 recurrence,
                 final: final_decision,
                 feature_quality_tags: built.feature_quality_tags,
+                sustained,
+                signal_validation,
             })
             : null;
 
@@ -502,6 +644,8 @@ export async function runUC2DecisionLayerV2(params: {
         caregiver_hitl: caregiver,
         personalized_thresholds: personalized,
         recurrence,
+        sustained_duration: sustained,
+        signal_validation: signal_validation.isArtifact ? signal_validation : null,
         final_decision,
         initial_mcp_payload,
         final_slm_payload,

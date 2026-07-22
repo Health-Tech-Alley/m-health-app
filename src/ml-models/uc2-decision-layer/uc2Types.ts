@@ -1,6 +1,9 @@
 /**
  * UC2 decision-layer type definitions.
  *
+ * v3 (Watch12): FeatureName narrowed to 12 Watch-native AE features.
+ * Legacy 18-feature helpers use Legacy18FeatureName to avoid polluting the AE type system.
+ *
  * v2 (EHR handoff): All new types from the handoff are added here.
  * Old types are PRESERVED for backward compatibility with:
  *   - alert-ml-service.ts
@@ -10,9 +13,53 @@
  * Backward-compat aliases are marked with // @compat below.
  */
 
-// ── Feature types (new) ───────────────────────────────────────────────────────
+// ── Watch12 AE Feature type (12D only) ───────────────────────────────────────
 
-export type FeatureName =
+/**
+ * Canonical 12-feature Watch-native AE feature names.
+ * These are the ONLY features that may appear in:
+ *   - FEATURE_ORDER
+ *   - feature_vector (AE input tensor)
+ *   - CompletedFeatureVector
+ *   - FeatureQualityTag.feature
+ *   - top_contributors
+ *   - AE imputation path
+ */
+export type WatchFeatureName =
+    | "heart_rate"
+    | "blood_oxygen"
+    | "respiratory_rate"
+    | "hrv_sdnn"
+    | "body_temperature"
+    | "activity_level"
+    | "steps_count"
+    | "calories_burned"
+    | "sleep_quality"
+    | "hour_sin"
+    | "hour_cos"
+    | "is_sleep_window";
+
+/**
+ * FeatureName is now the 12-feature Watch-native set.
+ * Use this everywhere in the AE pipeline.
+ */
+export type FeatureName = WatchFeatureName;
+
+// ── Legacy 18-feature type (for compat helpers ONLY) ─────────────────────────
+
+/**
+ * Legacy 18-feature names for use ONLY in @compat helpers:
+ *   - buildUC2FeatureVector (featureEngineering.ts)
+ *   - imputeUnavailableFeatures (featureImputation.ts)
+ *   - runUC2DecisionLayer v1 (runUC2DecisionLayer.ts)
+ *   - parity.ts
+ *   - UC2_FEATURE_ORDER constant
+ *
+ * Must NOT appear in AE scoring, scaler, tfliteModelAdapter, or top_contributors.
+ *
+ * @deprecated Use FeatureName (WatchFeatureName) for all new code.
+ */
+export type Legacy18FeatureName =
     | "heart_rate"
     | "blood_oxygen"
     | "blood_pressure_systolic"
@@ -32,15 +79,45 @@ export type FeatureName =
     | "hour_cos"
     | "is_sleep_window";
 
+// ── External measurement types (BP, glucose — outside AE) ────────────────────
+
+/**
+ * Names for external measurements that are NOT in the AE tensor.
+ * Used by personalized threshold rules, care plans, and payload context only.
+ */
+export type ExternalMeasurementName =
+    | "blood_pressure_systolic"
+    | "blood_pressure_diastolic"
+    | "glucose_level";
+
+/**
+ * Union of AE features + external measurements, for care-plan threshold rules.
+ */
+export type ThresholdFeatureName = FeatureName | ExternalMeasurementName;
+
+/**
+ * External measurements carried alongside raw observation input but
+ * NOT fed into the AE feature vector, scaler, or reconstruction error.
+ * Used for BP/CGM personalized threshold rules only.
+ */
+export interface ExternalMeasurements {
+    blood_pressure_systolic?: number;
+    blood_pressure_diastolic?: number;
+    glucose_level?: number;
+}
+
+// ── Feature source / quality ──────────────────────────────────────────────────
+
 export type FeatureSource =
     | "observed_watch"      // directly measured by Apple Watch
     | "observed_manual"     // entered by caregiver/patient
     | "observed_device"     // from another connected device
-    | "derived"             // computed from other features (e.g., pulse_pressure)
+    | "derived"             // computed from other features (e.g., hour_sin)
     | "ehr_profile"         // filled from EHR/profile baseline
     | "care_plan"           // from care plan threshold
     | "imputed_default"     // fallback population default
     | "unavailable"         // truly missing; inference may be reduced-confidence
+    | "signal_artifact"     // rate-of-change artifact detected; value not trusted
     | "observed"            // @compat
     | "imputed";            // @compat
 
@@ -180,24 +257,32 @@ export type CaregiverFinalAction =
 /**
  * New v2 raw observation input type (preferred for new code).
  * Uses timestamp_iso (ISO string) and includes source_notes.
+ * BP/glucose fields are carried here for external-measurement rules
+ * but are NOT fed into the AE feature vector.
  */
 export interface RawObservationInput {
     patient_id: string;
     timestamp_iso: string;
 
+    // Watch-native AE features (12D)
     heart_rate?: number;
     blood_oxygen?: number;
-    blood_pressure_systolic?: number;
-    blood_pressure_diastolic?: number;
-    glucose_level?: number;
     body_temperature?: number;
     respiratory_rate?: number;
     activity_level?: number;
     sleep_quality?: number;
-    stress_level?: number;
     hrv_sdnn?: number;
     steps_count?: number;
     calories_burned?: number;
+    // hour_sin / hour_cos / is_sleep_window derived from timestamp_iso
+
+    // External measurements (NOT in AE tensor)
+    blood_pressure_systolic?: number;
+    blood_pressure_diastolic?: number;
+    glucose_level?: number;
+
+    // Legacy fields carried for compat (not used by AE)
+    stress_level?: number;
     pulse_pressure?: number;
     mean_arterial_pressure?: number;
     hour_sin?: number;
@@ -205,6 +290,16 @@ export interface RawObservationInput {
     is_sleep_window?: number;
 
     source_notes?: string[];
+}
+
+/**
+ * Previous observation snapshot for signal rate-of-change validation.
+ * Used by signalValidation.ts to detect artifact jumps.
+ */
+export interface PreviousObservationInput {
+    timestamp_iso: string;
+    heart_rate?: number;
+    blood_oxygen?: number;
 }
 
 /**
@@ -249,7 +344,8 @@ export type PatientProfileDefaults = {
 // ── Feature vector types ──────────────────────────────────────────────────────
 
 /**
- * @compat Old feature vector result — preserved for featureEngineering.ts.
+ * @compat Old feature vector result — preserved for featureEngineering.ts
+ * legacy path. Uses Legacy18FeatureName in featureMap.
  */
 export type UC2FeatureVectorResult = {
     rawFeatures: number[];
@@ -279,6 +375,10 @@ export interface FeatureQualityTag {
     warning?: string;
 }
 
+/**
+ * Completed 12D Watch-native AE feature vector.
+ * Only contains the 12 canonical Watch AE features.
+ */
 export type CompletedFeatureVector = Record<FeatureName, number>;
 
 // ── Patient profile types (new in v2) ─────────────────────────────────────────
@@ -295,7 +395,12 @@ export interface PatientBaseline {
 }
 
 export interface CarePlanThreshold {
-    feature: FeatureName;
+    /**
+     * May be a Watch12 AE feature or an external measurement (BP, glucose).
+     * If it references an ExternalMeasurementName, it must be resolved from
+     * ExternalMeasurements, not from CompletedFeatureVector.
+     */
+    feature: ThresholdFeatureName;
     operator: "gte" | "lte" | "delta_gte" | "delta_lte";
     value: number;
     severity_floor: Severity;
@@ -343,19 +448,21 @@ export interface FhirBundle {
 // ── Scaler / model types ──────────────────────────────────────────────────────
 
 /**
- * @compat Old UC2Scaler — kept for existing scaler.ts callers.
- * New code uses ScalerParams (same shape).
+ * @compat Old UC2Scaler — kept for existing scaler.ts callers (v1 compat path).
+ * The v1 path calls scaleFeatures() which does not enforce 12D.
+ * New Watch12 code uses ScalerParams with scaleVector() which enforces 12D.
  */
 export type UC2Scaler = {
     mean: number[];
     scale: number[];
 };
 
-/** New v2 scaler params (superset of UC2Scaler). */
+/** New v2 scaler params (superset of UC2Scaler). scaleVector() enforces 12D. */
 export interface ScalerParams {
     mean: number[];
     scale: number[];
-    feature_order?: FeatureName[];
+    feature_order?: string[];
+    feature_cols?: string[];
 }
 
 export interface AutoencoderResult {
@@ -368,6 +475,34 @@ export interface AutoencoderResult {
         contribution: number;
         value: number;
     }>;
+}
+
+// ── Signal validation (Watch12 artifact detection) ───────────────────────────
+
+/**
+ * Result of physiologic rate-of-change validation.
+ * Artifacts detected here should route to INSUFFICIENT_DATA and must
+ * NOT trigger emergency escalation for impossible vital jumps.
+ */
+export interface SignalValidationResult {
+    isArtifact: boolean;
+    sensor_anomaly_type?: SensorAnomalyType;
+    reasons: string[];
+    artifact_features: FeatureName[];
+    feature_quality_tags: FeatureQualityTag[];
+}
+
+// ── Sustained duration (Watch12 temporal escalation) ─────────────────────────
+
+/**
+ * Result of continuous sustained-duration analysis.
+ * Only eligible anomaly types (CARDIO_RESPIRATORY_SIGNAL_CHANGE,
+ * UNEXPLAINED_PHYSIOLOGIC_STRESS) accumulate a sustained floor.
+ */
+export interface SustainedDurationResult {
+    sustained_minutes: number;
+    sustained_severity_floor: Severity;
+    sustained_reasons: string[];
 }
 
 // ── Emergency rule result ─────────────────────────────────────────────────────
@@ -463,6 +598,12 @@ export interface HistoricalAnomalyEvent {
     post_hitl_anomaly_type: PostHitlAnomalyType;
     final_severity: Severity;
     caregiver_confirmed: boolean;
+    /**
+     * Optional pre-HITL sensor anomaly type, used by sustainedDuration.ts to
+     * determine eligibility for sustained-duration escalation.
+     * Added in Watch12 migration; may be absent in older history records.
+     */
+    sensor_anomaly_type?: SensorAnomalyType;
 }
 
 export interface RecurrenceRiskResult {
@@ -522,6 +663,7 @@ export interface InitialMcpPayload {
     top_contributors: AutoencoderResult["top_contributors"];
     feature_quality_tags: FeatureQualityTag[];
     suggested_caregiver_prompt: string;
+    signal_validation?: SignalValidationResult;
 }
 
 export interface FinalSlmPayload {
@@ -542,6 +684,7 @@ export interface FinalSlmPayload {
     observation_severity_floor: Severity;
     personalized_threshold_severity_floor: Severity;
     recurrence_severity_floor: Severity;
+    sustained_duration_severity_floor?: Severity;
     post_hitl_severity: Severity;
 
     final_notification_type: FinalNotificationType;
@@ -566,6 +709,9 @@ export interface FinalSlmPayload {
         clinician_recipient?: PatientProfile["clinician_recipient"];
     };
 
+    signal_validation?: SignalValidationResult;
+    sustained_duration?: SustainedDurationResult;
+
     slm_safety_boundary: string;
 }
 
@@ -582,6 +728,8 @@ export interface DecisionLayerResult {
     caregiver_hitl?: CaregiverHitlResult | null;
     personalized_thresholds?: PersonalizedThresholdResult | null;
     recurrence?: RecurrenceRiskResult | null;
+    sustained_duration?: SustainedDurationResult | null;
+    signal_validation?: SignalValidationResult | null;
     final_decision: FinalDecisionResult;
 
     initial_mcp_payload?: InitialMcpPayload | null;

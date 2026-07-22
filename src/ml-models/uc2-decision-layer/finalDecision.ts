@@ -9,6 +9,7 @@ import {
     RecurrenceRiskResult,
     SensorClassificationResult,
     Severity,
+    SustainedDurationResult,
 } from "./uc2Types";
 
 // @compat Old function preserved
@@ -141,6 +142,11 @@ export function makeFinalDecision(params: {
     caregiver: CaregiverHitlResult | null;
     personalized: PersonalizedThresholdResult | null;
     recurrence: RecurrenceRiskResult | null;
+    /**
+     * Watch12: sustained anomaly duration floor.
+     * Added in migration from 18D to 12D architecture.
+     */
+    sustained?: SustainedDurationResult | null;
 }): FinalDecisionResult {
     if (params.emergency.is_emergency) {
         return {
@@ -171,12 +177,15 @@ export function makeFinalDecision(params: {
         params.personalized?.personalized_threshold_severity_floor ?? 0;
     const recurrenceFloor =
         params.recurrence?.recurrence_severity_floor ?? 0;
+    const sustainedFloor =
+        params.sustained?.sustained_severity_floor ?? 0;
 
     const postHitlSeverity = Math.max(
         sensorSeverity,
         observationFloor,
         personalizedFloor,
-        recurrenceFloor
+        recurrenceFloor,
+        sustainedFloor
     ) as Severity;
 
     const postType = inferPostHitlType(params);
@@ -240,6 +249,27 @@ export function makeFinalDecision(params: {
         };
     }
 
+    // Severity 3: caregiver critical route (e.g. critical_route_triggered)
+    // MUST be handled explicitly to avoid collapse to severity 2.
+    if (postHitlSeverity >= 3 || params.caregiver?.critical_route_triggered) {
+        return {
+            post_hitl_anomaly_type: postType,
+            post_hitl_severity: 3,
+            final_severity: 3,
+            final_notification_type: "CRITICAL_EMERGENCY_ALERT",
+            final_notification_level: "critical",
+            final_notification_title: "Critical health alert",
+            final_notification_body:
+                "A caregiver-confirmed critical health concern requires immediate attention.",
+            slm_refinement_queued: false,
+            refinement_reason: "Caregiver critical route triggered.",
+            final_reasons: collectReasons(params),
+            should_build_initial_mcp_payload: false,
+            should_build_final_slm_payload: true,
+        };
+    }
+
+    // Severity 2: significant anomaly or composite floor
     return {
         post_hitl_anomaly_type: postType,
         post_hitl_severity: 2,
@@ -307,11 +337,13 @@ function collectReasons(params: {
     caregiver: CaregiverHitlResult | null;
     personalized: PersonalizedThresholdResult | null;
     recurrence: RecurrenceRiskResult | null;
+    sustained?: SustainedDurationResult | null;
 }): string[] {
     return [
         ...(params.sensor?.reasons ?? []),
         ...(params.caregiver?.observation_reasons ?? []),
         ...(params.personalized?.personalized_threshold_reasons ?? []),
         ...(params.recurrence?.recurrence_reasons ?? []),
+        ...(params.sustained?.sustained_reasons ?? []),
     ];
 }

@@ -21,6 +21,8 @@ import type {
     RecurrenceRiskResult,
     SensorClassificationResult,
     Severity,
+    SignalValidationResult,
+    SustainedDurationResult,
 } from "./uc2Types";
 
 export function buildInitialMcpPayload(params: {
@@ -29,6 +31,7 @@ export function buildInitialMcpPayload(params: {
     sensor: SensorClassificationResult;
     ae: AutoencoderResult;
     feature_quality_tags: FeatureQualityTag[];
+    signal_validation?: SignalValidationResult | null;
 }): InitialMcpPayload {
     return {
         event_name: UC2_EVENT_NAME,
@@ -42,6 +45,7 @@ export function buildInitialMcpPayload(params: {
         feature_quality_tags: params.feature_quality_tags,
         suggested_caregiver_prompt:
             "We noticed a change in recent health signals. Can you check what you are seeing right now?",
+        ...(params.signal_validation ? { signal_validation: params.signal_validation } : {}),
     };
 }
 
@@ -61,6 +65,8 @@ export function buildFinalSlmPayload(params: {
     max_matrix_delta?: 0 | 1 | 2 | 3;
     critical_route_triggered?: boolean;
     critical_route_reasons?: string[];
+    sustained?: SustainedDurationResult | null;
+    signal_validation?: SignalValidationResult | null;
 
 }): FinalSlmPayload {
     return {
@@ -82,6 +88,7 @@ export function buildFinalSlmPayload(params: {
         personalized_threshold_severity_floor:
             params.personalized.personalized_threshold_severity_floor,
         recurrence_severity_floor: params.recurrence.recurrence_severity_floor,
+        sustained_duration_severity_floor: params.sustained?.sustained_severity_floor ?? 0,
         post_hitl_severity: params.final.post_hitl_severity ?? 0,
 
         final_notification_type: params.final.final_notification_type,
@@ -107,6 +114,9 @@ export function buildFinalSlmPayload(params: {
             care_plan_goals: params.profile?.care_plan_goals,
             clinician_recipient: params.profile?.clinician_recipient,
         },
+
+        ...(params.signal_validation ? { signal_validation: params.signal_validation } : {}),
+        ...(params.sustained ? { sustained_duration: params.sustained } : {}),
 
         slm_safety_boundary:
             "The SLM may summarize structured evidence and ask follow-up questions. It must not diagnose, override emergency rules, or decide whether the anomaly exists.",

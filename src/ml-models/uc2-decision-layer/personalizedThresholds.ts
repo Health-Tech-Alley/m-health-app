@@ -1,37 +1,56 @@
 /**
- * Personalized threshold evaluator.
+ * Personalized threshold evaluator (Watch12).
  *
- * New in EHR handoff v2. Uses patient baseline data from PatientProfile to
- * compute a severity floor based on deviations from the patient's OWN baselines,
- * not just population-level hard thresholds.
+ * Computes a severity floor based on deviations from the patient's own baselines
+ * and external measurements. Works outside the 12D AE tensor.
  *
  * Safety rules:
  *   - This floor is ADDED to post_hitl_severity via max(), not subtracted.
  *   - It cannot suppress hard emergency alerts (those bypass this module).
- *   - EHR context does NOT add new model features — model stays 18-input.
- *   - EHR context does NOT change ae_score.
+ *   - EHR context does NOT add AE model features — AE stays 12-input Watch-native.
+ *   - EHR context does NOT change ae_score or reconstruction error.
+ *   - BP/glucose are resolved from ExternalMeasurements, NOT from CompletedFeatureVector.
+ *   - Missing EHR BP must NOT create AE feature-quality warnings.
  *
- * Examples from spec:
+ * Watch12 AE baseline deviation checks (from CompletedFeatureVector):
  *   - SpO2 drop from baseline >= 4 → severity floor 1
  *   - SpO2 drop from baseline >= 6 → severity floor 2
  *   - Resting HR +25 over baseline → severity floor 1
  *   - Resting HR +40 over baseline → severity floor 2
  *   - RR +6 over baseline → severity floor 1
  *   - RR +10 over baseline → severity floor 2
- *   - care_plan_thresholds: custom per-patient threshold rules
+ *
+ * External measurement checks (from ExternalMeasurements, outside AE):
+ *   - Systolic BP >= 170 mmHg → severity floor 2
+ *   - Diastolic BP >= 110 mmHg → severity floor 2
+ *
+ * Care-plan thresholds:
+ *   - AE feature rules: resolved from CompletedFeatureVector
+ *   - External measurement rules: resolved from ExternalMeasurements
  */
 
-import { PERSONALIZED_THRESHOLD_RULES } from "./uc2Constants";
+import { PERSONALIZED_THRESHOLD_RULES, EXTERNAL_MEASUREMENT_RULES } from "./uc2Constants";
 import type {
     CompletedFeatureVector,
+    ExternalMeasurements,
     PatientProfile,
     PersonalizedThresholdResult,
     Severity,
+    ThresholdFeatureName,
+    ExternalMeasurementName,
 } from "./uc2Types";
+
+/** Names that are external measurements (outside AE feature vector). */
+const EXTERNAL_MEASUREMENT_NAMES: ReadonlySet<string> = new Set<ExternalMeasurementName>([
+    "blood_pressure_systolic",
+    "blood_pressure_diastolic",
+    "glucose_level",
+]);
 
 export function evaluatePersonalizedThresholds(
     features: CompletedFeatureVector,
-    profile?: PatientProfile
+    profile?: PatientProfile,
+    external?: ExternalMeasurements
 ): PersonalizedThresholdResult {
     let floor: Severity = 0;
     const reasons: string[] = [];
@@ -39,7 +58,7 @@ export function evaluatePersonalizedThresholds(
 
     const b = profile?.baseline;
 
-    // SpO2 drop from baseline
+    // ── SpO2 drop from baseline (AE feature) ─────────────────────────────────
     if (b?.blood_oxygen !== undefined) {
         const drop = b.blood_oxygen - features.blood_oxygen;
 
@@ -54,7 +73,7 @@ export function evaluatePersonalizedThresholds(
         baselineDeviationScore += Math.max(0, drop);
     }
 
-    // Resting HR elevation above baseline
+    // ── Resting HR elevation (AE feature) ────────────────────────────────────
     if (b?.resting_heart_rate !== undefined) {
         const delta = features.heart_rate - b.resting_heart_rate;
 
@@ -69,7 +88,7 @@ export function evaluatePersonalizedThresholds(
         baselineDeviationScore += Math.max(0, delta / 10);
     }
 
-    // Respiratory rate elevation above baseline
+    // ── RR elevation above baseline (AE feature) ─────────────────────────────
     if (b?.respiratory_rate !== undefined) {
         const delta = features.respiratory_rate - b.respiratory_rate;
 
@@ -84,12 +103,47 @@ export function evaluatePersonalizedThresholds(
         baselineDeviationScore += Math.max(0, delta);
     }
 
-    // Care-plan custom thresholds (from EHR/profile)
+    // ── External BP rule (OUTSIDE AE — from ExternalMeasurements) ────────────
+    if (external) {
+        const sys = external.blood_pressure_systolic;
+        const dia = external.blood_pressure_diastolic;
+
+        if (
+            (sys !== undefined && sys >= EXTERNAL_MEASUREMENT_RULES.systolic_bp_gte_severity2) ||
+            (dia !== undefined && dia >= EXTERNAL_MEASUREMENT_RULES.diastolic_bp_gte_severity2)
+        ) {
+            floor = maxSeverity(floor, 2);
+            const bpStr = [
+                sys !== undefined ? `${sys} mmHg systolic` : null,
+                dia !== undefined ? `${dia} mmHg diastolic` : null,
+            ]
+                .filter(Boolean)
+                .join(", ");
+            reasons.push(
+                `External BP measurement elevated (${bpStr}): ` +
+                `at or above ${EXTERNAL_MEASUREMENT_RULES.systolic_bp_gte_severity2}/${EXTERNAL_MEASUREMENT_RULES.diastolic_bp_gte_severity2} mmHg threshold.`
+            );
+        }
+    }
+
+    // ── Care-plan custom thresholds ───────────────────────────────────────────
+    // AE features: resolved from CompletedFeatureVector
+    // External measurement features: resolved from ExternalMeasurements
     for (const threshold of profile?.care_plan_thresholds ?? []) {
-        const observed = features[threshold.feature];
+        const featureName: ThresholdFeatureName = threshold.feature;
+        let observed: number | undefined;
+
+        if (EXTERNAL_MEASUREMENT_NAMES.has(featureName)) {
+            // Resolve from external measurements — NOT from AE feature vector
+            observed = external?.[featureName as ExternalMeasurementName];
+        } else {
+            // Resolve from the 12D AE CompletedFeatureVector
+            observed = features[featureName as keyof CompletedFeatureVector];
+        }
+
+        if (observed === undefined) continue;
 
         let triggered = false;
-
         if (threshold.operator === "gte") triggered = observed >= threshold.value;
         if (threshold.operator === "lte") triggered = observed <= threshold.value;
         // delta_gte / delta_lte require baseline values — handled by callers

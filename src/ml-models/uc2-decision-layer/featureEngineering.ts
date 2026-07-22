@@ -8,9 +8,21 @@ import type {
     RawObservationInput,
     UC2FeatureVectorResult,
 } from "./uc2Types";
-import { FEATURE_ORDER } from "./uc2Constants";
+import { FEATURE_ORDER, UC2_FEATURE_ORDER } from "./uc2Constants";
 import { imputeUnavailableFeatures, fillMissingFeatures } from "./featureImputation";
 
+/**
+ * Build the Watch12 12-dimensional completed feature vector from raw observation input.
+ *
+ * Watch-native AE features only:
+ *   heart_rate, blood_oxygen, respiratory_rate, hrv_sdnn, body_temperature,
+ *   activity_level, steps_count, calories_burned, sleep_quality,
+ *   hour_sin, hour_cos, is_sleep_window
+ *
+ * BP, glucose, pulse_pressure, mean_arterial_pressure, and stress_level
+ * are explicitly EXCLUDED from the AE feature vector. They are available
+ * on RawObservationInput for external-measurement rules only.
+ */
 export function buildCompletedFeatureVector(
     raw: RawObservationInput,
     profile?: PatientProfile
@@ -22,58 +34,39 @@ export function buildCompletedFeatureVector(
     const partial: Partial<CompletedFeatureVector> = {};
     const sourceMap: Partial<Record<FeatureName, FeatureQualityTag>> = {};
 
+    // Watch-native directly observed fields (AE features only — no BP/glucose/stress)
     const observedFields: FeatureName[] = [
         "heart_rate",
         "blood_oxygen",
-        "blood_pressure_systolic",
-        "blood_pressure_diastolic",
-        "glucose_level",
         "body_temperature",
         "respiratory_rate",
         "activity_level",
         "sleep_quality",
-        "stress_level",
         "hrv_sdnn",
         "steps_count",
         "calories_burned",
     ];
 
     for (const f of observedFields) {
-        const value = raw[f];
-        if (typeof value === "number") {
-            partial[f] = value;
-            sourceMap[f] = {
-                feature: f,
-                value,
-                source: inferObservedSource(f),
-            };
+        let value = (raw as Record<string, unknown>)[f];
+        if (typeof value !== "number") continue;
+
+        // HealthKit SpO2 normalization:
+        // HealthKit may return fractional SpO2 (e.g., 0.98 instead of 98).
+        // If blood_oxygen is in (0, 1], multiply by 100 to get percentage.
+        if (f === "blood_oxygen" && value > 0 && value <= 1) {
+            value = value * 100;
         }
-    }
 
-    if (
-        typeof partial.blood_pressure_systolic === "number" &&
-        typeof partial.blood_pressure_diastolic === "number"
-    ) {
-        partial.pulse_pressure =
-            partial.blood_pressure_systolic - partial.blood_pressure_diastolic;
-
-        partial.mean_arterial_pressure =
-            partial.blood_pressure_diastolic +
-            partial.pulse_pressure / 3;
-
-        sourceMap.pulse_pressure = {
-            feature: "pulse_pressure",
-            value: partial.pulse_pressure,
-            source: "derived",
-        };
-
-        sourceMap.mean_arterial_pressure = {
-            feature: "mean_arterial_pressure",
-            value: partial.mean_arterial_pressure,
-            source: "derived",
+        partial[f] = value;
+        sourceMap[f] = {
+            feature: f,
+            value,
+            source: inferObservedSource(f),
         };
     }
 
+    // Derive time features from timestamp
     const hour = new Date(raw.timestamp_iso).getHours();
     partial.hour_sin = Math.sin((2 * Math.PI * hour) / 24);
     partial.hour_cos = Math.cos((2 * Math.PI * hour) / 24);
@@ -97,11 +90,19 @@ export function buildCompletedFeatureVector(
         source: "derived",
     };
 
+    // Fill any remaining Watch12 AE features via imputation
+    // (EHR profile baselines for HR/SpO2/RR/temp/HRV only — not BP/glucose)
     const filled = fillMissingFeatures(partial, sourceMap, profile);
+
+    if (filled.feature_vector.length !== 12) {
+        throw new Error(
+            `[Watch12] buildCompletedFeatureVector produced ${filled.feature_vector.length} features, expected 12. This is a programming error.`
+        );
+    }
 
     return {
         features: filled.features,
-        feature_vector: FEATURE_ORDER.map((f) => filled.features[f]),
+        feature_vector: filled.feature_vector,
         feature_quality_tags: filled.feature_quality_tags,
     };
 }
@@ -125,13 +126,20 @@ function inferObservedSource(feature: FeatureName): FeatureQualityTag["source"] 
     return "observed_manual";
 }
 
-// @compat Old function preserved
+// ── @compat Legacy 18D path (DO NOT USE in production AE scoring) ─────────────
+
+/**
+ * @deprecated Legacy 18-feature vector builder for the v1 compat path.
+ * MUST NOT be used for Watch12 AE scoring, scaler, or tfliteModelAdapter.
+ * Used only by: runUC2DecisionLayer (v1), parity.ts.
+ * BP/glucose/stress/pulse_pressure/MAP are included in this path.
+ */
 export function buildUC2FeatureVector(
     input: AppleWatchVitalsInput,
     patientProfile?: PatientProfileDefaults
 ): UC2FeatureVectorResult {
     // Under the hood we use the old logic exactly to ensure parity.ts tests don't break,
-    // though the new system will rely on buildCompletedFeatureVector instead.
+    // though the new Watch12 system relies on buildCompletedFeatureVector instead.
     const { vitals, featureQuality } = imputeUnavailableFeatures(
         input,
         patientProfile
@@ -177,7 +185,7 @@ export function buildUC2FeatureVector(
         is_sleep_window,
     };
 
-    const rawFeatures = FEATURE_ORDER.map((feature) => featureMap[feature]);
+    const rawFeatures = UC2_FEATURE_ORDER.map((feature) => featureMap[feature]);
 
     return {
         rawFeatures,

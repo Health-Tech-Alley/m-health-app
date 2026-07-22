@@ -1,0 +1,83 @@
+{
+  "model_name": "tiny_uc2_autoencoder",
+  "model_version": "tiny_ae_uc2_watch12_v0.1.0",
+  "model_type": "dense_autoencoder",
+  "input_dim": 12,
+  "feature_cols": [
+    "heart_rate",
+    "blood_oxygen",
+    "respiratory_rate",
+    "hrv_sdnn",
+    "body_temperature",
+    "activity_level",
+    "steps_count",
+    "calories_burned",
+    "sleep_quality",
+    "hour_sin",
+    "hour_cos",
+    "is_sleep_window"
+  ],
+  "threshold": 1.1447160959243772,
+  "threshold_percentile": 97.5,
+  "threshold_source": "validation_normal_reconstruction_error",
+  "health_event_mapping": {
+    "0": "normal",
+    "1": "event/anomaly",
+    "2": "event/anomaly",
+    "3": "event/anomaly"
+  },
+  "training": {
+    "normal_train_rows": 2820,
+    "normal_val_rows": 878,
+    "normal_test_rows": 632,
+    "event_eval_rows": 764,
+    "epochs_ran": 84,
+    "batch_size": 64,
+    "random_seed": 42,
+    "split_type": "patient_level",
+    "train_patients": 324,
+    "val_patients": 101,
+    "test_patients": 75
+  },
+  "evaluation": {
+    "validation_normal_mse_mean": 0.5210617780685425,
+    "validation_normal_mse_std": 0.26135677099227905,
+    "validation_normal_mse_p95": 1.0233193218708039,
+    "validation_normal_mse_p975": 1.1447160959243772,
+    "validation_normal_mse_p99": 1.2532015073299414,
+    "test_normal_false_positive_rate": 0.028481012658227847,
+    "event_detection_rate": 0.8678010471204188,
+    "roc_auc_if_events_available": 0.9784342070382397
+  },
+  "preprocessing": {
+    "scaler": "StandardScaler",
+    "scaler_fit_scope": "normal_train_rows_only",
+    "timestamp_required": true,
+    "derived_features": [
+      "hour_sin",
+      "hour_cos",
+      "is_sleep_window"
+    ],
+    "excluded_from_tensor": [
+      "blood_pressure_systolic",
+      "blood_pressure_diastolic",
+      "glucose_level",
+      "stress_level",
+      "pulse_pressure",
+      "mean_arterial_pressure"
+    ],
+    "missing_policy": "training_rows_with_missing_watch12_features_dropped",
+    "patient_level_split": true
+  },
+  "runtime_note": [
+    "Runtime must construct exactly a 12-element float32 vector in feature_cols order.",
+    "Runtime must scale the vector using tiny_uc2_scaler.json before TFLite inference.",
+    "The TFLite model reconstructs the scaled 12D input vector.",
+    "AE score is mean squared reconstruction error across the 12 scaled features."
+  ],
+  "clinical_safety_note": [
+    "Blood pressure, glucose, pulse pressure, mean arterial pressure, and non-watch clinical values are excluded from the AE tensor.",
+    "External BP cuff, CGM, EHR baselines, and care-plan thresholds must be evaluated in the TypeScript decision/rule layer.",
+    "The autoencoder is not a diagnostic model and must not override emergency rules or caregiver HITL safety floors."
+  ]
+}

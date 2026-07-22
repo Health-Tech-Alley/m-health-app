@@ -9,7 +9,8 @@
  *
  * Architecture notes:
  *   - The AE model NEVER reads raw FHIR/EHR documents directly.
- *   - EHR values do NOT add new model features (model stays 18-input fixed).
+ *   - EHR values do NOT add new model features (Watch12 model is 12-input Watch-native).
+ *   - BP/glucose in PatientBaseline are for personalized threshold rules only, NOT AE features.
  *   - EHR values do NOT suppress hard emergency alerts.
  *   - EHR values do NOT change ae_score or reconstruction error.
  *   - This file is portable: it can later be moved to a shared ehr-profile/

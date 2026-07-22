@@ -5,9 +5,13 @@ import {
     CompletedFeatureVector,
     SensorClassificationResult,
     Severity,
+    SensorAnomalyType,
+    SignalValidationResult,
 } from "./uc2Types";
 
-// @compat Preserved
+// ── @compat Legacy routing (v1 path) ─────────────────────────────────────────
+
+/** @compat Old function preserved for v1 runUC2DecisionLayer path. */
 export function classifyInitialContextualType(params: {
     emergency: boolean;
     isAnomaly: boolean;
@@ -25,11 +29,11 @@ export function classifyInitialContextualType(params: {
     );
 
     const hasGIOrAutonomic = features.some((f) =>
-        ["glucose_level", "body_temperature", "activity_level"].includes(f)
+        ["body_temperature", "activity_level"].includes(f)
     );
 
     const hasSleepStress = features.some((f) =>
-        ["sleep_quality", "stress_level", "hrv_sdnn", "heart_rate"].includes(f)
+        ["sleep_quality", "hrv_sdnn", "heart_rate"].includes(f)
     );
 
     const hasExertion = features.some((f) =>
@@ -44,7 +48,7 @@ export function classifyInitialContextualType(params: {
     return "GENERAL_MULTIVARIATE_ANOMALY";
 }
 
-// @compat Preserved
+/** @compat Old function preserved for v1 runUC2DecisionLayer path. */
 export function fusePostHITLContext(params: {
     initialType: UC2ContextualType;
     caregiverSelectedCodes: string[];
@@ -84,11 +88,45 @@ export function fusePostHITLContext(params: {
     return initialType;
 }
 
-// New in v2
+// ── Watch12 sensor anomaly classification (v2 production path) ────────────────
+
+/**
+ * Classify the sensor anomaly type from the 12D AE result.
+ *
+ * Watch12 routing groups (per spec):
+ *   respiratory     = blood_oxygen, respiratory_rate
+ *   sleep/stress    = sleep_quality, hrv_sdnn, heart_rate
+ *   exertion        = steps_count, calories_burned, activity_level
+ *   autonomic stress = body_temperature, hrv_sdnn, heart_rate  → UNEXPLAINED_PHYSIOLOGIC_STRESS
+ *
+ * Routing priority:
+ *   1. CARDIO_RESPIRATORY_SIGNAL_CHANGE (respiratory contributors)
+ *   2. SLEEP_RECOVERY_DEVIATION (sleep/HRV/HR contributors)
+ *   3. EXERTION_OR_ACTIVITY_PATTERN (activity contributors)
+ *   4. UNEXPLAINED_PHYSIOLOGIC_STRESS (temp/HRV/HR autonomic contributors)
+ *   5. UNEXPLAINED_PHYSIOLOGIC_STRESS (fallback for unclassified anomaly)
+ *   6. NORMAL_PATTERN (no anomaly)
+ *
+ * Note: heart_rate appears in both sleep/stress and autonomic groups per spec.
+ * respiratory takes priority since it is clinically highest concern.
+ */
 export function classifySensorAnomaly(
     features: CompletedFeatureVector,
-    ae: AutoencoderResult
+    ae: AutoencoderResult,
+    signalValidation?: SignalValidationResult | null
 ): SensorClassificationResult {
+    // Artifact path: route to INSUFFICIENT_DATA without AE scoring
+    if (signalValidation?.isArtifact) {
+        return {
+            sensor_anomaly_type: "INSUFFICIENT_DATA",
+            pre_hitl_severity: 1,
+            reasons: [
+                "Signal artifact detected; observation may not reflect true clinical status.",
+                ...signalValidation.reasons,
+            ],
+        };
+    }
+
     if (!ae.is_anomaly) {
         return {
             sensor_anomaly_type: "NORMAL_PATTERN",
@@ -99,35 +137,35 @@ export function classifySensorAnomaly(
 
     const top = ae.top_contributors.map((x) => x.feature);
 
-    if (
-        top.includes("blood_oxygen") ||
-        top.includes("respiratory_rate") ||
-        top.includes("heart_rate")
-    ) {
+    // 1. Respiratory: blood_oxygen, respiratory_rate
+    const hasRespiratory = top.some((f) =>
+        (["blood_oxygen", "respiratory_rate"] as const).includes(f as any)
+    );
+    if (hasRespiratory) {
         return {
             sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
             pre_hitl_severity: inferPreHitlSeverity(ae.ae_score, ae.ae_threshold),
-            reasons: ["Cardio-respiratory features contributed to anomaly."],
+            reasons: ["Cardio-respiratory features (SpO2/RR) contributed to anomaly."],
         };
     }
 
-    if (
-        top.includes("sleep_quality") ||
-        top.includes("hrv_sdnn") ||
-        top.includes("is_sleep_window")
-    ) {
+    // 2. Sleep/stress recovery: sleep_quality, hrv_sdnn, heart_rate
+    const hasSleepStress = top.some((f) =>
+        (["sleep_quality", "hrv_sdnn", "heart_rate"] as const).includes(f as any)
+    );
+    if (hasSleepStress) {
         return {
             sensor_anomaly_type: "SLEEP_RECOVERY_DEVIATION",
             pre_hitl_severity: 1,
-            reasons: ["Sleep/recovery features contributed to anomaly."],
+            reasons: ["Sleep/HRV/HR features contributed to anomaly."],
         };
     }
 
-    if (
-        top.includes("steps_count") ||
-        top.includes("calories_burned") ||
-        top.includes("activity_level")
-    ) {
+    // 3. Exertion / activity: steps_count, calories_burned, activity_level
+    const hasExertion = top.some((f) =>
+        (["steps_count", "calories_burned", "activity_level"] as const).includes(f as any)
+    );
+    if (hasExertion) {
         return {
             sensor_anomaly_type: "EXERTION_OR_ACTIVITY_PATTERN",
             pre_hitl_severity: 1,
@@ -135,11 +173,42 @@ export function classifySensorAnomaly(
         };
     }
 
+    // 4. Autonomic stress: body_temperature, hrv_sdnn, heart_rate
+    const hasAutonomicStress = top.some((f) =>
+        (["body_temperature", "hrv_sdnn", "heart_rate"] as const).includes(f as any)
+    );
+    if (hasAutonomicStress) {
+        return {
+            sensor_anomaly_type: "UNEXPLAINED_PHYSIOLOGIC_STRESS",
+            pre_hitl_severity: inferPreHitlSeverity(ae.ae_score, ae.ae_threshold),
+            reasons: ["Autonomic stress pattern (temperature/HRV/HR) contributed to anomaly."],
+        };
+    }
+
+    // 5. Fallback: unclassified anomaly
     return {
         sensor_anomaly_type: "UNEXPLAINED_PHYSIOLOGIC_STRESS",
         pre_hitl_severity: inferPreHitlSeverity(ae.ae_score, ae.ae_threshold),
-        reasons: ["Anomaly detected without a watch-only explanation."],
+        reasons: ["Anomaly detected without a dominant Watch12 routing group."],
     };
+}
+
+/**
+ * Map sensor anomaly type to a legacy UC2ContextualType for compat helpers.
+ */
+export function sensorTypeToLegacyContextualType(
+    sensorType: SensorAnomalyType
+): UC2ContextualType {
+    switch (sensorType) {
+        case "CARDIO_RESPIRATORY_SIGNAL_CHANGE": return "RESPIRATORY_CONCERN";
+        case "SLEEP_RECOVERY_DEVIATION":         return "SLEEP_STRESS_RECOVERY";
+        case "EXERTION_OR_ACTIVITY_PATTERN":     return "EXERTION_LIKE_PATTERN";
+        case "UNEXPLAINED_PHYSIOLOGIC_STRESS":   return "GENERAL_MULTIVARIATE_ANOMALY";
+        case "CRITICAL_VITAL_THRESHOLD":         return "CRITICAL_EMERGENCY_ALERT";
+        case "INSUFFICIENT_DATA":                return "NORMAL_PATTERN";
+        case "NORMAL_PATTERN":                   return "NORMAL_PATTERN";
+        default:                                 return "NORMAL_PATTERN";
+    }
 }
 
 function inferPreHitlSeverity(score: number, threshold: number): Severity {

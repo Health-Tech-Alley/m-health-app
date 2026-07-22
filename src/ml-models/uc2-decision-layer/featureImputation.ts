@@ -10,12 +10,29 @@ import {
 
 import { DEFAULT_PATIENT_PROFILE, DEFAULT_FEATURE_VALUES, FEATURE_ORDER } from "./uc2Constants";
 
+/**
+ * Fill missing Watch12 AE features using the profile baseline and population defaults.
+ *
+ * Only the 12 canonical Watch AE features are filled here.
+ * BP, glucose, pulse_pressure, MAP, and stress_level are NOT AE features
+ * and must NOT be included in the returned features or feature_vector.
+ *
+ * EHR baseline values may be used for:
+ *   heart_rate (from resting_heart_rate), blood_oxygen, respiratory_rate,
+ *   body_temperature, hrv_sdnn
+ *
+ * Missing EHR BP/glucose must NOT:
+ *   - create AE feature-quality warnings
+ *   - alter the AE feature vector
+ *   - affect AE reconstruction error
+ */
 export function fillMissingFeatures(
     partial: Partial<CompletedFeatureVector>,
     sourceMap: Partial<Record<FeatureName, FeatureQualityTag>>,
     profile?: PatientProfile
 ): {
     features: CompletedFeatureVector;
+    feature_vector: number[];
     feature_quality_tags: FeatureQualityTag[];
 } {
     const completed = {} as CompletedFeatureVector;
@@ -35,7 +52,7 @@ export function fillMissingFeatures(
             continue;
         }
 
-        const baselineValue = baselineForFeature(feature, profile);
+        const baselineValue = baselineForWatchFeature(feature, profile);
 
         if (typeof baselineValue === "number") {
             completed[feature] = baselineValue;
@@ -58,13 +75,22 @@ export function fillMissingFeatures(
         });
     }
 
+    const feature_vector = FEATURE_ORDER.map((f) => completed[f]);
+
     return {
         features: completed,
+        feature_vector,
         feature_quality_tags: tags,
     };
 }
 
-function baselineForFeature(
+/**
+ * Map Watch12 AE features to EHR/profile baseline values.
+ * Only maps the 12 Watch-native AE features.
+ * BP, glucose, pulse_pressure, MAP, and stress are NOT handled here
+ * (they are not AE features in Watch12).
+ */
+function baselineForWatchFeature(
     feature: FeatureName,
     profile?: PatientProfile
 ): number | undefined {
@@ -80,18 +106,17 @@ function baselineForFeature(
             return b.respiratory_rate;
         case "body_temperature":
             return b.body_temperature;
-        case "blood_pressure_systolic":
-            return b.systolic_bp;
-        case "blood_pressure_diastolic":
-            return b.diastolic_bp;
-        case "glucose_level":
-            return b.glucose_level;
         case "hrv_sdnn":
             return b.hrv_sdnn;
+        // hour_sin, hour_cos, is_sleep_window, activity_level,
+        // steps_count, calories_burned, sleep_quality:
+        // no EHR baseline; fall through to population default
         default:
             return undefined;
     }
 }
+
+// ── Types used by legacy compat path ──────────────────────────────────────────
 
 type ImputedVitals = Required<
     Pick<
@@ -112,7 +137,11 @@ type ImputedVitals = Required<
     >
 >;
 
-// @compat Old function preserved
+/**
+ * @compat Old function preserved for buildUC2FeatureVector and parity.ts.
+ * MUST NOT be used in the Watch12 AE path.
+ * This function imputes BP, glucose, and stress (18D legacy path only).
+ */
 export function imputeUnavailableFeatures(
     input: AppleWatchVitalsInput,
     patientProfile: PatientProfileDefaults = DEFAULT_PATIENT_PROFILE

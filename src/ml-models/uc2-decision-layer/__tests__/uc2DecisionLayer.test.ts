@@ -61,8 +61,8 @@ import {
 } from "./fixtures/fixture_matrix_weak_confused_seizure_like";
 
 const mockScaler: ScalerParams = {
-    mean: new Array(18).fill(0),
-    scale: new Array(18).fill(1),
+    mean: new Array(12).fill(0),
+    scale: new Array(12).fill(1),
 };
 
 type Uc2Result = Awaited<ReturnType<typeof runUC2DecisionLayer>>;

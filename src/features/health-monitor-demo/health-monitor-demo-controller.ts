@@ -7,11 +7,9 @@ import type {
   HistoricalAnomalyEvent,
   PatientProfile,
   RawObservationInput,
-  UC2DecisionResult,
 } from '@/ml-models/uc2-decision-layer';
 import {
   createTfliteInterpreterAdapter,
-  runUC2DecisionLayer,
   runUC2DecisionLayerV2,
 } from '@/ml-models/uc2-decision-layer';
 import { stripControlTokens } from '@/utils/stripControlTokens';
@@ -51,7 +49,7 @@ export const V2_FIXTURES: V2Fixture[] = [
   { id: 'slow-path-gi', name: 'Slow Path GI', raw: fixtureSlowPathGiRaw, profile: fixtureSlowPathGiProfile, caregiver: fixtureSlowPathGiCaregiver },
 ];
 
-const MOCK_SCALER = { mean: new Array(18).fill(0), scale: new Array(18).fill(1) };
+const MOCK_SCALER = { mean: new Array(12).fill(0), scale: new Array(12).fill(1) };
 
 function rawToAppleWatchInput(raw: RawObservationInput): AppleWatchVitalsInput {
   return {
@@ -83,7 +81,7 @@ export function createHealthMonitorDemoController(mlModel: AlertAutoencoder) {
       caregiver?: CaregiverHitlInput;
       history?: HistoricalAnomalyEvent[];
       toggles: V2Toggle;
-    }): Promise<{ v2: DecisionLayerResult; v1: UC2DecisionResult }> {
+    }): Promise<{ v2: DecisionLayerResult }> {
       const { raw, profile, caregiver, history, toggles } = params;
 
       // Use the real StandardScaler params when the model is loaded so the
@@ -104,19 +102,7 @@ export function createHealthMonitorDemoController(mlModel: AlertAutoencoder) {
         aeThreshold: mlModel.threshold,
       });
 
-      const input = rawToAppleWatchInput(raw);
-      const eventId = `demo-${Date.now()}`;
-
-      const v1 = await runUC2DecisionLayer({
-        eventId,
-        input,
-        scaler: { mean: scaler.mean, scale: scaler.scale },
-        threshold: mlModel.threshold,
-        runTFLiteAutoencoder: async (scaled) =>
-          mlModel.isLoaded ? mlModel.runReconstruction(scaled) : scaled.map((v) => v * 0.96),
-      });
-
-      return { v2, v1 };
+      return { v2 };
     },
 
     buildExplanationMessages(v2: DecisionLayerResult): ChatMessage[] {
