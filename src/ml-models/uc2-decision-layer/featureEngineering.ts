@@ -48,8 +48,9 @@ export function buildCompletedFeatureVector(
     ];
 
     for (const f of observedFields) {
-        let value = (raw as Record<string, unknown>)[f];
-        if (typeof value !== "number") continue;
+        const rawValue = (raw as unknown as Record<string, unknown>)[f];
+        if (typeof rawValue !== "number") continue;
+        let value: number = rawValue;
 
         // HealthKit SpO2 normalization:
         // HealthKit may return fractional SpO2 (e.g., 0.98 instead of 98).
@@ -58,7 +59,7 @@ export function buildCompletedFeatureVector(
             value = value * 100;
         }
 
-        partial[f] = value;
+        partial[f] = value as number;
         sourceMap[f] = {
             feature: f,
             value,
