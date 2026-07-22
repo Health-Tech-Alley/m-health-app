@@ -5,9 +5,9 @@
  * breathing, medication, …) so the list is short and scannable; wordy text
  * is hidden behind per-item expansion. Status chips explain themselves on
  * tap. A "Care considerations" block restores the onboarding concern fields
- * (main concern, support needs, other symptoms) and surfaces the safety
- * notes / safety lines that used to be their own card. Every block offers
- * an optional Concierge explanation.
+ * (main concern, support needs, other symptoms, mobility, daily routine).
+ * Safety notes stay off this list. Every block offers an optional Concierge
+ * explanation.
  */
 
 import { useEffect, useState } from 'react';
@@ -26,7 +26,6 @@ import {
   CARE_CATEGORY_ORDER,
   type CareCategoryKey,
 } from '@/services/carePlan/careCategories';
-import type { CarePlanSafetyLine } from '@/services/carePlan/carePlanViewModel';
 import { sectionStyles } from './carePlanSectionStyles';
 
 export interface GoalExplainRequest {
@@ -47,8 +46,18 @@ export interface CarePlanGoalsSectionProps {
   goals: CarePlanGoalSummary[];
   caregiver?: Caregiver | null;
   symptoms?: Symptom[];
-  safetyNotes?: string;
-  safetyLines?: CarePlanSafetyLine[];
+  /** Baseline daily routine from onboarding / patient record. */
+  dailyRoutine?: string | null;
+  /** Functional mobility scales (GMFCS, FMS, …) from ADCP or patient. */
+  functionalScales?: Record<string, string> | null;
+  /** ADCP extensions.careContext narratives when present. */
+  careContextExtension?: {
+    mainConcern?: string;
+    supportNeeds?: string;
+    dailyRoutine?: string;
+    mobilitySummary?: string;
+    otherNotes?: string;
+  } | null;
   onExplainItem?: (request: GoalExplainRequest) => void;
   onExplainCategory?: (request: CategoryExplainRequest) => void;
   onExplainConsideration?: (text: string) => void;
@@ -88,8 +97,9 @@ export function CarePlanGoalsSection({
   goals,
   caregiver,
   symptoms = [],
-  safetyNotes,
-  safetyLines = [],
+  dailyRoutine,
+  functionalScales,
+  careContextExtension,
   onExplainItem,
   onExplainCategory,
   onExplainConsideration,
@@ -137,7 +147,13 @@ export function CarePlanGoalsSection({
   }));
 
   const total = goals.length + activities.length;
-  const considerations = buildConsiderations(caregiver ?? null, symptoms, safetyNotes, safetyLines);
+  const considerations = buildConsiderations({
+    caregiver: caregiver ?? null,
+    symptoms,
+    dailyRoutine,
+    functionalScales,
+    careContextExtension,
+  });
   const hasCareAreas = orderedGroups.length > 0;
   const hasCareConsiderations = considerations.length > 0;
   const hasCareTeam = careTeam.length > 0;
@@ -416,46 +432,93 @@ interface Consideration {
   text: string;
 }
 
-function buildConsiderations(
-  caregiver: Caregiver | null,
-  symptoms: Symptom[],
-  safetyNotes: string | undefined,
-  safetyLines: CarePlanSafetyLine[],
-): Consideration[] {
+const SCALE_LABELS: Record<string, string> = {
+  gmfcs: 'GMFCS',
+  fms: 'FMS',
+  macs: 'MACS',
+  cfcs: 'CFCS',
+  edacs: 'EDACS',
+};
+
+function buildConsiderations(input: {
+  caregiver: Caregiver | null;
+  symptoms: Symptom[];
+  dailyRoutine?: string | null;
+  functionalScales?: Record<string, string> | null;
+  careContextExtension?: CarePlanGoalsSectionProps['careContextExtension'];
+}): Consideration[] {
   const list: Consideration[] = [];
-  if (caregiver?.mainConcern?.trim()) {
-    list.push({ id: 'main-concern', label: 'Main concern', text: caregiver.mainConcern.trim() });
+  const ext = input.careContextExtension;
+
+  const mainConcern =
+    input.caregiver?.mainConcern?.trim() || ext?.mainConcern?.trim() || '';
+  if (mainConcern) {
+    list.push({ id: 'main-concern', label: 'Main concern', text: mainConcern });
   }
-  const otherSymptoms = symptoms
+
+  const otherSymptoms = input.symptoms
     .filter((symptom) => symptom.category === 'other')
     .map((symptom) => symptom.label)
     .join(', ');
   if (otherSymptoms) {
     list.push({ id: 'other-symptoms', label: 'Other symptoms', text: otherSymptoms });
   }
-  if (caregiver?.stressOrSupportNeeds?.trim()) {
+
+  const support =
+    input.caregiver?.stressOrSupportNeeds?.trim() || ext?.supportNeeds?.trim() || '';
+  if (support) {
     list.push({
       id: 'support-needs',
       label: 'Support needs',
-      text: caregiver.stressOrSupportNeeds.trim(),
+      text: support,
     });
   }
-  const notes = (safetyNotes ?? '').trim();
-  const alwaysNever = safetyLines
-    .filter((line) => line.kind !== 'note')
-    .map((line) => `${line.kind === 'always' ? 'Always' : 'Never'}: ${line.text}`);
-  const planNotes = safetyLines.find((line) => line.kind === 'note')?.text;
-  const safetyText = [
-    notes,
-    planNotes && planNotes !== notes ? planNotes : '',
-    ...alwaysNever,
-  ]
-    .filter(Boolean)
-    .join('\n');
-  if (safetyText) {
-    list.push({ id: 'safety-notes', label: 'Safety notes', text: safetyText });
+
+  const mobility =
+    formatFunctionalScales(input.functionalScales) ||
+    ext?.mobilitySummary?.trim() ||
+    '';
+  if (mobility) {
+    list.push({
+      id: 'mobility',
+      label: 'Mobility & function',
+      text: mobility,
+    });
   }
+
+  const routine =
+    input.dailyRoutine?.trim() || ext?.dailyRoutine?.trim() || '';
+  if (routine) {
+    list.push({
+      id: 'daily-routine',
+      label: 'Daily routine',
+      text: routine,
+    });
+  }
+
+  if (ext?.otherNotes?.trim()) {
+    list.push({
+      id: 'other-notes',
+      label: 'Additional notes',
+      text: ext.otherNotes.trim(),
+    });
+  }
+
   return list;
+}
+
+function formatFunctionalScales(
+  scales: Record<string, string> | null | undefined,
+): string {
+  if (!scales) return '';
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(scales)) {
+    const v = value?.trim();
+    if (!v || v.toLowerCase() === 'not assessed') continue;
+    const label = SCALE_LABELS[key.toLowerCase()] ?? key.toUpperCase();
+    parts.push(`${label}: ${v}`);
+  }
+  return parts.join(' · ');
 }
 
 function parseCareTeam(json: string | null | undefined): string[] {

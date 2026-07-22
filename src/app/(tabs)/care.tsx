@@ -39,6 +39,7 @@ import {
   type GoalExplainRequest,
 } from "@/components/care/plan/CarePlanGoalsSection";
 import { CarePlanBackupSection } from "@/components/care/plan/CarePlanBackupSection";
+import { CarePlanSafetySection } from "@/components/care/plan/CarePlanSafetySection";
 import { WhatChangedSheet } from "@/components/care/plan/WhatChangedSheet";
 import { AppTheme } from "@/constants/theme";
 import { useCriticalAlert } from "@/contexts/critical-alert-context";
@@ -183,14 +184,49 @@ export default function CareScreen() {
     [snapshot, vm.plan],
   );
 
-  // Goals & activities section also renders when only care considerations
-  // (onboarding concerns, safety notes) exist — even with no imported goals.
+  const functionalScales = useMemo(() => {
+    const fromPlan = vm.plan?.clinicalFraming?.functionalScales;
+    if (fromPlan && Object.keys(fromPlan).length > 0) return fromPlan;
+    const p = snapshot?.patient;
+    if (!p) return null;
+    const scales: Record<string, string> = {};
+    if (p.gmfcs && p.gmfcs !== 'Not assessed') scales.gmfcs = p.gmfcs;
+    if (p.fms && p.fms !== 'Not assessed') scales.fms = p.fms;
+    if (p.macs && p.macs !== 'Not assessed') scales.macs = p.macs;
+    if (p.cfcs && p.cfcs !== 'Not assessed') scales.cfcs = p.cfcs;
+    if (p.edacs && p.edacs !== 'Not assessed') scales.edacs = p.edacs;
+    return Object.keys(scales).length > 0 ? scales : null;
+  }, [vm.plan?.clinicalFraming?.functionalScales, snapshot?.patient]);
+
+  const careContextExtension = useMemo(() => {
+    const raw = vm.plan?.extensions?.careContext;
+    if (!raw || typeof raw !== 'object') return null;
+    return raw as {
+      mainConcern?: string;
+      supportNeeds?: string;
+      dailyRoutine?: string;
+      mobilitySummary?: string;
+      otherNotes?: string;
+    };
+  }, [vm.plan?.extensions]);
+
+  // Goals & activities also renders when only care considerations exist
+  // (onboarding concern/support/mobility/routine — not safety notes).
   const hasCareConsiderations = Boolean(
     snapshot?.caregiver?.mainConcern?.trim() ||
       snapshot?.caregiver?.stressOrSupportNeeds?.trim() ||
       (snapshot?.symptoms ?? []).some((symptom) => symptom.category === 'other') ||
-      snapshot?.safetyNotes?.trim() ||
-      vm.safetyLines.length > 0,
+      snapshot?.patient?.baselineDailyRoutine?.trim() ||
+      (functionalScales && Object.keys(functionalScales).length > 0) ||
+      careContextExtension?.mainConcern ||
+      careContextExtension?.supportNeeds ||
+      careContextExtension?.dailyRoutine ||
+      careContextExtension?.mobilitySummary,
+  );
+
+  const safetyAlwaysNever = useMemo(
+    () => vm.safetyLines.filter((line) => line.kind === 'always' || line.kind === 'never'),
+    [vm.safetyLines],
   );
 
   const explainUc4Card = useCallback(
@@ -392,15 +428,38 @@ export default function CareScreen() {
               goals={goals}
               caregiver={snapshot?.caregiver ?? null}
               symptoms={snapshot?.symptoms ?? []}
-              safetyNotes={snapshot?.safetyNotes ?? ''}
-              safetyLines={vm.safetyLines}
+              dailyRoutine={snapshot?.patient?.baselineDailyRoutine ?? null}
+              functionalScales={functionalScales}
+              careContextExtension={careContextExtension}
               onExplainItem={handleExplainGoalItem}
               onExplainCategory={handleExplainCategory}
               onExplainConsideration={handleExplainConsideration}
             />
           ) : null}
 
-          <CarePlanMonitoringSection thresholds={thresholds} />
+          {safetyAlwaysNever.length > 0 ? (
+            <CarePlanSafetySection
+              lines={safetyAlwaysNever}
+              onExplainLine={(line) =>
+                openExplain(
+                  'Explain this safety rule',
+                  buildConsiderationExplainPrompt(
+                    `${line.kind === 'always' ? 'Always' : 'Never'}: ${line.text}`,
+                  ),
+                )
+              }
+            />
+          ) : null}
+
+          <CarePlanMonitoringSection
+            thresholds={thresholds}
+            baselines={{
+              spo2Cutoff: snapshot?.patient?.spo2Cutoff,
+              baselineHeartRate: snapshot?.patient?.baselineHeartRate,
+              baselineBloodOxygen: snapshot?.patient?.baselineBloodOxygen,
+              baselineRespiratoryRate: snapshot?.patient?.baselineRespiratoryRate,
+            }}
+          />
 
           <CarePlanBackupSection
             patientId={patientId}

@@ -825,7 +825,7 @@ export function seedAdcpV1FromSnapshot(input: SeedAdcpV1FromSnapshotInput): Adcp
         knowledgeGraphIds: [],
         citationsCount: 0,
       },
-      extensions: {},
+      extensions: buildCareContextExtensions(s),
     });
   } catch (err) {
     // Race / re-import: if another path already wrote v1, return it.
@@ -844,6 +844,44 @@ function extractFunctionalScales(patient: PatientRecordSnapshot['patient']): Rec
   if (patient.cfcs && patient.cfcs !== 'Not assessed') scales.cfcs = patient.cfcs;
   if (patient.edacs && patient.edacs !== 'Not assessed') scales.edacs = patient.edacs;
   return Object.keys(scales).length === 0 ? undefined : scales;
+}
+
+/**
+ * Seed caregiver-facing care-context narratives into ADCP extensions so the
+ * Care tab / Concierge can read them without inventing a second patient store.
+ * Keys are additive; empty bags are omitted.
+ */
+function buildCareContextExtensions(
+  snapshot: PatientRecordSnapshot,
+): Record<string, unknown> {
+  const careContext: Record<string, string> = {};
+  const main = snapshot.caregiver?.mainConcern?.trim();
+  const support = snapshot.caregiver?.stressOrSupportNeeds?.trim();
+  const routine = snapshot.patient?.baselineDailyRoutine?.trim();
+  const mobility = formatMobilitySummary(snapshot.patient);
+  if (main) careContext.mainConcern = main;
+  if (support) careContext.supportNeeds = support;
+  if (routine) careContext.dailyRoutine = routine;
+  if (mobility) careContext.mobilitySummary = mobility;
+  if (Object.keys(careContext).length === 0) return {};
+  return { careContext };
+}
+
+function formatMobilitySummary(
+  patient: PatientRecordSnapshot['patient'],
+): string | undefined {
+  if (!patient) return undefined;
+  const parts: string[] = [];
+  const push = (label: string, value?: string | null) => {
+    const v = value?.trim();
+    if (v && v.toLowerCase() !== 'not assessed') parts.push(`${label}: ${v}`);
+  };
+  push('GMFCS', patient.gmfcs);
+  push('FMS', patient.fms);
+  push('MACS', patient.macs);
+  push('CFCS', patient.cfcs);
+  push('EDACS', patient.edacs);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 // ---------------------------------------------------------------------------
