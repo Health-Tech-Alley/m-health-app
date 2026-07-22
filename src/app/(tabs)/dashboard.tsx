@@ -20,6 +20,7 @@ import { timeOfDayGreeting } from "@/constants/user-terms";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
+import { usePendingReviews } from "@/hooks/usePendingReviews";
 import {
   getCaregiverDisplay,
   getPatientDisplayName,
@@ -49,8 +50,14 @@ export default function DashboardRoute() {
     therapyContractPresent && snapshot?.todayDailyCareEntry?.therapyCompleted !== true;
   const topUc4Priority = snapshot?.latestUc4PriorityCards?.[0] ?? null;
   const uc3Result = snapshot?.latestUc3TrajectoryResult ?? null;
+  const pendingReviews = usePendingReviews(patientId);
   const showUc3Status =
     Boolean(uc3Result) && uc3Result?.eventType !== "NO_TRAJECTORY_FAILURE";
+  const showTodayCare =
+    Boolean(topUc4Priority) ||
+    showRehabReminder ||
+    showUc3Status ||
+    pendingReviews.total > 0;
 
   const scrollToAlertsLog = () => {
     scrollRef.current?.scrollTo({
@@ -91,26 +98,31 @@ export default function DashboardRoute() {
 
           <PatientSummaryCard />
           <WeeklyVitalsCard />
-          <NeedsYourReviewBanner
-            patientId={patientId}
-            onReviewPress={scrollToAlertsLog}
-          />
-          {topUc4Priority ? (
-            <CareFocusCompactCard
-              title={topUc4Priority.title}
-              detail={`Priority ${Math.round(topUc4Priority.score * 100)}%`}
-            />
-          ) : null}
-          {showUc3Status && uc3Result ? (
-            <Uc3HomeStatusCard
-              eventType={uc3Result.eventType}
-              urgent={uc3Result.emergencyThresholdBreach || uc3Result.severity === "urgent"}
-            />
-          ) : null}
-          {showRehabReminder ? (
-            <View>
+          {showTodayCare ? (
+            <View style={styles.todayCareSection}>
               <Text style={styles.sectionTitle}>{"Today\u2019s care"}</Text>
-              <RehabReminderCard />
+              <View style={styles.todayCareList}>
+                {topUc4Priority ? (
+                  <CareFocusCompactCard
+                    title={topUc4Priority.title}
+                    detail={`Priority ${Math.round(topUc4Priority.score * 100)}%`}
+                  />
+                ) : null}
+                {showRehabReminder ? <RehabReminderCard /> : null}
+                {showUc3Status && uc3Result ? (
+                  <Uc3HomeStatusCard
+                    eventType={uc3Result.eventType}
+                    urgent={uc3Result.emergencyThresholdBreach || uc3Result.severity === "urgent"}
+                  />
+                ) : null}
+                {pendingReviews.total > 0 ? (
+                  <NeedsYourReviewBanner
+                    patientId={patientId}
+                    reviews={pendingReviews}
+                    onReviewPress={scrollToAlertsLog}
+                  />
+                ) : null}
+              </View>
             </View>
           ) : null}
 
@@ -175,7 +187,7 @@ function Uc3HomeStatusCard({ eventType, urgent }: { eventType: string; urgent: b
 function RehabReminderCard() {
   return (
     <Pressable
-      style={styles.rehabCard}
+      style={styles.compactCard}
       onPress={() =>
         router.push({
           pathname: "/care",
@@ -185,18 +197,17 @@ function RehabReminderCard() {
       accessibilityRole="button"
       accessibilityLabel="Open today's rehab check-in"
     >
-      <View style={styles.rehabCardHeader}>
-        <View>
-          <Text style={styles.rehabKicker}>{"Today\u2019s rehab check-in"}</Text>
-          <Text style={styles.rehabStatus}>
-            Therapy has not been completed today.
-          </Text>
-        </View>
-        <View style={styles.rehabIcon}>
-          <AppIcon name="walking" size={24} color={AppTheme.colors.brand} />
-        </View>
+      <View style={styles.compactIcon}>
+        <AppIcon name="walking" size={24} color={AppTheme.colors.brand} />
       </View>
-      <Text style={styles.rehabActionText}>Open check-in</Text>
+      <View style={styles.compactBody}>
+        <Text style={styles.compactKicker}>{"Today\u2019s rehab check-in"}</Text>
+        <Text style={styles.compactTitle} numberOfLines={2}>
+          Therapy has not been completed today.
+        </Text>
+        <Text style={styles.compactMeta}>Open check-in</Text>
+      </View>
+      <AppIcon name="chevronRight" size={24} color={AppTheme.colors.textMuted} />
     </Pressable>
   );
 }
@@ -253,16 +264,22 @@ const styles = StyleSheet.create({
     letterSpacing: 1.1,
     textTransform: "uppercase",
   },
+  todayCareSection: {
+    marginBottom: 14,
+  },
+  todayCareList: {
+    gap: 10,
+  },
   compactCard: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
+    alignItems: "flex-start",
+    gap: 12,
     backgroundColor: AppTheme.colors.surface,
-    borderRadius: 12,
+    borderRadius: AppTheme.radius.card,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
-    padding: 16,
-    marginBottom: 14,
+    padding: 14,
+    ...AppTheme.shadow,
   },
   compactCardUrgent: {
     borderColor: AppTheme.colors.danger,
@@ -275,70 +292,30 @@ const styles = StyleSheet.create({
     backgroundColor: AppTheme.colors.softSurface,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   compactBody: {
     flex: 1,
+    minWidth: 0,
   },
   compactKicker: {
     color: AppTheme.colors.textMuted,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "900",
-    textTransform: "uppercase",
+    letterSpacing: 0.3,
   },
   compactTitle: {
     color: AppTheme.colors.text,
-    fontSize: 16,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: "900",
     marginTop: 2,
   },
   compactMeta: {
     color: AppTheme.colors.textSoft,
     fontSize: 12,
-    fontWeight: "800",
+    lineHeight: 17,
+    fontWeight: "700",
     marginTop: 3,
-  },
-  rehabCard: {
-    backgroundColor: AppTheme.colors.surface,
-    borderRadius: AppTheme.radius.card,
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    padding: 18,
-    ...AppTheme.shadow,
-  },
-  rehabCardHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  rehabKicker: {
-    color: AppTheme.colors.sectionText,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-  },
-  rehabStatus: {
-    color: AppTheme.colors.text,
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: "900",
-    marginTop: 6,
-  },
-  rehabActionText: {
-    color: AppTheme.colors.brand,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "900",
-    marginTop: 14,
-  },
-  rehabIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: AppTheme.colors.brandSoft,
-    alignItems: "center",
-    justifyContent: "center",
   },
 });

@@ -13,15 +13,16 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
-import { usePendingReviews } from '@/hooks/usePendingReviews';
+import { AppTheme } from '@/constants/theme';
+import type { PendingReview } from '@/hooks/usePendingReviews';
 
 type Props = {
   patientId: string | null;
   onReviewPress: () => void;
+  reviews: PendingReview;
 };
 
-export function NeedsYourReviewBanner({ patientId, onReviewPress }: Props) {
-  const reviews = usePendingReviews(patientId);
+export function NeedsYourReviewBanner({ onReviewPress, reviews }: Props) {
   const router = useRouter();
 
   if (reviews.total === 0) {
@@ -97,48 +98,48 @@ export function NeedsYourReviewBanner({ patientId, onReviewPress }: Props) {
 
 const styles = StyleSheet.create({
   banner: {
-    backgroundColor: '#FFF4DC',
-    borderColor: '#E1A53C',
+    backgroundColor: AppTheme.colors.surface,
+    borderColor: AppTheme.colors.border,
     borderWidth: 1,
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 16,
+    borderRadius: AppTheme.radius.card,
+    padding: 14,
     gap: 10,
+    ...AppTheme.shadow,
   },
   body: { gap: 4 },
   eyebrow: {
-    color: '#7A4A00',
-    fontWeight: '800',
-    fontSize: 11,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    color: AppTheme.colors.textMuted,
+    fontWeight: '900',
+    fontSize: 12,
+    letterSpacing: 0.3,
   },
   line: {
-    color: '#123433',
-    fontWeight: '700',
+    color: AppTheme.colors.text,
+    fontWeight: '900',
     fontSize: 15,
-    lineHeight: 21,
+    lineHeight: 20,
   },
   subline: {
-    color: '#7A4A00',
+    color: AppTheme.colors.textSoft,
     fontSize: 12,
-    fontStyle: 'italic',
+    fontWeight: '700',
+    lineHeight: 17,
   },
   actions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
     alignItems: 'center',
   },
   reviewButton: {
-    backgroundColor: '#E1A53C',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 14,
+    backgroundColor: AppTheme.colors.brand,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 12,
   },
   reviewButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '800',
+    color: AppTheme.colors.white,
+    fontWeight: '900',
     fontSize: 14,
   },
   linkButton: {
@@ -146,9 +147,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   linkButtonText: {
-    color: '#7A4A00',
-    fontWeight: '700',
+    color: AppTheme.colors.brand,
+    fontWeight: '900',
     fontSize: 13,
-    textDecorationLine: 'underline',
   },
 });
