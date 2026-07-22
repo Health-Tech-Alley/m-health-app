@@ -31,7 +31,8 @@ import { Provider } from 'react-redux';
 import * as Notifications from 'expo-notifications';
 import { AndroidNotificationPriority } from 'expo-notifications';
 
-import { FileLogger } from "react-native-file-logger";
+import { Directory, Paths } from "expo-file-system";
+import { NativeModules } from "react-native";
 
 // Add this OUTSIDE any component, at the module level
 Notifications.setNotificationHandler({
@@ -47,21 +48,40 @@ Notifications.setNotificationHandler({
   }),
 });
 
+/**
+ * react-native-file-logger needs a native module (dev/EAS build).
+ * Never static-import the package here: its entry requires NativeFileLogger
+ * under TurboModules and TurboModuleRegistry.getEnforcing throws when absent.
+ * Probe NativeModules only, then dynamic-import if present.
+ */
+function isFileLoggerNativeAvailable(): boolean {
+  const bridge = NativeModules.FileLogger as { configure?: unknown } | null | undefined;
+  return Boolean(bridge && typeof bridge.configure === "function");
+}
+
 function LoggerInit() {
   useEffect(() => {
-    (async () => {
+    if (!isFileLoggerNativeAvailable()) {
+      console.log(
+        "[FileLogger] Native module unavailable — skipping file log setup",
+      );
+      return;
+    }
+    void (async () => {
       try {
-        await FileLogger.configure(); // no custom logsDirectory
-        console.log("FileLogger configured with default dir");
+        const { FileLogger } = await import("react-native-file-logger");
+        const logsDir = new Directory(Paths.document, "logs");
+        if (!logsDir.exists) {
+          logsDir.create();
+        }
+        await FileLogger.configure({
+          logsDirectory: logsDir.uri,
+          captureConsole: false,
+        });
+        console.log("FileLogger configured, dir:", logsDir.uri);
         FileLogger.info("Logger test entry");
-
-        setTimeout(() => {
-          FileLogger.getLogFilePaths().then((p) =>
-            console.log("Default dir paths:", p)
-          );
-        }, 1000);
       } catch (err) {
-        console.error("Failed to configure FileLogger", err);
+        console.warn("[FileLogger] configure skipped:", err);
       }
     })();
   }, []);

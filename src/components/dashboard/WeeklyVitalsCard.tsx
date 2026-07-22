@@ -148,9 +148,7 @@ export function WeeklyVitalsCard() {
   const activePatient = useActivePatientView();
   const activePatientId = activePatient?.patientId ?? null;
   const productionReadings = useAppSelector((state) =>
-    activePatientId
-      ? selectProductionWearableReadingsForPatient(state, activePatientId)
-      : [],
+    selectProductionWearableReadingsForPatient(state, activePatientId),
   );
 
   const metrics = useMemo(
