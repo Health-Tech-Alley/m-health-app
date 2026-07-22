@@ -17,7 +17,6 @@ import {
   upsertPatient,
 } from "@/data";
 import { mapFhirBundleToOnboardingImport } from "@/data/fhir/onboarding-import-mapper";
-import { shouldBundleHedisMeasures } from "@/data/seed/seedFromProfile";
 import { emitInAppBanner } from "@/services/notifications";
 import {
   getOnboardingProfile,
@@ -67,9 +66,8 @@ function attachClinicalImportForGate(
 function startBundledEhrKnowledgeBundle(params: {
   patientId: string;
   location?: string;
-  includeHedis: boolean;
 }): void {
-  const { patientId, location, includeHedis } = params;
+  const { patientId, location } = params;
 
   setBundlePending(patientId, true);
   setBundleStatus(patientId, { state: "in_flight", chunksAdded: 0 });
@@ -79,7 +77,6 @@ function startBundledEhrKnowledgeBundle(params: {
       bundleConditionPack,
       bundleMedicationPack,
       bundleSdohPack,
-      bundleMeasurePack,
     }) => {
       const bundleTasks = [
         bundleConditionPack(patientId).catch((error) => {
@@ -92,14 +89,6 @@ function startBundledEhrKnowledgeBundle(params: {
           console.error("[select-fhir-profile] SDOH bundle failed:", error);
         }),
       ];
-
-      if (includeHedis) {
-        bundleTasks.push(
-          bundleMeasurePack(patientId).catch((error) => {
-            console.error("[select-fhir-profile] HEDIS bundle failed:", error);
-          }),
-        );
-      }
 
       await Promise.all(bundleTasks);
     })
@@ -142,7 +131,6 @@ export default function SelectFhirProfileScreen() {
       if (importedPatientId) {
         const importedPatient = getPatient(importedPatientId);
         let bundleLocation = importedPatient?.location;
-        let includeHedis = Boolean(readClinicalImportForGate(fhirBundle));
 
         if (options.includeDemoOnboarding) {
           const currentProfile = getOnboardingProfile();
@@ -153,7 +141,6 @@ export default function SelectFhirProfileScreen() {
           });
           const importedProfile = attachClinicalImportForGate(prepared.profile, fhirBundle);
           bundleLocation = importedProfile.patient.location ?? importedPatient?.location;
-          includeHedis = shouldBundleHedisMeasures(importedProfile);
 
           if (prepared.caregiver) {
             saveOnboardingProfile(importedProfile);
@@ -182,7 +169,6 @@ export default function SelectFhirProfileScreen() {
         startBundledEhrKnowledgeBundle({
           patientId: importedPatientId,
           location: bundleLocation,
-          includeHedis,
         });
 
         emitInAppBanner({

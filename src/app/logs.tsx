@@ -55,7 +55,12 @@ export default function LogsScreen() {
   }, []);
 
   useEffect(() => {
-    loadFiles();
+    // Defer to a microtask so the state updates inside loadFiles do not run
+    // synchronously within the effect (react-hooks/set-state-in-effect).
+    const handle = setTimeout(() => {
+      void loadFiles();
+    }, 0);
+    return () => clearTimeout(handle);
   }, [loadFiles]);
 
   const handleShare = async (path: string) => {

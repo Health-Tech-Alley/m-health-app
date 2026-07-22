@@ -15,7 +15,7 @@ import type {
   NluEmbedder,
 } from './types';
 import { linkEntities } from './entity-linker';
-import { expandQuery } from './query-expand';
+import { buildScopedRetrievalFilters, expandQuery } from './query-expand';
 import { loadIntentHead, predictIntent, type IntentHeadCoefficients } from './intent-head';
 import { assembleBudgetedPacket } from './budget-assembler';
 import { INTENT_BUDGETS } from './intent-labels';
@@ -158,13 +158,15 @@ export class PreSlmNlu {
     const expandedQuery = expandQuery(prompt, entities);
     const rankedTools = tools;
 
-    // 6. Retrieval (BM25 + dense RRF) — never block chat on live PubMed/etc.
+    // 6. Retrieval (BM25) — never block chat on live PubMed/etc.
+    // Scope conditions/meds to this turn's entities (primary-condition fallback).
     stages.push('retrieve');
     const budget = INTENT_BUDGETS[intent.primary] ?? INTENT_BUDGETS.other;
+    const scoped = buildScopedRetrievalFilters(entities, ctx.conditions);
     const retrieval = await this.retriever.retrieve({
       intent: expandedQuery,
-      conditions: ctx.conditions,
-      activeMeds: ctx.medications,
+      conditions: scoped.conditions,
+      activeMeds: scoped.activeMeds,
       kTools: Math.max(budget.maxTools, 1),
       kChunks: Math.max(budget.maxChunks, 1),
       allowLiveSupplement: false,

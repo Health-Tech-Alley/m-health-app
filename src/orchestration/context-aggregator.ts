@@ -263,10 +263,15 @@ export async function buildAggregatedContext(
     .filter(Boolean);
   const medicationSummary = meds.join(', ');
 
+  // Scope BM25 to primary diagnosis only — do not stuff every comorbidity
+  // and med into the query (pollutes ranking toward off-topic literature).
+  const primaryConditionName = primaryCondition?.name
+    ? [primaryCondition.name]
+    : conditionNames.slice(0, 1);
   const retrieval = await retriever.retrieve({
     intent,
-    conditions: conditionNames,
-    activeMeds: meds,
+    conditions: primaryConditionName,
+    activeMeds: [],
     kTools: 3,
     kChunks: 8,
   });

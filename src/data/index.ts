@@ -76,7 +76,6 @@ export * from './repositories/patientCareContextRepository';
 export * from './repositories/appointmentRepository';
 export * from './repositories/thresholdRecommendationRepository';
 export * from './repositories/secureMessagingRepository';
-export * from './repositories/uc3TrajectoryResultRepository';
 export * from './repositories/adcpRepository';
 export * from './adcp/types';
 export * from './sensors';

@@ -37,6 +37,19 @@ describe('categorizeCareText', () => {
     expect(categorizeCareText(null)).toBe('other');
     expect(categorizeCareText(undefined)).toBe('other');
   });
+
+  it('does not treat seasonal "each fall" vaccine text as mobility', () => {
+    expect(
+      categorizeCareText(
+        'Annual influenza + COVID-19 vaccines each fall. Pneumococcal + RSV per age.',
+      ),
+    ).toBe('other');
+  });
+
+  it('still maps real fall-risk wording to mobility & transfers', () => {
+    expect(categorizeCareText('Watch fall risk during transfers')).toBe('mobility_transfers');
+    expect(categorizeCareText('Patient falling when standing')).toBe('mobility_transfers');
+  });
 });
 
 describe('careCategoryForUc4Domain', () => {

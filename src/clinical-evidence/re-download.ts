@@ -200,7 +200,11 @@ export async function redownloadForChunk(
  */
 export async function redownloadAllForPatient(patientId: string): Promise<{ reDownloaded: number; errors: string[] }> {
   const errors: string[] = [];
-  const { bundleConditionPack, bundleMedicationPack, bundleSdohPack, bundleMeasurePack, bundleSystematicReviewPack, bundleFullSplPack } = await import('./condition-bundler');
+  // Default re-download: condition + med + SDOH only.
+  // Full SPL / systematic-review packs are deep-mode only (explicit opt-in
+  // below stays available for power users via the same entry if flags grow).
+  // HEDIS measure packs are permanently disabled (no auto-goals / BM25 noise).
+  const { bundleConditionPack, bundleMedicationPack, bundleSdohPack } = await import('./condition-bundler');
   // Wipe the cache for this patient's tags first.
   const { clearKnowledgeCache } = await import('@/data/repositories/knowledgeCacheRepository');
   clearKnowledgeCache();
@@ -212,9 +216,6 @@ export async function redownloadAllForPatient(patientId: string): Promise<{ reDo
   try { await bundleConditionPack(patientId); } catch (e) { errors.push(`condition: ${e}`); }
   try { await bundleMedicationPack(patientId); } catch (e) { errors.push(`medication: ${e}`); }
   try { await bundleSdohPack(patientId); } catch (e) { errors.push(`sdoh: ${e}`); }
-  try { await bundleMeasurePack(patientId); } catch (e) { errors.push(`measure: ${e}`); }
-  try { await bundleSystematicReviewPack(patientId); } catch (e) { errors.push(`systematic_review: ${e}`); }
-  try { await bundleFullSplPack(patientId); } catch (e) { errors.push(`full_spl: ${e}`); }
   // Silence unused-import warning for the active meds/conditions helpers.
   void getActiveMedications; void getConditionsForPatient;
   return { reDownloaded: getAllKnowledgeChunks().length, errors };

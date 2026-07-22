@@ -184,7 +184,8 @@ export async function selectContextForPrompt(
 
   // T4 — SDOH chunk, only when the message touches access/barriers/rural.
   let sdoh: RetrievedChunk | null = null;
-  if (args.location && (SDOH_KEYWORDS.test(args.message ?? '') || args.location)) {
+  // Require SDOH language in the message — do not always inject when location is set.
+  if (args.location && SDOH_KEYWORDS.test(args.message ?? '')) {
     sdoh = getSdohChunk(args.location);
     if (!sdoh) sdoh = await fetchSdohLive(args.location);
   }

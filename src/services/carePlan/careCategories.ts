@@ -59,7 +59,9 @@ export const CARE_CATEGORIES: CareCategory[] = [
     label: 'Mobility & transfers',
     keywords: [
       'transfer', 'mobility', 'walking', 'walk', 'gait', 'stand', 'standing',
-      'lift', 'hoist', 'positioning', 'fall',
+      'lift', 'hoist', 'positioning',
+      // Phrase forms only — bare "fall" matches seasonal "each fall" (vaccines).
+      'fall risk', 'falls risk', 'falling', ' falls', 'fall prevention',
     ],
   },
   {

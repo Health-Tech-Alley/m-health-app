@@ -300,7 +300,10 @@ export function CarePlanInsightSheet({
     abortRef.current?.abort();
     abortRef.current = null;
     releaseLease();
-    setPhase('idle');
+    // Defer so the state update does not run synchronously within the effect
+    // (react-hooks/set-state-in-effect).
+    const handle = setTimeout(() => setPhase('idle'), 0);
+    return () => clearTimeout(handle);
   }, [visible, releaseLease]);
 
   useEffect(() => {
@@ -359,9 +362,10 @@ export function CarePlanInsightSheet({
     panY.setValue(0);
   }, [visible, panY]);
 
-  /* eslint-disable react-hooks/exhaustive-deps --
-     PanResponder.create returns handlers that capture refs/closures intentionally;
-     recreating on every callback change would tear down the gesture. */
+  /* eslint-disable react-hooks/refs --
+     PanResponder callbacks fire at event time, not during render;
+     handleClose/panY are captured, not invoked. Same pattern as
+     SlmInsightSheet's swipe-to-dismiss. */
   const panResponder = useMemo(
     () =>
       PanResponder.create({

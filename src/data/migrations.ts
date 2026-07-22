@@ -1342,4 +1342,25 @@ export const MIGRATIONS: Migration[] = [
         ON plan_decision_log(proposal_id);
     `);
   },
+
+  // Purge HEDIS auto-goals / plans / knowledge tags that polluted Care UI + SLM.
+  // Idempotent DELETE — safe on DBs that never received HEDIS rows.
+  `
+  DELETE FROM care_plan_goals
+    WHERE goal_id LIKE 'goal-hedis-%'
+       OR goal_id LIKE 'goal-hedis%';
+  DELETE FROM care_plans
+    WHERE intent = 'hedis-aligned'
+       OR plan_id LIKE 'plan-hedis-%';
+  DELETE FROM knowledge_cache
+    WHERE source = 'hedis'
+       OR conditions LIKE 'hedis-%'
+       OR conditions LIKE '%hedis-immunization%'
+       OR conditions LIKE '%hedis-controlling%'
+       OR conditions LIKE '%hedis-smoking%'
+       OR conditions LIKE '%hedis-copd%'
+       OR conditions LIKE '%hedis-beta-blocker%'
+       OR conditions LIKE '%hedis-comprehensive-diabetes%'
+       OR conditions LIKE '%hedis-antidepressant%';
+  `,
 ];

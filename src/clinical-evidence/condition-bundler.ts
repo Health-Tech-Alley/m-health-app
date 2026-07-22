@@ -33,9 +33,6 @@ import { fetchAdverseEvents, fetchDrugRecalls } from './openfda-client';
 import { searchOrphanet, orphanetToChunks } from './orphanet-client';
 import { lookupUmls, umlsToChunks } from './umls-client';
 import { fetchCdcPlaces, cdcToChunks } from './cdc-places-client';
-import { measuresForPatient, type HedisMeasure } from './hedis-measures';
-import { getPatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
-import { getDatabase } from '@/data/db';
 import { RateLimiter } from './rate-limiter';
 import { sectionChunkKnowledgeBatch } from './section-chunk-helper';
 import {
@@ -211,7 +208,7 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
         const deidQuery = deidentifyQuery(expandedQuery, pii);
         const t0 = Date.now();
         await nlmRateLimiter.throttle();
-        const searchResult = await searchPubMed({ query: deidQuery, retmax: 10 });
+        const searchResult = await searchPubMed({ query: deidQuery, retmax: 5 });
         await nlmRateLimiter.throttle();
         const abstracts = await fetchAbstracts(searchResult.pmids);
 
@@ -331,89 +328,15 @@ export async function bundleSdohPack(patientId: string, location?: string): Prom
 }
 
 /**
- * Bundle HEDIS-driven care-gap evidence.
+ * HEDIS measure pack — intentionally a no-op.
  *
- * For each measure that applies to the patient (planning/32 §11 / D7):
- *   1. Fetch PubMed + MedlinePlus evidence using the measure's clinical
- *      question.
- *   2. Insert the resulting chunks, tagged with the measure id (so the
- *      retriever can surface them when the conversation turns to the
- *      measure's domain).
- *   3. Insert a care-plan goal derived from `measure.carePlanGoal` so the
- *      SLM's carePlanGoalsBlock reflects the HEDIS gap.
+ * Auto-inserting ambulatory HEDIS goals/evidence polluted Care UI, SLM
+ * explain prompts, and BM25. Disability-first care gaps are handled by the
+ * `detect-care-gaps` skill. Kept as an exported stub so call sites can be
+ * removed gradually without import breaks.
  */
-export async function bundleMeasurePack(patientId: string): Promise<void> {
-  let snapshot: ReturnType<typeof getPatientRecordSnapshot> | null = null;
-  try {
-    snapshot = getPatientRecordSnapshot(patientId);
-  } catch (err) {
-    console.error('[condition-bundler] getPatientRecordSnapshot failed for HEDIS:', err);
-    return;
-  }
-  if (!snapshot) return;
-  const measures = measuresForPatient(snapshot);
-  for (const measure of measures) {
-    await bundleOneMeasure(patientId, measure);
-  }
-}
-
-async function bundleOneMeasure(patientId: string, measure: HedisMeasure): Promise<void> {
-  const profile = getOnboardingProfile();
-  const pii = {
-    patientName: profile.patient.name,
-    caregiverName: profile.caregiver.name,
-    providerName: profile.primaryCareProvider.name,
-  };
-
-  // --- PubMed ---
-  try {
-    const rawQuery = measure.sourceQuery.pubmed;
-    const deidQuery = deidentifyQuery(rawQuery, pii);
-    const t0 = Date.now();
-    await nlmRateLimiter.throttle();
-    const search = await searchPubMed({ query: deidQuery, retmax: 5 });
-    await nlmRateLimiter.throttle();
-    const abstracts = await fetchAbstracts(search.pmids);
-    const tagged: KnowledgeChunk[] = filterNewChunks(abstracts.map((c) => ({
-      ...c,
-      conditions: measure.id,
-      queryHash: hashQuery(deidQuery),
-    })));
-    if (tagged.length > 0) {
-      insertWithSectionChunking(tagged);
-    }
-    logEnrichment(
-      patientId, 'goal', measure.id, 'hedis', 'bundled',
-      deidQuery, tagged.length, Date.now() - t0,
-      tagged.map((c) => c.chunkId),
-    );
-  } catch (err) {
-    console.error(`[condition-bundler] HEDIS PubMed failed for ${measure.id}:`, err);
-  }
-
-  // --- Care plan goal ---
-  // Best-effort upsert; goals are written as description-only rows tagged
-  // with the measure id in the description. The SLM picks them up via
-  // the carePlanGoalsBlock in the prompt.
-  try {
-    const db = getDatabase();
-    const planId = `plan-hedis-${patientId}`;
-    db.runSync(
-      `INSERT OR IGNORE INTO care_plans
-        (plan_id, patient_id, version, effective_date, status, intent, title, created_at)
-       VALUES (?, ?, 1, ?, 'active', 'hedis-aligned', 'HEDIS-aligned care plan', ?);`,
-      planId, patientId, new Date().toISOString(), new Date().toISOString(),
-    );
-    const goalId = `goal-${measure.id}`;
-    db.runSync(
-      `INSERT OR REPLACE INTO care_plan_goals
-        (goal_id, plan_id, description, status)
-       VALUES (?, ?, ?, 'active');`,
-      goalId, planId, measure.carePlanGoal,
-    );
-  } catch (err) {
-    console.error(`[condition-bundler] HEDIS care-plan goal insert failed for ${measure.id}:`, err);
-  }
+export async function bundleMeasurePack(_patientId: string): Promise<void> {
+  // no-op
 }
 
 /**

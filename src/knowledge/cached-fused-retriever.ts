@@ -236,7 +236,12 @@ export class CachedFusedRetriever implements FusedRetriever {
     await this.ensureReady();
 
     const t0 = performance.now();
-    const query = [q.intent, ...q.conditions, ...q.activeMeds].join(' ');
+    // Prefer intent text; only append caller-scoped conditions/meds (NLU
+    // passes turn entities or primary-only — never the full EHR dump).
+    const query = [q.intent, ...q.conditions, ...q.activeMeds]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(' ');
     const kChunks = q.kChunks ?? 8;
     const overFetch = Math.max(kChunks * 3, 12);
 

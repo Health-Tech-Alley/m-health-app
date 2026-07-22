@@ -234,6 +234,5 @@ const FIXTURES: ClinicalTrialRecord[] = [
 function fixtureSearch(params: ClinicalTrialSearchParams): ClinicalTrialRecord[] {
   const lower = params.condition.toLowerCase();
   const matches = FIXTURES.filter((t) => t.condition.toLowerCase().includes(lower) || lower.includes(t.condition.toLowerCase()));
-  if (matches.length === 0) return FIXTURES.slice(0, 2);
   return matches;
 }
