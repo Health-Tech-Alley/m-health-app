@@ -51,13 +51,14 @@ export default function DashboardRoute() {
   const topUc4Priority = snapshot?.latestUc4PriorityCards?.[0] ?? null;
   const uc3Result = snapshot?.latestUc3TrajectoryResult ?? null;
   const pendingReviews = usePendingReviews(patientId);
+  const showCareReviews = pendingReviews.careReviewTotal > 0;
   const showUc3Status =
     Boolean(uc3Result) && uc3Result?.eventType !== "NO_TRAJECTORY_FAILURE";
   const showTodayCare =
     Boolean(topUc4Priority) ||
     showRehabReminder ||
     showUc3Status ||
-    pendingReviews.total > 0;
+    showCareReviews;
 
   const scrollToAlertsLog = () => {
     scrollRef.current?.scrollTo({
@@ -98,6 +99,10 @@ export default function DashboardRoute() {
 
           <PatientSummaryCard />
           <WeeklyVitalsCard />
+          <NeedsYourReviewBanner
+            reviews={pendingReviews}
+            variant="alerts"
+          />
           {showTodayCare ? (
             <View style={styles.todayCareSection}>
               <Text style={styles.sectionTitle}>{"Today\u2019s care"}</Text>
@@ -115,10 +120,10 @@ export default function DashboardRoute() {
                     urgent={uc3Result.emergencyThresholdBreach || uc3Result.severity === "urgent"}
                   />
                 ) : null}
-                {pendingReviews.total > 0 ? (
+                {showCareReviews ? (
                   <NeedsYourReviewBanner
-                    patientId={patientId}
                     reviews={pendingReviews}
+                    variant="care"
                     onReviewPress={scrollToAlertsLog}
                   />
                 ) : null}

@@ -10,28 +10,44 @@
  * `src/components/dashboard/NeedsYourReviewBanner.tsx`.
  */
 
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
 import { getPendingThresholdRecommendations } from '@/data/repositories/thresholdRecommendationRepository';
-import { getActiveCareAlerts } from '@/services/care/careService';
+import { getActiveCareAlerts, type CareAlert } from '@/services/care/careService';
 import { useFocusEffect } from 'expo-router';
 import { getAuditEntriesForResource } from '@/data/repositories/auditRepository';
 import { getAlertById } from '@/data';
 import { listPendingProposalSummaries } from '@/data/repositories/adcpRepository';
+import { getEventBus } from '@/orchestration/event-bus';
 
 export type PendingReview = {
   thresholdRecommendations: number;
   openNonEmergencyAlerts: number;
+  openNonEmergencyAlertItems: CareAlert[];
   planProposals: number;
+  careReviewTotal: number;
   total: number;
 };
 
 const EMPTY: PendingReview = {
   thresholdRecommendations: 0,
   openNonEmergencyAlerts: 0,
+  openNonEmergencyAlertItems: [],
   planProposals: 0,
+  careReviewTotal: 0,
   total: 0,
 };
+
+const ALERT_REFRESH_DELAY_MS = 250;
+
+function isOpenNonEmergencyAlert(alert: CareAlert): boolean {
+  return alert.status === 'open' && (alert.severity === 1 || alert.severity === 2);
+}
+
+function bySeverityThenNewest(a: CareAlert, b: CareAlert): number {
+  if (a.severity !== b.severity) return b.severity - a.severity;
+  return Date.parse(b.createdAt) - Date.parse(a.createdAt);
+}
 
 /**
  * Compute the count of pending HITL items for the active patient.
@@ -45,16 +61,19 @@ export function countPendingReviews(patientId: string | null): PendingReview {
   if (!patientId) return EMPTY;
   const recs = getPendingThresholdRecommendations(patientId).filter((r) => r.status === 'pending');
   const alerts = getActiveCareAlerts(patientId);
-  const openAlerts = alerts.filter((a) => a.severity <= 2 && a.status === 'open');
+  const openAlerts = alerts.filter(isOpenNonEmergencyAlert).sort(bySeverityThenNewest);
   const proposals = listPendingProposalSummaries(patientId).filter(
     (p) =>
       p.status === 'draft' || p.status === 'awaiting_hitl' || p.status === 'awaiting_ml_vet',
   );
+  const careReviewTotal = recs.length + proposals.length;
   return {
     thresholdRecommendations: recs.length,
     openNonEmergencyAlerts: openAlerts.length,
+    openNonEmergencyAlertItems: openAlerts,
     planProposals: proposals.length,
-    total: recs.length + openAlerts.length + proposals.length,
+    careReviewTotal,
+    total: careReviewTotal + openAlerts.length,
   };
 }
 
@@ -77,13 +96,32 @@ function notifyReviewListeners(): void {
 let cachedSnapshot: PendingReview = EMPTY;
 let cachedPatientId: string | null = null;
 
+function sameAlertItems(left: CareAlert[], right: CareAlert[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((alert, index) => {
+    const other = right[index];
+    return (
+      other !== undefined &&
+      alert.alertId === other.alertId &&
+      alert.patientId === other.patientId &&
+      alert.severity === other.severity &&
+      alert.status === other.status &&
+      alert.title === other.title &&
+      alert.body === other.body &&
+      alert.createdAt === other.createdAt
+    );
+  });
+}
+
 function getStableSnapshot(patientId: string | null): PendingReview {
   const fresh = countPendingReviews(patientId);
   if (
     cachedPatientId === patientId &&
     cachedSnapshot.thresholdRecommendations === fresh.thresholdRecommendations &&
     cachedSnapshot.openNonEmergencyAlerts === fresh.openNonEmergencyAlerts &&
+    sameAlertItems(cachedSnapshot.openNonEmergencyAlertItems, fresh.openNonEmergencyAlertItems) &&
     cachedSnapshot.planProposals === fresh.planProposals &&
+    cachedSnapshot.careReviewTotal === fresh.careReviewTotal &&
     cachedSnapshot.total === fresh.total
   ) {
     return cachedSnapshot;
@@ -99,6 +137,46 @@ function getStableSnapshot(patientId: string | null): PendingReview {
 export function usePendingReviews(patientId: string | null): PendingReview {
   const getSnapshot = useCallback(() => getStableSnapshot(patientId), [patientId]);
   const reviews = useSyncExternalStore(subscribeToReviews, getSnapshot, getSnapshot);
+
+  useEffect(() => {
+    notifyReviewListeners();
+    if (!patientId) return;
+
+    let cancelled = false;
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const refreshForPatient = (eventPatientId: string | null | undefined, delay: boolean) => {
+      if (eventPatientId && eventPatientId !== patientId) return;
+      if (!delay) {
+        if (!cancelled) notifyReviewListeners();
+        return;
+      }
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        if (!cancelled) notifyReviewListeners();
+      }, ALERT_REFRESH_DELAY_MS);
+      timers.add(timer);
+    };
+
+    const bus = getEventBus();
+    const unsubMl = bus.subscribe('ml_alert_created', (event) => {
+      if (event.type === 'ml_alert_created') refreshForPatient(event.patientId, true);
+    });
+    const unsubVitals = bus.subscribe('vitals_sample', (event) => {
+      if (event.type === 'vitals_sample') refreshForPatient(event.patientId, true);
+    });
+    const unsubOverride = bus.subscribe('caregiver_override', (event) => {
+      if (event.type === 'caregiver_override') refreshForPatient(event.patientId, false);
+    });
+
+    return () => {
+      cancelled = true;
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+      unsubMl();
+      unsubVitals();
+      unsubOverride();
+    };
+  }, [patientId]);
 
   useFocusEffect(
     useCallback(() => {
