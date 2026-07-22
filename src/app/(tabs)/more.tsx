@@ -149,7 +149,7 @@ export default function MoreScreen() {
             />
 
             <SettingsRow
-              icon="plus"
+              icon="note"
               title="View Logs"
               subtitle="View app logs for debugging and diagnostics"
               onPress={handleOpenLogs}
