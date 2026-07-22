@@ -188,6 +188,10 @@ export function SensorProvider({ children }: { children: ReactNode }) {
         stopPublishingRef.current();
         stopPublishingRef.current = null;
       }
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
     };
   }, [sensor, status]);
 

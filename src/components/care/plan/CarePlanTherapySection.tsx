@@ -243,7 +243,10 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
   }, [patientId]);
 
   useEffect(() => {
-    setTherapyExpanded(false);
+    // Defer so the state update does not run synchronously within the effect
+    // (react-hooks/set-state-in-effect).
+    const handle = setTimeout(() => setTherapyExpanded(false), 0);
+    return () => clearTimeout(handle);
   }, [patientId, therapySessionDate, activeAssignmentListKey]);
 
   const saveDailyCarePatch = (patch: Partial<DailyCareEntry>): DailyCareEntry | null => {
@@ -518,7 +521,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
         </View>
       </View>
       <Text style={sectionStyles.subtitle}>
-        Daily rehab check-in and therapy progress. Use this when today's routine is done or symptoms change.
+        {"Daily rehab check-in and therapy progress. Use this when today\u2019s routine is done or symptoms change."}
       </Text>
 
       <View style={styles.completionRow}>

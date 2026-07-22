@@ -89,6 +89,12 @@ export const AppTheme = {
     warning: "#F97316",
     warningSoft: "#FFF7E6",
 
+    // Care plan hero (indigo/periwinkle accent family) + attention states.
+    heroSurface: "#EEF2FF",
+    heroAccent: "#3730A3",
+    heroAccentSoft: "#C7D2FE",
+    attentionAmber: "#F59E0B",
+
     purple: "#7C3AED",
     blueGray: "#8FA0BD",
     navMuted: "#91A0BA",

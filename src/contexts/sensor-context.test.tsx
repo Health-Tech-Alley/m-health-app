@@ -2,8 +2,20 @@ const flushPromises = () => new Promise<void>((resolve) => setTimeout(resolve, 0
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// Providers started in a test keep polling timers alive; unmount every
+// created renderer so their effect cleanups clear those handles and Jest
+// can exit.
+const mountedRenderers: Array<{ unmount: () => void }> = [];
+
 describe('SensorProvider', () => {
   afterEach(() => {
+    for (const renderer of mountedRenderers.splice(0)) {
+      try {
+        renderer.unmount();
+      } catch {
+        /* already unmounted */
+      }
+    }
     jest.resetModules();
     jest.restoreAllMocks();
     jest.dontMock('react-native');
@@ -135,8 +147,24 @@ function loadProviderHarness(
   jest.doMock('@/contexts/patient-record-context', () => ({
     usePatientRecord: () => ({ patientId }),
   }));
+  jest.doMock('@/contexts/settings-context', () => ({
+    useSettings: () => ({ settings: { healthKitIntegrationEnabled: true } }),
+  }));
   jest.doMock('@/data/sensors', () => ({
     createSensorSource,
+    ALL_HEALTHKIT_READ_TYPES: ['heart_rate', 'blood_oxygen'],
+  }));
+  // Cut the native expo-sqlite import chain (settings-context → data/index →
+  // db.ts) — same minimal stub pattern used across the repo's tests.
+  jest.doMock('@/data/db', () => ({
+    getDatabase: () => ({
+      runSync: () => undefined,
+      getFirstSync: () => null,
+      getAllSync: () => [],
+    }),
+    initializeDatabase: () => {},
+    closeDatabase: () => {},
+    resetDatabase: () => {},
   }));
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -174,6 +202,7 @@ function loadProviderHarness(
         renderer = TestRenderer.create(tree(onValue));
         await flushPromises();
       });
+      mountedRenderers.push(renderer!);
       return renderer!;
     },
     async update(

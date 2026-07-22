@@ -1,12 +1,18 @@
 /**
- * Care tab — reworked IA (Care tab rework).
+ * Care tab — reworked IA + hero/spine presentation (Care tab rework).
  *
- * Sections rendered, in order:
- *   Patient strip → Care plan header (+ "What changed" modal) →
- *   Review (only when pending + writable) → Your priorities (grouped UC4 +
- *   plan priorities, care timeline, medication areas to watch) →
- *   Goals & activities (categorized, with care considerations + safety notes) →
- *   Monitoring (always) → Therapy (hard-gated) → Backup & restore.
+ * Presentation layer: the hero card ("Elena's Care Plan" + tri-state status
+ * + Plan Pulse ring) anchors the tab, and the spine connector runs down the
+ * left gutter linking every section — node colors = attention state, branch
+ * thickness = content volume, a light packet travels only when something
+ * needs review. Entrance choreography plays once per app session and honors
+ * reduced-motion.
+ *
+ * Sections rendered, in order (each wrapped in a measured SpineSection):
+ *   Hero (+ "What changed" modal) → Your priorities → Review (when pending +
+ *   writable) → Therapy (hard-gated) → Goals & activities (categorized, with
+ *   care considerations) → Safety rules (always/never) → Monitoring (always)
+ *   → Backup & restore.
  *
  * UC4 evaluates on tab focus (throttled) so every patient gets priorities.
  * SLM explanations run in a transient popup (load → stream → unload, no
@@ -18,17 +24,25 @@
  *
  * State management: AGENTS.md authority preserved — no snapshot, Redux,
  * or new migration edits. All patient/EHR reads come from the snapshot
- * via the existing `usePatientRecord` hook.
+ * via the existing `usePatientRecord` hook. Plan Pulse + spine states are
+ * read-only derivations.
  */
 
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
-import { CarePlanHeaderCard } from "@/components/care/plan/CarePlanHeaderCard";
+import { CarePlanHeroCard } from "@/components/care/plan/CarePlanHeroCard";
+import {
+  CareSpineConnector,
+  SPINE_GUTTER,
+  SpineSection,
+  type SpineAttention,
+  type SpineNode,
+} from "@/components/care/plan/CareSpineConnector";
 import { CarePlanReviewSection } from "@/components/care/plan/CarePlanReviewSection";
 import { CarePrioritiesSection } from "@/components/care/plan/CarePrioritiesSection";
 import { CarePlanMonitoringSection } from "@/components/care/plan/CarePlanMonitoringSection";
@@ -77,12 +91,17 @@ import {
 } from "@/services/carePlan/careExplainPrompts";
 import { proposeMedicationWatchArea } from "@/services/carePlan/watchAreaProposalService";
 import type { MedicationWatchArea } from "@/services/carePlan/carePrioritiesService";
+import { computePlanPulse } from "@/services/carePlan/planPulseService";
 import {
   caregiverConfirmProposal as caregiverConfirmProposalForUi,
   caregiverRejectProposal as caregiverRejectProposalForUi,
 } from "@/services/carePlan/mlPlanProposalService";
 import { getActiveConsents } from "@/data";
 import { ensureDefaultAdcpBackupConsent } from "@/services/consent/defaultConsents";
+
+// The hero entrance (fade/slide + ring sweep + spine draw) plays once per app
+// session on first Care-tab view, then stays settled.
+let careEntrancePlayedThisSession = false;
 
 export default function CareScreen() {
   const { patientId, snapshot, refresh } = usePatientRecord();
@@ -184,6 +203,40 @@ export default function CareScreen() {
     [snapshot, vm.plan],
   );
 
+  // Plan Pulse — hero score + attention (read-only derivation).
+  const planPulse = useMemo(
+    () => computePlanPulse(snapshot, vm.plan, vm.mode),
+    [snapshot, vm.plan, vm.mode],
+  );
+
+  // Entrance choreography (once per session) + reduced-motion accessibility.
+  const [playEntrance] = useState(() => {
+    if (careEntrancePlayedThisSession) return false;
+    careEntrancePlayedThisSession = true;
+    return true;
+  });
+  const [reduceMotion, setReduceMotion] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (mounted) setReduceMotion(enabled);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Spine geometry: section centers reported by SpineSection wrappers.
+  const [heroBottomY, setHeroBottomY] = useState<number | null>(null);
+  const [spineNodeYs, setSpineNodeYs] = useState<Record<string, number>>({});
+  const handleSpineMeasure = useCallback((id: string, centerY: number) => {
+    setSpineNodeYs((current) =>
+      current[id] === centerY ? current : { ...current, [id]: centerY },
+    );
+  }, []);
+
   const functionalScales = useMemo(() => {
     const fromPlan = vm.plan?.clinicalFraming?.functionalScales;
     if (fromPlan && Object.keys(fromPlan).length > 0) return fromPlan;
@@ -227,6 +280,76 @@ export default function CareScreen() {
   const safetyAlwaysNever = useMemo(
     () => vm.safetyLines.filter((line) => line.kind === 'always' || line.kind === 'never'),
     [vm.safetyLines],
+  );
+
+  // Spine section model: which sections are visible, their attention state,
+  // and their content weight (drives node color + branch thickness).
+  const spineSections = useMemo(() => {
+    const unactioned = uc4PriorityCards.filter((card) => card.status === 'active').length;
+    const goalsWeight = goals.length + (primaryPlan?.activities?.length ?? 0);
+    const list: { id: string; attention: SpineAttention; weight: number }[] = [
+      {
+        id: 'priorities',
+        attention:
+          unactioned > 0 ? 'review' : prioritiesView.totalPriorities > 0 ? 'calm' : 'empty',
+        weight: prioritiesView.totalPriorities,
+      },
+    ];
+    if (vm.sections.showReview) {
+      list.push({ id: 'review', attention: 'review', weight: pendingProposals.length });
+    }
+    if (vm.sections.showTherapy && patientId) {
+      list.push({
+        id: 'therapy',
+        attention: dailyEntry ? 'calm' : 'review',
+        weight: rehabExerciseAssignments.length,
+      });
+    }
+    if (vm.sections.showGoals || hasCareConsiderations) {
+      list.push({
+        id: 'goals',
+        attention: goalsWeight > 0 ? 'calm' : 'empty',
+        weight: goalsWeight,
+      });
+    }
+    if (safetyAlwaysNever.length > 0) {
+      list.push({ id: 'safety', attention: 'calm', weight: safetyAlwaysNever.length });
+    }
+    list.push({
+      id: 'monitoring',
+      attention: thresholds.length > 0 ? 'calm' : 'empty',
+      weight: thresholds.length,
+    });
+    list.push({ id: 'backup', attention: 'calm', weight: 1 });
+    return list;
+  }, [
+    uc4PriorityCards,
+    goals.length,
+    primaryPlan?.activities?.length,
+    prioritiesView.totalPriorities,
+    vm.sections.showReview,
+    vm.sections.showTherapy,
+    vm.sections.showGoals,
+    patientId,
+    pendingProposals.length,
+    dailyEntry,
+    rehabExerciseAssignments.length,
+    hasCareConsiderations,
+    safetyAlwaysNever.length,
+    thresholds.length,
+  ]);
+
+  const spineNodes: SpineNode[] = useMemo(
+    () =>
+      spineSections
+        .filter((section) => spineNodeYs[section.id] != null)
+        .map((section) => ({
+          id: section.id,
+          attention: section.attention,
+          weight: section.weight,
+          y: spineNodeYs[section.id],
+        })),
+    [spineSections, spineNodeYs],
   );
 
   const explainUc4Card = useCallback(
@@ -358,114 +481,165 @@ export default function CareScreen() {
             explainRequest ? styles.contentWithMiniBar : null,
           ]}
         >
-          <MainTabHeader
-            title="Care"
-            eyebrow="Caregiver Concierge ACCESS-DP"
-            rightContent={<Text style={styles.patientName}>{patientName}</Text>}
-          />
-
-          <View style={styles.patientCard}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{getInitials(patientName)}</Text>
-            </View>
-            <View style={styles.patientInfo}>
-              <Text style={styles.patientCardName}>{patientName}</Text>
-              <Text style={styles.patientDetail}>
-                Age {patientAge} · {displayClinical(diagnosis)}
-              </Text>
-              <Text style={styles.patientMuted}>
-                Caregiver {caregiverName} · {caregiverRole}
-              </Text>
-            </View>
+          <View style={styles.headerBleed}>
+            <MainTabHeader
+              title="Care"
+              eyebrow="Caregiver Concierge ACCESS-DP"
+              rightContent={<Text style={styles.patientName}>{patientName}</Text>}
+            />
           </View>
 
-          <CarePlanHeaderCard
-            vm={vm}
-            onShowWhatChanged={() => setWhatChangedVisible(true)}
-            whatChangedCount={vm.decisionDigest.length}
+          <CareSpineConnector
+            heroBottomY={heroBottomY}
+            nodes={spineNodes}
+            playEntrance={playEntrance}
+            reduceMotion={reduceMotion}
           />
 
-          <CarePrioritiesSection
-            view={prioritiesView}
-            onExplainCard={(card) => explainUc4Card(card.cardId)}
-            onExplainTimeline={handleExplainTimeline}
-            onExplainWatchArea={handleExplainWatchArea}
-            onAddWatchAreaToPlan={handleAddWatchAreaToPlan}
-            onRespond={handleUc4Respond}
-          />
+          <View
+            style={styles.heroBleed}
+            onLayout={(event) => {
+              const { y, height } = event.nativeEvent.layout;
+              setHeroBottomY((current) => {
+                const next = y + height;
+                return current === next ? current : next;
+              });
+            }}
+          >
+            <CarePlanHeroCard
+              vm={vm}
+              pulse={planPulse}
+              patientName={patientName}
+              patientAge={patientAge}
+              primaryDiagnosisLabel={displayClinical(diagnosis)}
+              caregiverName={caregiverName}
+              caregiverRole={caregiverRole}
+              onShowWhatChanged={() => setWhatChangedVisible(true)}
+              whatChangedCount={vm.decisionDigest.length}
+              playEntrance={playEntrance}
+              reduceMotion={reduceMotion}
+            />
+          </View>
+
+          <SpineSection
+            id="priorities"
+            attention={
+              uc4PriorityCards.some((card) => card.status === 'active')
+                ? 'review'
+                : prioritiesView.totalPriorities > 0
+                  ? 'calm'
+                  : 'empty'
+            }
+            onMeasure={handleSpineMeasure}
+          >
+            <CarePrioritiesSection
+              view={prioritiesView}
+              onExplainCard={(card) => explainUc4Card(card.cardId)}
+              onExplainTimeline={handleExplainTimeline}
+              onExplainWatchArea={handleExplainWatchArea}
+              onAddWatchAreaToPlan={handleAddWatchAreaToPlan}
+              onRespond={handleUc4Respond}
+            />
+          </SpineSection>
 
           {vm.sections.showReview ? (
-            <CarePlanReviewSection
-              proposals={pendingProposals}
-              onConfirm={handleConfirmPendingProposal}
-              onReject={handleRejectPendingProposal}
-            />
+            <SpineSection id="review" attention="review" onMeasure={handleSpineMeasure}>
+              <CarePlanReviewSection
+                proposals={pendingProposals}
+                onConfirm={handleConfirmPendingProposal}
+                onReject={handleRejectPendingProposal}
+              />
+            </SpineSection>
           ) : null}
 
           {vm.sections.showTherapy && patientId ? (
-            <View
-              onLayout={(event) => {
-                setTherapySectionY(event.nativeEvent.layout.y);
-              }}
+            <SpineSection
+              id="therapy"
+              attention={dailyEntry ? 'calm' : 'review'}
+              onMeasure={handleSpineMeasure}
             >
-              <CarePlanTherapySection
-                patientId={patientId}
-                patientName={patientName}
-                dailyEntry={dailyEntry}
-                rehabExerciseAssignments={rehabExerciseAssignments}
-                uc3ResultDisplay={uc3ResultDisplay}
-                refresh={refresh}
-                carePlanId={primaryPlan?.planId ?? null}
-                uc3ResultId={latestUc3Result?.resultId ?? null}
-              />
-            </View>
+              <View
+                onLayout={(event) => {
+                  setTherapySectionY(event.nativeEvent.layout.y);
+                }}
+              >
+                <CarePlanTherapySection
+                  patientId={patientId}
+                  patientName={patientName}
+                  dailyEntry={dailyEntry}
+                  rehabExerciseAssignments={rehabExerciseAssignments}
+                  uc3ResultDisplay={uc3ResultDisplay}
+                  refresh={refresh}
+                  carePlanId={primaryPlan?.planId ?? null}
+                  uc3ResultId={latestUc3Result?.resultId ?? null}
+                />
+              </View>
+            </SpineSection>
           ) : null}
 
           {vm.sections.showGoals || hasCareConsiderations ? (
-            <CarePlanGoalsSection
-              patientId={patientId}
-              primaryPlan={primaryPlan}
-              goals={goals}
-              caregiver={snapshot?.caregiver ?? null}
-              symptoms={snapshot?.symptoms ?? []}
-              dailyRoutine={snapshot?.patient?.baselineDailyRoutine ?? null}
-              functionalScales={functionalScales}
-              careContextExtension={careContextExtension}
-              onExplainItem={handleExplainGoalItem}
-              onExplainCategory={handleExplainCategory}
-              onExplainConsideration={handleExplainConsideration}
-            />
+            <SpineSection
+              id="goals"
+              attention={
+                goals.length + (primaryPlan?.activities?.length ?? 0) > 0 ? 'calm' : 'empty'
+              }
+              onMeasure={handleSpineMeasure}
+            >
+              <CarePlanGoalsSection
+                patientId={patientId}
+                primaryPlan={primaryPlan}
+                goals={goals}
+                caregiver={snapshot?.caregiver ?? null}
+                symptoms={snapshot?.symptoms ?? []}
+                dailyRoutine={snapshot?.patient?.baselineDailyRoutine ?? null}
+                functionalScales={functionalScales}
+                careContextExtension={careContextExtension}
+                onExplainItem={handleExplainGoalItem}
+                onExplainCategory={handleExplainCategory}
+                onExplainConsideration={handleExplainConsideration}
+              />
+            </SpineSection>
           ) : null}
 
           {safetyAlwaysNever.length > 0 ? (
-            <CarePlanSafetySection
-              lines={safetyAlwaysNever}
-              onExplainLine={(line) =>
-                openExplain(
-                  'Explain this safety rule',
-                  buildConsiderationExplainPrompt(
-                    `${line.kind === 'always' ? 'Always' : 'Never'}: ${line.text}`,
-                  ),
-                )
-              }
-            />
+            <SpineSection id="safety" attention="calm" onMeasure={handleSpineMeasure}>
+              <CarePlanSafetySection
+                lines={safetyAlwaysNever}
+                onExplainLine={(line) =>
+                  openExplain(
+                    'Explain this safety rule',
+                    buildConsiderationExplainPrompt(
+                      `${line.kind === 'always' ? 'Always' : 'Never'}: ${line.text}`,
+                    ),
+                  )
+                }
+              />
+            </SpineSection>
           ) : null}
 
-          <CarePlanMonitoringSection
-            thresholds={thresholds}
-            baselines={{
-              spo2Cutoff: snapshot?.patient?.spo2Cutoff,
-              baselineHeartRate: snapshot?.patient?.baselineHeartRate,
-              baselineBloodOxygen: snapshot?.patient?.baselineBloodOxygen,
-              baselineRespiratoryRate: snapshot?.patient?.baselineRespiratoryRate,
-            }}
-          />
+          <SpineSection
+            id="monitoring"
+            attention={thresholds.length > 0 ? 'calm' : 'empty'}
+            onMeasure={handleSpineMeasure}
+          >
+            <CarePlanMonitoringSection
+              thresholds={thresholds}
+              baselines={{
+                spo2Cutoff: snapshot?.patient?.spo2Cutoff,
+                baselineHeartRate: snapshot?.patient?.baselineHeartRate,
+                baselineBloodOxygen: snapshot?.patient?.baselineBloodOxygen,
+                baselineRespiratoryRate: snapshot?.patient?.baselineRespiratoryRate,
+              }}
+            />
+          </SpineSection>
 
-          <CarePlanBackupSection
-            patientId={patientId}
-            autoGrantConsent={backupConsentGranted}
-            onRestored={refresh}
-          />
+          <SpineSection id="backup" attention="calm" onMeasure={handleSpineMeasure}>
+            <CarePlanBackupSection
+              patientId={patientId}
+              autoGrantConsent={backupConsentGranted}
+              onRestored={refresh}
+            />
+          </SpineSection>
         </ScrollView>
 
         <WhatChangedSheet
@@ -487,16 +661,6 @@ export default function CareScreen() {
   );
 }
 
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
-
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -506,61 +670,28 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    paddingHorizontal: 18,
+    // Left gutter reserved for the spine so lines never sit under the cards.
+    // Header/hero pull back with negative margin so they keep the normal 18px inset.
+    paddingLeft: SPINE_GUTTER + 8,
+    paddingRight: 18,
     paddingTop: 18,
     paddingBottom: 40,
   },
   contentWithMiniBar: {
     paddingBottom: 120,
   },
+  // Align header with the app's normal 18px left inset (not the spine gutter).
+  headerBleed: {
+    marginLeft: -(SPINE_GUTTER + 8 - 18),
+  },
+  // Hero spans full width including the spine gutter so the socket + spine line up.
+  heroBleed: {
+    marginLeft: -(SPINE_GUTTER + 8),
+    marginRight: 0,
+  },
   patientName: {
     color: AppTheme.colors.text,
     fontSize: 13,
     fontWeight: '900',
-  },
-  patientCard: {
-    backgroundColor: AppTheme.colors.surface,
-    borderRadius: AppTheme.radius.card,
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
-    ...AppTheme.shadow,
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: AppTheme.colors.brandSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
-  avatarText: {
-    color: AppTheme.colors.brand,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  patientInfo: {
-    flex: 1,
-  },
-  patientCardName: {
-    color: AppTheme.colors.text,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  patientDetail: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 13,
-    fontWeight: '800',
-    marginTop: 4,
-  },
-  patientMuted: {
-    color: AppTheme.colors.brand,
-    fontSize: 12,
-    fontWeight: '900',
-    marginTop: 4,
   },
 });
