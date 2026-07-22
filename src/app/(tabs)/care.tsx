@@ -130,7 +130,6 @@ export default function CareScreen() {
   );
 
   const primaryPlan = snapshot?.carePlan ?? null;
-  const secondaryPlanCount = Math.max(0, (snapshot?.carePlans?.length ?? 0) - (primaryPlan ? 1 : 0));
   const goals = snapshot?.carePlanGoals ?? [];
   const thresholds: Threshold[] = snapshot?.thresholds ?? [];
 
@@ -349,9 +348,6 @@ export default function CareScreen() {
 
         <CarePlanHeaderCard
           vm={vm}
-          patientName={patientName}
-          patientAge={patientAge}
-          primaryDiagnosisLabel={displayClinical(diagnosis)}
           onShowWhatChanged={() => setWhatChangedVisible(true)}
           whatChangedCount={vm.decisionDigest.length}
         />
@@ -394,8 +390,8 @@ export default function CareScreen() {
 
         {vm.sections.showGoals || hasCareConsiderations ? (
           <CarePlanGoalsSection
+            patientId={patientId}
             primaryPlan={primaryPlan}
-            secondaryPlanCount={secondaryPlanCount}
             goals={goals}
             caregiver={snapshot?.caregiver ?? null}
             symptoms={snapshot?.symptoms ?? []}

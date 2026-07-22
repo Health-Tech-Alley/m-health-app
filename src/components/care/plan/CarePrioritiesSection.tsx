@@ -400,10 +400,9 @@ function MedicationWatchRow({
 const styles = StyleSheet.create({
   subTitle: {
     color: AppTheme.colors.textMuted,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '900',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    letterSpacing: 0.3,
     marginTop: 6,
     marginBottom: 6,
   },
@@ -563,9 +562,10 @@ const styles = StyleSheet.create({
   },
   watchHeaderTitle: {
     flex: 1,
-    color: AppTheme.colors.text,
-    fontSize: 13,
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
     fontWeight: '900',
+    letterSpacing: 0.3,
   },
   watchHeaderMeta: {
     flexDirection: 'row',

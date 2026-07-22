@@ -10,7 +10,7 @@
  * an optional Concierge explanation.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
@@ -42,8 +42,8 @@ export interface CategoryExplainRequest {
 }
 
 export interface CarePlanGoalsSectionProps {
+  patientId?: string | null;
   primaryPlan: CarePlan | null;
-  secondaryPlanCount: number;
   goals: CarePlanGoalSummary[];
   caregiver?: Caregiver | null;
   symptoms?: Symptom[];
@@ -83,8 +83,8 @@ function statusExplanation(status: string | null | undefined): string {
 }
 
 export function CarePlanGoalsSection({
+  patientId,
   primaryPlan,
-  secondaryPlanCount,
   goals,
   caregiver,
   symptoms = [],
@@ -97,10 +97,12 @@ export function CarePlanGoalsSection({
   const activities = primaryPlan?.activities ?? [];
   const careTeam = parseCareTeam(primaryPlan?.careTeamDisplayJson);
 
+  const [sectionExpanded, setSectionExpanded] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
   const [statusInfoFor, setStatusInfoFor] = useState<string | null>(null);
   const [expandedConsiderations, setExpandedConsiderations] = useState<Record<string, boolean>>({});
+  const [expandedSummarySections, setExpandedSummarySections] = useState<Record<string, boolean>>({});
 
   // Group goals + activities by category.
   const groups = new Map<CareCategoryKey, GroupedItem[]>();
@@ -135,177 +137,269 @@ export function CarePlanGoalsSection({
 
   const total = goals.length + activities.length;
   const considerations = buildConsiderations(caregiver ?? null, symptoms, safetyNotes, safetyLines);
-  const isEmpty = total === 0 && careTeam.length === 0 && considerations.length === 0;
+  const hasCareAreas = orderedGroups.length > 0;
+  const hasCareConsiderations = considerations.length > 0;
+  const hasCareTeam = careTeam.length > 0;
+  const subtitleLabels = [
+    hasCareAreas ? 'Care areas' : '',
+    hasCareConsiderations ? 'Care considerations' : '',
+    hasCareTeam ? 'Care team' : '',
+  ].filter(Boolean);
+  const displayedContentKey = [
+    patientId ?? 'no-patient',
+    ...orderedGroups.flatMap((group) => [
+      group.key,
+      ...group.items.map((item) => `${item.id}:${item.status ?? ''}:${item.targetDate ?? ''}`),
+    ]),
+    ...considerations.map((consideration) => `${consideration.id}:${consideration.text}`),
+    ...careTeam,
+  ].join('|');
+
+  useEffect(() => {
+    setSectionExpanded(false);
+    setExpandedGroups({});
+    setExpandedItems({});
+    setStatusInfoFor(null);
+    setExpandedConsiderations({});
+    setExpandedSummarySections({});
+  }, [displayedContentKey]);
+
+  if (!hasCareAreas && !hasCareConsiderations && !hasCareTeam) {
+    return null;
+  }
 
   return (
-    <View style={sectionStyles.card} accessible accessibilityLabel="Goals and activities">
-      <View style={sectionStyles.headerRow}>
-        <Text style={sectionStyles.title}>Goals & activities</Text>
-        <View style={sectionStyles.pill}>
-          <Text style={sectionStyles.pillText}>{total}</Text>
-        </View>
-      </View>
-      <Text style={sectionStyles.subtitle}>
-        Grouped by area so it is easier to scan. Tap a group to see what is inside.
-      </Text>
-
-      {orderedGroups.map((group) => {
-        const expanded = Boolean(expandedGroups[group.key]);
-        return (
-          <View key={group.key} style={styles.groupBlock}>
-            <View style={styles.groupHeaderRow}>
-              <Pressable
-                style={styles.groupHeader}
-                onPress={() => setExpandedGroups((current) => toggle(current, group.key))}
-                accessibilityRole="button"
-                accessibilityState={{ expanded }}
-                accessibilityLabel={`${group.label}, ${group.items.length} items`}
-              >
-                <Text style={styles.groupTitle}>{group.label}</Text>
-                <View style={styles.groupMeta}>
-                  <View style={[sectionStyles.pill, sectionStyles.pillMuted]}>
-                    <Text style={sectionStyles.pillMutedText}>{group.items.length}</Text>
-                  </View>
-                  <Text style={styles.chevron}>{expanded ? '\u2212' : '+'}</Text>
-                </View>
-              </Pressable>
-              {expanded && onExplainCategory ? (
-                <Pressable
-                  onPress={() =>
-                    onExplainCategory({
-                      categoryLabel: group.label,
-                      items: group.items.map((item) => item.text),
-                    })
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel={`Explain ${group.label} with Concierge`}
-                >
-                  <Text style={styles.explainLink}>Explain</Text>
-                </Pressable>
-              ) : null}
+    <View style={sectionStyles.card}>
+      <Pressable
+        style={styles.sectionHeader}
+        onPress={() => setSectionExpanded((current) => !current)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: sectionExpanded }}
+        accessibilityLabel={`Goals and activities${total > 0 ? `, ${total} items` : ''}${
+          subtitleLabels.length > 0 ? `, ${subtitleLabels.join(', ')}` : ''
+        }`}
+      >
+        <View style={styles.sectionTitleRow}>
+          <Text style={[sectionStyles.title, styles.sectionTitleText]}>Goals & activities</Text>
+          {total > 0 ? (
+            <View style={sectionStyles.pill}>
+              <Text style={sectionStyles.pillText}>{total}</Text>
             </View>
+          ) : null}
+          <Text style={styles.sectionChevron}>{sectionExpanded ? '\u2304' : '\u203a'}</Text>
+        </View>
+        {subtitleLabels.length > 0 ? (
+          <Text style={styles.sectionSubtitle}>{subtitleLabels.join(' \u00b7 ')}</Text>
+        ) : null}
+      </Pressable>
 
-            {expanded
-              ? group.items.map((item) => {
-                  const itemExpanded = Boolean(expandedItems[item.id]);
-                  return (
-                    <View key={item.id} style={styles.itemBlock}>
+      {sectionExpanded ? (
+        <View style={styles.expandedBody}>
+          {hasCareAreas ? (
+            <View>
+              <Text style={styles.bodySectionTitle}>Care areas</Text>
+              {orderedGroups.map((group) => {
+                const expanded = Boolean(expandedGroups[group.key]);
+                return (
+                  <View key={group.key} style={styles.groupBlock}>
+                    <View style={styles.groupHeaderRow}>
                       <Pressable
-                        style={styles.itemHeader}
-                        onPress={() => setExpandedItems((current) => toggle(current, item.id))}
+                        style={styles.groupHeader}
+                        onPress={() => setExpandedGroups((current) => toggle(current, group.key))}
                         accessibilityRole="button"
-                        accessibilityState={{ expanded: itemExpanded }}
-                        accessibilityLabel={item.text}
+                        accessibilityState={{ expanded }}
+                        accessibilityLabel={`${group.label}, ${group.items.length} items`}
                       >
-                        <Text style={styles.itemText} numberOfLines={itemExpanded ? undefined : 2}>
-                          {item.text}
-                        </Text>
+                        <Text style={styles.groupTitle}>{group.label}</Text>
+                        <View style={styles.groupMeta}>
+                          <View style={[sectionStyles.pill, sectionStyles.pillMuted]}>
+                            <Text style={sectionStyles.pillMutedText}>{group.items.length}</Text>
+                          </View>
+                          <Text style={styles.chevron}>{expanded ? '\u2212' : '+'}</Text>
+                        </View>
                       </Pressable>
-                      <View style={styles.itemMetaRow}>
-                        {item.kind === 'goal' ? (
-                          <Text style={styles.kindTag}>Goal</Text>
-                        ) : (
-                          <Text style={styles.kindTag}>Activity</Text>
-                        )}
-                        {item.status ? (
-                          <Pressable
-                            onPress={() =>
-                              setStatusInfoFor((current) => (current === item.id ? null : item.id))
-                            }
-                            accessibilityRole="button"
-                            accessibilityLabel={`Status ${item.status}. Tap to learn what this means.`}
-                          >
-                            <Text style={styles.statusChip}>{item.status}</Text>
-                          </Pressable>
-                        ) : null}
-                        {item.targetDate ? (
-                          <Text style={styles.itemMeta}>Target: {item.targetDate}</Text>
-                        ) : null}
-                      </View>
-                      {statusInfoFor === item.id ? (
-                        <Text style={styles.statusExplainer}>{statusExplanation(item.status)}</Text>
-                      ) : null}
-                      {itemExpanded && onExplainItem ? (
+                      {expanded && onExplainCategory ? (
                         <Pressable
                           onPress={() =>
-                            onExplainItem({
-                              kind: item.kind,
-                              text: item.text,
-                              status: item.status,
-                              targetDate: item.targetDate,
+                            onExplainCategory({
+                              categoryLabel: group.label,
+                              items: group.items.map((item) => item.text),
                             })
                           }
                           accessibilityRole="button"
-                          accessibilityLabel="Explain this item with Concierge"
+                          accessibilityLabel={`Explain ${group.label} with Concierge`}
                         >
-                          <Text style={styles.explainLink}>Explain with Concierge</Text>
+                          <Text style={styles.explainLink}>Explain</Text>
                         </Pressable>
                       ) : null}
                     </View>
-                  );
-                })
-              : null}
-          </View>
-        );
-      })}
 
-      {considerations.length > 0 ? (
-        <View style={styles.considerationsBlock}>
-          <Text style={styles.subTitle}>Care considerations</Text>
-          {considerations.map((consideration) => {
-            const expanded = Boolean(expandedConsiderations[consideration.id]);
-            return (
-              <View key={consideration.id} style={styles.considerationRow}>
-                <Pressable
-                  onPress={() =>
-                    setExpandedConsiderations((current) => toggle(current, consideration.id))
-                  }
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded }}
-                  accessibilityLabel={`${consideration.label}: ${consideration.text}`}
-                >
-                  <Text style={styles.considerationLabel}>{consideration.label}</Text>
-                  <Text style={styles.considerationText} numberOfLines={expanded ? undefined : 2}>
-                    {consideration.text}
-                  </Text>
-                </Pressable>
-                {expanded && onExplainConsideration ? (
-                  <Pressable
-                    onPress={() => onExplainConsideration(consideration.text)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Discuss ${consideration.label} with Concierge`}
-                  >
-                    <Text style={styles.explainLink}>Discuss with Concierge</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            );
-          })}
-        </View>
-      ) : null}
-
-      {careTeam.length > 0 ? (
-        <View style={styles.considerationsBlock}>
-          <Text style={styles.subTitle}>Care team</Text>
-          {careTeam.map((member) => (
-            <View key={member} style={styles.careTeamRow}>
-              <Text style={sectionStyles.listBullet}>{'\u2022'}</Text>
-              <Text style={sectionStyles.listText}>{member}</Text>
+                    {expanded
+                      ? group.items.map((item) => {
+                          const itemExpanded = Boolean(expandedItems[item.id]);
+                          return (
+                            <View key={item.id} style={styles.itemBlock}>
+                              <Pressable
+                                style={styles.itemHeader}
+                                onPress={() =>
+                                  setExpandedItems((current) => toggle(current, item.id))
+                                }
+                                accessibilityRole="button"
+                                accessibilityState={{ expanded: itemExpanded }}
+                                accessibilityLabel={item.text}
+                              >
+                                <Text
+                                  style={styles.itemText}
+                                  numberOfLines={itemExpanded ? undefined : 2}
+                                >
+                                  {item.text}
+                                </Text>
+                              </Pressable>
+                              <View style={styles.itemMetaRow}>
+                                {item.kind === 'goal' ? (
+                                  <Text style={styles.kindTag}>Goal</Text>
+                                ) : (
+                                  <Text style={styles.kindTag}>Activity</Text>
+                                )}
+                                {item.status ? (
+                                  <Pressable
+                                    onPress={() =>
+                                      setStatusInfoFor((current) =>
+                                        current === item.id ? null : item.id,
+                                      )
+                                    }
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Status ${item.status}. Tap to learn what this means.`}
+                                  >
+                                    <Text style={styles.statusChip}>{item.status}</Text>
+                                  </Pressable>
+                                ) : null}
+                                {item.targetDate ? (
+                                  <Text style={styles.itemMeta}>Target: {item.targetDate}</Text>
+                                ) : null}
+                              </View>
+                              {statusInfoFor === item.id ? (
+                                <Text style={styles.statusExplainer}>
+                                  {statusExplanation(item.status)}
+                                </Text>
+                              ) : null}
+                              {itemExpanded && onExplainItem ? (
+                                <Pressable
+                                  onPress={() =>
+                                    onExplainItem({
+                                      kind: item.kind,
+                                      text: item.text,
+                                      status: item.status,
+                                      targetDate: item.targetDate,
+                                    })
+                                  }
+                                  accessibilityRole="button"
+                                  accessibilityLabel="Explain this item with Concierge"
+                                >
+                                  <Text style={styles.explainLink}>Explain with Concierge</Text>
+                                </Pressable>
+                              ) : null}
+                            </View>
+                          );
+                        })
+                      : null}
+                  </View>
+                );
+              })}
             </View>
-          ))}
+          ) : null}
+
+          {hasCareConsiderations ? (
+            <View style={styles.summarySection}>
+              <Pressable
+                style={styles.summarySectionHeader}
+                onPress={() =>
+                  setExpandedSummarySections((current) => toggle(current, 'considerations'))
+                }
+                accessibilityRole="button"
+                accessibilityState={{ expanded: Boolean(expandedSummarySections.considerations) }}
+                accessibilityLabel="Care considerations"
+              >
+                <Text style={styles.summarySectionTitle}>Care considerations</Text>
+                <Text style={styles.sectionChevron}>
+                  {expandedSummarySections.considerations ? '\u2304' : '\u203a'}
+                </Text>
+              </Pressable>
+              {expandedSummarySections.considerations ? (
+                <View style={styles.summarySectionBody}>
+                  {considerations.map((consideration) => {
+                    const expanded = Boolean(expandedConsiderations[consideration.id]);
+                    return (
+                      <View key={consideration.id} style={styles.considerationRow}>
+                        <Pressable
+                          onPress={() =>
+                            setExpandedConsiderations((current) =>
+                              toggle(current, consideration.id),
+                            )
+                          }
+                          accessibilityRole="button"
+                          accessibilityState={{ expanded }}
+                          accessibilityLabel={`${consideration.label}: ${consideration.text}`}
+                        >
+                          <Text style={styles.considerationLabel}>{consideration.label}</Text>
+                          <Text
+                            style={styles.considerationText}
+                            numberOfLines={expanded ? undefined : 2}
+                          >
+                            {consideration.text}
+                          </Text>
+                        </Pressable>
+                        {expanded && onExplainConsideration ? (
+                          <Pressable
+                            onPress={() => onExplainConsideration(consideration.text)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Discuss ${consideration.label} with Concierge`}
+                          >
+                            <Text style={styles.explainLink}>Discuss with Concierge</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {hasCareTeam ? (
+            <View style={styles.summarySection}>
+              <Pressable
+                style={styles.summarySectionHeader}
+                onPress={() => setExpandedSummarySections((current) => toggle(current, 'care-team'))}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: Boolean(expandedSummarySections['care-team']) }}
+                accessibilityLabel={`Care team, ${careTeam.length} ${
+                  careTeam.length === 1 ? 'member' : 'members'
+                }`}
+              >
+                <Text style={styles.summarySectionTitle}>Care team</Text>
+                <View style={styles.groupMeta}>
+                  <View style={[sectionStyles.pill, sectionStyles.pillMuted]}>
+                    <Text style={sectionStyles.pillMutedText}>{careTeam.length}</Text>
+                  </View>
+                  <Text style={styles.sectionChevron}>
+                    {expandedSummarySections['care-team'] ? '\u2304' : '\u203a'}
+                  </Text>
+                </View>
+              </Pressable>
+              {expandedSummarySections['care-team'] ? (
+                <View style={styles.summarySectionBody}>
+                  {careTeam.map((member) => (
+                    <View key={member} style={styles.careTeamRow}>
+                      <Text style={sectionStyles.listBullet}>{'\u2022'}</Text>
+                      <Text style={sectionStyles.listText}>{member}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
         </View>
-      ) : null}
-
-      {secondaryPlanCount > 0 ? (
-        <Text style={styles.collapsedNote}>
-          +{secondaryPlanCount} older care plan{secondaryPlanCount === 1 ? '' : 's'} are collapsed.
-        </Text>
-      ) : null}
-
-      {isEmpty ? (
-        <Text style={sectionStyles.bodyMuted}>
-          No goals or activities are recorded yet. They will appear after a health-record import.
-        </Text>
       ) : null}
     </View>
   );
@@ -371,14 +465,40 @@ function parseCareTeam(json: string | null | undefined): string[] {
 }
 
 const styles = StyleSheet.create({
-  subTitle: {
+  sectionHeader: {
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sectionTitleText: {
+    flex: 1,
+  },
+  sectionChevron: {
     color: AppTheme.colors.textMuted,
-    fontSize: 11,
+    fontSize: 22,
     fontWeight: '900',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    marginTop: 6,
-    marginBottom: 4,
+    lineHeight: 24,
+  },
+  sectionSubtitle: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  expandedBody: {
+    marginTop: 8,
+  },
+  bodySectionTitle: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+    marginBottom: 2,
   },
   groupBlock: {
     borderTopWidth: 1,
@@ -397,6 +517,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 6,
+    minHeight: 44,
   },
   groupTitle: {
     color: AppTheme.colors.text,
@@ -463,11 +584,27 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: 4,
   },
-  considerationsBlock: {
+  summarySection: {
     borderTopWidth: 1,
     borderTopColor: AppTheme.colors.border,
-    marginTop: 6,
-    paddingTop: 6,
+  },
+  summarySectionHeader: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingVertical: 6,
+  },
+  summarySectionTitle: {
+    flex: 1,
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  summarySectionBody: {
+    paddingBottom: 6,
   },
   considerationRow: {
     paddingVertical: 6,
@@ -497,12 +634,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
     marginTop: 4,
-  },
-  collapsedNote: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 6,
-    fontStyle: 'italic',
   },
 });

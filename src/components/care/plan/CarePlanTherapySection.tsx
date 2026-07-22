@@ -462,29 +462,22 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
         <Text style={sectionStyles.title}>Therapy</Text>
         <View style={styles.compactStatsRow}>
           <View
-            style={styles.compactStat}
+            style={styles.dailyFactBox}
             accessible
             accessibilityLabel={`Daily logs ${dailyLogCompletedCount} of ${REQUIRED_DAILY_LOG_FIELDS.length} completed`}
           >
-            <Text style={styles.compactStatLabel}>Daily logs</Text>
-            <Text style={styles.compactStatValue}>
+            <Text style={styles.dailyFactLabel}>Daily logs</Text>
+            <Text style={styles.dailyFactValue}>
               {dailyLogCompletedCount} / {REQUIRED_DAILY_LOG_FIELDS.length}
             </Text>
           </View>
           <View
-            style={styles.compactStat}
+            style={styles.dailyFactBox}
             accessible
             accessibilityLabel={assignedExerciseAccessibilityLabel}
           >
-            <Text style={styles.compactStatLabel}>Assigned exercises</Text>
-            <Text
-              style={[
-                styles.compactStatValue,
-                assignedExerciseTotalCount === 0 && styles.compactStatValueLong,
-              ]}
-            >
-              {assignedExerciseValueLabel}
-            </Text>
+            <Text style={styles.dailyFactLabel}>Assigned exercises</Text>
+            <Text style={styles.dailyFactValue}>{assignedExerciseValueLabel}</Text>
           </View>
         </View>
         <Pressable
@@ -996,39 +989,14 @@ function countCompletedDailyLogFields(entry: DailyCareEntry | null): number {
 const styles = StyleSheet.create({
   compactStatsRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 18,
-  },
-  compactStat: {
-    flex: 1,
-    minHeight: 72,
-    justifyContent: 'center',
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: AppTheme.colors.softSurface,
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-  },
-  compactStatLabel: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  compactStatValue: {
-    color: AppTheme.colors.text,
-    fontSize: 22,
-    fontWeight: '900',
-    marginTop: 6,
-  },
-  compactStatValueLong: {
-    fontSize: 16,
-    lineHeight: 20,
+    gap: 10,
+    marginTop: 12,
   },
   continueButton: {
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 46,
-    marginTop: 16,
+    marginTop: 12,
     borderRadius: 12,
     backgroundColor: AppTheme.colors.brand,
   },
