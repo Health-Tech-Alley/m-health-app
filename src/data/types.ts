@@ -607,7 +607,7 @@ export type KnowledgeDocumentType =
 export type KnowledgeLengthTier = 'short' | 'medium' | 'long';
 
 export interface KnowledgeChunk {
-  chunkId: string; // docId, e.g. 'PMID-12345678', 'MLP-J44.1'
+  chunkId: string; // patient-scoped, e.g. 'kc:{patientId}:pubmed:PMID-123' or 'adcp:{patientId}:…'
   source: KnowledgeSource;
   text: string;
   queryHash?: string;
@@ -622,14 +622,36 @@ export interface KnowledgeChunk {
   lengthTier?: KnowledgeLengthTier;
   /** For section-chunked full-text docs, the heading that this chunk came from. */
   sectionHeading?: string;
-  /** Optional provenance fields parsed from metadata_json by retrieval helpers. */
+  /**
+   * Owning patient. Required for all new writes. Rows without patient_id are
+   * treated as orphans and excluded from retrieval after the isolation migration.
+   */
   patientId?: string;
+  /** Original source document id (PMID, setid, fixture id) before patient prefix. */
+  externalId?: string;
+  /**
+   * Caregiver relevance feedback for this patient (−1 not useful, 0 neutral, +1 useful).
+   * Used to boost/penalize BM25 ranking within that patient's corpus only.
+   */
+  feedbackScore?: number;
   sourceId?: string;
   sourceType?: string;
   resourceId?: string;
   effectiveAt?: string;
   synthetic?: boolean;
   retrievalMethod?: string;
+}
+
+/** Per-patient knowledge relevance signal (isolation + NLU tuning). */
+export type KnowledgeFeedbackSignal = 'useful' | 'not_useful' | 'neutral';
+
+export interface KnowledgeChunkFeedback {
+  feedbackId: string;
+  patientId: string;
+  chunkId: string;
+  signal: KnowledgeFeedbackSignal;
+  createdAt: string;
+  note?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -854,6 +876,12 @@ export interface AppSettings {
    * (restore allowed with explicit confirm + consent).
    */
   carePlanMode: CarePlanMode;
+  /**
+   * When true (default): iOS Apple Health / HealthKit sensor source may connect
+   * and poll. When false, HealthKit is not started so empty devices are not
+   * constantly queried.
+   */
+  healthKitIntegrationEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------

@@ -34,12 +34,14 @@ import { isModelInstalled, deleteModel, clearAllModels } from '@/services/model-
 import { downloadModel } from '@/services/model-download';
 import {
   clearKnowledgeCache,
+  clearKnowledgeCacheForPatient,
   deleteKnowledgeChunk,
   deleteKnowledgeChunksBySource,
   DEVELOPMENT_UC3_REHAB_EXERCISES,
   filterCompletedExerciseKeysForAssignments,
   getActiveConsents,
   getAllKnowledgeChunks,
+  getKnowledgeChunksForPatient,
   getAuditEntriesForResource,
   getEnrichmentLogForPatient,
   getPendingThresholdRecommendations,
@@ -65,6 +67,7 @@ import { importCdaJsonString, importCdaZip } from '@/data/cda';
 import { redownloadForChunk, redownloadAllForPatient } from '@/clinical-evidence/re-download';
 import { audit } from '@/services/audit/auditService';
 import { grantConsent, revokeConsentAndAudit } from '@/services/consent/consentGate';
+import { ensureDefaultAdcpBackupConsent } from '@/services/consent/defaultConsents';
 import { getNcbiApiKey, setNcbiApiKey, clearNcbiApiKey } from '@/services/ncbi-token-store';
 import { getOpenFdaApiKey, setOpenFdaApiKey, clearOpenFdaApiKey } from '@/services/openfda-token-store';
 import { getUmlsApiKey, setUmlsApiKey, clearUmlsApiKey } from '@/services/umls-token-store';
@@ -134,7 +137,8 @@ const initialRecordConsentState: Record<RecordConsentScope | 'adcp_backup', bool
   'fhir-share': false,
   'pharmacy-communicator': false,
   'provider-message': false,
-  adcp_backup: false,
+  // Care plan backup consent is on by default (auto-granted per patient).
+  adcp_backup: true,
 };
 
 const EMPTY_CONDITIONS: PatientCondition[] = [];
@@ -153,7 +157,8 @@ type ExpandableId =
   | 'nlu-development-fallback'
   | 'evidence-development-fallback'
   | 'knowledge-graph-expansion'
-  | 'consent-adcp_backup';
+  | 'consent-adcp_backup'
+  | 'healthkit-integration';
 
 export function SettingsScreen() {
   return <PreferencesScreen />;
@@ -161,7 +166,7 @@ export function SettingsScreen() {
 
 export function PreferencesScreen() {
   const router = useRouter();
-  const { settings, setTheme } = useSettings();
+  const { settings, setTheme, setHealthKitIntegrationEnabled } = useSettings();
   const patientId = useOrchestratorPatientId();
   const { refresh: refreshPatientRecord } = usePatientRecord();
   const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
@@ -171,24 +176,37 @@ export function PreferencesScreen() {
     'Consent required before export',
   );
   const [adcpBackupStatus, setAdcpBackupStatus] = useState(
-    'Consent required before backup',
+    'Backup consent enabled by default',
   );
 
   useEffect(() => {
     const handle = setTimeout(() => {
-      const nextConsentState = RECORD_CONSENT_OPTIONS.reduce(
-        (next, option) => ({
-          ...next,
-          [option.scope]: getRecordConsentStatus(option.scope, patientId).granted,
-        }),
-        initialRecordConsentState,
-      );
+      if (patientId) {
+        ensureDefaultAdcpBackupConsent(patientId);
+      }
+      const nextConsentState: Record<RecordConsentScope | 'adcp_backup', boolean> = {
+        ...initialRecordConsentState,
+      };
+      for (const option of RECORD_CONSENT_OPTIONS) {
+        nextConsentState[option.scope] = getRecordConsentStatus(
+          option.scope,
+          patientId,
+        ).granted;
+      }
+      nextConsentState.adcp_backup = patientId
+        ? getRecordConsentStatus('adcp_backup', patientId).granted
+        : true;
 
       setRecordConsentGranted(nextConsentState);
       setRecordExportStatus(
         nextConsentState.ccda_export
           ? 'Consent granted for health record export'
           : 'Consent required before export',
+      );
+      setAdcpBackupStatus(
+        nextConsentState.adcp_backup
+          ? 'Backup consent enabled'
+          : 'Consent required before backup',
       );
     }, 0);
 
@@ -469,6 +487,21 @@ export function PreferencesScreen() {
             expanded={expandedId === 'accessibility'}
             explanation="Rows, controls, and labels are designed for large touch targets and screen-reader clarity. Emoji are decorative and are not the only label."
             onToggleExpand={toggleExpanded}
+          />
+        </Section>
+
+        <Section title="⌚ Wearables">
+          <CompactToggleRow
+            id="healthkit-integration"
+            emoji="❤️"
+            label="Apple Health integration"
+            value={settings.healthKitIntegrationEnabled !== false}
+            expanded={expandedId === 'healthkit-integration'}
+            explanation="When off, the app will not connect to or poll Apple Health / HealthKit. Turn this off if you are not using a wearable. On by default."
+            onToggleExpand={toggleExpanded}
+            onValueChange={(enabled) => setHealthKitIntegrationEnabled(enabled)}
+            accessibilityLabel="Apple Health integration"
+            accessibilityHint="When off, the app will not connect to or poll Apple Health / HealthKit."
           />
         </Section>
 
@@ -1373,15 +1406,46 @@ export function AdvancedDeveloperSettingsScreen() {
                     .join('')
                   : ''}
               </Text>
-              {snapshot && snapshot.knowledgeStats.total > 0 ? (
+              {patientId && (snapshot?.knowledgeStats.total ?? 0) > 0 ? (
                 <Pressable
                   style={[styles.actionButton, styles.dangerButton]}
                   onPress={() => {
-                    clearKnowledgeCache();
+                    const n = clearKnowledgeCacheForPatient(patientId);
                     refresh();
-                    Alert.alert('Cleared', 'Knowledge cache cleared.');
+                    Alert.alert(
+                      'Cleared',
+                      `Removed ${n} knowledge chunk${n === 1 ? '' : 's'} for this patient only.`,
+                    );
                   }}>
-                  <Text style={styles.actionButtonText}>Clear Knowledge Cache</Text>
+                  <Text style={styles.actionButtonText}>
+                    Clear Knowledge Cache (this patient)
+                  </Text>
+                </Pressable>
+              ) : null}
+              {__DEV__ ? (
+                <Pressable
+                  style={[styles.actionButton, styles.dangerButton]}
+                  onPress={() => {
+                    Alert.alert(
+                      'Clear ALL patients’ knowledge?',
+                      'This wipes every profile’s knowledge cache. Retrieval for all patients will re-bundle on next open.',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Clear all',
+                          style: 'destructive',
+                          onPress: () => {
+                            clearKnowledgeCache();
+                            refresh();
+                            Alert.alert('Cleared', 'All patients’ knowledge caches wiped.');
+                          },
+                        },
+                      ],
+                    );
+                  }}>
+                  <Text style={styles.actionButtonText}>
+                    Clear ALL Knowledge (dev)
+                  </Text>
                 </Pressable>
               ) : null}
 
@@ -2115,6 +2179,7 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
   const { refresh: refreshSnapshot } = usePatientRecord();
   const [loaded, setLoaded] = useState(false);
   const [chunks, setChunks] = useState<KnowledgeChunk[]>([]);
+  const [showAllPatients, setShowAllPatients] = useState(false);
   const [expandedChunkId, setExpandedChunkId] = useState<string | null>(null);
   // Source groups are collapsed by default; this set tracks which are expanded.
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
@@ -2123,20 +2188,29 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
   const [enrichmentLogOpen, setEnrichmentLogOpen] = useState(false);
   const [enrichmentLog, setEnrichmentLog] = useState<PatientEnrichmentLogEntry[]>([]);
 
+  const loadChunkList = useCallback(() => {
+    if (showAllPatients) {
+      // Dev-only cross-patient dump — never used by retrieval.
+      setChunks(getAllKnowledgeChunks());
+    } else {
+      setChunks(getKnowledgeChunksForPatient(patientId));
+    }
+  }, [patientId, showAllPatients]);
+
   const loadChunks = useCallback(() => {
-    setChunks(getAllKnowledgeChunks());
+    loadChunkList();
     setEnrichmentLog(getEnrichmentLogForPatient(patientId, 20));
     setLoaded(true);
-  }, [patientId]);
+  }, [patientId, loadChunkList]);
 
   // Refresh both the local chunk list AND the patient-record snapshot so the
   // Knowledge Cache stats counts + bundleStatus at the top of the block update
   // (they read from snapshot.knowledgeStats, which only changes on snapshot refresh).
   const refresh = useCallback(() => {
-    setChunks(getAllKnowledgeChunks());
+    loadChunkList();
     setEnrichmentLog(getEnrichmentLogForPatient(patientId, 20));
     refreshSnapshot();
-  }, [patientId, refreshSnapshot]);
+  }, [patientId, refreshSnapshot, loadChunkList]);
 
   const closeViewer = useCallback(() => {
     setLoaded(false);
@@ -2208,22 +2282,26 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
 
   const handleDeleteBySource = useCallback((source: string) => {
     Alert.alert(
-      `Delete all "${source}" chunks?`,
-      `This removes every chunk with source="${source}". Use Re-download to re-fetch.`,
+      `Delete "${source}" chunks for this patient?`,
+      showAllPatients
+        ? `Cross-patient mode: removes every chunk with source="${source}" across all patients.`
+        : `Removes this patient's chunks with source="${source}". Other profiles are untouched.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete all',
+          text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            const removed = deleteKnowledgeChunksBySource(source);
+            const removed = showAllPatients
+              ? deleteKnowledgeChunksBySource(source)
+              : deleteKnowledgeChunksBySource(source, patientId);
             refresh();
             Alert.alert('Deleted', `${removed} ${source} chunk${removed === 1 ? '' : 's'} removed.`);
           },
         },
       ],
     );
-  }, [refresh]);
+  }, [refresh, patientId, showAllPatients]);
 
   const handleRedownloadAll = useCallback(async () => {
     setBusyId('__all__');
@@ -2415,12 +2493,40 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
           <Text style={styles.actionButtonText}>Close</Text>
         </Pressable>
         <Pressable
+          style={styles.actionButton}
+          onPress={() => {
+            if (!showAllPatients) {
+              Alert.alert(
+                'Show all patients?',
+                'Cross-patient dump is for debugging only. Retrieval never uses this view.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Show all',
+                    onPress: () => {
+                      setShowAllPatients(true);
+                      setTimeout(() => refresh(), 0);
+                    },
+                  },
+                ],
+              );
+            } else {
+              setShowAllPatients(false);
+              setTimeout(() => refresh(), 0);
+            }
+          }}
+        >
+          <Text style={styles.actionButtonText}>
+            {showAllPatients ? 'Showing: ALL patients' : 'Showing: this patient'}
+          </Text>
+        </Pressable>
+        <Pressable
           style={[styles.actionButton, busyId === '__all__' && styles.disabledActionButton]}
           onPress={handleRedownloadAll}
           disabled={busyId === '__all__'}
         >
           <Text style={styles.actionButtonText}>
-            {busyId === '__all__' ? 'Re-downloading…' : 'Re-download all (from current record)'}
+            {busyId === '__all__' ? 'Re-downloading…' : 'Re-download all (this patient)'}
           </Text>
         </Pressable>
         <Pressable
@@ -2436,9 +2542,9 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
 
       {chunks.length === 0 ? (
         <Text style={styles.devInfo}>
-          The knowledge cache is empty. It populates after onboarding when the
-          condition-bundler fetches clinical knowledge chunks for the patient&apos;s
-          conditions and medications.
+          {showAllPatients
+            ? 'No knowledge chunks in the database.'
+            : 'No knowledge chunks for this patient yet. They populate after onboarding / re-download for this profile only.'}
         </Text>
       ) : (
         sources.map((src) => {

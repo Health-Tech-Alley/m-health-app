@@ -19,6 +19,7 @@ import {
   updateNluDevelopmentFallback,
   updateEvidenceDevelopmentFallback,
   updateKnowledgeGraphExpansion,
+  updateHealthKitIntegrationEnabled,
   type AppSettings,
 } from '@/data';
 import type {
@@ -42,6 +43,7 @@ interface SettingsContextValue {
   setEvidenceDevelopmentFallback: (enabled: boolean) => void;
   setKnowledgeGraphExpansion: (enabled: boolean) => void;
   setCarePlanMode: (mode: CarePlanMode) => void;
+  setHealthKitIntegrationEnabled: (enabled: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -99,6 +101,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSettings(updated);
   }, []);
 
+  const setHealthKitIntegrationEnabled = useCallback((enabled: boolean) => {
+    const updated = updateHealthKitIntegrationEnabled(enabled);
+    setSettings(updated);
+  }, []);
+
   const value = useMemo<SettingsContextValue>(
     () => ({
       settings,
@@ -114,6 +121,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setEvidenceDevelopmentFallback,
       setKnowledgeGraphExpansion,
       setCarePlanMode,
+      setHealthKitIntegrationEnabled,
     }),
     [
       settings,
@@ -127,6 +135,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setEvidenceDevelopmentFallback,
       setKnowledgeGraphExpansion,
       setCarePlanMode,
+      setHealthKitIntegrationEnabled,
     ],
   );
 

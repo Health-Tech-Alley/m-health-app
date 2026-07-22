@@ -21,8 +21,8 @@
  * via the existing `usePatientRecord` hook.
  */
 
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -81,9 +81,9 @@ import {
   caregiverRejectProposal as caregiverRejectProposalForUi,
 } from "@/services/carePlan/mlPlanProposalService";
 import { getActiveConsents } from "@/data";
+import { ensureDefaultAdcpBackupConsent } from "@/services/consent/defaultConsents";
 
 export default function CareScreen() {
-  const router = useRouter();
   const { patientId, snapshot, refresh } = usePatientRecord();
   const { focus } = useLocalSearchParams<{ focus?: string }>();
   const { reopenOnCareFocus } = useCriticalAlert();
@@ -151,17 +151,6 @@ export default function CareScreen() {
 
   const [whatChangedVisible, setWhatChangedVisible] = useState(false);
 
-  const explainUc3Result = useCallback(() => {
-    if (!latestUc3Result) return;
-    router.push({
-      pathname: "/slm-explain",
-      params: {
-        mode: "rehab_trajectory",
-        resultId: latestUc3Result.resultId,
-        patientId: patientId ?? undefined,
-      },
-    });
-  }, [latestUc3Result, patientId, router]);
   const handleUc4Respond = useCallback(
     (
       card: { cardId: string; templateId: string },
@@ -288,14 +277,18 @@ export default function CareScreen() {
     [patientId, refresh],
   );
 
-  // Care plan backup consent status (doc 39 §7.5 P5 / doc 41 §10).
+  // Care plan backup consent — enabled by default (auto-grant once per patient).
+  useEffect(() => {
+    if (!patientId) return;
+    ensureDefaultAdcpBackupConsent(patientId);
+  }, [patientId]);
+
   const consents = useMemo(
     () => (patientId ? getActiveConsents(patientId) : []),
     // patientId is the only stable dep; settings.carePlanMode is intentionally
     // excluded — the consent store does not change when the read-only toggle
-    // changes.
-     
-    [patientId],
+    // changes. Re-read after default grant via patientId.
+    [patientId, snapshot?.lastRefreshedAt],
   );
   const backupConsentGranted = consents.some(
     (c) => c.scope === 'adcp_backup' && c.granted === true && !c.revokedAt,
@@ -320,111 +313,117 @@ export default function CareScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <ScrollView
-        ref={scrollRef}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
-      >
-        <MainTabHeader
-          title="Care"
-          eyebrow="Caregiver Concierge ACCESS-DP"
-          rightContent={<Text style={styles.patientName}>{patientName}</Text>}
-        />
-
-        <View style={styles.patientCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{getInitials(patientName)}</Text>
-          </View>
-          <View style={styles.patientInfo}>
-            <Text style={styles.patientCardName}>{patientName}</Text>
-            <Text style={styles.patientDetail}>
-              Age {patientAge} · {displayClinical(diagnosis)}
-            </Text>
-            <Text style={styles.patientMuted}>
-              Caregiver {caregiverName} · {caregiverRole}
-            </Text>
-          </View>
-        </View>
-
-        <CarePlanHeaderCard
-          vm={vm}
-          onShowWhatChanged={() => setWhatChangedVisible(true)}
-          whatChangedCount={vm.decisionDigest.length}
-        />
-
-        <CarePrioritiesSection
-          view={prioritiesView}
-          onExplainCard={(card) => explainUc4Card(card.cardId)}
-          onExplainTimeline={handleExplainTimeline}
-          onExplainWatchArea={handleExplainWatchArea}
-          onAddWatchAreaToPlan={handleAddWatchAreaToPlan}
-          onRespond={handleUc4Respond}
-        />
-
-        {vm.sections.showReview ? (
-          <CarePlanReviewSection
-            proposals={pendingProposals}
-            onConfirm={handleConfirmPendingProposal}
-            onReject={handleRejectPendingProposal}
+      <View style={styles.root}>
+        <ScrollView
+          ref={scrollRef}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.content,
+            explainRequest ? styles.contentWithMiniBar : null,
+          ]}
+        >
+          <MainTabHeader
+            title="Care"
+            eyebrow="Caregiver Concierge ACCESS-DP"
+            rightContent={<Text style={styles.patientName}>{patientName}</Text>}
           />
-        ) : null}
 
-        {vm.sections.showTherapy && patientId ? (
-          <View
-            onLayout={(event) => {
-              setTherapySectionY(event.nativeEvent.layout.y);
-            }}
-          >
-            <CarePlanTherapySection
-              patientId={patientId}
-              patientName={patientName}
-              dailyEntry={dailyEntry}
-              rehabExerciseAssignments={rehabExerciseAssignments}
-              uc3ResultDisplay={uc3ResultDisplay}
-              explainUc3Result={explainUc3Result}
-              refresh={refresh}
-              carePlanId={primaryPlan?.planId ?? null}
+          <View style={styles.patientCard}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{getInitials(patientName)}</Text>
+            </View>
+            <View style={styles.patientInfo}>
+              <Text style={styles.patientCardName}>{patientName}</Text>
+              <Text style={styles.patientDetail}>
+                Age {patientAge} · {displayClinical(diagnosis)}
+              </Text>
+              <Text style={styles.patientMuted}>
+                Caregiver {caregiverName} · {caregiverRole}
+              </Text>
+            </View>
+          </View>
+
+          <CarePlanHeaderCard
+            vm={vm}
+            onShowWhatChanged={() => setWhatChangedVisible(true)}
+            whatChangedCount={vm.decisionDigest.length}
+          />
+
+          <CarePrioritiesSection
+            view={prioritiesView}
+            onExplainCard={(card) => explainUc4Card(card.cardId)}
+            onExplainTimeline={handleExplainTimeline}
+            onExplainWatchArea={handleExplainWatchArea}
+            onAddWatchAreaToPlan={handleAddWatchAreaToPlan}
+            onRespond={handleUc4Respond}
+          />
+
+          {vm.sections.showReview ? (
+            <CarePlanReviewSection
+              proposals={pendingProposals}
+              onConfirm={handleConfirmPendingProposal}
+              onReject={handleRejectPendingProposal}
             />
-          </View>
-        ) : null}
+          ) : null}
 
-        {vm.sections.showGoals || hasCareConsiderations ? (
-          <CarePlanGoalsSection
+          {vm.sections.showTherapy && patientId ? (
+            <View
+              onLayout={(event) => {
+                setTherapySectionY(event.nativeEvent.layout.y);
+              }}
+            >
+              <CarePlanTherapySection
+                patientId={patientId}
+                patientName={patientName}
+                dailyEntry={dailyEntry}
+                rehabExerciseAssignments={rehabExerciseAssignments}
+                uc3ResultDisplay={uc3ResultDisplay}
+                refresh={refresh}
+                carePlanId={primaryPlan?.planId ?? null}
+                uc3ResultId={latestUc3Result?.resultId ?? null}
+              />
+            </View>
+          ) : null}
+
+          {vm.sections.showGoals || hasCareConsiderations ? (
+            <CarePlanGoalsSection
+              patientId={patientId}
+              primaryPlan={primaryPlan}
+              goals={goals}
+              caregiver={snapshot?.caregiver ?? null}
+              symptoms={snapshot?.symptoms ?? []}
+              safetyNotes={snapshot?.safetyNotes ?? ''}
+              safetyLines={vm.safetyLines}
+              onExplainItem={handleExplainGoalItem}
+              onExplainCategory={handleExplainCategory}
+              onExplainConsideration={handleExplainConsideration}
+            />
+          ) : null}
+
+          <CarePlanMonitoringSection thresholds={thresholds} />
+
+          <CarePlanBackupSection
             patientId={patientId}
-            primaryPlan={primaryPlan}
-            goals={goals}
-            caregiver={snapshot?.caregiver ?? null}
-            symptoms={snapshot?.symptoms ?? []}
-            safetyNotes={snapshot?.safetyNotes ?? ''}
-            safetyLines={vm.safetyLines}
-            onExplainItem={handleExplainGoalItem}
-            onExplainCategory={handleExplainCategory}
-            onExplainConsideration={handleExplainConsideration}
+            autoGrantConsent={backupConsentGranted}
+            onRestored={refresh}
           />
-        ) : null}
+        </ScrollView>
 
-        <CarePlanMonitoringSection thresholds={thresholds} />
-
-        <CarePlanBackupSection
-          patientId={patientId}
-          autoGrantConsent={backupConsentGranted}
-          onRestored={refresh}
+        <WhatChangedSheet
+          visible={whatChangedVisible}
+          items={vm.decisionDigest}
+          onClose={() => setWhatChangedVisible(false)}
         />
-      </ScrollView>
 
-      <WhatChangedSheet
-        visible={whatChangedVisible}
-        items={vm.decisionDigest}
-        onClose={() => setWhatChangedVisible(false)}
-      />
-
-      <SlmInsightSheet
-        visible={explainRequest !== null}
-        onClose={() => setExplainRequest(null)}
-        title={explainRequest?.title ?? "Concierge explanation"}
-        reason="care_explain"
-        prompt={explainRequest?.prompt ?? ""}
-      />
+        <SlmInsightSheet
+          visible={explainRequest !== null}
+          onClose={() => setExplainRequest(null)}
+          title={explainRequest?.title ?? "Concierge explanation"}
+          reason="care_explain"
+          prompt={explainRequest?.prompt ?? ""}
+          allowMinimize
+        />
+      </View>
     </SafeAreaView>
   );
 }
@@ -444,10 +443,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: AppTheme.colors.screen,
   },
+  root: {
+    flex: 1,
+  },
   content: {
     paddingHorizontal: 18,
     paddingTop: 18,
     paddingBottom: 40,
+  },
+  contentWithMiniBar: {
+    paddingBottom: 120,
   },
   patientName: {
     color: AppTheme.colors.text,

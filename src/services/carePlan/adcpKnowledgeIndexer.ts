@@ -335,7 +335,11 @@ function makeChunk(input: {
   metadata: Record<string, unknown>;
   retrievedAt: string;
   conditions?: string;
+  patientId?: string;
 }): KnowledgeChunk {
+  const patientId =
+    (typeof input.metadata.patientId === 'string' && input.metadata.patientId) ||
+    input.patientId;
   return {
     chunkId: input.chunkId,
     source: ADCP_SOURCE,
@@ -345,6 +349,8 @@ function makeChunk(input: {
     documentType: input.documentType,
     sectionHeading: input.sectionHeading,
     conditions: input.conditions,
+    patientId,
+    externalId: input.chunkId,
     metadataJson: JSON.stringify(input.metadata),
   };
 }

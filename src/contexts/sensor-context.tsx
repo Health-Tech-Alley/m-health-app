@@ -10,6 +10,7 @@ import {
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { usePatientRecord } from '@/contexts/patient-record-context';
+import { useSettings } from '@/contexts/settings-context';
 import type { SensorSource } from '@/data/sensors';
 import { ALL_HEALTHKIT_READ_TYPES, createSensorSource } from '@/data/sensors';
 
@@ -37,14 +38,18 @@ type SensorAvailabilityResolution = {
 
 export function SensorProvider({ children }: { children: ReactNode }) {
   const { patientId } = usePatientRecord();
+  const { settings } = useSettings();
+  const healthKitEnabled = settings.healthKitIntegrationEnabled !== false;
   const stopPublishingRef = useRef<(() => void) | null>(null);
   const [availabilityResolution, setAvailabilityResolution] =
     useState<SensorAvailabilityResolution | null>(null);
 
   const sensor = useMemo<SensorSource | null>(() => {
     if (!patientId) return null;
+    // When HealthKit integration is off, do not open the native bridge or poll.
+    if (!healthKitEnabled) return null;
     return createSensorSource({ patientId });
-  }, [patientId]);
+  }, [patientId, healthKitEnabled]);
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -53,6 +58,13 @@ export function SensorProvider({ children }: { children: ReactNode }) {
       return {
         status: 'disconnected',
         unavailableReason: 'No active patient selected.',
+      };
+    }
+
+    if (!healthKitEnabled) {
+      return {
+        status: 'unavailable',
+        unavailableReason: 'Apple Health integration is turned off in Preferences.',
       };
     }
 
@@ -74,7 +86,7 @@ export function SensorProvider({ children }: { children: ReactNode }) {
       status: 'checking',
       unavailableReason: null,
     };
-  }, [patientId, sensor]);
+  }, [patientId, sensor, healthKitEnabled]);
 
   const resolvedAvailability =
     baseAvailability.status === 'checking' && availabilityResolution?.sensor === sensor

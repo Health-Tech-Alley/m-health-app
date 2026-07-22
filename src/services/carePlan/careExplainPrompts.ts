@@ -157,3 +157,36 @@ export function buildWatchAreaExplainPrompt(area: MedicationWatchArea): string {
     'Do not say the medication is causing anything, do not suggest changing the dose, and do not diagnose.',
   ].join('\n');
 }
+
+/**
+ * Seed prompt for the in-card mini chat when explaining a rehab progress
+ * (UC3) result — especially the "more information is needed" path.
+ */
+export function buildUc3ResultExplainPrompt(display: {
+  statusLabel: string;
+  explanation: string | null;
+  detailLines: string[];
+  dataQualityLabel: string | null;
+  reviewLabel: string | null;
+}): string {
+  const details =
+    display.detailLines.length > 0
+      ? `Logged detail:\n${display.detailLines.map((line) => `- ${line}`).join('\n')}`
+      : 'No metric detail lines were available.';
+
+  return [
+    'Please help me understand this rehabilitation progress evaluation in plain language.',
+    '',
+    `Status: ${display.statusLabel}`,
+    display.reviewLabel ? `Review flag: ${display.reviewLabel}` : '',
+    display.explanation ? `Engine note: ${display.explanation}` : '',
+    display.dataQualityLabel ? display.dataQualityLabel : '',
+    details,
+    '',
+    'If more information is needed, tell me exactly what I should log next (exercises, pain, fatigue, walking, range of motion)',
+    'and why that would make the progress picture clearer. Keep it short and practical.',
+    'Do not diagnose or recommend treatment changes. End with 1–3 concrete next logging steps.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}

@@ -17,7 +17,6 @@
 import {
   deleteKnowledgeChunk,
   getKnowledgeChunk,
-  getAllKnowledgeChunks,
 } from '@/data/repositories/knowledgeCacheRepository';
 import type { KnowledgeChunk, KnowledgeSource } from '@/data/types';
 import { getActiveMedications, getConditionsForPatient } from '@/data/repositories/patientRepository';
@@ -177,8 +176,10 @@ export async function redownloadForChunk(
 
     // Persist the new chunks
     if (newChunks.length > 0) {
-      const { insertKnowledgeChunks } = await import('@/data/repositories/knowledgeCacheRepository');
-      insertKnowledgeChunks(newChunks);
+      const { insertKnowledgeChunksForPatient } = await import(
+        '@/data/repositories/knowledgeCacheRepository'
+      );
+      insertKnowledgeChunksForPatient(patientId, newChunks);
     }
 
     return {
@@ -207,10 +208,12 @@ export async function redownloadAllForPatient(patientId: string): Promise<{ reDo
   const { bundleConditionPack, bundleMedicationPack, bundleSdohPack, bundleCuratedKnowledgePacks } =
     await import('./condition-bundler');
   // Wipe literature only — keep ADCP plan + CDA patient-record chunks.
-  const { clearLiteratureKnowledgeCache } = await import(
-    '@/data/repositories/knowledgeCacheRepository'
-  );
-  clearLiteratureKnowledgeCache();
+  const {
+    clearLiteratureKnowledgeCacheForPatient,
+    getKnowledgeChunksForPatient,
+  } = await import('@/data/repositories/knowledgeCacheRepository');
+  // Active patient only — never wipe other profiles' corpora.
+  clearLiteratureKnowledgeCacheForPatient(patientId);
 
   // Re-download always hits the live APIs (not fixtures) — the user explicitly
   // asked for fresh data from all available clinical sources.
@@ -222,5 +225,5 @@ export async function redownloadAllForPatient(patientId: string): Promise<{ reDo
   try { await bundleCuratedKnowledgePacks(patientId); } catch (e) { errors.push(`curated: ${e}`); }
   // Silence unused-import warning for the active meds/conditions helpers.
   void getActiveMedications; void getConditionsForPatient;
-  return { reDownloaded: getAllKnowledgeChunks().length, errors };
+  return { reDownloaded: getKnowledgeChunksForPatient(patientId).length, errors };
 }

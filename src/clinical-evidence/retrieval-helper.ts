@@ -34,6 +34,10 @@ export interface RetrievedCitation {
   retrievalMethod?: string;
   graphRelation?: string;
   graphSeedId?: string;
+  /** Care-plan section or document section heading when available. */
+  sectionHeading?: string;
+  /** Optional short title (e.g. article title, drug name). */
+  title?: string;
 }
 
 const STOPWORDS = new Set([
@@ -245,6 +249,9 @@ type CitationMetadata = {
   retrievedAt?: string;
   kind?: string;
   synthetic?: boolean;
+  sectionHeading?: string;
+  title?: string;
+  drugName?: string;
 };
 
 function parseCitationMetadata(chunk: KnowledgeChunk): CitationMetadata {
@@ -262,8 +269,9 @@ function chunkPatientId(chunk: KnowledgeChunk): string | undefined {
 
 function chunkBelongsToPatient(chunk: KnowledgeChunk, patientId?: string): boolean {
   const cachedPatientId = chunkPatientId(chunk);
-  if (!cachedPatientId) return true;
-  return Boolean(patientId && cachedPatientId === patientId);
+  // Fail closed: unscoped rows never enter retrieval.
+  if (!patientId?.trim() || !cachedPatientId) return false;
+  return cachedPatientId === patientId;
 }
 
 function citationFromKnowledgeChunk(chunk: KnowledgeChunk): RetrievedCitation {
@@ -286,6 +294,8 @@ function citationFromKnowledgeChunk(chunk: KnowledgeChunk): RetrievedCitation {
       metadata.synthetic ??
       (chunk.source === 'synthetic' && !patientRecord),
     retrievalMethod: chunk.retrievalMethod ?? 'cache_like',
+    sectionHeading: chunk.sectionHeading ?? metadata.sectionHeading,
+    title: metadata.title ?? metadata.drugName,
   };
 }
 
@@ -503,9 +513,10 @@ export function retrieveClinicalChunks(
   try {
     const tokens = extractContentTokens(query);
     // If the query is already short, search as-is; else multi-token OR search.
+    if (!patientId?.trim()) return [];
     const chunks =
       tokens.length <= 1
-        ? searchKnowledgeCache(query.trim(), Math.max(limit * 3, 15))
+        ? searchKnowledgeCache(query.trim(), Math.max(limit * 3, 15), patientId)
         : searchKnowledgeCacheMultiToken(tokens, limit, patientId);
     return chunks
       .filter((c) => chunkBelongsToPatient(c, patientId))
@@ -534,7 +545,7 @@ function searchKnowledgeCacheMultiToken(
   for (const token of unique) {
     let hits: KnowledgeChunk[] = [];
     try {
-      hits = searchKnowledgeCache(token, Math.max(limit * 3, 15));
+      hits = searchKnowledgeCache(token, Math.max(limit * 3, 15), patientId);
     } catch {
       continue;
     }
@@ -565,27 +576,105 @@ export function citationSourceLabel(source: string): string {
   return SOURCE_LABELS[source] ?? source;
 }
 
+const PMID_RE = /\b(?:PMID[:\s-]*)?(\d{6,9})\b/i;
+
+function extractPmid(citation: Pick<RetrievedCitation, 'docId' | 'sourceId' | 'text' | 'title'>): string | null {
+  for (const candidate of [citation.sourceId, citation.docId, citation.title, citation.text.slice(0, 120)]) {
+    if (!candidate) continue;
+    const match = candidate.match(PMID_RE);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+function shortenDetail(raw: string, max = 42): string {
+  const cleaned = raw.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+  if (cleaned.length <= max) return cleaned;
+  return `${cleaned.slice(0, max - 1).trimEnd()}…`;
+}
+
 /**
- * Bracket tag for one citation: e.g. `[PubMed #1]`, `[Care Plan #3]`.
- * Index is 1-based within the CLINICAL KNOWLEDGE block for this turn.
+ * Specific detail for a citation tag / footnote label:
+ * care-plan section, PMID, drug/section heading, etc.
  */
-export function formatCitationTag(source: string, index: number): string {
+export function citationDetailLabel(
+  citation: Pick<
+    RetrievedCitation,
+    'source' | 'sectionHeading' | 'title' | 'docId' | 'sourceId' | 'text' | 'resourceId'
+  >,
+): string | null {
+  const source = citation.source;
+  const isPlan =
+    source === 'patient-plan' ||
+    source === 'adcp_plan' ||
+    source === 'care_plan_section' ||
+    source === 'care_plan_decision_log';
+  if (isPlan && citation.sectionHeading?.trim()) {
+    return shortenDetail(citation.sectionHeading);
+  }
+  if (source === 'pubmed') {
+    const pmid = extractPmid(citation);
+    if (pmid) return `PMID ${pmid}`;
+    if (citation.title?.trim()) return shortenDetail(citation.title);
+  }
+  if (
+    (source === 'dailymed' || source === 'rxnorm' || source === 'openfda' || source === 'medlineplus') &&
+    (citation.sectionHeading?.trim() || citation.title?.trim())
+  ) {
+    return shortenDetail(citation.sectionHeading?.trim() || citation.title || '');
+  }
+  if (citation.sectionHeading?.trim()) return shortenDetail(citation.sectionHeading);
+  if (citation.title?.trim()) return shortenDetail(citation.title);
+  return null;
+}
+
+/**
+ * Display label for footnotes: "Care plan · Goals" or "PubMed · PMID 12345678".
+ */
+export function citationDisplayLabel(
+  citation: Pick<
+    RetrievedCitation,
+    'source' | 'sectionHeading' | 'title' | 'docId' | 'sourceId' | 'text' | 'resourceId'
+  >,
+): string {
+  const base = citationSourceLabel(citation.source);
+  const detail = citationDetailLabel(citation);
+  return detail ? `${base} · ${detail}` : base;
+}
+
+/**
+ * Bracket tag for one citation: e.g. `[PubMed · PMID 12345678 #1]`,
+ * `[Care Plan · Goals #3]`. Index is 1-based within the CLINICAL KNOWLEDGE block.
+ *
+ * Overload keeps backward compatibility with `formatCitationTag(source, index)`.
+ */
+export function formatCitationTag(
+  sourceOrCitation: string | RetrievedCitation,
+  index: number,
+): string {
   const n = Number.isFinite(index) && index > 0 ? Math.floor(index) : 1;
-  return `[${citationSourceLabel(source)} #${n}]`;
+  if (typeof sourceOrCitation === 'string') {
+    return `[${citationSourceLabel(sourceOrCitation)} #${n}]`;
+  }
+  return `[${citationDisplayLabel(sourceOrCitation)} #${n}]`;
 }
 
 /**
  * Format retrieved chunks as a prompt block the SLM can cite.
- * Each line is tagged `[Source #N]` so the model can cite that exact tag.
+ * Each line is tagged with a specific bracket label the model must copy exactly.
  */
 export function formatCitationsForPrompt(citations: RetrievedCitation[], maxLen = 1500): string {
   if (citations.length === 0) return '';
+  const example = citations[0]
+    ? formatCitationTag(citations[0], 1)
+    : '[PubMed · PMID 12345678 #1]';
   const lines = [
-    'CLINICAL KNOWLEDGE (cited — when you use a chunk, append its exact tag, e.g. [PubMed #1] or [Care Plan #2])',
+    `CLINICAL KNOWLEDGE (cited — when you use a chunk, append its exact tag, e.g. ${example}). Prefer the most specific tag shown (care-plan section, PMID, drug label section).`,
   ];
   citations.forEach((c, i) => {
     const text = c.text.length > maxLen ? c.text.slice(0, maxLen) + '\u2026' : c.text;
-    lines.push(`${formatCitationTag(c.source, i + 1)}${citationMetadataForPrompt(c)} ${text}`);
+    lines.push(`${formatCitationTag(c, i + 1)}${citationMetadataForPrompt(c)} ${text}`);
   });
   return lines.join('\n');
 }
@@ -635,6 +724,7 @@ export async function retrieveClinicalChunksViaBm25(
       retrievalMethod: c.retrievalMethod,
       graphRelation: c.graphRelation,
       graphSeedId: c.graphSeedId,
+      sectionHeading: c.sectionHeading,
     }));
     // If fused retriever returns nothing, fall back to multi-token cache search
     if (fromRetriever.length === 0) {
@@ -665,7 +755,7 @@ export function retrievePlanChunks(
     const tokens = extractContentTokens(query);
     const chunks =
       tokens.length <= 1
-        ? searchKnowledgeCache(query.trim(), Math.max(limit * 3, 12))
+        ? searchKnowledgeCache(query.trim(), Math.max(limit * 3, 12), patientId)
         : searchKnowledgeCacheMultiToken(tokens, limit, patientId);
     return chunks
       .filter(

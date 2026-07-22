@@ -2,10 +2,11 @@
  * Seed curated offline packs into knowledge_cache (CPGs + disability care gaps).
  *
  * Called after condition selection at onboarding / re-download. Small fixed
- * sets only — not a literature firehose.
+ * sets only — not a literature firehose. Always patient-scoped (duplicated
+ * into each patient's corpus for isolation).
  */
 
-import { insertKnowledgeChunks } from '@/data';
+import { insertKnowledgeChunksForPatient } from '@/data';
 import type { KnowledgeChunk } from '@/data/types';
 import { selectCpgFixturesForConditions } from '@/knowledge/corpora/cpg-fixtures';
 import type { RetrievedChunk } from '@/knowledge/types';
@@ -17,6 +18,7 @@ import {
 function cpgToKnowledgeChunk(cpg: RetrievedChunk, conditionCsv: string): KnowledgeChunk {
   return {
     chunkId: cpg.docId,
+    externalId: cpg.docId,
     source: 'synthetic',
     text: cpg.text,
     conditions: conditionCsv || undefined,
@@ -33,13 +35,19 @@ function cpgToKnowledgeChunk(cpg: RetrievedChunk, conditionCsv: string): Knowled
 }
 
 /**
- * Insert matching CPG + disability care-gap chunks for the given conditions.
- * Idempotent via INSERT OR REPLACE on stable chunk ids.
+ * Insert matching CPG + disability care-gap chunks for the given patient.
+ * Idempotent via INSERT OR REPLACE on patient-scoped chunk ids.
  */
-export function seedCuratedKnowledgePacks(conditionNames: string[]): {
+export function seedCuratedKnowledgePacks(
+  patientId: string,
+  conditionNames: string[],
+): {
   cpgCount: number;
   gapCount: number;
 } {
+  if (!patientId.trim()) {
+    return { cpgCount: 0, gapCount: 0 };
+  }
   const names = conditionNames.map((n) => n.trim()).filter(Boolean);
   const conditionCsv = names.join(',');
 
@@ -51,7 +59,7 @@ export function seedCuratedKnowledgePacks(conditionNames: string[]): {
 
   const all = [...cpgChunks, ...gapChunks];
   if (all.length > 0) {
-    insertKnowledgeChunks(all);
+    insertKnowledgeChunksForPatient(patientId, all);
   }
 
   return { cpgCount: cpgChunks.length, gapCount: gapChunks.length };

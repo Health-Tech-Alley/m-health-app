@@ -2,34 +2,23 @@
  * SlmInsightSheet — reusable transient-SLM bottom sheet.
  *
  * Used for on-demand SLM explanations that are NOT the main alert-explain flow
- * (safety-note explanations, custom-med checks, etc.).
+ * (safety-note explanations, custom-med checks, care goals/priorities, etc.).
  *
- * Lifecycle (controlled load/unload):
- *   - On open: acquires an SLM lease via the task queue (auto-loads the default
- *     model in Demo/auto policy). If the lease fails (Developer/manual policy
- *     with no model loaded, or the default model isn't installed), the sheet
- *     explicitly loads an installed model when available so the UX works on a
- *     dev build (Track B) regardless of mode. A persistent status line shows the
- *     current phase (loading model / thinking / generating / done / error) plus
- *     the model id when available.
- *   - As tokens stream, the raw token stream is shown live (like the SLM prompt
- *     demo screen). When generation completes, the streamed text is replaced by
- *     the rendered Markdown answer.
- *   - On close: the lease is released. In auto policy the task queue's
- *     auto-unload timer takes over; if the sheet loaded the model explicitly
- *     without a queue lease, it unloads it on close (auto policy only). The
- *     sheet itself never owns the model beyond this task.
- *
- * Renders with the caregiver system context (patient record) so answers are
- * personalized. If no native model is available, the sheet reports an
- * unavailable/error state instead of generating replacement text.
+ * Lifecycle:
+ *   - On open: check explain answer cache; on hit, show without loading SLM.
+ *   - On miss: lease → stream → cache final answer.
+ *   - YouTube-style: swipe down once → mini (header + status); swipe up → expand;
+ *     swipe down again or × → dismiss (confirm while generating).
+ *   - Backdrop fades independently of the sheet slide (no iOS “dim slides with sheet”).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
+  Easing,
   Modal,
   PanResponder,
   Pressable,
@@ -53,6 +42,11 @@ import {
   buildCaregiverSystemContext,
 } from '@/services/slm/slmService';
 import {
+  buildExplainFingerprint,
+  getCachedExplainAnswer,
+  setCachedExplainAnswer,
+} from '@/services/slm/explainAnswerCache';
+import {
   retrieveClinicalChunksViaBm25,
   formatCitationsForPrompt,
   buildRetrievalQuery,
@@ -63,21 +57,24 @@ import { stripControlTokens } from '@/utils/stripControlTokens';
 export interface SlmInsightSheetProps {
   visible: boolean;
   onClose: () => void;
-  /** What this explanation is for (used as the lease reason + header). */
   title: string;
-  /** The user prompt sent to the SLM. */
   prompt: string;
-  /** Lease reason — defaults to 'safety_note_explain'. */
   reason?: SlmTaskReason;
+  allowMinimize?: boolean;
 }
 
 type Phase = 'idle' | 'loading' | 'thinking' | 'streaming' | 'done' | 'error';
-type Source = 'native';
+type Source = 'native' | 'cache';
+type Presentation = 'full' | 'mini';
 
-// Points-based cap for the scrollable answer area. A definite (non-percentage)
-// maxHeight guarantees the ScrollView bounds + scrolls regardless of the
-// surrounding flex layout — the fragile part of the previous implementation.
-const BODY_MAX_HEIGHT = Math.round(Dimensions.get('window').height * 0.5);
+const WINDOW_H = Dimensions.get('window').height;
+const BODY_MAX_HEIGHT = Math.round(WINDOW_H * 0.5);
+const MINI_CONTENT_H = 0;
+const FULL_SHEET_APPROX = Math.min(WINDOW_H * 0.72, BODY_MAX_HEIGHT + 180);
+const DRAG_THRESHOLD = 80;
+const OPEN_MS = 280;
+const CLOSE_MS = 220;
+const MINI_MS = 260;
 
 export function SlmInsightSheet({
   visible,
@@ -85,10 +82,9 @@ export function SlmInsightSheet({
   title,
   prompt,
   reason = 'safety_note_explain',
+  allowMinimize = true,
 }: SlmInsightSheetProps) {
   const slm = useSLM();
-  // Pull only the stable pieces used inside runExplain so the callback doesn't
-  // churn on every render (the `slm` value object is recreated each render).
   const {
     acquireSlm,
     provider,
@@ -98,7 +94,7 @@ export function SlmInsightSheet({
     taskQueue,
     currentModelId,
   } = slm;
-  const { snapshot } = usePatientRecord();
+  const { snapshot, patientId } = usePatientRecord();
   const { settings } = useSettings();
   const retriever = useOrchestratorRetriever();
   const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
@@ -109,74 +105,85 @@ export function SlmInsightSheet({
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
+  const [presentation, setPresentation] = useState<Presentation>('full');
+  const [mounted, setMounted] = useState(false);
+
   const leaseRef = useRef<SlmTaskLease | null>(null);
-  // True when the sheet loaded the model itself (not via the task queue's
-  // auto-load). Used to unload on close when no queue lease tracks it.
   const loadedBySheetRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const cancelRef = useRef(false);
   const scrollRef = useRef<ScrollView | null>(null);
   const ranRef = useRef(false);
+  const phaseRef = useRef<Phase>('idle');
+  const presentationRef = useRef<Presentation>('full');
+  const fingerprintRef = useRef<string>('');
+  const titleRef = useRef(title);
+  const promptRef = useRef(prompt);
+  const closingRef = useRef(false);
 
-  // Swipe-down-to-dismiss: the sheet translates with a downward drag on the
-  // handle/header; releasing past the threshold closes it. Kept on the handle
-  // area only so the ScrollView below keeps scrolling normally.
-  const [panY] = useState(() => new Animated.Value(0));
-  const dragThreshold = 90;
+  const [backdropOpacity] = useState(() => new Animated.Value(0));
+  const [sheetTranslateY] = useState(() => new Animated.Value(FULL_SHEET_APPROX));
+  const [bodyHeight] = useState(() => new Animated.Value(BODY_MAX_HEIGHT));
+  const [bodyOpacity] = useState(() => new Animated.Value(1));
+  const [dragY] = useState(() => new Animated.Value(0));
 
-  /**
-   * Ensure a model is loaded and return a lease when possible.
-   *
-   * 1. Try `acquireSlm` — in auto policy this auto-loads the default model.
-   * 2. If that throws (manual policy, or default model not installed), look for
-   *    any installed model and load it explicitly, then acquire a lease so the
-   *    queue still tracks auto-unload. A microtask flush lets the queue's config
-   *    effect run before the second acquire.
-   * 3. If no model can be loaded, returns a null lease and the caller reports
-   *    Concierge as unavailable.
-   */
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+  useEffect(() => {
+    presentationRef.current = presentation;
+  }, [presentation]);
+  useEffect(() => {
+    titleRef.current = title;
+    promptRef.current = prompt;
+  }, [title, prompt]);
+
   const ensureModelAndLease = useCallback(async (): Promise<SlmTaskLease | null> => {
     loadedBySheetRef.current = false;
-
     try {
-      const lease = await acquireSlm(reason);
-      return lease;
+      return await acquireSlm(reason);
     } catch {
-      // Fall through to explicit load.
+      /* fall through */
     }
-
     const installed = MODEL_CATALOG.filter(isModelInstalled);
-    if (installed.length === 0) {
-      return null;
-    }
-
-    const preferred =
-      installed.find((m) => m.id === defaultModelId) ?? installed[0];
-
+    if (installed.length === 0) return null;
+    const preferred = installed.find((m) => m.id === defaultModelId) ?? installed[0];
     try {
       await slmLoadModel(preferred.id);
     } catch {
       return null;
     }
-
     loadedBySheetRef.current = true;
-
-    // Give React a tick to commit the loadStatus change and run the task-queue
-    // config effect, so acquire() sees 'ready' and grants a lease (which lets
-    // the queue handle auto-unload instead of the sheet doing it manually).
     await new Promise((r) => setTimeout(r, 0));
     if (cancelRef.current) return null;
-
     try {
       return await acquireSlm(reason);
     } catch {
-      // Queue still not seeing ready (timing) — proceed without a lease; the
-      // sheet will unload the model it loaded on close (auto policy only).
       return null;
     }
   }, [acquireSlm, reason, defaultModelId, slmLoadModel]);
 
   const runExplain = useCallback(async () => {
+    const activeTitle = titleRef.current;
+    const activePrompt = promptRef.current;
+    const fingerprint = buildExplainFingerprint({
+      title: activeTitle,
+      prompt: activePrompt,
+      patientId,
+    });
+    fingerprintRef.current = fingerprint;
+
+    const cached = getCachedExplainAnswer(fingerprint);
+    if (cached?.answer) {
+      setSource('cache');
+      setAnswer(cached.answer);
+      setFinalText(cached.answer);
+      setError(null);
+      setActiveModelId(null);
+      setPhase('done');
+      return;
+    }
+
     setPhase('loading');
     setAnswer('');
     setFinalText(null);
@@ -197,12 +204,8 @@ export function SlmInsightSheet({
       ? buildCaregiverAssistantContextFromSnapshot(snapshot)
       : {};
 
-    // Retrieve clinical knowledge chunks from the knowledge cache (cache-only,
-    // no live supplement — this is a transient sheet and latency matters).
-    // Query: patient's primary condition + the prompt text (which contains the
-    // safety consideration or med-check question).
     const conditionName = snapshot?.primaryCondition?.name;
-    const retrievalQuery = buildRetrievalQuery(conditionName, prompt);
+    const retrievalQuery = buildRetrievalQuery(conditionName, activePrompt);
     const citations = await retrieveClinicalChunksViaBm25(
       retriever,
       retrievalQuery,
@@ -211,28 +214,17 @@ export function SlmInsightSheet({
     );
     const citationBlock = formatCitationsForPrompt(citations);
     const enrichedPrompt = citationBlock
-      ? `${prompt}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above. Cite sources in brackets like [PMID-12345678].`
-      : prompt;
+      ? `${activePrompt}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above. After claims drawn from a chunk, append that chunk's exact bracket tag (including any · detail and # number).`
+      : activePrompt;
 
-    // Prefer the native provider when a model is actually loaded. We check the
-    // provider directly (getModelInfo()) rather than slm.loadStatus: after
-    // awaiting a load the continuation runs as a microtask, before React
-    // re-renders, so slm.loadStatus may still read 'loading'. A loaded provider
-    // implies the model is ready.
     if (provider.getModelInfo()) {
       setSource('native');
       setPhase('thinking');
-
       const controller = new AbortController();
       abortRef.current = controller;
       let firstTokenSeen = false;
-
       try {
         const systemContext = buildCaregiverSystemContext(context);
-        // Single mode: always deep. The fast path was removed app-wide, so the
-        // insight sheet no longer branches on query complexity — the model
-        // reasons fully (unlimited budget) then emits the complete answer.
-        const generation = CONCIERGE_GENERATION_DEEP;
         const result = await provider.chat(
           [
             { role: 'system', content: systemContext },
@@ -246,13 +238,19 @@ export function SlmInsightSheet({
             setAnswer((prev) => prev + token);
           },
           controller.signal,
-          generation,
+          CONCIERGE_GENERATION_DEEP,
         );
         if (cancelRef.current) return;
         const cleaned = stripControlTokens(result.text).answer;
         setAnswer(cleaned);
         setFinalText(cleaned);
         setPhase('done');
+        setCachedExplainAnswer({
+          fingerprint,
+          title: activeTitle,
+          answer: cleaned,
+          patientId: patientId ?? undefined,
+        });
       } catch (err) {
         if (cancelRef.current || controller.signal.aborted) {
           setPhase('done');
@@ -266,8 +264,6 @@ export function SlmInsightSheet({
       return;
     }
 
-    // No native model available; do not synthesize replacement text.
-    // Recovery-oriented copy (planning/39 E3) — still fail-closed.
     const installed = MODEL_CATALOG.filter(isModelInstalled);
     setError(
       installed.length === 0
@@ -275,72 +271,15 @@ export function SlmInsightSheet({
         : 'Concierge could not load a model. Open Models, load Concierge, then retry.',
     );
     setPhase('error');
-  }, [
-    ensureModelAndLease,
-    provider,
-    snapshot,
-    prompt,
-    currentModelId,
-    retriever,
-  ]);
+  }, [ensureModelAndLease, provider, snapshot, patientId, currentModelId, retriever]);
 
-  // Kick off the explanation when the sheet becomes visible. Deferred to a
-  // microtask so we don't trigger setState synchronously inside the effect
-  // (which would cause cascading renders). Guarded with a ref so StrictMode's
-  // double-invoke doesn't run the async work twice.
-  useEffect(() => {
-    if (!visible) {
-      ranRef.current = false;
-      // Parent may flip visible=false without handleClose — still drop lease.
-      cancelRef.current = true;
-      abortRef.current?.abort();
-      abortRef.current = null;
-      leaseRef.current?.release();
-      leaseRef.current = null;
-      if (
-        loadedBySheetRef.current &&
-        slmPolicy === 'auto' &&
-        taskQueue.activeLeaseCount === 0
-      ) {
-        void slmUnloadModel();
-      }
-      loadedBySheetRef.current = false;
-      return;
-    }
-    if (ranRef.current) return;
-    ranRef.current = true;
-    cancelRef.current = false;
-    const handle = setTimeout(() => {
-      void runExplain();
-    }, 0);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
-
-  // Auto-scroll to the bottom as the answer streams in.
-  useEffect(() => {
-    if (!visible) return;
-    if (phase !== 'streaming' && phase !== 'done') return;
-    const text = finalText ?? answer;
-    if (!text) return;
-    // Defer to next frame so the new content has been laid out.
-    const handle = setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: phase === 'streaming' });
-    }, 16);
-    return () => clearTimeout(handle);
-  }, [visible, phase, answer, finalText]);
-
-  // Release the lease on close / unmount.
-  const handleClose = useCallback(() => {
+  const releaseResources = useCallback(() => {
     cancelRef.current = true;
     abortRef.current?.abort();
-    leaseRef.current?.release();
+    abortRef.current = null;
     const hadLease = leaseRef.current !== null;
+    leaseRef.current?.release();
     leaseRef.current = null;
-
-    // If the sheet loaded the model explicitly and the queue isn't tracking it
-    // (no lease), unload it on close in auto policy so we don't leave RAM
-    // pinned. In manual/Developer policy, leave it loaded (developer manages).
     if (
       loadedBySheetRef.current &&
       !hadLease &&
@@ -350,41 +289,199 @@ export function SlmInsightSheet({
       void slmUnloadModel();
     }
     loadedBySheetRef.current = false;
+  }, [slmPolicy, slmUnloadModel, taskQueue]);
 
-    onClose();
-  }, [onClose, slmPolicy, slmUnloadModel, taskQueue]);
-
-  // Reset the drag offset whenever the sheet opens/closes so a previous
-  // partial drag doesn't linger.
-  useEffect(() => {
-    panY.setValue(0);
-  }, [visible, panY]);
-
-  /* eslint-disable react-hooks/refs -- PanResponder callbacks fire at event
-     time, not during render; handleClose/panY are captured, not invoked. */
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_evt, g) =>
-          g.dy > 8 && Math.abs(g.dy) > Math.abs(g.dx),
-        onPanResponderMove: (_evt, g) => {
-          if (g.dy > 0) panY.setValue(g.dy);
-        },
-        onPanResponderRelease: (_evt, g) => {
-          if (g.dy > dragThreshold) {
-            handleClose();
-          } else {
-            Animated.spring(panY, { toValue: 0, useNativeDriver: true }).start();
-          }
-        },
-        onPanResponderTerminate: () => {
-          Animated.spring(panY, { toValue: 0, useNativeDriver: true }).start();
-        },
+  const animateOpen = useCallback(() => {
+    closingRef.current = false;
+    sheetTranslateY.setValue(FULL_SHEET_APPROX);
+    backdropOpacity.setValue(0);
+    bodyHeight.setValue(BODY_MAX_HEIGHT);
+    bodyOpacity.setValue(1);
+    dragY.setValue(0);
+    setPresentation('full');
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: OPEN_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
       }),
-    [handleClose, panY],
+      Animated.timing(sheetTranslateY, {
+        toValue: 0,
+        duration: OPEN_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [backdropOpacity, sheetTranslateY, bodyHeight, bodyOpacity, dragY]);
+
+  const animateToMini = useCallback(() => {
+    if (!allowMinimize) return;
+    setPresentation('mini');
+    dragY.setValue(0);
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: MINI_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(bodyHeight, {
+        toValue: MINI_CONTENT_H,
+        duration: MINI_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(bodyOpacity, {
+        toValue: 0,
+        duration: MINI_MS * 0.7,
+        useNativeDriver: false,
+      }),
+      Animated.timing(sheetTranslateY, {
+        toValue: 0,
+        duration: MINI_MS,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [allowMinimize, backdropOpacity, bodyHeight, bodyOpacity, sheetTranslateY, dragY]);
+
+  const animateToFull = useCallback(() => {
+    setPresentation('full');
+    dragY.setValue(0);
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: MINI_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(bodyHeight, {
+        toValue: BODY_MAX_HEIGHT,
+        duration: MINI_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(bodyOpacity, {
+        toValue: 1,
+        duration: MINI_MS,
+        useNativeDriver: false,
+      }),
+      Animated.timing(sheetTranslateY, {
+        toValue: 0,
+        duration: MINI_MS,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [backdropOpacity, bodyHeight, bodyOpacity, sheetTranslateY, dragY]);
+
+  const finishClose = useCallback(() => {
+    releaseResources();
+    ranRef.current = false;
+    setMounted(false);
+    setPresentation('full');
+    setPhase('idle');
+    setAnswer('');
+    setFinalText(null);
+    setError(null);
+    setSource(null);
+    closingRef.current = false;
+    onClose();
+  }, [onClose, releaseResources]);
+
+  const animateClose = useCallback(
+    (after?: () => void) => {
+      if (closingRef.current) return;
+      closingRef.current = true;
+      Animated.parallel([
+        Animated.timing(backdropOpacity, {
+          toValue: 0,
+          duration: CLOSE_MS,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(sheetTranslateY, {
+          toValue: FULL_SHEET_APPROX,
+          duration: CLOSE_MS,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => {
+        if (finished) {
+          finishClose();
+          after?.();
+        } else {
+          closingRef.current = false;
+        }
+      });
+    },
+    [backdropOpacity, sheetTranslateY, finishClose],
   );
-  /* eslint-enable react-hooks/refs */
+
+  const performClose = useCallback(() => {
+    animateClose();
+  }, [animateClose]);
+
+  const requestClose = useCallback(() => {
+    const inProgress =
+      phaseRef.current === 'loading' ||
+      phaseRef.current === 'thinking' ||
+      phaseRef.current === 'streaming';
+    if (inProgress) {
+      Alert.alert(
+        'Stop Concierge?',
+        'Concierge is still generating. Closing now will cancel this explanation.',
+        [
+          { text: 'Keep going', style: 'cancel' },
+          { text: 'Stop', style: 'destructive', onPress: performClose },
+        ],
+      );
+      return;
+    }
+    performClose();
+  }, [performClose]);
+
+  const minimize = useCallback(() => {
+    if (!allowMinimize) {
+      requestClose();
+      return;
+    }
+    animateToMini();
+  }, [allowMinimize, requestClose, animateToMini]);
+
+  const expand = useCallback(() => {
+    animateToFull();
+  }, [animateToFull]);
+
+  // Mount / unmount with open animation (defer setState out of effect body).
+  useEffect(() => {
+    if (visible) {
+      cancelRef.current = false;
+      const handle = setTimeout(() => {
+        setMounted(true);
+        animateOpen();
+        if (!ranRef.current) {
+          ranRef.current = true;
+          void runExplain();
+        }
+      }, 0);
+      return () => clearTimeout(handle);
+    }
+    if (mounted) {
+      animateClose();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  useEffect(() => {
+    if (!mounted || presentation !== 'full') return;
+    if (phase !== 'streaming' && phase !== 'done') return;
+    const text = finalText ?? answer;
+    if (!text) return;
+    const handle = setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: phase === 'streaming' });
+    }, 16);
+    return () => clearTimeout(handle);
+  }, [mounted, phase, answer, finalText, presentation]);
 
   useEffect(() => {
     return () => {
@@ -395,6 +492,69 @@ export function SlmInsightSheet({
     };
   }, []);
 
+  /* eslint-disable react-hooks/refs -- pan handlers fire at event time */
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_evt, g) =>
+          Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx) * 1.1,
+        onPanResponderMove: (_evt, g) => {
+          const mode = presentationRef.current;
+          if (mode === 'full' && g.dy > 0) {
+            dragY.setValue(g.dy);
+          } else if (mode === 'mini') {
+            // allow both directions while mini
+            dragY.setValue(g.dy);
+          }
+        },
+        onPanResponderRelease: (_evt, g) => {
+          const mode = presentationRef.current;
+          if (mode === 'full') {
+            if (g.dy > DRAG_THRESHOLD || g.vy > 0.9) {
+              if (allowMinimize) {
+                dragY.setValue(0);
+                minimize();
+              } else {
+                dragY.setValue(0);
+                requestClose();
+              }
+            } else {
+              Animated.spring(dragY, {
+                toValue: 0,
+                useNativeDriver: true,
+                bounciness: 4,
+              }).start();
+            }
+            return;
+          }
+          // mini
+          if (g.dy < -DRAG_THRESHOLD || g.vy < -0.9) {
+            dragY.setValue(0);
+            expand();
+          } else if (g.dy > DRAG_THRESHOLD || g.vy > 0.9) {
+            dragY.setValue(0);
+            requestClose();
+          } else {
+            Animated.spring(dragY, {
+              toValue: 0,
+              useNativeDriver: true,
+              bounciness: 4,
+            }).start();
+          }
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(dragY, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 4,
+          }).start();
+        },
+      }),
+    [allowMinimize, minimize, expand, requestClose, dragY],
+  );
+  /* eslint-enable react-hooks/refs */
+
   const statusLabel = deriveStatusLabel(
     phase,
     source,
@@ -402,100 +562,167 @@ export function SlmInsightSheet({
     currentModelId,
     error,
   );
-  const statusTone = deriveStatusTone(phase);
+  const statusTone = deriveStatusTone(phase, source);
   const inProgress =
     phase === 'loading' || phase === 'thinking' || phase === 'streaming';
+  const isMini = presentation === 'mini';
 
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={handleClose}
+  if (!mounted) return null;
+
+  const sheetContent = (
+    <Animated.View
+      style={[
+        styles.sheet,
+        isMini && styles.sheetMini,
+        {
+          transform: [
+            {
+              translateY: Animated.add(sheetTranslateY, dragY),
+            },
+          ],
+        },
+      ]}
     >
-      <View style={styles.overlay}>
-        {/* Tappable backdrop fills the space above the sheet (sheet is pinned
-            to the bottom by the column's flex). Tapping the sheet itself never
-            hits this, so the sheet stays open. */}
-        <Pressable style={styles.backdrop} onPress={handleClose} />
-
-        <Animated.View style={[styles.sheet, { transform: [{ translateY: panY }] }]}>
-          {/* Drag handle + header — swipe down here to dismiss. */}
-          <View style={styles.dragArea} {...panResponder.panHandlers}>
-            <View style={styles.handle} />
-            <View style={styles.header}>
-              <Text style={styles.title}>{title}</Text>
-              <Pressable style={styles.closeButton} onPress={handleClose} hitSlop={12}>
-                <Text style={styles.closeText}>×</Text>
-              </Pressable>
-            </View>
-          </View>
-
-          {/* Persistent status line — always visible (pinned, outside the
-              scroll) so the caregiver always sees the model state. */}
-          <View style={[styles.statusRow, { backgroundColor: statusTone.bg }]}>
-            {inProgress ? (
-              <ActivityIndicator color={statusTone.fg} size="small" />
-            ) : (
-              <View style={[styles.statusDot, { backgroundColor: statusTone.fg }]} />
-            )}
-            <Text style={[styles.statusText, { color: statusTone.fg }]} numberOfLines={2}>
-              {statusLabel}
-            </Text>
-          </View>
-
-          {/* Scrollable body — bounded by a points-based maxHeight so it always
-              scrolls reliably regardless of the sheet's content height. */}
-          <ScrollView
-            ref={scrollRef}
-            style={styles.body}
-            contentContainerStyle={styles.bodyContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator
+      <View style={styles.dragArea} {...panResponder.panHandlers}>
+        <View style={styles.handle} />
+        <View style={styles.header}>
+          <Pressable
+            style={styles.titlePress}
+            onPress={isMini ? expand : undefined}
+            disabled={!isMini}
           >
-            {prompt.length > 0 ? (
-              <View style={styles.promptBlock}>
-                <Text style={styles.promptLabel}>You asked</Text>
-                <Text style={styles.promptText}>{prompt}</Text>
-              </View>
+            <Text style={styles.title} numberOfLines={isMini ? 1 : 2}>
+              {title}
+            </Text>
+          </Pressable>
+          <View style={styles.headerActions}>
+            {allowMinimize && !isMini ? (
+              <Pressable
+                style={styles.iconButton}
+                onPress={minimize}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Minimize Concierge"
+              >
+                <Text style={styles.iconButtonText}>–</Text>
+              </Pressable>
             ) : null}
-
-            <Text style={styles.answerLabel}>Concierge response</Text>
-
-            {phase === 'error' ? (
-              <Text style={styles.errorText}>
-                Couldn&apos;t generate an explanation: {error}
-              </Text>
+            {isMini ? (
+              <Pressable
+                style={styles.iconButton}
+                onPress={expand}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Expand Concierge"
+              >
+                <Text style={styles.iconButtonText}>▴</Text>
+              </Pressable>
             ) : null}
+            <Pressable
+              style={styles.closeButton}
+              onPress={requestClose}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Close Concierge"
+            >
+              <Text style={styles.closeText}>×</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
 
-            {(phase === 'loading' || phase === 'thinking') ? (
-              <Text style={styles.thinkingText}>Thinking…</Text>
-            ) : null}
+      <View style={[styles.statusRow, { backgroundColor: statusTone.bg }]}>
+        {inProgress ? (
+          <ActivityIndicator color={statusTone.fg} size="small" />
+        ) : (
+          <View style={[styles.statusDot, { backgroundColor: statusTone.fg }]} />
+        )}
+        <Text style={[styles.statusText, { color: statusTone.fg }]} numberOfLines={2}>
+          {statusLabel}
+        </Text>
+      </View>
 
-            {/* Streaming: raw token stream in faded italic (like the Concierge tab). */}
-            {phase === 'streaming' ? (
-              <Text style={styles.streamingText}>{answer || '…'}</Text>
-            ) : null}
+      <Animated.View
+        style={{
+          maxHeight: bodyHeight,
+          opacity: bodyOpacity,
+          overflow: 'hidden',
+        }}
+        pointerEvents={isMini ? 'none' : 'auto'}
+      >
+        <ScrollView
+          ref={scrollRef}
+          style={styles.body}
+          contentContainerStyle={styles.bodyContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator
+        >
+          <Text style={styles.answerLabel}>Concierge response</Text>
 
-            {/* Done: the cleaned answer rendered as Markdown (bold/headers). */}
-            {phase === 'done' ? (
-              finalText ? (
-                <MarkdownRenderer size="large">{finalText}</MarkdownRenderer>
-              ) : answer ? (
-                <Text style={styles.answerText}>{answer}</Text>
-              ) : (
-                <Text style={styles.emptyText}>No response.</Text>
-              )
-            ) : null}
-          </ScrollView>
-
-          {phase === 'streaming' || phase === 'done' ? (
-            <Text style={styles.footnote}>
-              Concierge guidance — not a diagnosis. Confirm with the care team.
+          {phase === 'error' ? (
+            <Text style={styles.errorText}>
+              Couldn&apos;t generate an explanation: {error}
             </Text>
           ) : null}
-        </Animated.View>
-      </View>
+
+          {(phase === 'loading' || phase === 'thinking') && source !== 'cache' ? (
+            <Text style={styles.thinkingText}>Thinking…</Text>
+          ) : null}
+
+          {phase === 'streaming' ? (
+            <Text style={styles.streamingText}>{answer || '…'}</Text>
+          ) : null}
+
+          {phase === 'done' ? (
+            finalText ? (
+              <MarkdownRenderer size="large">{finalText}</MarkdownRenderer>
+            ) : answer ? (
+              <Text style={styles.answerText}>{answer}</Text>
+            ) : (
+              <Text style={styles.emptyText}>No response.</Text>
+            )
+          ) : null}
+        </ScrollView>
+
+        {phase === 'streaming' || phase === 'done' ? (
+          <Text style={styles.footnote}>
+            {source === 'cache'
+              ? 'Saved explanation — still guidance, not a diagnosis. Confirm with the care team.'
+              : 'Concierge guidance — not a diagnosis. Confirm with the care team.'}
+          </Text>
+        ) : null}
+      </Animated.View>
+    </Animated.View>
+  );
+
+  // When minimize is allowed, stay on one absolute overlay so full↔mini does not
+  // remount (smooth height/opacity animation). Modal only when blocking.
+  const overlay = (
+    <View
+      style={allowMinimize ? styles.miniHost : styles.overlay}
+      pointerEvents={isMini ? 'box-none' : 'auto'}
+    >
+      <Animated.View
+        style={[styles.backdropFill, { opacity: backdropOpacity }]}
+        pointerEvents="none"
+      />
+      {!isMini ? (
+        <Pressable
+          style={styles.backdropHit}
+          onPress={allowMinimize ? minimize : requestClose}
+        />
+      ) : null}
+      {sheetContent}
+    </View>
+  );
+
+  if (allowMinimize) {
+    return overlay;
+  }
+
+  return (
+    <Modal visible transparent animationType="none" onRequestClose={requestClose}>
+      {overlay}
     </Modal>
   );
 }
@@ -507,6 +734,9 @@ function deriveStatusLabel(
   currentModelId: string | null,
   error: string | null,
 ): string {
+  if (source === 'cache' && phase === 'done') {
+    return 'Saved explanation · unchanged since last run';
+  }
   const modelId = activeModelId ?? currentModelId;
   const modelTag = modelId ? ` · ${modelId}` : '';
   switch (phase) {
@@ -527,16 +757,18 @@ function deriveStatusLabel(
   }
 }
 
-function deriveStatusTone(phase: Phase): { fg: string; bg: string } {
+function deriveStatusTone(
+  phase: Phase,
+  source: Source | null,
+): { fg: string; bg: string } {
+  if (source === 'cache' && phase === 'done') {
+    return { fg: AppTheme.colors.brandDark, bg: AppTheme.colors.brandSoft };
+  }
   switch (phase) {
     case 'error':
       return { fg: AppTheme.colors.danger, bg: AppTheme.colors.dangerLight };
     case 'done':
       return { fg: AppTheme.colors.brandDark, bg: AppTheme.colors.brandSoft };
-    case 'idle':
-    case 'loading':
-    case 'thinking':
-    case 'streaming':
     default:
       return { fg: AppTheme.colors.brand, bg: AppTheme.colors.brandSoft };
   }
@@ -545,11 +777,14 @@ function deriveStatusTone(phase: Phase): { fg: string; bg: string } {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
-  backdrop: {
-    flex: 1,
+  backdropFill: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  backdropHit: {
+    ...StyleSheet.absoluteFill,
   },
   sheet: {
     backgroundColor: AppTheme.colors.surface,
@@ -557,6 +792,17 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     paddingTop: 12,
     paddingBottom: 24,
+  },
+  sheetMini: {
+    borderTopWidth: 1,
+    borderColor: AppTheme.colors.border,
+    ...AppTheme.shadow,
+  },
+  miniHost: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: 'flex-end',
+    zIndex: 50,
+    elevation: 50,
   },
   dragArea: {
     paddingHorizontal: 20,
@@ -574,12 +820,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 8,
+    gap: 8,
+  },
+  titlePress: {
+    flex: 1,
   },
   title: {
     color: AppTheme.colors.text,
     fontSize: 16,
     fontWeight: '900',
-    flex: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  iconButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: AppTheme.colors.softSurface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconButtonText: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 20,
   },
   closeButton: {
     width: 30,
@@ -621,25 +889,6 @@ const styles = StyleSheet.create({
   },
   bodyContent: {
     paddingBottom: 12,
-  },
-  promptBlock: {
-    backgroundColor: AppTheme.colors.softSurface,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-  },
-  promptLabel: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.4,
-    marginBottom: 4,
-    textTransform: 'uppercase',
-  },
-  promptText: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 14,
-    lineHeight: 20,
   },
   answerLabel: {
     color: AppTheme.colors.textMuted,

@@ -1363,4 +1363,83 @@ export const MIGRATIONS: Migration[] = [
        OR conditions LIKE '%hedis-comprehensive-diabetes%'
        OR conditions LIKE '%hedis-antidepressant%';
   `,
+
+  // Per-patient knowledge isolation (strict corpus separation).
+  // - patient_id / external_id / feedback_score on knowledge_cache
+  // - knowledge_chunk_feedback table for NLU relevance signals
+  // - Attribute ADCP (+ prefixed) rows to patient; wipe unscoped literature
+  //   so profiles re-bundle into isolated corpora on next open.
+  (db: SQLiteDatabase) => {
+    const cols = db.getAllSync<{ name: string }>('PRAGMA table_info(knowledge_cache);');
+    const names = new Set(cols.map((c) => c.name));
+    if (!names.has('patient_id')) {
+      db.execSync(`ALTER TABLE knowledge_cache ADD COLUMN patient_id TEXT;`);
+    }
+    if (!names.has('external_id')) {
+      db.execSync(`ALTER TABLE knowledge_cache ADD COLUMN external_id TEXT;`);
+    }
+    if (!names.has('feedback_score')) {
+      db.execSync(
+        `ALTER TABLE knowledge_cache ADD COLUMN feedback_score INTEGER NOT NULL DEFAULT 0;`,
+      );
+    }
+
+    // Backfill patient_id from chunk_id prefixes where reliable.
+    const rows = db.getAllSync<{ chunk_id: string; metadata_json: string | null }>(
+      `SELECT chunk_id, metadata_json FROM knowledge_cache
+       WHERE patient_id IS NULL OR patient_id = '';`,
+    );
+    for (const row of rows) {
+      let patientId: string | null = null;
+      if (row.chunk_id.startsWith('adcp:')) {
+        const parts = row.chunk_id.split(':');
+        if (parts.length >= 2 && parts[1]) patientId = parts[1];
+      } else if (row.chunk_id.startsWith('kc:')) {
+        const parts = row.chunk_id.split(':');
+        if (parts.length >= 2 && parts[1]) patientId = parts[1];
+      } else if (row.metadata_json) {
+        try {
+          const meta = JSON.parse(row.metadata_json) as { patientId?: string };
+          if (meta.patientId?.trim()) patientId = meta.patientId.trim();
+        } catch {
+          /* ignore */
+        }
+      }
+      if (patientId) {
+        db.runSync(
+          `UPDATE knowledge_cache SET patient_id = ? WHERE chunk_id = ?;`,
+          patientId,
+          row.chunk_id,
+        );
+      }
+    }
+
+    // Wipe unscoped literature/fixtures so they cannot leak across profiles.
+    // Preserve patient-attributed plan + record truth.
+    db.execSync(`
+      DELETE FROM knowledge_cache
+      WHERE (patient_id IS NULL OR patient_id = '')
+        AND source NOT IN ('adcp_plan', 'patient-record');
+    `);
+
+    db.execSync(`
+      CREATE INDEX IF NOT EXISTS idx_knowledge_patient
+        ON knowledge_cache(patient_id, source, retrieved_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_knowledge_patient_conditions
+        ON knowledge_cache(patient_id, conditions);
+    `);
+
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS knowledge_chunk_feedback (
+        feedback_id TEXT PRIMARY KEY,
+        patient_id TEXT NOT NULL,
+        chunk_id TEXT NOT NULL,
+        signal TEXT NOT NULL CHECK (signal IN ('useful', 'not_useful', 'neutral')),
+        note TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_knowledge_feedback_patient_chunk
+        ON knowledge_chunk_feedback(patient_id, chunk_id, created_at DESC);
+    `);
+  },
 ];

@@ -97,7 +97,8 @@ export function CarePlanGoalsSection({
   const activities = primaryPlan?.activities ?? [];
   const careTeam = parseCareTeam(primaryPlan?.careTeamDisplayJson);
 
-  const [sectionExpanded, setSectionExpanded] = useState(false);
+  // Overview expanded by default; nested groups/items stay collapsed.
+  const [sectionExpanded, setSectionExpanded] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
   const [statusInfoFor, setStatusInfoFor] = useState<string | null>(null);
@@ -156,12 +157,16 @@ export function CarePlanGoalsSection({
   ].join('|');
 
   useEffect(() => {
-    setSectionExpanded(false);
-    setExpandedGroups({});
-    setExpandedItems({});
-    setStatusInfoFor(null);
-    setExpandedConsiderations({});
-    setExpandedSummarySections({});
+    // Keep the section overview open on content change; collapse nested parts only.
+    const handle = setTimeout(() => {
+      setSectionExpanded(true);
+      setExpandedGroups({});
+      setExpandedItems({});
+      setStatusInfoFor(null);
+      setExpandedConsiderations({});
+      setExpandedSummarySections({});
+    }, 0);
+    return () => clearTimeout(handle);
   }, [displayedContentKey]);
 
   if (!hasCareAreas && !hasCareConsiderations && !hasCareTeam) {

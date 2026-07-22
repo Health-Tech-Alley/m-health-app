@@ -13,13 +13,28 @@ describe('formatCitationTag / formatCitationsForPrompt', () => {
     expect(formatCitationTag('dailymed', 2)).toBe('[Drug Label #2]');
   });
 
+  it('includes care-plan section and PMID detail when available', () => {
+    expect(
+      formatCitationTag(
+        { docId: 'p1', source: 'adcp_plan', text: 'Goal text', sectionHeading: 'Goals' },
+        1,
+      ),
+    ).toBe('[Care Plan · Goals #1]');
+    expect(
+      formatCitationTag(
+        { docId: 'pmid-31415926', source: 'pubmed', text: 'Abstract', sourceId: 'PMID:31415926' },
+        2,
+      ),
+    ).toBe('[PubMed · PMID 31415926 #2]');
+  });
+
   it('formats prompt block with indexed tags', () => {
     const block = formatCitationsForPrompt([
       { docId: 'a', source: 'pubmed', text: 'Abstract one.' },
-      { docId: 'b', source: 'patient-plan', text: 'Plan note.' },
+      { docId: 'b', source: 'patient-plan', text: 'Plan note.', sectionHeading: 'Therapy contract' },
     ]);
     expect(block).toContain('[PubMed #1] Abstract one.');
-    expect(block).toContain('[Care Plan #2] Plan note.');
+    expect(block).toContain('[Care Plan · Therapy contract #2] Plan note.');
     expect(block).toContain('exact tag');
   });
 });

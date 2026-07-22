@@ -15,11 +15,12 @@
 import {
   getConditionsForPatient,
   getActiveMedications,
-  insertKnowledgeChunks,
+  insertKnowledgeChunksForPatient,
   insertEnrichmentLogEntry,
   setBundlePending,
   setBundleStatus,
-  getKnowledgeChunk,
+  getKnowledgeChunkForPatient,
+  stampKnowledgeChunkForPatient,
   type BundleStatus,
 } from '@/data';
 import type { KnowledgeChunk, PatientCondition, PatientEnrichmentLogEntry } from '@/data/types';
@@ -48,14 +49,19 @@ const nlmRateLimiter = new RateLimiter(500);
 
 /**
  * Section-chunk long knowledge rows before insertion (planning/35 §5.4).
- * Short rows pass through unchanged.
+ * Always stamps patient_id so corpora stay isolated per profile.
  */
 function insertWithSectionChunking(
+  patientId: string,
   chunks: KnowledgeChunk[],
   opts?: { medKey?: string; source?: string },
 ): number {
-  const expanded = sectionChunkKnowledgeBatch(chunks);
-  insertKnowledgeChunks(expanded);
+  if (!patientId.trim() || chunks.length === 0) return 0;
+  const prepared = chunks.map((c) => ({ ...c, patientId }));
+  const expanded = sectionChunkKnowledgeBatch(prepared).map((c) =>
+    stampKnowledgeChunkForPatient(patientId, c),
+  );
+  insertKnowledgeChunksForPatient(patientId, expanded);
   const source = opts?.source ?? 'bundler';
   try {
     writeParentOfEdges(expanded, source);
@@ -85,12 +91,13 @@ function hashQuery(query: string): string {
 }
 
 /**
- * Filter out chunks whose chunkId already exists in the knowledge_cache.
- * Prevents later packs (systematic review, HEDIS) from overwriting earlier
- * packs (condition) when the same PMID appears in multiple searches.
+ * Filter out chunks that already exist for this patient (after stamping).
+ * Prevents later packs from no-op replacing within the same patient corpus.
  */
-function filterNewChunks(chunks: KnowledgeChunk[]): KnowledgeChunk[] {
-  return chunks.filter((c) => !getKnowledgeChunk(c.chunkId));
+function filterNewChunks(patientId: string, chunks: KnowledgeChunk[]): KnowledgeChunk[] {
+  return chunks
+    .map((c) => stampKnowledgeChunkForPatient(patientId, { ...c, patientId }))
+    .filter((c) => !getKnowledgeChunkForPatient(patientId, c.chunkId));
 }
 
 function logEnrichment(
@@ -186,7 +193,7 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
               ...c,
               conditions: conditionName,
             }));
-            totalChunks += insertWithSectionChunking(tagged);
+            totalChunks += insertWithSectionChunking(patientId, tagged);
             logEnrichment(
               patientId, 'condition', condition.conditionId, 'umls', 'bundled',
               `ICD10:${icdCode}`, tagged.length, Date.now() - t0,
@@ -220,7 +227,7 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
           queryHash: hashQuery(deidQuery),
         }));
 
-        totalChunks += insertWithSectionChunking(taggedChunks);
+        totalChunks += insertWithSectionChunking(patientId, taggedChunks);
 
         logEnrichment(
           patientId, 'condition', condition.conditionId, 'pubmed', 'bundled',
@@ -244,7 +251,7 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
             conditions: conditionName,
           }));
 
-          totalChunks += insertWithSectionChunking(taggedChunks);
+          totalChunks += insertWithSectionChunking(patientId, taggedChunks);
 
           logEnrichment(
             patientId, 'condition', condition.conditionId, 'medlineplus', 'bundled',
@@ -266,7 +273,7 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
             ...c,
             conditions: conditionName,
           }));
-          totalChunks += insertWithSectionChunking(tagged);
+          totalChunks += insertWithSectionChunking(patientId, tagged);
           logEnrichment(
             patientId, 'condition', condition.conditionId, 'orphanet', 'bundled',
             conditionName, tagged.length, Date.now() - t0,
@@ -279,7 +286,7 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
     }
     // Offline CPG + disability care-gap packs (stable ids, small volume).
     try {
-      const curated = seedCuratedKnowledgePacks(conditions.map((c) => c.name));
+      const curated = seedCuratedKnowledgePacks(patientId, conditions.map((c) => c.name));
       totalChunks += curated.cpgCount + curated.gapCount;
       console.log(
         `[condition-bundler] Curated packs: ${curated.cpgCount} CPG, ${curated.gapCount} care-gap`,
@@ -312,7 +319,7 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
  */
 export async function bundleCuratedKnowledgePacks(patientId: string): Promise<void> {
   const conditions = selectConditionsForBundling(patientId);
-  seedCuratedKnowledgePacks(conditions.map((c) => c.name));
+  seedCuratedKnowledgePacks(patientId, conditions.map((c) => c.name));
 }
 
 /**
@@ -335,7 +342,7 @@ export async function bundleSdohPack(patientId: string, location?: string): Prom
         ...c,
         conditions: 'SDOH',
       }));
-      insertWithSectionChunking(tagged);
+      insertWithSectionChunking(patientId, tagged);
       logEnrichment(
         patientId, 'condition', 'sdoh', 'cdc-places', 'bundled',
         loc, tagged.length, Date.now() - t0,
@@ -384,7 +391,7 @@ export async function bundleSystematicReviewPack(patientId: string): Promise<voi
       const search = await searchPubMed({ query: deidQuery, retmax: 5, filter: 'systematic_review' });
       await nlmRateLimiter.throttle();
       const abstracts = await fetchAbstracts(search.pmids);
-      const tagged: KnowledgeChunk[] = filterNewChunks(abstracts.map((c) => ({
+      const tagged: KnowledgeChunk[] = filterNewChunks(patientId, abstracts.map((c) => ({
         ...c,
         conditions: condition.name,
         queryHash: hashQuery(deidQuery),
@@ -392,7 +399,7 @@ export async function bundleSystematicReviewPack(patientId: string): Promise<voi
         lengthTier: 'long',
       })));
       if (tagged.length > 0) {
-        insertWithSectionChunking(tagged);
+        insertWithSectionChunking(patientId, tagged);
       }
       logEnrichment(
         patientId, 'condition', condition.conditionId, 'pubmed', 'bundled',
@@ -418,14 +425,23 @@ export async function bundleFullSplPack(patientId: string): Promise<void> {
       const t0 = Date.now();
       await nlmRateLimiter.throttle();
       const labels = await fetchDrugLabel(med.name, true);
-      insertWithSectionChunking(labels);
+      if (labels.length === 0) {
+        console.warn(
+          `[condition-bundler] Full SPL empty for ${med.name} (skipped)`,
+        );
+        continue;
+      }
+      insertWithSectionChunking(patientId, labels);
       logEnrichment(
         patientId, 'medication', med.medicationId, 'dailymed', 'bundled',
         `${med.name} (full SPL)`, labels.length, Date.now() - t0,
         labels.map((c) => c.chunkId),
       );
     } catch (err) {
-      console.error(`[condition-bundler] Full SPL bundle failed for ${med.name}:`, err);
+      console.warn(
+        `[condition-bundler] Full SPL skipped for ${med.name}:`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 }
@@ -453,25 +469,34 @@ export async function bundleMedicationPack(patientId: string): Promise<void> {
       console.error(`[condition-bundler] RxNorm failed for ${med.name}:`, err);
     }
 
-    // --- DailyMed label ---
+    // --- DailyMed label (soft-fail: upstream 5xx is common under load) ---
     try {
       const t0 = Date.now();
       await nlmRateLimiter.throttle();
       const labels = await fetchDrugLabel(med.name);
-      const medKey = med.name.trim().toLowerCase();
-      const taggedChunks: KnowledgeChunk[] = labels.map((c) => ({
-        ...c,
-        conditions: med.name,
-      }));
-      insertWithSectionChunking(taggedChunks, { medKey });
+      if (labels.length === 0) {
+        console.warn(
+          `[condition-bundler] DailyMed returned no label for ${med.name} (skipped)`,
+        );
+      } else {
+        const medKey = med.name.trim().toLowerCase();
+        const taggedChunks: KnowledgeChunk[] = labels.map((c) => ({
+          ...c,
+          conditions: med.name,
+        }));
+        insertWithSectionChunking(patientId, taggedChunks, { medKey });
 
-      logEnrichment(
-        patientId, 'medication', med.medicationId, 'dailymed', 'bundled',
-        med.name, taggedChunks.length, Date.now() - t0,
-        taggedChunks.map((c) => c.chunkId),
-      );
+        logEnrichment(
+          patientId, 'medication', med.medicationId, 'dailymed', 'bundled',
+          med.name, taggedChunks.length, Date.now() - t0,
+          taggedChunks.map((c) => c.chunkId),
+        );
+      }
     } catch (err) {
-      console.error(`[condition-bundler] DailyMed failed for ${med.name}:`, err);
+      console.warn(
+        `[condition-bundler] DailyMed skipped for ${med.name}:`,
+        err instanceof Error ? err.message : err,
+      );
     }
 
     // --- OpenFDA adverse events ---
@@ -479,7 +504,7 @@ export async function bundleMedicationPack(patientId: string): Promise<void> {
       const t0 = Date.now();
       await nlmRateLimiter.throttle();
       const events = await fetchAdverseEvents(med.name);
-      insertWithSectionChunking(events, {
+      insertWithSectionChunking(patientId, events, {
         medKey: med.name.trim().toLowerCase(),
       });
 
@@ -497,7 +522,7 @@ export async function bundleMedicationPack(patientId: string): Promise<void> {
       const t0 = Date.now();
       await nlmRateLimiter.throttle();
       const recalls = await fetchDrugRecalls(med.name);
-      insertWithSectionChunking(recalls, {
+      insertWithSectionChunking(patientId, recalls, {
         medKey: med.name.trim().toLowerCase(),
       });
 
@@ -547,7 +572,7 @@ export async function liveSupplement(
         queryHash: hashQuery(deidQuery),
       }));
 
-      insertWithSectionChunking(taggedChunks);
+      insertWithSectionChunking(patientId, taggedChunks);
       newChunks.push(...taggedChunks);
 
       logEnrichment(

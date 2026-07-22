@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   Modal,
@@ -317,7 +318,12 @@ export function CarePlanInsightSheet({
     return () => clearTimeout(handle);
   }, [visible, phase, answer, finalText]);
 
-  const handleClose = useCallback(() => {
+  const phaseRef = useRef<Phase>('idle');
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  const performClose = useCallback(() => {
     cancelRef.current = true;
     abortRef.current?.abort();
     abortRef.current = null;
@@ -325,6 +331,25 @@ export function CarePlanInsightSheet({
     ranRef.current = false;
     onClose();
   }, [onClose, releaseLease]);
+
+  const handleClose = useCallback(() => {
+    const running =
+      phaseRef.current === 'loading' ||
+      phaseRef.current === 'thinking' ||
+      phaseRef.current === 'streaming';
+    if (running) {
+      Alert.alert(
+        'Stop Concierge?',
+        'Concierge is still generating. Closing now will cancel this explanation.',
+        [
+          { text: 'Keep going', style: 'cancel' },
+          { text: 'Stop', style: 'destructive', onPress: performClose },
+        ],
+      );
+      return;
+    }
+    performClose();
+  }, [performClose]);
 
   const handleRetryLoad = useCallback(async () => {
     setPhase('loading');

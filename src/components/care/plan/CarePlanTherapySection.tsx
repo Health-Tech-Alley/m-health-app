@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { InCardMiniChat } from '@/components/care/InCardMiniChat';
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord, getCurrentPatientSnapshot } from '@/contexts/patient-record-context';
 import {
@@ -33,6 +34,7 @@ import {
   type RehabilitationMeasurementType,
 } from '@/data';
 import { getRehabilitationMeasurements } from '@/data/repositories/rehabilitationMeasurementRepository';
+import { buildUc3ResultExplainPrompt } from '@/services/carePlan/careExplainPrompts';
 import { evaluateAndPersistUc3Trajectory } from '@/services/uc3/uc3EvaluationService';
 import { evaluateAndPersistUc4Priorities } from '@/services/uc4/uc4EvaluationService';
 import {
@@ -64,10 +66,13 @@ export interface CarePlanTherapySectionProps {
   dailyEntry: DailyCareEntry | null;
   rehabExerciseAssignments: RehabExerciseAssignment[];
   uc3ResultDisplay: Uc3ResultDisplay;
-  explainUc3Result: () => void;
+  /** @deprecated Prefer in-card explain; kept optional for callers. */
+  explainUc3Result?: () => void;
   refresh: () => void;
   /** Active care plan id (for daily care rows). May be null. */
   carePlanId?: string | null;
+  /** Optional stable id for caching explain answers per UC3 result. */
+  uc3ResultId?: string | null;
 }
 
 const VITAL_FIELDS: RehabilitationMeasurementType[] = [
@@ -145,9 +150,9 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
     dailyEntry,
     rehabExerciseAssignments,
     uc3ResultDisplay,
-    explainUc3Result,
     refresh,
     carePlanId,
+    uc3ResultId,
   } = props;
 
   const { mutatePatientRecord } = usePatientRecord();
@@ -159,6 +164,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
   const [assignedExercisesExpanded, setAssignedExercisesExpanded] = useState(false);
   const [urgentSymptomsExpanded, setUrgentSymptomsExpanded] = useState(false);
   const [therapyExpanded, setTherapyExpanded] = useState(false);
+  const [uc3ExplainOpen, setUc3ExplainOpen] = useState(false);
   const [editingField, setEditingField] = useState<DailyCareEditField | null>(null);
   const [editDraft, setEditDraft] = useState<string>('');
   const [editError, setEditError] = useState<string>('');
@@ -695,7 +701,24 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
         ) : null}
       </View>
 
-      <Uc3ResultCard display={uc3ResultDisplay} onExplain={explainUc3Result} />
+      <Uc3ResultCard
+        display={uc3ResultDisplay}
+        explainOpen={uc3ExplainOpen}
+        onExplain={() => {
+          setTherapyExpanded(true);
+          setUc3ExplainOpen(true);
+        }}
+      />
+
+      <InCardMiniChat
+        visible={uc3ExplainOpen}
+        embedded
+        title="Explain rehabilitation progress"
+        seedPrompt={buildUc3ResultExplainPrompt(uc3ResultDisplay)}
+        cacheTitle={`rehab-progress:${uc3ResultId ?? therapySessionDate}:${uc3ResultDisplay.statusLabel}:${uc3ResultDisplay.dataQualityLabel ?? ''}:${uc3ResultDisplay.detailLines.join('|')}`}
+        onClose={() => setUc3ExplainOpen(false)}
+        enableObservationHitl
+      />
 
       {/* Care-focus cards live in CarePlanFocusSection (all personas), not here. */}
 
@@ -878,7 +901,15 @@ function EditableSymptomBox({
   );
 }
 
-function Uc3ResultCard({ display, onExplain }: { display: Uc3ResultDisplay; onExplain?: () => void }) {
+function Uc3ResultCard({
+  display,
+  onExplain,
+  explainOpen,
+}: {
+  display: Uc3ResultDisplay;
+  onExplain?: () => void;
+  explainOpen?: boolean;
+}) {
   const toneStyle =
     display.tone === 'urgent'
       ? styles.uc3ResultCardUrgent
@@ -909,7 +940,7 @@ function Uc3ResultCard({ display, onExplain }: { display: Uc3ResultDisplay; onEx
           ))}
         </View>
       ) : null}
-      {onExplain ? (
+      {onExplain && !explainOpen ? (
         <Pressable
           style={styles.uc3ExplainButton}
           onPress={onExplain}
