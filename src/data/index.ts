@@ -75,7 +75,7 @@ export * from './repositories/patientTimelineEventRepository';
 export * from './repositories/patientCareContextRepository';
 export * from './repositories/appointmentRepository';
 export * from './repositories/thresholdRecommendationRepository';
-export * from './repositories/SecureMessagingRepository';
+export * from './repositories/secureMessagingRepository';
 export * from './repositories/uc3TrajectoryResultRepository';
 export * from './repositories/uc4PriorityCardRepository';
 export * from './repositories/uc4CaregiverResponseRepository';
