@@ -1,0 +1,165 @@
+/**
+ * Tab layout — the 5-tab shell (Home, Care, Medications, Schedule, Concierge).
+ * Settings/More is a stack screen opened from Home (not a bottom tab).
+ *
+ * Uses Expo Router's `Tabs` component so tab switches don't stack screens.
+ * The tab bar is styled to match the existing branded design: teal active
+ * icon, muted inactive icon, white bar with a top border. The active icon
+ * shape animates (scale + background) on focus change for a polished feel.
+ *
+ * Per planning/32 §4.4, the SLM status icon lives in the header (right side)
+ * for every tab. The Concierge tab also uses a full status row to surface
+ * model state at a glance.
+ */
+
+import { Tabs } from "expo-router";
+import { useEffect, useState } from "react";
+import { Animated, StyleSheet, Text, View } from "react-native";
+
+import { AppIcon, type AppIconName } from "@/components/AppIcon";
+import { AppTheme } from "@/constants/theme";
+
+const TAB_CONFIG: {
+  name: string;
+  label: string;
+  icon: AppIconName;
+}[] = [
+  { name: "dashboard", label: "Home", icon: "home" },
+  { name: "care", label: "Care", icon: "care" },
+  { name: "medications", label: "Meds", icon: "pill" },
+  { name: "schedule", label: "Schedule", icon: "schedule" },
+  { name: "assistant", label: "Concierge", icon: "assistant" },
+];
+
+export default function TabsLayout() {
+  return (
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarShowLabel: true,
+        tabBarActiveTintColor: AppTheme.colors.brand,
+        tabBarInactiveTintColor: AppTheme.colors.navMuted,
+        tabBarStyle: styles.tabBar,
+        tabBarItemStyle: styles.tabItem,
+      }}
+    >
+      {TAB_CONFIG.map((tab) => (
+        <Tabs.Screen
+          key={tab.name}
+          name={tab.name}
+          options={{
+            title: tab.label,
+            tabBarLabel: ({ color }) => (
+              <Text
+                style={[styles.tabLabel, { color }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.68}
+              >
+                {tab.label}
+              </Text>
+            ),
+            tabBarIcon: ({ focused }) => (
+              <AnimatedTabIcon name={tab.icon} focused={focused} />
+            ),
+          }}
+        />
+      ))}
+    </Tabs>
+  );
+}
+
+/**
+ * Animated tab icon — scales up and fills the rounded background when focused,
+ * scales back down and clears the background when blurred. Uses a spring for
+ * a natural, tactile transition between tabs.
+ */
+function AnimatedTabIcon({
+  name,
+  focused,
+}: {
+  name: AppIconName;
+  focused: boolean;
+}) {
+  const [scale] = useState(() => new Animated.Value(focused ? 1.1 : 1));
+  const [bgOpacity] = useState(() => new Animated.Value(focused ? 1 : 0));
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(scale, {
+        toValue: focused ? 1.1 : 1,
+        friction: 6,
+        tension: 80,
+        useNativeDriver: true,
+      }),
+      Animated.timing(bgOpacity, {
+        toValue: focused ? 1 : 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [focused, scale, bgOpacity]);
+
+  return (
+    <View style={styles.iconCircle}>
+      <Animated.View
+        style={[
+          styles.iconCircleFill,
+          { opacity: bgOpacity },
+        ]}
+      />
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <AppIcon
+          name={name}
+          size={28}
+          color={focused ? AppTheme.colors.white : AppTheme.colors.navMuted}
+        />
+      </Animated.View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  tabBar: {
+    backgroundColor: AppTheme.colors.white,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+    height: 114,
+    paddingHorizontal: 6,
+    paddingTop: 12,
+    paddingBottom: 18,
+  },
+  tabItem: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 1,
+  },
+  tabLabel: {
+    fontSize: 12,
+    fontWeight: "900",
+    lineHeight: 14,
+    marginTop: 6,
+    paddingHorizontal: 1,
+    textAlign: "center",
+    width: "100%",
+  },
+  iconCircle: {
+    width: 60,
+    height: 46,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
+    overflow: "hidden",
+  },
+  iconCircleFill: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 16,
+    backgroundColor: AppTheme.colors.brand,
+  },
+});

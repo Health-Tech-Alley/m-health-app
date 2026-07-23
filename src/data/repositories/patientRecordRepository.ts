@@ -1,0 +1,358 @@
+/**
+ * Denormalized read view over the patient record.
+ *
+ * The single source of truth consumed by PatientRecordStore
+ * (src/contexts/patient-record-context.tsx). Joins patient, caregiver,
+ * structured conditions (with ICD codes + comorbidity flags), symptoms,
+ * wearable devices, medications, thresholds, care plan goals, and
+ * knowledge-cache stats into one typed snapshot.
+ *
+ * Writes do NOT go through this file — use the individual repositories
+ * (patientRepository, symptomRepository, etc.) and then call
+ * `getPatientRecordSnapshot` to refresh the store.
+ */
+
+import { getDatabase } from '../db';
+import type {
+  BundleStatus,
+  Caregiver,
+  CarePlan,
+  CarePlanGoalSummary,
+  CarePlanRehabMetric,
+  DailyCareEntry,
+  Medication,
+  MedicationCandidate,
+  MedicationConfirmationRequirement,
+  Patient,
+  PatientCareContextItem,
+  PatientCondition,
+  PatientLongitudinalObservation,
+  PatientTimelineEvent,
+  PendingPlanProposalSlice,
+  RehabExerciseAssignment,
+  Symptom,
+  Threshold,
+  WearableDevice,
+  PatientRecordSnapshot,
+} from '../types';
+import { getActiveCarePlanForPatient, getCarePlansForPatient } from './carePlanRepository';
+import { getCarePlanRehabMetrics } from './carePlanRehabMetricRepository';
+import { getDailyCareEntries, getDailyCareEntry } from './dailyCareEntryRepository';
+import { getMedicationCandidatesForPatient } from './fhirResourceRepository';
+import { getKnowledgeCacheStats } from './knowledgeCacheRepository';
+import { getMedicationConfirmationRequirementsForPatient } from './medicationConfirmationRequirementRepository';
+import { getEnrichmentStats } from './patientEnrichmentLogRepository';
+import { getPatientCareContextItems } from './patientCareContextRepository';
+import { getPatientLongitudinalObservations } from './patientLongitudinalObservationRepository';
+import { getPatientTimelineEvents } from './patientTimelineEventRepository';
+import {
+  getActiveMedications,
+  getCaregiverForPatient,
+  getConditionsForPatient,
+  getPatient,
+} from './patientRepository';
+import { getRehabExerciseAssignments } from './rehabExerciseAssignmentRepository';
+import { getSymptomsForPatient } from './symptomRepository';
+import { getActiveThresholds } from './thresholdRepository';
+import { getPrimaryWearableForPatient } from './wearableDeviceRepository';
+import { getLatestActiveUc3TrajectoryResultSummary } from './uc3TrajectoryResultRepository';
+import {
+  getActiveUc4PriorityCardSummaries,
+  getLatestUc4RunSummary,
+  getUc4CaregiverResponses,
+} from './uc4PriorityRepository';
+import {
+  getActiveAdcpVersionSummary,
+  getActiveAdcpRevisionForPatient,
+  listPendingProposalSummaries,
+  planHasTherapyContract,
+} from './adcpRepository';
+
+export type { BundleStatus, CarePlanGoalSummary, PatientRecordSnapshot } from '../types';
+
+function getCarePlanGoals(patientId: string): CarePlanGoalSummary[] {
+  try {
+    const db = getDatabase();
+    return db.getAllSync<CarePlanGoalSummary>(
+      `SELECT g.goal_id AS goalId, g.description, g.target_date AS targetDate, g.status
+       FROM care_plan_goals g
+       JOIN care_plans p ON g.plan_id = p.plan_id
+       WHERE p.patient_id = ? AND g.status = 'active'
+       ORDER BY g.target_date;`,
+      patientId,
+    );
+  } catch {
+    return [];
+  }
+}
+
+const UC3_REHAB_HISTORY_DAYS = 21;
+
+function toDateOnly(value?: string | null): string | null {
+  if (!value) return null;
+  const dateOnly = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateOnly) ? dateOnly : null;
+}
+
+function addDays(dateOnly: string, days: number): string {
+  const date = new Date(`${dateOnly}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function minDateOnly(a: string, b: string): string {
+  return a <= b ? a : b;
+}
+
+function getRehabDailyEntryWindow(carePlan: CarePlan | null): {
+  since: string;
+  until: string;
+  limit: number;
+} {
+  const today = new Date().toISOString().slice(0, 10);
+  const planStart = toDateOnly(carePlan?.periodStart ?? carePlan?.effectiveDate);
+  const planEnd = toDateOnly(carePlan?.periodEnd);
+
+  if (planStart) {
+    return {
+      since: planStart,
+      until: planEnd ? minDateOnly(planEnd, today) : today,
+      limit: UC3_REHAB_HISTORY_DAYS,
+    };
+  }
+
+  return {
+    since: addDays(today, -(UC3_REHAB_HISTORY_DAYS - 1)),
+    until: today,
+    limit: UC3_REHAB_HISTORY_DAYS,
+  };
+}
+
+export function setBundlePending(patientId: string, pending: boolean): void {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.runSync(
+    `INSERT OR REPLACE INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?);`,
+    `bundle_pending:${patientId}`,
+    JSON.stringify(pending),
+    now,
+  );
+}
+
+const DEFAULT_BUNDLE_STATUS: BundleStatus = { state: 'complete', chunksAdded: 0 };
+
+function isCerebralPalsyCondition(condition: PatientCondition): boolean {
+  return condition.name.toLowerCase().includes('cerebral palsy');
+}
+
+function hasCuratedConditionRoles(conditions: PatientCondition[]): boolean {
+  return conditions.some((condition) => Boolean(condition.conditionRole));
+}
+
+const activeComorbidityOrder = new Map([
+  ['contracture', 0],
+  ['scoliosis', 1],
+  ['constipation', 2],
+  ['dysphagia', 3],
+  ['esophagitis', 4],
+  ['epilepsy', 5],
+]);
+
+function sortActiveComorbidities(conditions: PatientCondition[]): PatientCondition[] {
+  return [...conditions].sort(
+    (a, b) =>
+      (activeComorbidityOrder.get(a.name.toLowerCase()) ?? Number.MAX_SAFE_INTEGER) -
+      (activeComorbidityOrder.get(b.name.toLowerCase()) ?? Number.MAX_SAFE_INTEGER),
+  );
+}
+
+/**
+ * When condition_role is missing (raw FHIR import), show non-primary
+ * conditions as active comorbidities so Home/Care first load is useful.
+ * Prefer confirmed / non-needsReview rows when present.
+ */
+function isFallbackVisibleComorbidity(condition: PatientCondition): boolean {
+  if (condition.needsReview) return false;
+  if (condition.conditionRole === 'history_context') return false;
+  return true;
+}
+
+export function getBundleStatus(patientId: string): BundleStatus {
+  try {
+    const db = getDatabase();
+    const row = db.getFirstSync<{ value_json: string }>(
+      `SELECT value_json FROM app_settings WHERE key = ?;`,
+      `bundle_status:${patientId}`,
+    );
+    if (!row?.value_json) return DEFAULT_BUNDLE_STATUS;
+    const parsed = JSON.parse(row.value_json) as BundleStatus;
+    if (!parsed || typeof parsed.state !== 'string') return DEFAULT_BUNDLE_STATUS;
+    return parsed;
+  } catch {
+    return DEFAULT_BUNDLE_STATUS;
+  }
+}
+
+export function setBundleStatus(patientId: string, status: BundleStatus): void {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.runSync(
+    `INSERT OR REPLACE INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?);`,
+    `bundle_status:${patientId}`,
+    JSON.stringify({ ...status, updatedAt: now }),
+    now,
+  );
+}
+
+/**
+ * Read the full patient record in one shot. Individual repository calls are
+ * sequential against the same SQLite handle; for the prototype's data volume
+ * this is fast enough and keeps the snapshot consistent.
+ */
+export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapshot {
+  console.log(`[DB] Loading patient record snapshot for patientId=${patientId}...`);
+  const patient = getPatient(patientId);
+  const caregiver = getCaregiverForPatient(patientId);
+  const conditions = getConditionsForPatient(patientId);
+  const symptoms = getSymptomsForPatient(patientId);
+  const wearable = getPrimaryWearableForPatient(patientId);
+  const medications = getActiveMedications(patientId);
+  const medicationCandidates = getMedicationCandidatesForPatient(patientId);
+  const medicationConfirmationRequirements =
+    getMedicationConfirmationRequirementsForPatient(patientId);
+  const functionalObservations = [
+    ...getPatientLongitudinalObservations(patientId, 'mobility_assistance_level'),
+    ...getPatientLongitudinalObservations(patientId, 'musculoskeletal_limitation_level'),
+  ];
+  const thresholds = getActiveThresholds(patientId);
+  const carePlan = getActiveCarePlanForPatient(patientId);
+  const carePlans = getCarePlansForPatient(patientId);
+  const rehabPlanMetrics = carePlan
+    ? getCarePlanRehabMetrics(patientId, carePlan.planId)
+    : [];
+  const rehabExerciseAssignments = carePlan
+    ? getRehabExerciseAssignments(patientId, carePlan.planId)
+    : [];
+  const todayDailyCareEntry = getDailyCareEntry(patientId);
+  const rehabDailyEntries = getDailyCareEntries(
+    patientId,
+    getRehabDailyEntryWindow(carePlan),
+  );
+  const latestUc3TrajectoryResult = carePlan
+    ? getLatestActiveUc3TrajectoryResultSummary(patientId, carePlan.planId)
+    : null;
+  const latestUc4Run = getLatestUc4RunSummary(patientId);
+  const latestUc4PriorityCards = getActiveUc4PriorityCardSummaries(patientId, 3);
+  const recentUc4CaregiverResponses = getUc4CaregiverResponses(patientId, 20);
+  const careContextItems = getPatientCareContextItems(patientId);
+  const timelineEvents = getPatientTimelineEvents(patientId);
+  const carePlanGoals = getCarePlanGoals(patientId);
+  const knowledgeStats = getKnowledgeCacheStats(patientId);
+  const enrichmentStats = getEnrichmentStats(patientId);
+  const bundleStatus = getBundleStatus(patientId);
+  const bundlePending = bundleStatus.state === 'in_flight';
+
+  const hasCuratedRoles = hasCuratedConditionRoles(conditions);
+  const primaryCondition =
+    conditions.find((c) => c.conditionRole === 'primary_diagnosis') ??
+    conditions.find((c) => c.isPrimary) ??
+    conditions.find(isCerebralPalsyCondition) ??
+    conditions.find((c) => !c.needsReview) ??
+    conditions[0] ??
+    null;
+  const comorbidities = hasCuratedRoles
+    ? sortActiveComorbidities(
+        conditions.filter((c) => c.conditionRole === 'active_comorbidity'),
+      )
+    : sortActiveComorbidities(
+        conditions.filter(
+          (c) =>
+            c !== primaryCondition &&
+            c.conditionId !== primaryCondition?.conditionId &&
+            isFallbackVisibleComorbidity(c),
+        ),
+      );
+  const pendingReviewConditions = conditions.filter(
+    (c) => c.needsReview && c !== primaryCondition,
+  );
+
+  // ADCP (planning/39 E4 additive fields). Populated from the ADCP repos;
+  // earlier versions are excluded because the snapshot only exposes the
+  // summary, not the full document body. The full document remains available
+  // via getActiveAdcpRevisionForPatient(). Deliberately resilient: any ADCP
+  // read failure falls back to "no active version" so the rest of the
+  // snapshot still loads.
+  const adcpSummary = safeGetAdcpSummary(patientId);
+  const adcpPendingProposals = safeGetAdcpProposals(patientId);
+  const activeAdcpDocument = safeGetAdcpActive(patientId);
+  const therapyContractPresent = planHasTherapyContract(activeAdcpDocument);
+
+  return {
+    patient,
+    safetyNotes: patient?.safetyNotes ?? '',
+    caregiver,
+    conditions,
+    comorbidities,
+    primaryCondition,
+    pendingReviewConditions,
+    symptoms,
+    wearable,
+    medications,
+    medicationCandidates,
+    medicationConfirmationRequirements,
+    functionalObservations,
+    thresholds,
+    carePlan,
+    carePlans,
+    rehabPlanMetrics,
+    rehabExerciseAssignments,
+    todayDailyCareEntry,
+    rehabDailyEntries,
+    latestUc3TrajectoryResult,
+    latestUc4Run,
+    latestUc4PriorityCards,
+    recentUc4CaregiverResponses,
+    careContextItems,
+    timelineEvents,
+    carePlanGoals,
+    knowledgeStats,
+    enrichmentStats,
+    bundlePending,
+    bundleStatus,
+    activeAdcpVersion: adcpSummary,
+    pendingPlanProposals: adcpPendingProposals as PendingPlanProposalSlice[],
+    therapyContractPresent,
+    lastRefreshedAt: new Date().toISOString(),
+  };
+}
+
+function safeGetAdcpSummary(
+  patientId: string,
+): ReturnType<typeof getActiveAdcpVersionSummary> {
+  try {
+    return getActiveAdcpVersionSummary(patientId);
+  } catch (err) {
+    console.warn('[patientRecordRepository] ADCP summary read failed:', err);
+    return null;
+  }
+}
+
+function safeGetAdcpProposals(
+  patientId: string,
+): ReturnType<typeof listPendingProposalSummaries> {
+  try {
+    return listPendingProposalSummaries(patientId);
+  } catch (err) {
+    console.warn('[patientRecordRepository] ADCP proposals read failed:', err);
+    return [];
+  }
+}
+
+function safeGetAdcpActive(patientId: string) {
+  try {
+    return getActiveAdcpRevisionForPatient(patientId);
+  } catch (err) {
+    console.warn('[patientRecordRepository] ADCP revision read failed:', err);
+    return null;
+  }
+}
