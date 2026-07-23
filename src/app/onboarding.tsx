@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Image,
   KeyboardAvoidingView,
@@ -16,9 +16,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
-import { selectPatientRecord } from "@/contexts/patient-record-context";
+import {
+  refreshPatientRecord,
+  selectPatientRecord,
+  usePatientRecord,
+} from "@/contexts/patient-record-context";
+import patientProfiles from "@/data/fhir/patient-profiles";
 import { AppleHealthSource } from "@/data/sensors/apple-health-source";
 import { ALL_HEALTHKIT_READ_TYPES } from "@/data/sensors/healthkit-type-map";
+import { useBundledEhrImport } from "@/hooks/useBundledEhrImport";
 import {
   applyDemoOnboardingPreset,
   getDemoOnboardingOptions,
@@ -27,6 +33,7 @@ import {
 import {
   COMMON_SYMPTOM_OPTIONS,
   WEARABLE_DEVICE_OPTIONS,
+  completeOnboardingProfileForImportedPatient,
   completeOnboardingProfile,
   getOnboardingProfile,
   type AddressProfile,
@@ -36,6 +43,7 @@ import {
   type LanguagePreference,
   type MedicalComfortLevel,
   type NotificationStyle,
+  type ImportedPatientManualFields,
   type OnboardingProfile,
   type SymptomProfile,
   type WearableBaselineStatus,
@@ -101,6 +109,23 @@ type ExpandedSelect =
   | "cfcs"
   | "edacs"
   | null;
+
+type EhrImportRequest = {
+  patientId: string;
+  profileId: string;
+};
+
+type ImportedEhrFieldLocks = Partial<
+  Record<
+    | "fullName"
+    | "age"
+    | "conditions"
+    | "medications"
+    | "spo2Cutoff"
+    | "baselineHeartRate",
+    boolean
+  >
+>;
 
 type MobilityOption = {
   value: string;
@@ -341,12 +366,63 @@ function formatClassificationValue(
   return prefix ? `${prefix} ${option.value}` : option.detail ?? option.label;
 }
 
+function cleanImportedText(value: string | null | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function formatImportedMedication(medication: {
+  name: string;
+  dosage?: string;
+  frequency?: string;
+  route?: string;
+}): string {
+  const name = cleanImportedText(medication.name);
+  if (!name) return "";
+
+  const details = [
+    medication.dosage,
+    medication.frequency,
+    medication.route,
+  ]
+    .map(cleanImportedText)
+    .filter(Boolean);
+
+  return [name, ...details].join(" - ");
+}
+
+function getImportedEhrStatusText(bundleStatus: {
+  state: "in_flight" | "complete" | "failed";
+  chunksAdded: number;
+  error?: string;
+} | undefined): string {
+  if (bundleStatus?.state === "in_flight") {
+    return "Import complete. Clinical evidence is still updating.";
+  }
+  if (bundleStatus?.state === "failed") {
+    return "Import complete. Clinical evidence will retry later.";
+  }
+
+  return "Imported patient details are ready for review.";
+}
+
 export default function OnboardingScreen() {
   const router = useRouter();
   const existingProfile = getOnboardingProfile();
+  const { snapshot, ready } = usePatientRecord();
+  const { importBundledEhrProfile } = useBundledEhrImport();
 
   const [stepIndex, setStepIndex] = useState(0);
   const [expandedSelect, setExpandedSelect] = useState<ExpandedSelect>(null);
+  const [ehrImportRequest, setEhrImportRequest] =
+    useState<EhrImportRequest | null>(null);
+  const [ehrImporting, setEhrImporting] = useState(false);
+  const [ehrImportError, setEhrImportError] = useState<string | null>(null);
+  const [importedEhrFields, setImportedEhrFields] =
+    useState<ImportedEhrFieldLocks>({});
+  const [
+    appliedImportedEhrRequestKey,
+    setAppliedImportedEhrRequestKey,
+  ] = useState<string | null>(null);
   const [selectedDemoProfileId, setSelectedDemoProfileId] = useState<
     DemoOnboardingProfileId | null
   >((existingProfile.demoProfileId as DemoOnboardingProfileId | undefined) ?? null);
@@ -409,6 +485,20 @@ export default function OnboardingScreen() {
 
   const [patientPreferredName, setPatientPreferredName] = useState(
     existingProfile.patient.preferredName ?? existingProfile.patient.name,
+  );
+  const [patientFullName, setPatientFullName] = useState(
+    existingProfile.patient.officialDisplayName ??
+      existingProfile.patient.name ??
+      "",
+  );
+  const [patientAge, setPatientAge] = useState(
+    existingProfile.patient.age ?? "",
+  );
+  const [patientConditions, setPatientConditions] = useState(
+    existingProfile.patient.conditions ?? "",
+  );
+  const [patientCurrentMedications, setPatientCurrentMedications] = useState(
+    existingProfile.patient.currentMedications ?? "",
   );
 
   const [patientAddressSameAsCaregiver, setPatientAddressSameAsCaregiver] =
@@ -478,6 +568,10 @@ export default function OnboardingScreen() {
     const caregiver = nextProfile.caregiver;
 
     setSelectedDemoProfileId(profileId);
+    setEhrImportRequest(null);
+    setEhrImportError(null);
+    setImportedEhrFields({});
+    setAppliedImportedEhrRequestKey(null);
     setCaregiverName(caregiver.name);
     setRelationship(caregiver.relationship);
     setCaregiverPhone(caregiver.phone);
@@ -494,11 +588,15 @@ export default function OnboardingScreen() {
     setStressOrSupportNeeds(caregiver.stressOrSupportNeeds ?? "");
     setBackupCaregiver(caregiver.backupCaregiver ?? "");
     setPatientPreferredName(nextProfile.patient.preferredName ?? nextProfile.patient.name);
+    setPatientFullName(nextProfile.patient.officialDisplayName ?? "");
+    setPatientAge(nextProfile.patient.age ?? "");
+    setPatientConditions(nextProfile.patient.conditions ?? "");
+    setPatientCurrentMedications(nextProfile.patient.currentMedications ?? "");
     setSelectedSymptoms([]);
     setOtherSymptoms("");
     setBaselineDailyRoutine(nextProfile.patient.baselineDailyRoutine ?? "");
-    setSpo2Cutoff("");
-    setBaselineHeartRate("");
+    setSpo2Cutoff(nextProfile.patient.spo2Cutoff ?? "");
+    setBaselineHeartRate(nextProfile.patient.baselineHeartRate ?? "");
     setBaselineBloodOxygen("");
     setBaselineRespiratoryRate("");
     setBaselineBloodPressureSystolic("");
@@ -579,6 +677,90 @@ export default function OnboardingScreen() {
     }).sort((a, b) => a.label.localeCompare(b.label));
   }, [symptomSearch]);
 
+  const selectedEhrProfile = useMemo(
+    () =>
+      patientProfiles.find((profile) => profile.id === selectedDemoProfileId) ??
+      null,
+    [selectedDemoProfileId],
+  );
+  const canImportSelectedEhrProfile = Boolean(selectedEhrProfile) && !ehrImporting;
+  const ehrImportSucceeded = Boolean(
+    ehrImportRequest &&
+      ready &&
+      snapshot?.patient?.patientId === ehrImportRequest.patientId,
+  );
+
+  const importedEhrSummary = useMemo(() => {
+    if (!ehrImportSucceeded || !snapshot?.patient) return null;
+
+    const fullName = cleanImportedText(snapshot.patient.name);
+    const age = cleanImportedText(snapshot.patient.age);
+    const conditions = snapshot.conditions
+      .map((condition) => cleanImportedText(condition.name))
+      .filter(Boolean);
+    const medications = snapshot.medications
+      .map(formatImportedMedication)
+      .map(cleanImportedText)
+      .filter(Boolean);
+    const spo2Cutoff = cleanImportedText(snapshot.patient.spo2Cutoff);
+    const baselineHeartRate = cleanImportedText(
+      snapshot.patient.baselineHeartRate,
+    );
+
+    return {
+      fullName,
+      age,
+      conditions,
+      medications,
+      spo2Cutoff,
+      baselineHeartRate,
+      statusText: getImportedEhrStatusText(snapshot.bundleStatus),
+    };
+  }, [ehrImportSucceeded, snapshot]);
+
+  useEffect(() => {
+    if (!importedEhrSummary || !ehrImportRequest) return;
+
+    const requestKey = `${ehrImportRequest.profileId}:${ehrImportRequest.patientId}`;
+    if (appliedImportedEhrRequestKey === requestKey) return;
+
+    const nextImportedFields: ImportedEhrFieldLocks = {};
+    const conditionsText = importedEhrSummary.conditions.join(", ");
+    const medicationsText = importedEhrSummary.medications.join(", ");
+
+    if (importedEhrSummary.fullName) {
+      setPatientFullName(importedEhrSummary.fullName);
+      nextImportedFields.fullName = true;
+    }
+    if (importedEhrSummary.age) {
+      setPatientAge(importedEhrSummary.age);
+      nextImportedFields.age = true;
+    }
+    if (conditionsText) {
+      setPatientConditions(conditionsText);
+      nextImportedFields.conditions = true;
+    }
+    if (medicationsText) {
+      setPatientCurrentMedications(medicationsText);
+      nextImportedFields.medications = true;
+    }
+    if (importedEhrSummary.spo2Cutoff) {
+      setSpo2Cutoff(importedEhrSummary.spo2Cutoff);
+      nextImportedFields.spo2Cutoff = true;
+    }
+    if (importedEhrSummary.baselineHeartRate) {
+      setBaselineHeartRate(importedEhrSummary.baselineHeartRate);
+      nextImportedFields.baselineHeartRate = true;
+    }
+
+    setImportedEhrFields(nextImportedFields);
+    setAppliedImportedEhrRequestKey(requestKey);
+  }, [
+    appliedImportedEhrRequestKey,
+    ehrImportRequest,
+    importedEhrSummary,
+  ]);
+
   const isIntroScreen = stepIndex === 0;
   const canGoBack = stepIndex > 0;
   const isFinalStep = stepIndex === totalScreens - 1;
@@ -602,10 +784,41 @@ export default function OnboardingScreen() {
     setStepIndex((current) => Math.min(current + 1, totalScreens - 1));
   }
 
+  async function handleImportSelectedEhrProfile() {
+    if (ehrImporting || !selectedEhrProfile) return;
+
+    setEhrImportError(null);
+    setImportedEhrFields({});
+    setAppliedImportedEhrRequestKey(null);
+    setEhrImporting(true);
+
+    try {
+      const result = await importBundledEhrProfile(selectedEhrProfile);
+      if (!result.patientId) {
+        setEhrImportRequest(null);
+        setEhrImportError("The selected EHR profile could not be imported.");
+        return;
+      }
+
+      setEhrImportRequest({
+        patientId: result.patientId,
+        profileId: selectedEhrProfile.id,
+      });
+    } catch (error) {
+      console.error("Failed to import onboarding EHR profile", error);
+      setEhrImportRequest(null);
+      setEhrImportError("EHR import failed. Try again.");
+    } finally {
+      setEhrImporting(false);
+    }
+  }
+
   async function saveProfileAndContinue() {
     const finalPatientAddress = patientAddressSameAsCaregiver
       ? caregiverAddress
       : patientAddress;
+    const finalPatientFullName =
+      patientFullName.trim() || patientPreferredName.trim();
 
     const profile: OnboardingProfile = {
       demoProfileId: selectedDemoProfileId ?? undefined,
@@ -626,13 +839,17 @@ export default function OnboardingScreen() {
         backupCaregiver,
       },
       patient: {
-        name: patientPreferredName,
+        name: finalPatientFullName,
         preferredName: patientPreferredName,
+        officialDisplayName: patientFullName,
+        age: patientAge,
+        conditions: patientConditions,
         addressSameAsCaregiver: patientAddressSameAsCaregiver,
         address: finalPatientAddress,
         symptoms: selectedSymptoms,
         otherSymptoms,
         baselineDailyRoutine,
+        currentMedications: patientCurrentMedications,
         spo2Cutoff,
         baselineHeartRate,
         baselineBloodOxygen,
@@ -668,6 +885,67 @@ export default function OnboardingScreen() {
       clinicalImport: existingProfile.clinicalImport,
       completedAt: new Date().toISOString(),
     };
+
+    if (ehrImportRequest) {
+      const importedPatientId = ehrImportRequest.patientId;
+      if (!ready || snapshot?.patient?.patientId !== importedPatientId) {
+        setEhrImportError(
+          "The imported EHR patient is no longer active. Import EHR again before continuing.",
+        );
+        setStepIndex(3);
+        return;
+      }
+
+      const manualFields: ImportedPatientManualFields = {};
+      const manualFullName = importedEhrFields.fullName
+        ? ""
+        : finalPatientFullName.trim();
+      const manualAge = importedEhrFields.age ? "" : patientAge.trim();
+      const manualConditions = importedEhrFields.conditions
+        ? ""
+        : patientConditions.trim();
+      const manualCurrentMedications = importedEhrFields.medications
+        ? ""
+        : patientCurrentMedications.trim();
+      const manualSpo2Cutoff = importedEhrFields.spo2Cutoff
+        ? ""
+        : spo2Cutoff.trim();
+      const manualBaselineHeartRate = importedEhrFields.baselineHeartRate
+        ? ""
+        : baselineHeartRate.trim();
+
+      if (manualFullName) manualFields.fullName = manualFullName;
+      if (manualAge) manualFields.age = manualAge;
+      if (manualConditions) manualFields.conditions = manualConditions;
+      if (manualCurrentMedications) {
+        manualFields.currentMedications = manualCurrentMedications;
+      }
+      if (manualSpo2Cutoff) manualFields.spo2Cutoff = manualSpo2Cutoff;
+      if (manualBaselineHeartRate) {
+        manualFields.baselineHeartRate = manualBaselineHeartRate;
+      }
+
+      try {
+        const result = await completeOnboardingProfileForImportedPatient(
+          profile,
+          importedPatientId,
+          manualFields,
+        );
+        if (result.patientId !== importedPatientId) {
+          throw new Error("Imported patient completion returned a different patient.");
+        }
+        selectPatientRecord(importedPatientId);
+        refreshPatientRecord(importedPatientId);
+        router.replace("/dashboard");
+      } catch (error) {
+        console.error("Failed to complete onboarding for imported patient", error);
+        setEhrImportError(
+          "Onboarding could not finish with the imported EHR patient. Try importing again.",
+        );
+        setStepIndex(3);
+      }
+      return;
+    }
 
     const result = await completeOnboardingProfile(profile);
     if (result.patientId) {
@@ -922,7 +1200,81 @@ export default function OnboardingScreen() {
                   normally uses.
                 </Text>
 
-                <SectionLabel title="Patient address" />
+                <Pressable
+                  style={[
+                    styles.ehrPlaceholderButton,
+                    importedEhrSummary && styles.ehrAppliedButton,
+                    !canImportSelectedEhrProfile && styles.ehrDisabledButton,
+                  ]}
+                  onPress={handleImportSelectedEhrProfile}
+                  disabled={!canImportSelectedEhrProfile}
+                  accessibilityRole="button"
+                  accessibilityLabel="Import from EHR"
+                  accessibilityHint="Imports EHR details for the selected onboarding patient"
+                  accessibilityState={{ disabled: !canImportSelectedEhrProfile }}
+                >
+                  <View style={styles.ehrIconCircle}>
+                    <AppIcon
+                      name="plus"
+                      size={18}
+                      color={AppTheme.colors.brand}
+                    />
+                  </View>
+
+                  <View style={styles.ehrTextBlock}>
+                    <Text style={styles.ehrTitle}>
+                      {ehrImporting
+                        ? "Importing..."
+                        : importedEhrSummary
+                        ? "Imported from EHR"
+                        : "Import from EHR"}
+                    </Text>
+                    <Text style={styles.ehrSubtitle}>
+                      {ehrImporting
+                        ? "Importing EHR details for the selected patient."
+                        : ehrImportError
+                        ? ehrImportError
+                        : importedEhrSummary
+                        ? importedEhrSummary.statusText
+                        : selectedEhrProfile
+                        ? "Some information on this page can be obtained from the patient's EHR."
+                        : selectedDemoProfileId
+                        ? "The selected onboarding case does not have a matching EHR profile."
+                        : "Select a patient case on the landing page before importing EHR details."}
+                    </Text>
+                    {selectedEhrProfile ? (
+                      <Text style={styles.ehrSelectedPatient}>
+                        Selected patient: {selectedEhrProfile.label}
+                      </Text>
+                    ) : null}
+                  </View>
+                </Pressable>
+
+                <SectionLabel title="Patient information" />
+
+                <View style={styles.twoColumnFields}>
+                  <Field
+                    label="Full name"
+                    value={patientFullName}
+                    onChangeText={setPatientFullName}
+                    placeholder="Full name"
+                    autoCapitalize="words"
+                    imported={Boolean(importedEhrFields.fullName)}
+                    editable={!importedEhrFields.fullName}
+                  />
+
+                  <Field
+                    label="Age"
+                    value={patientAge}
+                    onChangeText={setPatientAge}
+                    placeholder="Age"
+                    keyboardType="number-pad"
+                    imported={Boolean(importedEhrFields.age)}
+                    editable={!importedEhrFields.age}
+                  />
+                </View>
+
+                <SectionLabel title="Address" />
 
                 <ChoiceCard
                   title="Same as caregiver address"
@@ -944,6 +1296,15 @@ export default function OnboardingScreen() {
                     onChange={updatePatientAddress}
                   />
                 ) : null}
+
+                <LargeField
+                  label="Conditions"
+                  value={patientConditions}
+                  onChangeText={setPatientConditions}
+                  placeholder="Add known conditions..."
+                  imported={Boolean(importedEhrFields.conditions)}
+                  editable={!importedEhrFields.conditions}
+                />
 
                 <SectionLabel title="Common symptoms" />
 
@@ -1010,6 +1371,15 @@ export default function OnboardingScreen() {
                 />
 
                 <LargeField
+                  label="Current medications"
+                  value={patientCurrentMedications}
+                  onChangeText={setPatientCurrentMedications}
+                  placeholder="Add current medications..."
+                  imported={Boolean(importedEhrFields.medications)}
+                  editable={!importedEhrFields.medications}
+                />
+
+                <LargeField
                   label="Daily routine"
                   value={baselineDailyRoutine}
                   onChangeText={setBaselineDailyRoutine}
@@ -1034,6 +1404,8 @@ export default function OnboardingScreen() {
                     value={spo2Cutoff}
                     onChangeText={setSpo2Cutoff}
                     placeholder="Care-plan cutoff"
+                    imported={Boolean(importedEhrFields.spo2Cutoff)}
+                    editable={!importedEhrFields.spo2Cutoff}
                   />
 
                   <SectionLabel title="USUAL HEALTH READINGS" />
@@ -1044,6 +1416,8 @@ export default function OnboardingScreen() {
                     onChangeText={setBaselineHeartRate}
                     placeholder="bpm"
                     keyboardType="number-pad"
+                    imported={Boolean(importedEhrFields.baselineHeartRate)}
+                    editable={!importedEhrFields.baselineHeartRate}
                   />
 
                   <Field
@@ -1400,13 +1774,13 @@ function WelcomeStep({
       <View style={styles.previewCard}>
         <Text style={styles.previewTitle}>Designed for family caregivers</Text>
 
-        <SummaryRow text="Understand what is happening quickly" />
+        <SummaryRow text="Quickly understand your patient’s health status." />
         <SummaryRow text="Follow confident care pathways while keeping human judgment at the center" />
         <SummaryRow text="Reduce uncertainty with structured health context" />
       </View>
 
       <Text style={styles.privacyText}>
-        Takes about 3 minutes · You can update this later
+        Takes about 5 minutes · You can update this later
       </Text>
 
       {isDemoCasesExpanded ? (
@@ -1520,6 +1894,8 @@ function Field({
   keyboardType,
   autoCapitalize,
   helper,
+  editable = true,
+  imported = false,
 }: {
   label: string;
   value: string;
@@ -1533,20 +1909,34 @@ function Field({
     | "email-address";
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
   helper?: string;
+  editable?: boolean;
+  imported?: boolean;
 }) {
+  const helperText = imported ? "Imported from EHR" : helper;
+
   return (
     <View style={styles.fieldBlock}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, imported && styles.inputImported]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={AppTheme.colors.textMuted}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        editable={editable}
+        accessibilityLabel={
+          imported ? `${label}. Imported from EHR. Read only.` : label
+        }
+        accessibilityHint={
+          imported
+            ? "This field was imported from the selected EHR profile and cannot be edited."
+            : undefined
+        }
+        accessibilityState={{ disabled: !editable }}
       />
-      {helper ? <Text style={styles.fieldHelper}>{helper}</Text> : null}
+      {helperText ? <Text style={styles.fieldHelper}>{helperText}</Text> : null}
     </View>
   );
 }
@@ -1556,24 +1946,45 @@ function LargeField({
   value,
   onChangeText,
   placeholder,
+  editable = true,
+  imported = false,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   placeholder: string;
+  editable?: boolean;
+  imported?: boolean;
 }) {
+  const helperText = imported ? "Imported from EHR" : undefined;
+
   return (
     <View style={styles.fieldBlock}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
-        style={[styles.input, styles.largeInput]}
+        style={[
+          styles.input,
+          styles.largeInput,
+          imported && styles.inputImported,
+        ]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={AppTheme.colors.textMuted}
         multiline
         textAlignVertical="top"
+        editable={editable}
+        accessibilityLabel={
+          imported ? `${label}. Imported from EHR. Read only.` : label
+        }
+        accessibilityHint={
+          imported
+            ? "This field was imported from the selected EHR profile and cannot be edited."
+            : undefined
+        }
+        accessibilityState={{ disabled: !editable }}
       />
+      {helperText ? <Text style={styles.fieldHelper}>{helperText}</Text> : null}
     </View>
   );
 }
@@ -2116,6 +2527,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
   },
+  inputImported: {
+    borderColor: AppTheme.colors.brand,
+    backgroundColor: AppTheme.colors.brandSoft,
+  },
   largeInput: {
     minHeight: 104,
     lineHeight: 22,
@@ -2181,10 +2596,20 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 2,
   },
+  ehrSelectedPatient: {
+    color: AppTheme.colors.text,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "900",
+    marginTop: 6,
+  },
   ehrAppliedButton: {
     borderColor: AppTheme.colors.brand,
     backgroundColor: AppTheme.colors.brandSoft,
     opacity: 0.7,
+  },
+  ehrDisabledButton: {
+    opacity: 0.55,
   },
   clinicalGuidanceCard: {
     borderRadius: AppTheme.radius.card,

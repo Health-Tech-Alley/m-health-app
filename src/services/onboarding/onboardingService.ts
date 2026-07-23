@@ -1,5 +1,18 @@
 import type { NormalizedFhirClinicalImportPackage } from '@/data/fhir';
+import { getDatabase } from '@/data/db';
 import { getActivePatientId } from '@/data/repositories/appSettingsRepository';
+import { ensureDefaultNotificationPreferences } from '@/data/repositories/notificationRepository';
+import {
+  getPatient,
+  upsertCaregiver,
+  upsertCondition,
+  upsertMedication,
+  upsertPatient,
+} from '@/data/repositories/patientRepository';
+import { upsertMedicationSchedule } from '@/data/repositories/medicationScheduleRepository';
+import { upsertSymptom } from '@/data/repositories/symptomRepository';
+import { upsertWearableDevice } from '@/data/repositories/wearableDeviceRepository';
+import type { Medication, Patient, SymptomCategory } from '@/data/types';
 import { seedDatabaseFromProfile } from '@/data/seed/seedFromProfile';
 
 /**
@@ -215,6 +228,15 @@ export type OnboardingSeedResult = {
   seededDatabase: boolean;
   patientId?: string;
   error?: string;
+};
+
+export type ImportedPatientManualFields = {
+  fullName?: string;
+  age?: string;
+  conditions?: string;
+  currentMedications?: string;
+  spo2Cutoff?: string;
+  baselineHeartRate?: string;
 };
 
 export type MockEhrPatientRecord = Pick<
@@ -472,6 +494,317 @@ export async function completeOnboardingProfile(
     seededDatabase: true,
     patientId,
   };
+}
+
+export async function completeOnboardingProfileForImportedPatient(
+  profile: OnboardingProfile,
+  importedPatientId: string,
+  manualFields: ImportedPatientManualFields = {},
+): Promise<OnboardingSeedResult> {
+  const patientId = importedPatientId.trim();
+  if (!patientId) {
+    throw new Error('Imported patient ID is required to complete onboarding.');
+  }
+
+  const existingPatient = getPatient(patientId);
+  if (!existingPatient) {
+    throw new Error(`Cannot complete onboarding for missing imported patient: ${patientId}`);
+  }
+
+  const profileForSave = buildImportedPatientProfileForSave(profile, manualFields);
+  const now = new Date().toISOString();
+
+  getDatabase().withTransactionSync(() => {
+    clearPreviousImportedOnboardingRows(patientId);
+    persistImportedPatientManualValues({
+      profile: profileForSave,
+      existingPatient,
+      patientId,
+      manualFields,
+      now,
+    });
+  });
+  saveOnboardingProfile(profileForSave);
+
+  return {
+    savedInMemory: true,
+    seededDatabase: false,
+    patientId,
+  };
+}
+
+function buildImportedPatientProfileForSave(
+  profile: OnboardingProfile,
+  manualFields: ImportedPatientManualFields,
+): OnboardingProfile {
+  const fullName = cleanManualText(manualFields.fullName);
+  const age = cleanManualText(manualFields.age);
+  const conditions = cleanManualText(manualFields.conditions);
+  const currentMedications = cleanManualText(manualFields.currentMedications);
+  const spo2Cutoff = cleanManualText(manualFields.spo2Cutoff);
+  const baselineHeartRate = cleanManualText(manualFields.baselineHeartRate);
+
+  return {
+    ...profile,
+    patient: {
+      ...profile.patient,
+      name: fullName ?? profile.patient.preferredName ?? '',
+      officialDisplayName: fullName ?? '',
+      age: age ?? '',
+      conditions: conditions ?? '',
+      primaryIcdCode: undefined,
+      primaryIcdLabel: undefined,
+      comorbidities: [],
+      currentMedications: currentMedications ?? '',
+      spo2Cutoff: spo2Cutoff ?? '',
+      baselineHeartRate: baselineHeartRate ?? '',
+    },
+  };
+}
+
+function persistImportedPatientManualValues({
+  profile,
+  existingPatient,
+  patientId,
+  manualFields,
+  now,
+}: {
+  profile: OnboardingProfile;
+  existingPatient: Patient;
+  patientId: string;
+  manualFields: ImportedPatientManualFields;
+  now: string;
+}): void {
+  const patient = profile.patient;
+  const manualFullName = cleanManualText(manualFields.fullName);
+  const manualAge = cleanManualText(manualFields.age);
+  const manualConditions = cleanManualText(manualFields.conditions);
+  const manualCurrentMedications = cleanManualText(manualFields.currentMedications);
+  const manualSpo2Cutoff = cleanManualText(manualFields.spo2Cutoff);
+  const manualBaselineHeartRate = cleanManualText(manualFields.baselineHeartRate);
+
+  upsertPatient({
+    ...existingPatient,
+    patientId,
+    name: manualFullName ?? existingPatient.name,
+    preferredName: cleanOptionalText(patient.preferredName) || existingPatient.preferredName,
+    age: manualAge ?? existingPatient.age,
+    conditions: manualConditions ?? existingPatient.conditions,
+    baselineDailyRoutine:
+      cleanOptionalText(patient.baselineDailyRoutine) || existingPatient.baselineDailyRoutine,
+    currentMedications: manualCurrentMedications ?? existingPatient.currentMedications,
+    spo2Cutoff: manualSpo2Cutoff ?? existingPatient.spo2Cutoff,
+    baselineHeartRate: manualBaselineHeartRate ?? existingPatient.baselineHeartRate,
+    baselineBloodOxygen:
+      cleanOptionalText(patient.baselineBloodOxygen) || existingPatient.baselineBloodOxygen,
+    baselineRespiratoryRate:
+      cleanOptionalText(patient.baselineRespiratoryRate) ||
+      existingPatient.baselineRespiratoryRate,
+    baselineBloodPressureSystolic:
+      cleanOptionalText(patient.baselineBloodPressureSystolic) ||
+      existingPatient.baselineBloodPressureSystolic,
+    baselineBloodPressureDiastolic:
+      cleanOptionalText(patient.baselineBloodPressureDiastolic) ||
+      existingPatient.baselineBloodPressureDiastolic,
+    baselineGlucoseLevel:
+      cleanOptionalText(patient.baselineGlucoseLevel) || existingPatient.baselineGlucoseLevel,
+    baselineBodyTemperature:
+      cleanOptionalText(patient.baselineBodyTemperature) ||
+      existingPatient.baselineBodyTemperature,
+    gmfcs: cleanOptionalText(patient.gmfcsLevel) || existingPatient.gmfcs,
+    fms: cleanOptionalText(patient.fmsScore) || existingPatient.fms,
+    macs: cleanOptionalText(patient.macsLevel) || existingPatient.macs,
+    cfcs: cleanOptionalText(patient.cfcsLevel) || existingPatient.cfcs,
+    edacs: cleanOptionalText(patient.edacsLevel) || existingPatient.edacs,
+    location: cleanOptionalText(patient.location) || existingPatient.location,
+    safetyNotes: cleanOptionalText(profile.safety?.safetyNotes) || existingPatient.safetyNotes,
+    createdAt: existingPatient.createdAt,
+    updatedAt: now,
+  });
+
+  upsertCaregiver({
+    caregiverId: `caregiver-${patientId}`,
+    patientId,
+    name: profile.caregiver.name,
+    relationship: profile.caregiver.relationship,
+    experience: profile.caregiver.experience,
+    availability: profile.caregiver.availability,
+    languagePreference: profile.caregiver.languagePreference,
+    medicalComfortLevel: profile.caregiver.medicalComfortLevel,
+    hobbiesOrRoutines: profile.caregiver.hobbiesOrRoutines,
+    mainConcern: profile.caregiver.mainConcern,
+    stressOrSupportNeeds: profile.caregiver.stressOrSupportNeeds,
+    backupCaregiver: profile.caregiver.backupCaregiver,
+    createdAt: now,
+  });
+
+  persistManualSymptoms(patientId, patient, now);
+  persistManualWearable(patientId, patient.wearableDevice, now);
+  if (manualConditions) persistManualConditions(patientId, manualConditions);
+  if (manualCurrentMedications) {
+    persistManualMedications(patientId, manualCurrentMedications, now);
+  }
+  ensureDefaultNotificationPreferences();
+}
+
+function clearPreviousImportedOnboardingRows(patientId: string): void {
+  const db = getDatabase();
+  db.runSync(
+    `DELETE FROM symptoms
+     WHERE patient_id = ?
+       AND COALESCE(source, 'onboarding') = 'onboarding'
+       AND symptom_id LIKE 'symptom-onboarding-%';`,
+    patientId,
+  );
+  db.runSync(
+    `DELETE FROM patient_conditions
+     WHERE patient_id = ?
+       AND COALESCE(source, 'onboarding') = 'onboarding'
+       AND condition_id LIKE 'condition-onboarding-%';`,
+    patientId,
+  );
+  db.runSync(
+    `DELETE FROM medication_schedules
+     WHERE patient_id = ?
+       AND schedule_id LIKE 'sched-onboarding-%';`,
+    patientId,
+  );
+  db.runSync(
+    `DELETE FROM medications
+     WHERE patient_id = ?
+       AND COALESCE(source, 'care_plan') = 'care_plan'
+       AND medication_id LIKE 'med-onboarding-%';`,
+    patientId,
+  );
+  db.runSync(
+    `DELETE FROM thresholds
+     WHERE patient_id = ?
+       AND threshold_id LIKE 'threshold-%-onboarding-%';`,
+    patientId,
+  );
+}
+
+function persistManualSymptoms(
+  patientId: string,
+  patient: PatientProfile,
+  now: string,
+): void {
+  for (const symptomId of patient.symptoms ?? []) {
+    const option = COMMON_SYMPTOM_OPTIONS.find((item) => item.id === symptomId);
+    const label = option?.label ?? symptomId;
+    const category = (option?.category ?? 'other') as SymptomCategory;
+    upsertSymptom({
+      symptomId: makeStableOnboardingId('symptom', patientId, label),
+      patientId,
+      label,
+      category,
+      source: 'onboarding',
+      createdAt: now,
+    });
+  }
+
+  const otherSymptoms = cleanManualText(patient.otherSymptoms);
+  if (otherSymptoms) {
+    upsertSymptom({
+      symptomId: makeStableOnboardingId('symptom', patientId, otherSymptoms),
+      patientId,
+      label: otherSymptoms,
+      category: 'other',
+      source: 'onboarding',
+      createdAt: now,
+    });
+  }
+}
+
+function persistManualWearable(
+  patientId: string,
+  wearable: WearableDeviceProfile | undefined,
+  now: string,
+): void {
+  if (!wearable) return;
+  upsertWearableDevice({
+    deviceId: `device-onboarding-${stableHash(patientId)}`,
+    patientId,
+    deviceType: wearable.deviceType,
+    deviceLabel: wearable.deviceLabel,
+    connected: wearable.connected,
+    baselineStatus: wearable.baselineStatus,
+    baselineStartedAt: wearable.baselineStartedAt,
+    baselineCompletedAt: wearable.baselineCompletedAt,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+function persistManualConditions(patientId: string, conditionsText: string): void {
+  const names = splitManualList(conditionsText);
+  names.forEach((name, index) => {
+    upsertCondition({
+      conditionId: makeStableOnboardingId('condition', patientId, `${index}:${name}`),
+      patientId,
+      name,
+      isPrimary: index === 0,
+      source: 'onboarding',
+      needsReview: false,
+    });
+  });
+}
+
+function persistManualMedications(
+  patientId: string,
+  medicationsText: string,
+  now: string,
+): void {
+  const medicationNames = splitManualList(medicationsText);
+  for (const name of medicationNames) {
+    const medicationId = makeStableOnboardingId('med', patientId, name);
+    const medication: Medication = {
+      medicationId,
+      patientId,
+      name,
+      active: true,
+      source: 'care_plan',
+    };
+    upsertMedication(medication);
+    upsertMedicationSchedule({
+      scheduleId: makeStableOnboardingId('sched', patientId, name),
+      medicationId,
+      patientId,
+      timeOfDay: '08:00',
+      active: true,
+      createdAt: now,
+    });
+  }
+}
+
+function splitManualList(value: string): string[] {
+  const seen = new Set<string>();
+  const items: string[] = [];
+  for (const item of value.split(/[,\n]/)) {
+    const text = item.trim();
+    const key = text.toLowerCase().replace(/\s+/g, ' ');
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    items.push(text);
+  }
+  return items;
+}
+
+function makeStableOnboardingId(prefix: string, patientId: string, value: string | undefined): string {
+  return `${prefix}-onboarding-${stableHash(`${patientId}:${value ?? ''}`)}`;
+}
+
+function stableHash(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function cleanManualText(value: string | undefined): string | undefined {
+  const text = value?.trim();
+  return text ? text : undefined;
 }
 
 export function getOnboardingProfile(): OnboardingProfile {

@@ -220,6 +220,16 @@ describe('demo onboarding presets', () => {
   });
 
   it('does not populate clinical patient screens during onboarding selection', () => {
+    const approvedManualVitals: Record<
+      string,
+      { spo2Cutoff: string; baselineHeartRate: string }
+    > = {
+      'elena-gracia': { spo2Cutoff: '', baselineHeartRate: '' },
+      'james-okafor': { spo2Cutoff: '94%', baselineHeartRate: '70-90 BPM' },
+      'sofia-reyes': { spo2Cutoff: '95%', baselineHeartRate: '75-100 BPM' },
+      'mike-ehr-v62': { spo2Cutoff: '92%', baselineHeartRate: '60-100 BPM' },
+    };
+
     for (const preset of Object.values(DEMO_ONBOARDING_PRESETS)) {
       const next = applyDemoOnboardingPreset(blankProfile(), preset.id);
 
@@ -227,8 +237,12 @@ describe('demo onboarding presets', () => {
       expect(next.patient.age).toBe('');
       expect(next.patient.conditions).toBe('');
       expect(next.patient.currentMedications).toBe('');
-      expect(next.patient.spo2Cutoff).toBe('');
-      expect(next.patient.baselineHeartRate).toBe('');
+      expect(next.patient.spo2Cutoff).toBe(
+        approvedManualVitals[preset.id].spo2Cutoff,
+      );
+      expect(next.patient.baselineHeartRate).toBe(
+        approvedManualVitals[preset.id].baselineHeartRate,
+      );
       expect(next.patient.comorbidities).toEqual([]);
       expect(next.patient.symptoms).toEqual([]);
       expect(next.clinicalImport).toBeUndefined();

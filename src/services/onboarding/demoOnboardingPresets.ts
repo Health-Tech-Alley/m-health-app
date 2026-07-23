@@ -33,7 +33,8 @@ type DemoCaregiverPreset = Pick<
 type DemoPatientPreset = Pick<
   PatientProfile,
   'name' | 'preferredName' | 'baselineDailyRoutine'
->;
+> &
+  Partial<Pick<PatientProfile, 'spo2Cutoff' | 'baselineHeartRate'>>;
 
 export type DemoOnboardingPreset = {
   id: DemoOnboardingProfileId;
@@ -112,6 +113,8 @@ export const DEMO_ONBOARDING_PRESETS: Record<
     patient: {
       name: 'James',
       preferredName: 'James',
+      spo2Cutoff: '94%',
+      baselineHeartRate: '70-90 BPM',
       baselineDailyRoutine:
         'James does caregiver-supported home rehabilitation each day. I help track his exercise repetitions, range of motion, walking activity, pain, and fatigue, and I keep notes for the rehabilitation team.',
     },
@@ -152,6 +155,8 @@ export const DEMO_ONBOARDING_PRESETS: Record<
     patient: {
       name: 'Sofia',
       preferredName: 'Sofi',
+      spo2Cutoff: '95%',
+      baselineHeartRate: '75-100 BPM',
       baselineDailyRoutine:
         'Sofi follows a regular medication, bladder, and bowel routine. She usually eats on a consistent schedule and stays as active as she comfortably can. She wears a watch that tracks her heart rate and movement. I check in with her during the day and help her keep up with medications and daily routines.',
     },
@@ -188,10 +193,12 @@ export const DEMO_ONBOARDING_PRESETS: Record<
   },
   'mike-ehr-v62': {
     id: 'mike-ehr-v62',
-    label: 'Mike v6.2',
+    label: 'Mike',
     patient: {
       name: 'Mike',
       preferredName: 'Mike',
+      spo2Cutoff: '92%',
+      baselineHeartRate: '60-100 BPM',
       baselineDailyRoutine:
         'Mike follows a regular schedule for medications, meals, personal care, stretching, positioning, and rest. I help him with transfers and daily activities, check his skin and any braces or splints, and keep track of changes in his breathing, swallowing, comfort, and energy.',
     },
@@ -259,8 +266,8 @@ export function applyDemoOnboardingPreset(
       symptoms: [],
       otherSymptoms: '',
       baselineDailyRoutine: preset.patient.baselineDailyRoutine,
-      spo2Cutoff: '',
-      baselineHeartRate: '',
+      spo2Cutoff: preset.patient.spo2Cutoff ?? '',
+      baselineHeartRate: preset.patient.baselineHeartRate ?? '',
       baselineBloodOxygen: '',
       baselineRespiratoryRate: '',
       baselineBloodPressureSystolic: '',
