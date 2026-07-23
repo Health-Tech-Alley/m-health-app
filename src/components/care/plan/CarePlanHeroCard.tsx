@@ -15,6 +15,7 @@ import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-nativ
 import { AppTheme } from '@/constants/theme';
 import type { PlanPulse } from '@/services/carePlan/planPulseService';
 import type { CarePlanViewModel } from '@/services/carePlan/carePlanViewModel';
+import { formatPossessive, getFirstName } from '@/utils/patientDisplay';
 import { PlanPulseRing } from './PlanPulseRing';
 
 const STATUS_WORD_LABEL: Record<PlanPulse['statusWord'], string> = {
@@ -42,14 +43,6 @@ export interface CarePlanHeroCardProps {
   /** Play the one-time entrance (fade/slide + ring sweep + spine draw). */
   playEntrance?: boolean;
   reduceMotion?: boolean;
-}
-
-function firstName(name: string): string {
-  return name.trim().split(/\s+/)[0] || name;
-}
-
-function possessive(name: string): string {
-  return `${name}\u2019s`;
 }
 
 export function CarePlanHeroCard({
@@ -90,11 +83,21 @@ export function CarePlanHeroCard({
     ],
   };
 
+  const planTitle = `${formatPossessive(getFirstName(patientName))} Care Plan`;
+  const caregiverLine =
+    caregiverName && caregiverName !== 'Not provided'
+      ? caregiverRole && caregiverRole !== 'Not provided'
+        ? `Cared for by ${caregiverName} · ${caregiverRole}`
+        : `Cared for by ${caregiverName}`
+      : null;
+  const recentChangesLabel =
+    whatChangedCount === 1 ? '1 recent change' : `${whatChangedCount} recent changes`;
+
   return (
     <Animated.View
       style={[styles.card, animatedStyle]}
       accessible
-      accessibilityLabel={`${possessive(firstName(patientName))} care plan, ${STATUS_WORD_LABEL[pulse.statusWord]}, plan pulse ${pulse.score} out of 100`}
+      accessibilityLabel={`${planTitle}, ${STATUS_WORD_LABEL[pulse.statusWord]}`}
     >
       {/* Socket on the bottom-left — the spine drops out of the hero here. */}
       <View style={styles.spineSocket} />
@@ -103,7 +106,7 @@ export function CarePlanHeroCard({
         <View style={styles.titleBlock}>
           <Text style={styles.eyebrow}>Care plan</Text>
           <Text style={styles.title} numberOfLines={2}>
-            {possessive(firstName(patientName))} Care Plan
+            {planTitle}
           </Text>
           <View style={styles.statusRow}>
             <View style={[styles.statusDot, { backgroundColor: STATUS_WORD_COLOR[pulse.statusWord] }]} />
@@ -128,18 +131,20 @@ export function CarePlanHeroCard({
       <Text style={styles.metaLine} numberOfLines={2}>
         {patientName}, {patientAge} · {primaryDiagnosisLabel}
       </Text>
-      <Text style={styles.metaLine} numberOfLines={1}>
-        Caregiver {caregiverName} · {caregiverRole}
-      </Text>
+      {caregiverLine ? (
+        <Text style={styles.metaLine} numberOfLines={1}>
+          {caregiverLine}
+        </Text>
+      ) : null}
 
       {onShowWhatChanged && whatChangedCount > 0 ? (
         <Pressable
           style={styles.whatChangedButton}
           onPress={onShowWhatChanged}
           accessibilityRole="button"
-          accessibilityLabel={`What changed, ${whatChangedCount} recent decisions`}
+          accessibilityLabel={recentChangesLabel}
         >
-          <Text style={styles.whatChangedButtonText}>What changed ({whatChangedCount})</Text>
+          <Text style={styles.whatChangedButtonText}>{recentChangesLabel}</Text>
         </Pressable>
       ) : null}
     </Animated.View>

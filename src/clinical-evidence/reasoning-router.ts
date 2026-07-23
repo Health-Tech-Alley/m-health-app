@@ -141,7 +141,7 @@ export function selectChatGeneration(args: {
  * Pick the reasoning mode for a single SLM call.
  *
  * Keyword/chunk-first legacy selector for surfaces that do not have an
- * NLU packet yet (e.g. SlmInsightSheet, service fallback).
+ * NLU packet yet (rare service fallback; sheets use prepareSlmTurn).
  */
 export function decideReasoningMode(args: {
   message: string;

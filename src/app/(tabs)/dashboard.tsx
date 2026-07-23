@@ -22,7 +22,9 @@ import { usePatientRecord } from "@/contexts/patient-record-context";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { usePendingReviews } from "@/hooks/usePendingReviews";
 import {
+  formatPossessive,
   getCaregiverDisplay,
+  getFirstName,
   getPatientDisplayName,
 } from "@/utils/patientDisplay";
 
@@ -78,7 +80,7 @@ export default function DashboardRoute() {
           <MainTabHeader
             title="Home"
             eyebrow="Caregiver Concierge"
-            subtitle={`${greeting}. Here's ${patientFirstName}'s status.`}
+            subtitle={`${greeting}. Here\u2019s ${formatPossessive(patientFirstName)} status.`}
             logoSource={require("@/assets/images/hta-logo.png")}
             rightContent={
               <>
@@ -97,7 +99,7 @@ export default function DashboardRoute() {
                 </Pressable>
                 <Pressable
                   style={styles.gearButton}
-                  onPress={() => router.push("/(tabs)/more" as never)}
+                  onPress={() => router.push("/more" as never)}
                   accessibilityRole="button"
                   accessibilityLabel="Open More"
                 >
@@ -229,11 +231,6 @@ function RehabReminderCard() {
       <AppIcon name="chevronRight" size={24} color={AppTheme.colors.textMuted} />
     </Pressable>
   );
-}
-
-function getFirstName(name: string): string {
-  const firstName = name.trim().split(/\s+/)[0];
-  return firstName || name;
 }
 
 const styles = StyleSheet.create({

@@ -1,14 +1,11 @@
 /**
- * Care plan "Monitoring" section — deeper than Dashboard’s SpO2/HR teaser.
- *
- * Severity-grouped threshold cards with plain-language meaning and source,
- * plus optional baseline context and the vitals observation chart.
+ * Care plan "Monitoring & alert cutoffs" section — deeper than Dashboard’s
+ * SpO2/HR teaser. Recent readings live in a sibling card on the Care spine.
  */
 
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { ObservationVitalsCard } from '@/components/care/ObservationVitalsCard';
 import { AppTheme } from '@/constants/theme';
 import { sectionStyles } from './carePlanSectionStyles';
 import type { Threshold } from '@/data/types';
@@ -274,9 +271,6 @@ export function CarePlanMonitoringSection({
         </View>
       )}
 
-      <View style={sectionStyles.divider} />
-      <Text style={styles.vitalsKicker}>Recent readings</Text>
-      <ObservationVitalsCard />
     </View>
   );
 }

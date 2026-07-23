@@ -1,13 +1,23 @@
 /**
- * "What changed" modal (Care tab rework).
+ * Recent plan-changes bottom sheet (Care hero).
  *
- * The decision digest used to be its own always-visible section; it now
- * lives behind the "What changed" button on the care plan header card.
- * Content is unchanged — recent plan decisions with dates — plus a pointer
- * to the full audit log in Settings.
+ * Backdrop fades independently of the sheet slide (same pattern as SlmInsightSheet).
+ * Swipe down on the handle/header to dismiss.
  */
 
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Animated,
+  Dimensions,
+  Easing,
+  Modal,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import type { CarePlanHistoryItem } from '@/services/carePlan/carePlanViewModel';
@@ -18,24 +28,182 @@ export interface WhatChangedSheetProps {
   onClose: () => void;
 }
 
+const WINDOW_H = Dimensions.get('window').height;
+const SHEET_APPROX = Math.min(WINDOW_H * 0.7, 520);
+const OPEN_MS = 280;
+const CLOSE_MS = 220;
+const DRAG_THRESHOLD = 80;
+
 export function WhatChangedSheet({ visible, items, onClose }: WhatChangedSheetProps) {
+  const [mounted, setMounted] = useState(false);
+  const closingRef = useRef(false);
+  const onCloseRef = useRef(onClose);
+  const visibleRef = useRef(visible);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
+
+  const [backdropOpacity] = useState(() => new Animated.Value(0));
+  const [sheetTranslateY] = useState(() => new Animated.Value(SHEET_APPROX));
+  const [dragY] = useState(() => new Animated.Value(0));
+
+  const animateOpen = useCallback(() => {
+    closingRef.current = false;
+    sheetTranslateY.setValue(SHEET_APPROX);
+    backdropOpacity.setValue(0);
+    dragY.setValue(0);
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: OPEN_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(sheetTranslateY, {
+        toValue: 0,
+        duration: OPEN_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [backdropOpacity, sheetTranslateY, dragY]);
+
+  const animateClose = useCallback(
+    (then?: () => void) => {
+      if (closingRef.current) return;
+      closingRef.current = true;
+      Animated.parallel([
+        Animated.timing(backdropOpacity, {
+          toValue: 0,
+          duration: CLOSE_MS,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(sheetTranslateY, {
+          toValue: SHEET_APPROX,
+          duration: CLOSE_MS,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => {
+        if (!finished) {
+          closingRef.current = false;
+          return;
+        }
+        setTimeout(() => {
+          setMounted(false);
+          closingRef.current = false;
+          then?.();
+        }, 0);
+      });
+    },
+    [backdropOpacity, sheetTranslateY],
+  );
+
+  const requestClose = useCallback(() => {
+    animateClose(() => onCloseRef.current());
+  }, [animateClose]);
+
+  useEffect(() => {
+    if (visible) {
+      const t = setTimeout(() => {
+        setMounted(true);
+        setTimeout(() => animateOpen(), 16);
+      }, 0);
+      return () => clearTimeout(t);
+    }
+    if (mounted && !visible) {
+      // Parent flipped visible off — animate out without calling onClose again.
+      animateClose();
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  /* eslint-disable react-hooks/refs -- PanResponder fires at event time */
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_e, g) =>
+          g.dy > 8 && Math.abs(g.dy) > Math.abs(g.dx),
+        onPanResponderMove: (_e, g) => {
+          if (g.dy > 0) dragY.setValue(g.dy);
+        },
+        onPanResponderRelease: (_e, g) => {
+          if (g.dy > DRAG_THRESHOLD || g.vy > 1.1) {
+            requestClose();
+          } else {
+            Animated.spring(dragY, {
+              toValue: 0,
+              useNativeDriver: true,
+              bounciness: 0,
+            }).start();
+          }
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(dragY, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 0,
+          }).start();
+        },
+      }),
+    [dragY, requestClose],
+  );
+  /* eslint-enable react-hooks/refs */
+
+  if (!mounted) return null;
+
+  const title =
+    items.length === 1 ? '1 recent change' : `${items.length} recent changes`;
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.sheet}>
-          <View style={styles.handle} />
-          <View style={styles.header}>
-            <Text style={styles.title}>What changed</Text>
-            <Pressable style={styles.closeButton} onPress={onClose} hitSlop={12}>
-              <Text style={styles.closeText}>×</Text>
-            </Pressable>
+    <Modal visible transparent animationType="none" onRequestClose={requestClose}>
+      <View style={styles.overlay} pointerEvents="box-none">
+        <Animated.View
+          style={[styles.backdropFill, { opacity: backdropOpacity }]}
+          pointerEvents="none"
+        />
+        <Pressable style={styles.backdropHit} onPress={requestClose} />
+        <Animated.View
+          style={[
+            styles.sheet,
+            {
+              transform: [{ translateY: Animated.add(sheetTranslateY, dragY) }],
+            },
+          ]}
+        >
+          <View {...panResponder.panHandlers}>
+            <View style={styles.handle} />
+            <View style={styles.header}>
+              <Text style={styles.title}>{title}</Text>
+              <Pressable
+                style={styles.closeButton}
+                onPress={requestClose}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <Text style={styles.closeText}>×</Text>
+              </Pressable>
+            </View>
           </View>
           <Text style={styles.subtitle}>
-            Recent plan decisions (proposals, confirmations, updates). The full audit log is in
-            Settings.
+            Plan decisions you confirmed or updated. Your living care plan sits on top of the
+            health record — the full audit log is in Settings.
           </Text>
-          <ScrollView style={styles.body} showsVerticalScrollIndicator>
+          <ScrollView
+            style={styles.body}
+            showsVerticalScrollIndicator
+            bounces
+            keyboardShouldPersistTaps="handled"
+          >
             {items.length === 0 ? (
               <Text style={styles.empty}>No plan decisions recorded yet.</Text>
             ) : (
@@ -50,7 +218,7 @@ export function WhatChangedSheet({ visible, items, onClose }: WhatChangedSheetPr
               ))
             )}
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -59,11 +227,14 @@ export function WhatChangedSheet({ visible, items, onClose }: WhatChangedSheetPr
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
-  backdrop: {
-    flex: 1,
+  backdropFill: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  backdropHit: {
+    ...StyleSheet.absoluteFill,
   },
   sheet: {
     backgroundColor: AppTheme.colors.surface,
@@ -92,6 +263,7 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.text,
     fontSize: 16,
     fontWeight: '900',
+    flex: 1,
   },
   closeButton: {
     width: 30,
@@ -127,7 +299,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderTopWidth: 1,
     borderTopColor: AppTheme.colors.border,
   },

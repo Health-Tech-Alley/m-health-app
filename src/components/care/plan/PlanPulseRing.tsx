@@ -1,11 +1,10 @@
 /**
- * PlanPulseRing — the care plan's living indicator (Care tab hero rework).
+ * PlanPulseRing — visual size of how populated the care plan (ADCP) is.
  *
- * A ring of arc ticks swept to the Plan Pulse score (0–100) with the score
- * number in the center. Color encodes attention: teal calm, amber review,
- * red urgent. A slow breathing pulse runs only when attention is not calm —
- * motion with meaning, and visually distinct from the SLM's filled status
- * dot (a ring, not a dot).
+ * Arc ticks sweep to the population fill (0–100). No center number — a score
+ * read as something to "improve." Color matches the hero title indigo so it
+ * reads as plan identity, not a completion metric. A soft indigo breath keeps
+ * the ring feeling alive without looking like a progress score.
  *
  * Pure RN Animated (same segment geometry as SlmStatusIcon — no SVG dep).
  * Entrance sweep plays once when `playEntrance` is set; reduced-motion
@@ -13,8 +12,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
-
+import { Animated, Easing, StyleSheet, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import type { PlanPulseAttention } from '@/services/carePlan/planPulseService';
@@ -25,24 +23,33 @@ const TICK_WIDTH = 3.5;
 const TICK_HEIGHT = 9;
 const SWEEP_MS = 650;
 const SWEEP_DELAY_MS = 200;
+const BREATH_HALF_MS = 1600;
 
-const ATTENTION_COLORS: Record<PlanPulseAttention, string> = {
-  calm: AppTheme.colors.brand,
-  review: AppTheme.colors.attentionAmber,
-  urgent: AppTheme.colors.danger,
-};
+/** Same indigo as "Mike's Care Plan" hero title. */
+const ARC_COLOR = AppTheme.colors.heroAccent;
+const ARC_TRACK = AppTheme.colors.heroAccentSoft;
 
-const ATTENTION_LABELS: Record<PlanPulseAttention, string> = {
-  calm: 'all caught up',
-  review: 'needs your review',
-  urgent: 'urgent context active',
-};
+const FILL_LABELS: { max: number; label: string }[] = [
+  { max: 15, label: 'lightly filled' },
+  { max: 40, label: 'partly filled' },
+  { max: 70, label: 'well filled' },
+  { max: 100, label: 'richly filled' },
+];
+
+function fillLabel(score: number): string {
+  const s = Math.max(0, Math.min(100, score));
+  for (const row of FILL_LABELS) {
+    if (s <= row.max) return row.label;
+  }
+  return 'richly filled';
+}
 
 export interface PlanPulseRingProps {
-  /** 0–100. */
+  /** 0–100 population fill (how much plan content is present). */
   score: number;
+  /** Kept for API compat; does not recolor the arc (avoids "score" cues). */
   attention: PlanPulseAttention;
-  /** Play the 0→score entrance sweep once on mount. */
+  /** Play the 0→fill entrance sweep once on mount. */
   playEntrance?: boolean;
   /** Skip sweep + pulse (accessibility reduced motion). */
   reduceMotion?: boolean;
@@ -50,29 +57,27 @@ export interface PlanPulseRingProps {
 
 export function PlanPulseRing({
   score,
-  attention,
+  attention: _attention,
   playEntrance = false,
   reduceMotion = false,
 }: PlanPulseRingProps) {
   const clampedScore = Math.max(0, Math.min(100, Math.round(score)));
-  const color = ATTENTION_COLORS[attention];
 
-  // State-created Animated.Values (render-safe; refs trip react-hooks/refs).
   const playSweep = playEntrance && !reduceMotion;
   const [sweep] = useState(() => new Animated.Value(playSweep ? 0 : clampedScore));
-  const [displayScore, setDisplayScore] = useState(playSweep ? 0 : clampedScore);
+  const [displayFill, setDisplayFill] = useState(playSweep ? 0 : clampedScore);
   const entranceDoneRef = useRef(!playSweep);
 
-  // Display value follows the animated sweep via listener (subscription —
-  // setState happens in the callback, not the effect body).
+  // Soft living glow (opacity breath) — indigo only, always on unless reduced motion.
+  const [glow] = useState(() => new Animated.Value(1));
+
   useEffect(() => {
     const listenerId = sweep.addListener(({ value }) => {
-      setDisplayScore(Math.round(value));
+      setDisplayFill(Math.round(value));
     });
     return () => sweep.removeListener(listenerId);
   }, [sweep]);
 
-  // Entrance sweep (mount-only).
   useEffect(() => {
     if (!playSweep) return;
     const timer = setTimeout(() => {
@@ -86,37 +91,31 @@ export function PlanPulseRing({
       });
     }, SWEEP_DELAY_MS);
     return () => clearTimeout(timer);
-    // Mount-only by design; later score changes snap via the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Post-entrance score changes snap to the new value (listener updates
-  // the displayed number).
   useEffect(() => {
     if (!entranceDoneRef.current) return;
     sweep.setValue(clampedScore);
   }, [clampedScore, sweep]);
 
-  // Attention breathing pulse — review slow, urgent faster, calm still.
-  const [pulse] = useState(() => new Animated.Value(1));
   useEffect(() => {
-    if (reduceMotion || attention === 'calm') {
-      pulse.setValue(1);
+    if (reduceMotion) {
+      glow.setValue(1);
       return;
     }
-    const half = attention === 'urgent' ? 450 : 1400;
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 0.55,
-          duration: half,
-          easing: Easing.inOut(Easing.quad),
+        Animated.timing(glow, {
+          toValue: 0.62,
+          duration: BREATH_HALF_MS,
+          easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
-        Animated.timing(pulse, {
+        Animated.timing(glow, {
           toValue: 1,
-          duration: half,
-          easing: Easing.inOut(Easing.quad),
+          duration: BREATH_HALF_MS,
+          easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
       ]),
@@ -124,11 +123,11 @@ export function PlanPulseRing({
     loop.start();
     return () => {
       loop.stop();
-      pulse.setValue(1);
+      glow.setValue(1);
     };
-  }, [attention, reduceMotion, pulse]);
+  }, [reduceMotion, glow]);
 
-  const litSegments = Math.round((displayScore / 100) * SEGMENTS);
+  const litSegments = Math.round((displayFill / 100) * SEGMENTS);
   const ticks = useMemo(
     () =>
       Array.from({ length: SEGMENTS }, (_, i) => {
@@ -140,8 +139,8 @@ export function PlanPulseRing({
             style={[
               styles.tick,
               {
-                backgroundColor: lit ? color : AppTheme.colors.heroAccentSoft,
-                opacity: lit ? 1 : 0.45,
+                backgroundColor: lit ? ARC_COLOR : ARC_TRACK,
+                opacity: lit ? 1 : 0.55,
                 transform: [
                   { rotate: `${angle}deg` },
                   { translateY: -(RING_SIZE / 2 - TICK_HEIGHT / 2) },
@@ -151,20 +150,17 @@ export function PlanPulseRing({
           />
         );
       }),
-    [litSegments, color],
+    [litSegments],
   );
 
   return (
     <Animated.View
-      style={[styles.wrap, { opacity: pulse }]}
+      style={[styles.wrap, { opacity: glow }]}
       accessible
       accessibilityRole="image"
-      accessibilityLabel={`Plan pulse ${clampedScore} out of 100, ${ATTENTION_LABELS[attention]}`}
+      accessibilityLabel={`Care plan ${fillLabel(clampedScore)}`}
     >
-      <View style={styles.ringWrap}>
-        {ticks}
-        <Text style={[styles.scoreText, { color }]}>{displayScore}</Text>
-      </View>
+      <View style={styles.ringWrap}>{ticks}</View>
     </Animated.View>
   );
 }
@@ -185,9 +181,5 @@ const styles = StyleSheet.create({
     width: TICK_WIDTH,
     height: TICK_HEIGHT,
     borderRadius: TICK_WIDTH,
-  },
-  scoreText: {
-    fontSize: 18,
-    fontWeight: '900',
   },
 });

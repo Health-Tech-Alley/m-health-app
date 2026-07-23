@@ -6,9 +6,10 @@
  * Node color = that section's attention state. No looping packet animation
  * (it read as noise); entrance is a single smooth fade-in.
  *
- * Pure RN Views — no SVG. SpineSection measures section centers; the
- * connector is absolutely positioned in the scroll content so it scrolls
- * with the cards.
+ * Pure RN Views — no SVG. SpineSection pins each node to the card **title**
+ * band (not section center), so expand/collapse inside a card does not move
+ * that node. The connector is absolutely positioned in the scroll content so
+ * it scrolls with the cards.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -21,12 +22,19 @@ export type SpineAttention = PlanPulseAttention | 'empty';
 
 export interface SpineNode {
   id: string;
-  /** Center Y of the section within the scroll content (from onLayout). */
+  /** Title-band Y within the scroll content (from SpineSection onLayout). */
   y: number;
   attention: SpineAttention;
   /** Item count in the section — drives branch thickness slightly. */
   weight: number;
 }
+
+/**
+ * Distance from section top to the visual center of a typical card title
+ * (card padding 16 + ~half of 16–18px title line). Kept fixed so node Y
+ * ignores body height changes on expand/collapse.
+ */
+export const SPINE_TITLE_ANCHOR_OFFSET = 28;
 
 /**
  * Dedicated left gutter width. Cards sit to the right of this so the spine
@@ -55,13 +63,14 @@ function branchThickness(weight: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// SpineSection — measures section center; no left rail (avoids card overlap)
+// SpineSection — pins node to title band; no left rail (avoids card overlap)
 // ---------------------------------------------------------------------------
 
 export interface SpineSectionProps {
   id: string;
   attention: SpineAttention;
-  onMeasure?: (id: string, centerY: number) => void;
+  /** Receives title-band Y in scroll-content coordinates (not section center). */
+  onMeasure?: (id: string, titleY: number) => void;
   children: React.ReactNode;
 }
 
@@ -71,7 +80,9 @@ export function SpineSection({ id, onMeasure, children }: SpineSectionProps) {
       style={styles.sectionWrap}
       onLayout={(event) => {
         const { y, height } = event.nativeEvent.layout;
-        if (height > 0) onMeasure?.(id, y + height / 2);
+        // Pin to title, not vertical center — body expand/collapse must not
+        // drag the node. Sections above still reflow and update `y` correctly.
+        if (height > 0) onMeasure?.(id, y + SPINE_TITLE_ANCHOR_OFFSET);
       }}
     >
       {children}
@@ -143,7 +154,7 @@ export function CareSpineConnector({
         ]}
       />
 
-      {/* Branches + nodes at each section center */}
+      {/* Branches + nodes at each section title */}
       {sorted.map((node) => {
         const color = SPINE_NODE_COLORS[node.attention];
         const thickness = branchThickness(node.weight);

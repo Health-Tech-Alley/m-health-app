@@ -14,19 +14,10 @@ import {
 } from '@/ml-models/uc2-decision-layer';
 import { createUC2ApplicationRuntime } from '@/services/ml/uc2-runtime-service';
 import { stripControlTokens } from '@/utils/stripControlTokens';
-import {
-  retrieveClinicalChunksViaBm25,
-  formatCitationsForPrompt,
-  buildRetrievalQuery,
-} from '@/clinical-evidence/retrieval-helper';
 import type { FusedRetriever } from '@/knowledge/types';
-import { getConditionsForPatient } from '@/data';
 import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
 import type { VitalsScenario } from '@/ml-models/alert-autoencoder/mock-scenarios';
-import {
-  buildCaregiverAssistantContextFromSnapshot,
-  buildCaregiverSystemContext,
-} from '@/services/slm/slmService';
+import { prepareSlmTurn } from '@/services/slm/prepareSlmTurn';
 import type { CareManagementAction, CareManagementState, BatchParityRow } from './types';
 
 /** Same chat signature as SLMProvider.chat / main Concierge tab. */
@@ -85,9 +76,7 @@ function buildUC2Input(
 }
 
 /**
- * Build Concierge explain messages the same way as the main SLM chat tab:
- * full `buildCaregiverSystemContext` (no word/token caps in the prompt) plus
- * UC2 result + optional clinical knowledge chunks in the user turn.
+ * Build Concierge explain messages via shared prepareSlmTurn (same NLU path as chat).
  */
 async function buildExplanationPrompt(
   core: CoreVitals,
@@ -108,47 +97,6 @@ async function buildExplanationPrompt(
     .map((f) => `${f.feature}${typeof f.importance === 'number' ? ` (${f.importance.toFixed(3)})` : ''}`)
     .join(', ');
 
-  let conditionName: string | undefined;
-  const patientId = snapshot?.patient?.patientId;
-  if (patientId) {
-    try {
-      const conditions = getConditionsForPatient(patientId);
-      conditionName =
-        conditions.find((c) => c.isPrimary)?.name ?? conditions[0]?.name;
-    } catch {
-      // ignore — retrieval is best-effort
-    }
-  }
-  if (!conditionName && snapshot?.primaryCondition?.name) {
-    conditionName = snapshot.primaryCondition.name;
-  }
-
-  const anomalyTypeReadable = String(
-    result.postHitlAnomalyType ?? result.initialAnomalyType ?? 'unknown',
-  )
-    .replace(/_/g, ' ')
-    .toLowerCase();
-  const retrievalQuery = buildRetrievalQuery(
-    conditionName,
-    anomalyTypeReadable,
-    topFeatures,
-  );
-  const citations = await retrieveClinicalChunksViaBm25(
-    retriever ?? null,
-    retrievalQuery,
-    5,
-    patientId,
-  );
-  const citationBlock = formatCitationsForPrompt(citations);
-
-  // Same system stack as Concierge tab — persona, care context, tools, safety.
-  // Do not inject word-count or token caps here.
-  const systemContext = snapshot?.patient
-    ? buildCaregiverSystemContext(
-        buildCaregiverAssistantContextFromSnapshot(snapshot),
-      )
-    : buildCaregiverSystemContext({});
-
   const severity =
     result.finalDecision?.final_severity ?? result.post_hitl_severity ?? 'n/a';
   const postHitl = result.postHitlAnomalyType ?? result.post_hitl_anomaly_type;
@@ -159,7 +107,7 @@ async function buildExplanationPrompt(
         ? Number(result.ae_score_mse).toFixed(3)
         : 'n/a';
 
-  let userContent =
+  const baseUser =
     `Please explain this on-device Health Monitor (anomaly) result for me as the family caregiver.\n\n` +
     `HEALTH MONITOR RESULT\n` +
     `Vitals: ${vitalsSummary}\n` +
@@ -179,25 +127,24 @@ async function buildExplanationPrompt(
       : '') +
     (result.finalDecision.final_notification_body
       ? `Body: ${result.finalDecision.final_notification_body}\n`
-      : '');
-
-  if (citationBlock) {
-    userContent +=
-      `\n${citationBlock}\n\n` +
-      `Ground your answer in the clinical knowledge above where relevant. ` +
-      `Append the exact chunk tag after relevant statements ` +
-      `(e.g., "Common side effects include nausea [Drug Label #1]" or ` +
-      `"Studies show improved outcomes [PubMed #2]").\n`;
-  }
-
-  userContent +=
+      : '') +
     `\nExplain what this means in plain language and what I should do next. ` +
     `Lead with the bottom line. Use Markdown. Never diagnose. ` +
     `Do not invent numbers that are not in the result or care context.`;
 
+  const prepared = await prepareSlmTurn({
+    userText: baseUser,
+    snapshot: snapshot ?? null,
+    retriever: retriever ?? null,
+    forceDeep: true,
+    intentOverride: 'explain_anomaly',
+    skillHint: 'explain-anomaly',
+    logTag: 'CareManagement',
+  });
+
   return [
-    { role: 'system', content: systemContext },
-    { role: 'user', content: userContent },
+    { role: 'system', content: prepared.systemContext },
+    { role: 'user', content: prepared.userContent },
   ];
 }
 

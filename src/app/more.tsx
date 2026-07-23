@@ -4,16 +4,12 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-nat
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
-import { MainTabHeader } from "@/components/MainTabHeader";
 import { YourDecisionsSection } from "@/components/concierge/YourDecisionsSection";
 import { AppTheme } from "@/constants/theme";
-import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
-import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from "@/contexts/settings-context";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 import { useActivePatientView } from '@/hooks/useActivePatientView';
-import { useAppDispatch } from '@/store/hooks';
 import {
   getCaregiverDisplay,
   getCaregiverRoleDisplay,
@@ -24,7 +20,6 @@ import {
 export default function MoreScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ focus?: string }>();
-  const dispatch = useAppDispatch();
   const profile = getOnboardingProfile();
   const activePatient = useActivePatientView();
   const patientName = getPatientDisplayName(activePatient);
@@ -33,9 +28,7 @@ export default function MoreScreen() {
   const caregiverRole = getCaregiverRoleDisplay(activePatient);
   const scrollRef = useRef<ScrollView | null>(null);
   const ehrImportYRef = useRef(0);
-  const patientId = useOrchestratorPatientId();
-  const { importFHIRBundle, refresh } = usePatientRecord();
-  const [importing, setImporting] = useState(false);
+  const [importing] = useState(false);
   const { settings, setCarePlanMode } = useSettings();
 
   useEffect(() => {
@@ -59,19 +52,33 @@ export default function MoreScreen() {
 
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <View style={styles.root}>
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={() => {
+              if (router.canGoBack()) router.back();
+              else router.replace("/(tabs)/dashboard" as never);
+            }}
+            hitSlop={12}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+          >
+            <Text style={styles.backText}>← Back</Text>
+          </Pressable>
+          <Text style={styles.topTitle}>Settings</Text>
+          <View style={styles.topBarSpacer} />
+        </View>
+
         <ScrollView
           ref={scrollRef}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
         >
-          <MainTabHeader
-            title="More"
-            eyebrow="Caregiver Concierge"
-            subtitle="Profile, preferences, and data-source settings."
-            icon="settings"
-          />
+          <Text style={styles.screenSubtitle}>
+            Profile, preferences, and data-source settings.
+          </Text>
 
           <View style={styles.profileCard}>
             <View style={styles.avatar}>
@@ -314,10 +321,45 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: AppTheme.colors.screen,
   },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.screen,
+  },
+  backButton: {
+    minWidth: 72,
+    paddingVertical: 6,
+  },
+  backText: {
+    color: AppTheme.colors.brand,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  topTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  topBarSpacer: {
+    minWidth: 72,
+  },
   content: {
     paddingHorizontal: 24,
-    paddingTop: 22,
+    paddingTop: 16,
     paddingBottom: 40,
+  },
+  screenSubtitle: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20,
+    marginBottom: 18,
   },
   profileCard: {
     backgroundColor: AppTheme.colors.surface,

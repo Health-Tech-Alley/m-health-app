@@ -23,7 +23,7 @@ import {
 import { useActiveAlert } from "@/hooks/useActiveAlert";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
-import { getPatientDisplayName } from "@/utils/patientDisplay";
+import { formatPossessive, getPatientDisplayName } from "@/utils/patientDisplay";
 
 /**
  * Dashboard / Care active-alert card.
@@ -80,11 +80,14 @@ export function ActiveAlertCard() {
   const pillLabel = getSeverityLabel(activeAlert.severity);
   const visibleAlertBody =
     activePatient && activeAlert.body
-      ? activeAlert.body.replace(/^([^']+)'s\b/, `${patientDisplayName}'s`)
+      ? activeAlert.body.replace(
+          /^([^\s'’]+(?:\s+[^\s'’]+)*)['’]s\b/,
+          `${formatPossessive(patientDisplayName)}`,
+        )
       : activeAlert.body;
   const body = visibleAlertBody
-    ? `${visibleAlertBody} `
-    : `${patientDisplayName}'s recent vitals show an unusual pattern. `;
+    ? visibleAlertBody
+    : `${formatPossessive(patientDisplayName)} recent vitals show an unusual pattern.`;
 
   const contextualType = mlEvent?.initialAnomalyType;
   const vitals = parseRawVitals(mlEvent);
@@ -215,10 +218,10 @@ export function ActiveAlertCard() {
         </Text>
       )}
 
-      <Text style={styles.bodyText}>
-        {body}
-        <Text style={styles.boldText}>You decide — the app never acts for you.</Text>
-      </Text>
+      <Text style={styles.bodyText}>{body}</Text>
+      {isEmergency ? (
+        <Text style={styles.promptText}>What do you want to do?</Text>
+      ) : null}
 
       <View style={styles.primaryActions}>
         {isEmergency ? (
@@ -460,6 +463,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 27,
     marginTop: 18,
+  },
+  promptText: {
+    color: AppTheme.colors.white,
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 10,
+    marginBottom: 2,
   },
   boldText: {
     fontWeight: "900",

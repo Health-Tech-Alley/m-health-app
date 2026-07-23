@@ -1,4 +1,5 @@
 import {
+  formatAnswerWithCollapsedSources,
   formatAnswerWithFootnotes,
   normalizeAnswerWhitespace,
 } from './citation-display';
@@ -164,5 +165,22 @@ describe('formatAnswerWithFootnotes', () => {
     // 4 labels → 3 commas between them
     expect(commaCount).toBe(3);
     expect(result.displayText).not.toContain('Health topic summary');
+  });
+});
+
+describe('formatAnswerWithCollapsedSources', () => {
+  const chunks = [
+    { docId: 'a', source: 'pubmed', text: 'PubMed abstract about cerebral palsy.' },
+    { docId: 'b', source: 'dailymed', text: 'Drug label for Baclofen.' },
+  ];
+
+  it('strips tags and returns unique source labels without chunk numbers', () => {
+    const result = formatAnswerWithCollapsedSources(
+      'Common side effects include nausea [Drug Label #2]. See also [PubMed #1].',
+      chunks,
+    );
+    expect(result.displayText).not.toContain('#');
+    expect(result.displayText).not.toContain('[');
+    expect(result.sourceLabels).toEqual(['Drug label', 'Medical literature']);
   });
 });

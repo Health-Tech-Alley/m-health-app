@@ -19,6 +19,7 @@ export function PatientSummaryCard() {
   const router = useRouter();
   const { snapshot, ready, error, refresh } = usePatientRecord();
   const [expanded, setExpanded] = useState(false);
+  const [referencesOpen, setReferencesOpen] = useState(false);
   const activePatient = useActivePatientView();
 
   useFocusEffect(
@@ -109,7 +110,7 @@ export function PatientSummaryCard() {
       {needsClinicalImport ? (
         <Pressable
           style={styles.importBanner}
-          onPress={() => router.push({ pathname: '/(tabs)/more', params: { focus: 'ehr-import' } } as never)}
+          onPress={() => router.push({ pathname: '/more', params: { focus: 'ehr-import' } } as never)}
         >
           <Text style={styles.importBannerTitle}>Latest clinical details not available</Text>
           <Text style={styles.importBannerText}>
@@ -156,12 +157,33 @@ export function PatientSummaryCard() {
           ) : null}
         </View>
       ) : snapshot.knowledgeStats.total > 0 ? (
-        <View style={styles.knowledgeStatsPill}>
+        <Pressable
+          style={styles.knowledgeStatsPill}
+          onPress={() => setReferencesOpen((v) => !v)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: referencesOpen }}
+          accessibilityLabel={`${cacheSummary}. ${referencesOpen ? 'Hide' : 'Show'} sources.`}
+        >
           <Text style={styles.knowledgeStatsText}>{cacheSummary}</Text>
-          {sourceBreakdown ? (
+          {sourceBreakdown && !referencesOpen ? (
             <Text style={styles.knowledgeStatsDetail}>{sourceBreakdown}</Text>
           ) : null}
-        </View>
+          <Text style={styles.knowledgeStatsHint}>
+            {referencesOpen ? 'Hide sources ▴' : 'Tap to view sources ▾'}
+          </Text>
+          {referencesOpen ? (
+            <View style={styles.referencesList}>
+              {Object.entries(snapshot.knowledgeStats.bySource)
+                .filter(([, count]) => count > 0)
+                .sort((a, b) => b[1] - a[1])
+                .map(([src, count]) => (
+                  <Text key={src} style={styles.referenceRow}>
+                    {'\u2022'} {formatSourceLabel(src)} — {count}
+                  </Text>
+                ))}
+            </View>
+          ) : null}
+        </Pressable>
       ) : null}
     </View>
   );
@@ -204,6 +226,23 @@ export function formatKnowledgeCacheSummary(
   const referenceLabel = total === 1 ? 'reference' : 'references';
   const sourceLabel = sourceCount === 1 ? 'source' : 'sources';
   return `${total} cached ${referenceLabel} from ${sourceCount} ${sourceLabel}`;
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  pubmed: 'Medical literature',
+  medlineplus: 'Health topic summary',
+  rxnorm: 'Drug information',
+  dailymed: 'Drug label',
+  openfda: 'Drug safety data',
+  adcp_plan: 'Care plan',
+  'care-plan': 'Care plan',
+  'patient-plan': 'Care plan',
+  synthetic: 'Sample guidance',
+  'local-fixture': 'Sample guidance',
+};
+
+function formatSourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source.replace(/[_-]/g, ' ');
 }
 
 function formatKnowledgeSourceBreakdown(
@@ -544,5 +583,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     marginTop: 4,
+  },
+  knowledgeStatsHint: {
+    color: AppTheme.colors.brandDark,
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 6,
+  },
+  referencesList: {
+    marginTop: 8,
+    gap: 4,
+  },
+  referenceRow: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
   },
 });

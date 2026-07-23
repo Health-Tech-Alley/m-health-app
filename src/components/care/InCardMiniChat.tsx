@@ -24,8 +24,8 @@ import {
 
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { ObservationPicker } from '@/components/ObservationPicker';
-import { CONCIERGE_GENERATION_DEEP } from '@/constants/concierge';
 import { AppTheme } from '@/constants/theme';
+import { useOrchestratorRetriever } from '@/contexts/orchestrator-context';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
@@ -37,10 +37,7 @@ import {
   getCachedExplainAnswer,
   setCachedExplainAnswer,
 } from '@/services/slm/explainAnswerCache';
-import {
-  buildCaregiverAssistantContextFromSnapshot,
-  buildCaregiverSystemContext,
-} from '@/services/slm/slmService';
+import { prepareSlmTurn } from '@/services/slm/prepareSlmTurn';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 
 type ChatRole = 'user' | 'assistant';
@@ -95,7 +92,8 @@ export function InCardMiniChat({
     currentModelId,
   } = slm;
   const { snapshot, patientId } = usePatientRecord();
-  const { settings } = useSettings();
+  const { settings, isDeveloper } = useSettings();
+  const retriever = useOrchestratorRetriever();
   const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
   const effectiveCacheTitle = cacheTitle ?? title;
 
@@ -242,15 +240,28 @@ export function InCardMiniChat({
         return;
       }
 
-      const context = snapshot
-        ? buildCaregiverAssistantContextFromSnapshot(snapshot)
-        : {};
-      const systemContext = buildCaregiverSystemContext(context);
-
-      if (historyRef.current.length === 0) {
-        historyRef.current = [{ role: 'system', content: systemContext }];
+      const allowDevNlu =
+        __DEV__ && isDeveloper && settings.nluDevelopmentFallback === true;
+      const prepared = await prepareSlmTurn({
+        userText: trimmed,
+        snapshot,
+        retriever,
+        forceDeep: true,
+        allowDevelopmentNluFallback: allowDevNlu,
+        logTag: 'InCardMiniChat',
+      });
+      if (cancelRef.current) {
+        lease?.release();
+        return;
       }
-      historyRef.current.push({ role: 'user', content: trimmed });
+
+      // Multi-turn: keep prior answer-only turns; refresh system each seed/turn.
+      const priorTurns = historyRef.current.filter((m) => m.role !== 'system');
+      historyRef.current = [
+        { role: 'system', content: prepared.systemContext },
+        ...priorTurns,
+        { role: 'user', content: prepared.userContent },
+      ];
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -269,7 +280,7 @@ export function InCardMiniChat({
             );
           },
           controller.signal,
-          CONCIERGE_GENERATION_DEEP,
+          prepared.generation,
         );
         if (cancelRef.current) return;
         const cleaned = stripControlTokens(result.text).answer;
@@ -319,8 +330,11 @@ export function InCardMiniChat({
       enableObservationHitl,
       ensureModelAndLease,
       hitlResolved,
+      isDeveloper,
       patientId,
       provider,
+      retriever,
+      settings.nluDevelopmentFallback,
       snapshot,
     ],
   );
