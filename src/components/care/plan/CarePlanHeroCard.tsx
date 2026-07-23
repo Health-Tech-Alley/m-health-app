@@ -15,7 +15,6 @@ import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-nativ
 import { AppTheme } from '@/constants/theme';
 import type { PlanPulse } from '@/services/carePlan/planPulseService';
 import type { CarePlanViewModel } from '@/services/carePlan/carePlanViewModel';
-import { SPINE_GUTTER } from './CareSpineConnector';
 import { PlanPulseRing } from './PlanPulseRing';
 
 const STATUS_WORD_LABEL: Record<PlanPulse['statusWord'], string> = {
@@ -160,9 +159,8 @@ const styles = StyleSheet.create({
   },
   spineSocket: {
     position: 'absolute',
-    // Centered on the spine column inside the full-bleed hero
-    // (SPINE_GUTTER is the left gutter; spine sits near its center).
-    left: Math.round(SPINE_GUTTER / 2) - 6,
+    // Centered on the card frame, halfway between the screen edge and content.
+    left: -7,
     bottom: -7,
     width: 14,
     height: 14,

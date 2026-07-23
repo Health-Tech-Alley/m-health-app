@@ -688,7 +688,7 @@ const styles = StyleSheet.create({
   },
   // Hero spans full width including the spine gutter so the socket + spine line up.
   heroBleed: {
-    marginLeft: -(SPINE_GUTTER + 8),
+    marginLeft: -(SPINE_GUTTER + 8 - 18),
     marginRight: 0,
   },
   patientName: {

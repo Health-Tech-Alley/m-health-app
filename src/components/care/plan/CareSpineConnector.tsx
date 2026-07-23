@@ -34,8 +34,8 @@ export interface SpineNode {
  */
 export const SPINE_GUTTER = 28;
 
-// Spine column centered in the gutter; short branches end just before cards.
-const SPINE_X = Math.round(SPINE_GUTTER / 2);
+// Spine column sits on the hero socket/card-frame anchor.
+const SPINE_X = 18;
 const BRANCH_END_X = SPINE_GUTTER - 1;
 const NODE_SIZE = 9;
 const SPINE_WIDTH = 2;
