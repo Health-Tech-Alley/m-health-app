@@ -140,7 +140,7 @@ export function ObservationVitalsCard() {
     return (
       <View style={[styles.card, isDark && styles.cardDark]}>
         <View style={styles.titleRow}>
-          <Text style={styles.sectionTitle}>Baseline Observations</Text>
+          <Text style={styles.sectionTitle}>Recent readings</Text>
           <Text style={styles.sourceBadge}>{SOURCE_BADGE}</Text>
         </View>
         <Text style={styles.emptyTitle}>No observations available</Text>
@@ -149,7 +149,7 @@ export function ObservationVitalsCard() {
         </Text>
         <Pressable
           style={styles.importButton}
-          onPress={() => router.push({ pathname: "/(tabs)/more", params: { focus: "ehr-import" } } as never)}
+          onPress={() => router.push({ pathname: "/more", params: { focus: "ehr-import" } } as never)}
         >
           <Text style={styles.importButtonText}>Import from Settings</Text>
         </Pressable>
@@ -161,7 +161,7 @@ export function ObservationVitalsCard() {
     <View style={[styles.card, isDark && styles.cardDark]}>
       <View style={styles.headerRow}>
         <View style={styles.titleRow}>
-          <Text style={styles.sectionTitle}>Baseline Observations</Text>
+          <Text style={styles.sectionTitle}>Recent readings</Text>
           <Text style={styles.sourceBadge}>{SOURCE_BADGE}</Text>
         </View>
         <Text style={styles.subtitle}>{selectedMetric.subtitle}</Text>

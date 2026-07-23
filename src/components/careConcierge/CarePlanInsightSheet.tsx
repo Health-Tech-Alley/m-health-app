@@ -49,6 +49,7 @@ import type { CareIntentDefinition, AnyIntentOutput } from '@/services/carePlan/
 import type { PatientRecordSnapshot } from '@/data/types';
 import { runIntent, type RunIntentResult } from '@/services/carePlan/intentRouter';
 import { runSlmCompletion } from '@/services/carePlan/careSlmAdapter';
+import { formatAnswerWithCollapsedSources } from '@/clinical-evidence/citation-display';
 
 export interface CarePlanInsightSheetProps {
   visible: boolean;
@@ -85,10 +86,13 @@ export function CarePlanInsightSheet({
   const [phase, setPhase] = useState<Phase>('idle');
   const [answer, setAnswer] = useState('');
   const [finalText, setFinalText] = useState<string | null>(null);
+  const [sourceLabels, setSourceLabels] = useState<string[]>([]);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
   const [result, setResult] = useState<RunIntentResult<AnyIntentOutput> | null>(null);
   const [proposalResolvedAt, setProposalResolvedAt] = useState<string | null>(null);
+  const citationChunksRef = useRef<RetrievedCitation[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const cancelRef = useRef(false);
   const leaseRef = useRef<SlmTaskLease | null>(null);
@@ -223,16 +227,36 @@ export function CarePlanInsightSheet({
         intent: intent.intentId,
         args,
         completePrompt: async (params) => {
-          const enrichedUser = citationBlock
+          // NLU parity with main Concierge: enrich the intent user prompt.
+          let systemContext = params.systemContext;
+          let userPrompt = citationBlock
             ? `${params.userPrompt}\n\nClinical knowledge:\n${citationBlock}`
             : params.userPrompt;
+          try {
+            const { prepareSlmTurn } = await import('@/services/slm/prepareSlmTurn');
+            const prepared = await prepareSlmTurn({
+              userText: params.userPrompt,
+              snapshot: effectiveSnapshot,
+              retriever,
+              forceDeep: true,
+              extraCitations: mergedCitations,
+              logTag: 'CarePlanInsightSheet',
+            });
+            // Keep intent-specific system framing; append NLU system tools/skills.
+            systemContext = `${params.systemContext}\n\n${prepared.systemContext}`;
+            userPrompt = prepared.userContent;
+            citationChunksRef.current = prepared.citationChunks;
+          } catch (nluErr) {
+            console.warn('[CarePlanInsightSheet] NLU enrich skipped:', nluErr);
+            citationChunksRef.current = mergedCitations;
+          }
           let firstToken = false;
           setCurrentModelId(slmCurrentModelId);
           answerAccRef.current = '';
           const text = await runSlmCompletion({
             provider: activeProvider,
-            systemContext: params.systemContext,
-            userPrompt: enrichedUser,
+            systemContext,
+            userPrompt,
             signal: abortRef.current?.signal,
             onToken: (token) => {
               if (cancelRef.current) return;
@@ -256,7 +280,13 @@ export function CarePlanInsightSheet({
         answerAccRef.current ||
         '';
       const cleaned = stripControlTokens(raw).answer;
-      setFinalText(cleaned || null);
+      const collapsed = formatAnswerWithCollapsedSources(
+        cleaned,
+        citationChunksRef.current,
+      );
+      setFinalText(collapsed.displayText || null);
+      setSourceLabels(collapsed.sourceLabels);
+      setSourcesOpen(false);
       setResult(routerResult);
       setPhase('done');
     } catch (err) {
@@ -480,6 +510,43 @@ export function CarePlanInsightSheet({
               <MarkdownRenderer size="large">{finalText}</MarkdownRenderer>
             ) : null}
 
+            {phase === 'done' && sourceLabels.length > 0 ? (
+              <View style={styles.sourcesBlock}>
+                <Pressable
+                  style={styles.sourcesToggle}
+                  onPress={() => setSourcesOpen((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: sourcesOpen }}
+                  accessibilityLabel={`Sources, ${sourceLabels.length}`}
+                >
+                  <Text style={styles.sourcesToggleText}>
+                    Sources ({sourceLabels.length})
+                  </Text>
+                  <Text style={styles.sourcesChevron}>{sourcesOpen ? '▾' : '▸'}</Text>
+                </Pressable>
+                {sourcesOpen
+                  ? sourceLabels.map((label) => (
+                      <Text key={label} style={styles.sourceRow}>
+                        {'\u2022'} {label}
+                      </Text>
+                    ))
+                  : null}
+              </View>
+            ) : null}
+
+            {phase === 'done' || phase === 'error' ? (
+              <Pressable
+                style={styles.regenerateButton}
+                onPress={() => {
+                  void runExplain();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Regenerate"
+              >
+                <Text style={styles.regenerateButtonText}>Regenerate</Text>
+              </Pressable>
+            ) : null}
+
             {result && result.enqueuedProposalIds.length > 0 ? (
               <View style={styles.proposalBlock}>
                 <Text style={styles.proposalKicker}>Plan proposal queued</Text>
@@ -666,6 +733,50 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     paddingVertical: 8,
+  },
+  sourcesBlock: {
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+    paddingTop: 12,
+  },
+  sourcesToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  sourcesToggleText: {
+    color: AppTheme.colors.brandDark,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  sourcesChevron: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  sourceRow: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 6,
+    fontWeight: '600',
+  },
+  regenerateButton: {
+    marginTop: 16,
+    alignSelf: 'flex-start',
+    backgroundColor: AppTheme.colors.softSurface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  regenerateButtonText: {
+    color: AppTheme.colors.brandDark,
+    fontSize: 13,
+    fontWeight: '900',
   },
   footnote: {
     color: AppTheme.colors.textMuted,

@@ -20,7 +20,7 @@ export function CarePlanHistorySection({ items }: CarePlanHistorySectionProps) {
   return (
     <View style={sectionStyles.card} accessible accessibilityLabel="Care plan history">
       <View style={sectionStyles.headerRow}>
-        <Text style={sectionStyles.title}>What changed</Text>
+        <Text style={sectionStyles.title}>Recent changes</Text>
         <View style={sectionStyles.pill}>
           <Text style={sectionStyles.pillText}>{items.length}</Text>
         </View>

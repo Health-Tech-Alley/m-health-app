@@ -18,7 +18,7 @@ export function buildCaregiverPrompt(
         .split("_")
         .join(" ");
 
-    return `${patientName}'s recent health pattern looks different than usual. We noticed a ${readableContext} pattern. Was anything unusual happening around this time? Select all that apply.`;
+    return `${patientName}\u2019s recent health pattern looks different than usual. We noticed a ${readableContext} pattern. Was anything unusual happening around this time? Select all that apply.`;
 }
 
 // @compat Old function preserved

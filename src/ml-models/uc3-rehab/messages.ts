@@ -9,7 +9,7 @@ export function buildCaregiverMessage(
 
   if (decision.eventType === "URGENT_SAFETY_ESCALATION") {
     return [
-      `${caregiver}, ${name}'s log includes a symptom that may need urgent attention.`,
+      `${caregiver}, ${name}\u2019s log includes a symptom that may need urgent attention.`,
       "Please follow your care team's emergency instructions or seek urgent medical help if symptoms are severe or worsening.",
       "This app cannot diagnose emergencies."
     ].join("\n");
@@ -40,7 +40,7 @@ export function buildCaregiverMessage(
   }
 
   return [
-    `${name}'s recent rehab logs do not show a trajectory failure pattern at this time.`,
+    `${name}\u2019s recent rehab logs do not show a trajectory failure pattern at this time.`,
     "Continue the current plan and keep logging daily progress."
   ].join("\n");
 }

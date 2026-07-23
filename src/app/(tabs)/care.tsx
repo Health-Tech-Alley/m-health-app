@@ -45,6 +45,7 @@ import {
 } from "@/components/care/plan/CareSpineConnector";
 import { CarePlanReviewSection } from "@/components/care/plan/CarePlanReviewSection";
 import { CarePrioritiesSection } from "@/components/care/plan/CarePrioritiesSection";
+import { ObservationVitalsCard } from "@/components/care/ObservationVitalsCard";
 import { CarePlanMonitoringSection } from "@/components/care/plan/CarePlanMonitoringSection";
 import { CarePlanTherapySection } from "@/components/care/plan/CarePlanTherapySection";
 import {
@@ -228,12 +229,12 @@ export default function CareScreen() {
     };
   }, []);
 
-  // Spine geometry: section centers reported by SpineSection wrappers.
+  // Spine geometry: title-band Y from SpineSection (pinned, not section center).
   const [heroBottomY, setHeroBottomY] = useState<number | null>(null);
   const [spineNodeYs, setSpineNodeYs] = useState<Record<string, number>>({});
-  const handleSpineMeasure = useCallback((id: string, centerY: number) => {
+  const handleSpineMeasure = useCallback((id: string, titleY: number) => {
     setSpineNodeYs((current) =>
-      current[id] === centerY ? current : { ...current, [id]: centerY },
+      current[id] === titleY ? current : { ...current, [id]: titleY },
     );
   }, []);
 
@@ -524,11 +525,11 @@ export default function CareScreen() {
           <SpineSection
             id="priorities"
             attention={
-              uc4PriorityCards.some((card) => card.status === 'active')
-                ? 'review'
+              uc4PriorityCards.some((card) => card.status === "active")
+                ? "review"
                 : prioritiesView.totalPriorities > 0
-                  ? 'calm'
-                  : 'empty'
+                  ? "calm"
+                  : "empty"
             }
             onMeasure={handleSpineMeasure}
           >
@@ -619,7 +620,7 @@ export default function CareScreen() {
 
           <SpineSection
             id="monitoring"
-            attention={thresholds.length > 0 ? 'calm' : 'empty'}
+            attention={thresholds.length > 0 ? "calm" : "empty"}
             onMeasure={handleSpineMeasure}
           >
             <CarePlanMonitoringSection
@@ -631,6 +632,10 @@ export default function CareScreen() {
                 baselineRespiratoryRate: snapshot?.patient?.baselineRespiratoryRate,
               }}
             />
+          </SpineSection>
+
+          <SpineSection id="recent-readings" attention="calm" onMeasure={handleSpineMeasure}>
+            <ObservationVitalsCard />
           </SpineSection>
 
           <SpineSection id="backup" attention="calm" onMeasure={handleSpineMeasure}>

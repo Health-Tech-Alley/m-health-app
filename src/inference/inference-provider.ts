@@ -20,6 +20,8 @@ export interface GenerateOptions {
   maxReasoningTokens?: number;
   temperature?: number;
   topP?: number;
+  /** Top-k sampling (Gemma 4 default: 64). */
+  topK?: number;
   /** Control reasoning channel: 'none' skips reasoning (fastest), 'auto' lets model decide. */
   reasoningFormat?: 'none' | 'auto';
 }

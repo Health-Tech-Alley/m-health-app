@@ -166,8 +166,15 @@ function sortActiveComorbidities(conditions: PatientCondition[]): PatientConditi
   );
 }
 
+/**
+ * When condition_role is missing (raw FHIR import), show non-primary
+ * conditions as active comorbidities so Home/Care first load is useful.
+ * Prefer confirmed / non-needsReview rows when present.
+ */
 function isFallbackVisibleComorbidity(condition: PatientCondition): boolean {
-  return condition.source !== 'fhir_import';
+  if (condition.needsReview) return false;
+  if (condition.conditionRole === 'history_context') return false;
+  return true;
 }
 
 export function getBundleStatus(patientId: string): BundleStatus {
@@ -250,13 +257,21 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
     conditions.find((c) => c.conditionRole === 'primary_diagnosis') ??
     conditions.find((c) => c.isPrimary) ??
     conditions.find(isCerebralPalsyCondition) ??
+    conditions.find((c) => !c.needsReview) ??
     conditions[0] ??
     null;
   const comorbidities = hasCuratedRoles
     ? sortActiveComorbidities(
         conditions.filter((c) => c.conditionRole === 'active_comorbidity'),
       )
-    : conditions.filter((c) => c !== primaryCondition && isFallbackVisibleComorbidity(c));
+    : sortActiveComorbidities(
+        conditions.filter(
+          (c) =>
+            c !== primaryCondition &&
+            c.conditionId !== primaryCondition?.conditionId &&
+            isFallbackVisibleComorbidity(c),
+        ),
+      );
   const pendingReviewConditions = conditions.filter(
     (c) => c.needsReview && c !== primaryCondition,
   );

@@ -1,6 +1,6 @@
 /**
- * Tab layout — the 6-tab shell (Dashboard, Care, Medications, Schedule,
- * Concierge, More).
+ * Tab layout — the 5-tab shell (Home, Care, Medications, Schedule, Concierge).
+ * Settings/More is a stack screen opened from Home (not a bottom tab).
  *
  * Uses Expo Router's `Tabs` component so tab switches don't stack screens.
  * The tab bar is styled to match the existing branded design: teal active
@@ -29,7 +29,6 @@ const TAB_CONFIG: {
   { name: "medications", label: "Meds", icon: "pill" },
   { name: "schedule", label: "Schedule", icon: "schedule" },
   { name: "assistant", label: "Concierge", icon: "assistant" },
-  { name: "more", label: "More", icon: "more" },
 ];
 
 export default function TabsLayout() {
@@ -50,7 +49,6 @@ export default function TabsLayout() {
           name={tab.name}
           options={{
             title: tab.label,
-            href: tab.name === "more" ? null : undefined,
             tabBarLabel: ({ color }) => (
               <Text
                 style={[styles.tabLabel, { color }]}

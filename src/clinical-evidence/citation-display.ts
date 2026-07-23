@@ -84,6 +84,61 @@ export type FootnoteFormatResult = {
   sources: { index: number; label: string; snippet: string; tag: string }[];
 };
 
+export type CollapsedSourcesResult = {
+  /** Answer with citation tags stripped (no inline # or footnotes). */
+  displayText: string;
+  /** Deduped caregiver-facing source labels (no chunk numbers). */
+  sourceLabels: string[];
+};
+
+/**
+ * Strip `[Source #n]` tags and collect unique caregiver source labels.
+ * For Care / Home insight sheets: show answer prose + collapsible Sources list.
+ */
+export function formatAnswerWithCollapsedSources(
+  answer: string,
+  chunks: RetrievedCitation[],
+): CollapsedSourcesResult {
+  const byIndex = new Map<number, RetrievedCitation>();
+  chunks.forEach((c, i) => byIndex.set(i + 1, c));
+
+  const citedLabels: string[] = [];
+  const seen = new Set<string>();
+
+  const body = answer.replace(TAG_RE, (_full, _label: string, numStr: string) => {
+    const srcIndex = parseInt(numStr, 10);
+    if (!Number.isFinite(srcIndex) || !byIndex.has(srcIndex)) {
+      return '';
+    }
+    const c = byIndex.get(srcIndex)!;
+    const label = caregiverLabelForSource(c.source);
+    if (!seen.has(label)) {
+      seen.add(label);
+      citedLabels.push(label);
+    }
+    return '';
+  });
+
+  let sourceLabels = citedLabels;
+  if (sourceLabels.length === 0 && chunks.length > 0) {
+    const plain: string[] = [];
+    const plainSeen = new Set<string>();
+    for (const c of chunks) {
+      const label = caregiverLabelForSource(c.source);
+      if (plainSeen.has(label)) continue;
+      plainSeen.add(label);
+      plain.push(label);
+      if (plain.length >= MAX_RELATED_CONTEXT_LABELS) break;
+    }
+    sourceLabels = plain;
+  }
+
+  return {
+    displayText: normalizeAnswerWhitespace(body),
+    sourceLabels,
+  };
+}
+
 /**
  * Map SLM citation tags to inline footnotes + Sources footer.
  * Only maps tags that match known 1-based indices in `chunks`.
@@ -95,8 +150,21 @@ export type FootnoteFormatResult = {
 export function formatAnswerWithFootnotes(
   answer: string,
   chunks: RetrievedCitation[],
-  opts?: { snippetChars?: number },
+  opts?: { snippetChars?: number; collapsedSources?: boolean },
 ): FootnoteFormatResult {
+  if (opts?.collapsedSources) {
+    const collapsed = formatAnswerWithCollapsedSources(answer, chunks);
+    return {
+      displayText: collapsed.displayText,
+      sources: collapsed.sourceLabels.map((label, i) => ({
+        index: i + 1,
+        label,
+        snippet: '',
+        tag: label,
+      })),
+    };
+  }
+
   const snippetChars = opts?.snippetChars ?? 80;
   const byIndex = new Map<number, RetrievedCitation>();
   chunks.forEach((c, i) => byIndex.set(i + 1, c));
@@ -120,7 +188,7 @@ export function formatAnswerWithFootnotes(
     .sort((a, b) => a[1] - b[1])
     .map(([srcIndex, fn]) => {
       const c = byIndex.get(srcIndex)!;
-      const label = caregiverLabelForCitation(c);
+      const label = caregiverLabelForSource(c.source);
       const snippet =
         c.text.length > snippetChars
           ? c.text.slice(0, snippetChars).trimEnd() + '\u2026'
@@ -139,7 +207,7 @@ export function formatAnswerWithFootnotes(
     const footer = [
       '',
       '**Sources**',
-      ...sources.map((s) => `${s.index}. ${s.label} \u2014 ${s.snippet}`),
+      ...sources.map((s) => `${s.index}. ${s.label}`),
     ].join('\n');
     displayText = `${displayText}\n${footer}`;
   } else if (chunks.length > 0 && displayText.length > 0) {

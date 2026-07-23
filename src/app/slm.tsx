@@ -31,26 +31,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
-  buildChatRetrievalQuery,
-  formatCitationsForPrompt,
-  messageHasClinicalKeywords,
-  retrieveClinicalChunksViaBm25,
-} from '@/clinical-evidence/retrieval-helper';
-import {
-  buildMedSafetyContext,
-  selectChatGeneration,
   formatAnswerWithFootnotes,
+  selectChatGeneration,
 } from '@/clinical-evidence';
-import { createReadyEmbedder } from '@/knowledge/embedder';
-import type { McpToolSummary } from '@/knowledge/types';
-import {
-  PreSlmNlu,
-  buildPatientNluContext,
-  formatEntityHint,
-} from '@/nlu';
-import type { PreSlmPacket } from '@/nlu/types';
-import { TOOL_SCHEMAS } from '@/orchestration/mcp/tool-registry';
-import { filterToolsForSkill } from '@/orchestration/skills';
 import { MainTabHeader } from '@/components/MainTabHeader';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import {
@@ -71,7 +54,7 @@ import {
   buildCaregiverSystemContext,
   type CaregiverAssistantContext,
 } from '@/services/slm/slmService';
-import { detectIdentityMismatches } from '@/services/slm/identity-guardrails';
+import { prepareSlmTurn } from '@/services/slm/prepareSlmTurn';
 import {
   formatVitalsArgsSummary,
   resolveHypotheticalVitalsCandidate,
@@ -746,7 +729,6 @@ export default function SLMScreen({
   const handleAskAssistant = useCallback(async (overrideText?: string) => {
     const trimmed = (typeof overrideText === 'string' ? overrideText : inputText).trim();
     if (!trimmed || state.runStatus === 'streaming') return;
-    const contextForRequest: CaregiverAssistantContext = caregiverContext ?? {};
 
     const userMessage: ChatMessage = {
       id: generateId(),
@@ -800,209 +782,28 @@ export default function SLMScreen({
       return;
     }
 
-    // Pre-SLM NLU pipeline (planning/35): entity linking + intent classification
-    // + budgeted retrieval. Hard timeout so chat never hangs on network/NLU.
-    const conditionNames = snapshot
-      ? [
-          ...new Set(
-            [
-              snapshot.primaryCondition?.name,
-              ...snapshot.comorbidities.map((c: PatientCondition) => c.name),
-              ...snapshot.conditions
-                .filter((c: PatientCondition) => !c.needsReview)
-                .map((c: PatientCondition) => c.name),
-            ].filter((name): name is string => Boolean(name?.trim())),
-          ),
-        ]
-      : [];
-    const medNames = medicationNames;
-
-    let userContent = trimmed;
-    let nluPacket: PreSlmPacket | null = null;
-    let nluSkillId: string | undefined;
-
+    // Shared Pre-SLM NLU + retrieval (same path as Care sheets / mini-chat).
     console.log('[SLM Chat] NLU start');
-    try {
-      const patientCtx = buildPatientNluContext(snapshot);
-      patientCtx.medications = [
-        ...new Set([...patientCtx.medications, ...medNames].filter(Boolean)),
-      ];
-
-      const embedder = await createReadyEmbedder(400, {
-        allowDevelopmentFallback: allowDevelopmentNluFallback,
-      });
-      const nlu = new PreSlmNlu({
-        embedder,
-        retriever: retriever ?? {
-          retrieve: async () => ({ tools: [], chunks: [], citations: [], latencyMs: 0 }),
-        },
-        toolSchemas: TOOL_SCHEMAS as unknown as McpToolSummary[],
-        allowDevelopmentFallback: allowDevelopmentNluFallback,
-        filterToolsForSkill: (id, tools) =>
-          filterToolsForSkill(id, tools as typeof TOOL_SCHEMAS) as McpToolSummary[],
-      });
-
-      nluPacket = await Promise.race([
-        nlu.run(trimmed, patientCtx),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`NLU timeout after ${NLU_TIMEOUT_MS}ms`)), NLU_TIMEOUT_MS),
-        ),
-      ]);
-      nluSkillId = nluPacket.intent.skillId;
-      console.log(
-        `[SLM Chat] NLU: intent=${nluPacket.intent.primary} conf=${nluPacket.intent.confidence.toFixed(2)} ` +
-          `entities=${nluPacket.entities.length} tools=${nluPacket.tools.length} ` +
-          `chunks=${nluPacket.chunks.length} backend=${nluPacket.trace.backend} ` +
-          `latency=${nluPacket.trace.latencyMs}ms`,
-      );
-    } catch (nluErr) {
-      console.warn('[SLM Chat] NLU unavailable or timed out; continuing without NLU:', nluErr);
-    }
-
-    // Generation routing from NLU intent + confidence (planning/37 §6.3-6.4).
-    const generationDecision = selectChatGeneration({
-      intent: nluPacket?.intent ?? null,
-      message: trimmed,
-      conditions: conditionNames,
-      meds: medNames,
-      citedChunkCount: nluPacket?.chunks.length ?? 0,
+    const prepared = await prepareSlmTurn({
+      userText: trimmed,
+      snapshot,
+      retriever,
       forceDeep: false,
+      allowDevelopmentNluFallback: allowDevelopmentNluFallback,
+      nluTimeoutMs: NLU_TIMEOUT_MS,
+      logTag: 'SLM Chat',
     });
+    const nluPacket = prepared.nluPacket;
+    const generationDecision = prepared.generationDecision;
+    const systemContext = prepared.systemContext;
+    const userContent = prepared.userContent;
+
     console.log(
       `[SLM Chat] generation=${generationDecision.profile === CONCIERGE_GENERATION_FAST ? 'FAST' : 'DEEP'} ` +
         `reason=${generationDecision.reason} ` +
         `intent=${nluPacket?.intent?.primary ?? 'none'} ` +
         `conf=${nluPacket?.intent?.confidence?.toFixed(2) ?? 'n/a'}`,
     );
-
-    // Skill fragment from NLU; toolsOverride injects only budgeted packet tools (planning/35).
-    let systemContext = buildCaregiverSystemContext(contextForRequest, {
-      skillId: nluSkillId,
-      toolsOverride: nluPacket ? nluPacket.tools : undefined,
-    });
-
-    // Identity guardrails: wrong patient / wrong caregiver self-reference
-    const identityGuard = detectIdentityMismatches(trimmed, {
-      patientName: snapshot?.patient?.name ?? contextForRequest.patientName,
-      patientPreferredName:
-        snapshot?.patient?.preferredName ?? contextForRequest.patientName,
-      caregiverName:
-        snapshot?.caregiver?.name ?? contextForRequest.caregiverName,
-    });
-    if (identityGuard.hasMismatch) {
-      console.warn(
-        '[SLM Chat] Identity mismatch:',
-        identityGuard.findings.map((f) => f.reason).join(' | '),
-      );
-      systemContext = `${systemContext}\n\n${identityGuard.systemPromptBlock}`;
-    }
-
-    // On-demand RxNorm DDI when this turn is med-related (chat, not Meds-tab-only).
-    const mentionedMeds = (nluPacket?.entities ?? [])
-      .filter((e) => e.type === 'medication')
-      .map((e) => e.label);
-    let medSafetyChunks: {
-      docId: string;
-      source: string;
-      text: string;
-    }[] = [];
-    try {
-      const medSafety = await Promise.race([
-        buildMedSafetyContext({
-          medicationNames: [...new Set([...mentionedMeds, ...medNames])],
-          intent: nluPacket?.intent.primary ?? null,
-          hasMedicationEntities: mentionedMeds.length > 0,
-          message: trimmed,
-        }),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 4_000)),
-      ]);
-      if (medSafety?.chunks.length) {
-        medSafetyChunks = medSafety.chunks.map((c) => ({
-          docId: c.docId,
-          source: String(c.source),
-          text: c.text,
-        }));
-        console.log(
-          `[SLM Chat] Med safety DDI: ${medSafety.chunks.length} chunks (${medSafety.reason})`,
-        );
-      }
-    } catch (medErr) {
-      console.warn('[SLM Chat] Med safety context skipped:', medErr);
-    }
-
-    // Use NLU chunks if available, otherwise fall back to keyword-based retrieval
-    if (nluPacket && nluPacket.chunks.length > 0) {
-      const entityHint = formatEntityHint(nluPacket.entities);
-      const maxChunkChars = nluPacket.budget.maxChunkChars;
-      const citationBlock = formatCitationsForPrompt(
-        [
-          ...nluPacket.chunks.map((c) => ({
-            docId: c.docId,
-            source: String(c.source),
-            text: c.text,
-            patientId: c.patientId,
-            sourceId: c.sourceId,
-            sourceType: c.sourceType,
-            resourceId: c.resourceId,
-            effectiveAt: c.effectiveAt,
-            createdAt: c.createdAt,
-            synthetic: c.synthetic,
-            retrievalMethod: c.retrievalMethod,
-            graphRelation: c.graphRelation,
-            graphSeedId: c.graphSeedId,
-          })),
-          ...medSafetyChunks,
-        ],
-        maxChunkChars,
-      );
-      if (citationBlock) {
-        const hintLine = entityHint ? `\n${entityHint}` : '';
-        console.log(`[SLM Chat] NLU citation block added (${citationBlock.length} chars)`);
-        userContent = `${trimmed}${hintLine}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above where relevant. After claims drawn from a chunk, append that chunk's exact tag (e.g. [PubMed #1], [Drug Label #2], [Care Plan #3]) — include the # number.`;
-      }
-    } else if (nluPacket && nluPacket.entities.length > 0) {
-      const entityHint = formatEntityHint(nluPacket.entities);
-      const ddiBlock = medSafetyChunks.length
-        ? `\n\n${formatCitationsForPrompt(medSafetyChunks)}`
-        : '';
-      userContent = `${trimmed}\n${entityHint}${ddiBlock}`;
-    } else {
-      const hasClinicalIntent = messageHasClinicalKeywords(
-        trimmed,
-        conditionNames,
-        medNames,
-      );
-      if (hasClinicalIntent) {
-        const retrievalQuery = buildChatRetrievalQuery(
-          trimmed,
-          conditionNames,
-          medNames,
-        );
-        const citations = await retrieveClinicalChunksViaBm25(
-          retriever,
-          retrievalQuery || [trimmed, ...conditionNames].join(' '),
-          5,
-          patientId,
-        );
-        console.log(
-          `[SLM Chat] Clinical intent fallback. Query: "${retrievalQuery}". Chunks: ${citations.length}`,
-        );
-        const citationBlock = formatCitationsForPrompt([
-          ...citations,
-          ...medSafetyChunks,
-        ]);
-        if (citationBlock) {
-          userContent = `${trimmed}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above where relevant. After claims drawn from a chunk, append that chunk's exact tag (e.g. [PubMed #1], [Drug Label #2], [Care Plan #3]) — include the # number.`;
-        }
-      } else if (medSafetyChunks.length > 0) {
-        const citationBlock = formatCitationsForPrompt(medSafetyChunks);
-        userContent = `${trimmed}\n\n${citationBlock}\n\nGround medication safety claims in the knowledge above where relevant.`;
-      } else {
-        console.log(
-          `[SLM Chat] No clinical intent. Conditions: [${conditionNames.join(', ')}], Meds: [${medNames.join(', ')}]`,
-        );
-      }
-    }
 
     // NLU done → Concierge (SLM) stage
     dispatch({ type: 'set-phase', payload: { assistantId: assistantMessage.id, phase: 1 } });
@@ -1037,7 +838,7 @@ export default function SLMScreen({
           });
         },
         abortControllerRef.current.signal,
-        generationDecision.profile,
+        prepared.generation,
         (token) => {
           // First reasoning token — stay on Concierge stage (phase 1).
           if (reasoningStartedAt.current === null) {
@@ -1069,25 +870,17 @@ export default function SLMScreen({
         resolveHypotheticalVitalsCandidate(trimmed, result.text);
       finalText = stripEvaluateHypotheticalAction(finalText);
 
-      // Footnote citations on finalize (planning/37 §6.4.4).
-      const chunksForCite =
-        nluPacket?.chunks.map((c) => ({
-          docId: c.docId,
-          source: String(c.source),
-          text: c.text,
-          patientId: c.patientId,
-          sourceId: c.sourceId,
-          sourceType: c.sourceType,
-          resourceId: c.resourceId,
-          effectiveAt: c.effectiveAt,
-          createdAt: c.createdAt,
-          synthetic: c.synthetic,
-          retrievalMethod: c.retrievalMethod,
-          graphRelation: c.graphRelation,
-          graphSeedId: c.graphSeedId,
-        })) ?? [];
-      const withFootnotes = formatAnswerWithFootnotes(finalText, chunksForCite);
+      // Sources footer without chunk indices (caregiver-facing).
+      const withFootnotes = formatAnswerWithFootnotes(
+        finalText,
+        prepared.citationChunks,
+        { collapsedSources: true },
+      );
       finalText = withFootnotes.displayText;
+      if (withFootnotes.sources.length > 0) {
+        const labels = withFootnotes.sources.map((s) => s.label);
+        finalText = `${finalText}\n\n**Sources**\n${labels.map((l) => `- ${l}`).join('\n')}`;
+      }
 
       dispatch({
         type: 'send-success',
@@ -1164,12 +957,9 @@ export default function SLMScreen({
     state.runStatus,
     state.messages,
     slm,
-    caregiverContext,
     snapshot,
-    medicationNames,
     retriever,
     orchestrator,
-    patientId,
     allowDevelopmentNluFallback,
   ]);
 

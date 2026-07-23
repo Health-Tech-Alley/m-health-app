@@ -331,18 +331,34 @@ export class LlamaRnProvider implements InferenceProvider {
 
       signal.addEventListener('abort', abortHandler);
 
+      const reasoningFormat = options?.reasoningFormat ?? 'none';
+      const enableThinking = reasoningFormat === 'auto';
+      const mappedMessages = messages.map((m, index) => {
+        let content = m.content;
+        // Gemma 4: enable thinking by prefixing <|think|> on the system turn.
+        if (
+          enableThinking &&
+          m.role === 'system' &&
+          index === messages.findIndex((x) => x.role === 'system') &&
+          content &&
+          !content.startsWith('<|think|>')
+        ) {
+          content = `<|think|>\n${content}`;
+        }
+        return { role: m.role, content };
+      });
+
       this.context
         .completion(
           {
-            messages: messages.map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
+            messages: mappedMessages,
             n_predict: nPredict,
-            temperature: options?.temperature ?? 0.5,
-            top_p: options?.topP ?? 0.8,
+            temperature: options?.temperature ?? 1.0,
+            top_p: options?.topP ?? 0.95,
+            top_k: options?.topK ?? 64,
             jinja: true,
-            reasoning_format: options?.reasoningFormat ?? 'none',
+            enable_thinking: enableThinking,
+            reasoning_format: reasoningFormat,
           },
           (data: any) => {
             // Case (a): llama.rn already separated the reasoning channel.

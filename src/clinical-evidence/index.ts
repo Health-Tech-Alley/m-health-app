@@ -60,6 +60,7 @@ export { redownloadForChunk, redownloadAllForPatient } from './re-download';
 export { RateLimiter, withRetry, sleep } from './rate-limiter';
 export {
   retrieveClinicalChunks,
+  retrieveClinicalChunksViaBm25,
   formatCitationsForPrompt,
   formatCitationTag,
   citationSourceLabel,
@@ -73,5 +74,8 @@ export type { RetrievedCitation } from './retrieval-helper';
 export { decideReasoningMode, selectChatGeneration, FAST_ELIGIBLE_INTENTS, ALWAYS_DEEP_INTENTS } from './reasoning-router';
 export type { ChatGenerationDecision } from './reasoning-router';
 
-export { formatAnswerWithFootnotes } from './citation-display';
-export type { FootnoteFormatResult } from './citation-display';
+export {
+  formatAnswerWithFootnotes,
+  formatAnswerWithCollapsedSources,
+} from './citation-display';
+export type { FootnoteFormatResult, CollapsedSourcesResult } from './citation-display';

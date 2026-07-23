@@ -33,7 +33,7 @@ import { getMlEventForAlert, type MlEvent } from '@/data';
 import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
 import { useActivePatientView } from '@/hooks/useActivePatientView';
-import { getPatientDisplayName } from '@/utils/patientDisplay';
+import { formatPossessive, getPatientDisplayName } from '@/utils/patientDisplay';
 
 function parseRawVitals(event: MlEvent | null): Record<string, number | undefined> {
   if (!event?.rawVitalsJson) return {};
@@ -82,14 +82,17 @@ export function CriticalAlertDialog() {
 
   const vitals = parseRawVitals(mlEvent);
   const metrics = [
-    { label: 'SpO₂', value: formatMetric(vitals.blood_oxygen, '%') },
-    { label: 'HR', value: formatMetric(vitals.heart_rate, ' BPM') },
-    { label: 'RR', value: formatMetric(vitals.respiratory_rate, '/min') },
-  ];
+    { label: 'SpO₂', value: formatMetric(vitals.blood_oxygen, '%'), raw: vitals.blood_oxygen },
+    { label: 'HR', value: formatMetric(vitals.heart_rate, ' BPM'), raw: vitals.heart_rate },
+    { label: 'RR', value: formatMetric(vitals.respiratory_rate, '/min'), raw: vitals.respiratory_rate },
+  ].filter((m) => m.raw !== undefined && m.raw !== null && Number.isFinite(m.raw));
   const contextualType = mlEvent?.initialAnomalyType;
   const visibleAlertBody =
     activePatient && alert.body
-      ? alert.body.replace(/^([^']+)'s\b/, `${patientDisplayName}'s`)
+      ? alert.body.replace(
+          /^([^\s'’]+(?:\s+[^\s'’]+)*)['’]s\b/,
+          `${formatPossessive(patientDisplayName)}`,
+        )
       : alert.body;
 
   async function handleAction(actionId: NextStepActionId) {
@@ -172,12 +175,11 @@ export function CriticalAlertDialog() {
 
             <Text style={styles.bodyText}>
               {visibleAlertBody
-                ? `${visibleAlertBody} `
-                : `${patientDisplayName}'s recent vitals show an unusual pattern. `}
-              <Text style={styles.boldText}>
-                You decide — the app never acts for you.
-              </Text>
+                ? visibleAlertBody
+                : `${formatPossessive(patientDisplayName)} recent vitals show an unusual pattern.`}
             </Text>
+
+            <Text style={styles.promptText}>What do you want to do?</Text>
 
             <Pressable
               style={styles.callButton}
@@ -330,6 +332,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 14,
     textTransform: 'capitalize',
+  },
+  promptText: {
+    color: AppTheme.colors.white,
+    fontSize: 17,
+    fontWeight: '900',
+    marginTop: 18,
+    marginBottom: 4,
   },
   bodyText: {
     color: AppTheme.colors.white,

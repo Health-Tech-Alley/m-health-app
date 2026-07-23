@@ -1,15 +1,15 @@
 /**
- * SlmInsightSheet — reusable transient-SLM bottom sheet.
+ * SlmInsightSheet — reusable one-off Concierge bottom sheet (Care-style).
  *
- * Used for on-demand SLM explanations that are NOT the main alert-explain flow
- * (safety-note explanations, custom-med checks, care goals/priorities, etc.).
+ * Canonical UI for single-shot explains (care sections, meds, concerns, etc.).
+ * Uses `prepareSlmTurn` so NLU + retrieval match main Concierge chat.
+ * Prefer this over InCardMiniChat when no multi-turn follow-up is needed.
  *
  * Lifecycle:
  *   - On open: check explain answer cache; on hit, show without loading SLM.
- *   - On miss: lease → stream → cache final answer.
- *   - YouTube-style: swipe down once → mini (header + status); swipe up → expand;
- *     swipe down again or × → dismiss (confirm while generating).
- *   - Backdrop fades independently of the sheet slide (no iOS “dim slides with sheet”).
+ *   - On miss: NLU → lease → stream → cache final answer.
+ *   - Regenerate + collapsible Sources (no chunk #).
+ *   - YouTube-style minimize when allowMinimize; swipe to dismiss.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -29,7 +29,6 @@ import {
 } from 'react-native';
 
 import { MarkdownRenderer } from '@/components/markdown-renderer';
-import { CONCIERGE_GENERATION_DEEP } from '@/constants/concierge';
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
@@ -38,19 +37,13 @@ import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
 import type { SlmTaskReason, SlmTaskLease } from '@/services/slm/slm-task-queue';
 import { isModelInstalled } from '@/services/model-storage';
 import {
-  buildCaregiverAssistantContextFromSnapshot,
-  buildCaregiverSystemContext,
-} from '@/services/slm/slmService';
-import {
   buildExplainFingerprint,
   getCachedExplainAnswer,
+  invalidateExplainAnswer,
   setCachedExplainAnswer,
 } from '@/services/slm/explainAnswerCache';
-import {
-  retrieveClinicalChunksViaBm25,
-  formatCitationsForPrompt,
-  buildRetrievalQuery,
-} from '@/clinical-evidence/retrieval-helper';
+import { prepareSlmTurn } from '@/services/slm/prepareSlmTurn';
+import { formatAnswerWithCollapsedSources } from '@/clinical-evidence/citation-display';
 import { useOrchestratorRetriever } from '@/contexts/orchestrator-context';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 
@@ -95,18 +88,21 @@ export function SlmInsightSheet({
     currentModelId,
   } = slm;
   const { snapshot, patientId } = usePatientRecord();
-  const { settings } = useSettings();
+  const { settings, isDeveloper } = useSettings();
   const retriever = useOrchestratorRetriever();
   const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [answer, setAnswer] = useState('');
   const [finalText, setFinalText] = useState<string | null>(null);
+  const [sourceLabels, setSourceLabels] = useState<string[]>([]);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [presentation, setPresentation] = useState<Presentation>('full');
   const [mounted, setMounted] = useState(false);
+  const skipCacheRef = useRef(false);
 
   const leaseRef = useRef<SlmTaskLease | null>(null);
   const loadedBySheetRef = useRef(false);
@@ -173,20 +169,31 @@ export function SlmInsightSheet({
     });
     fingerprintRef.current = fingerprint;
 
-    const cached = getCachedExplainAnswer(fingerprint);
-    if (cached?.answer) {
-      setSource('cache');
-      setAnswer(cached.answer);
-      setFinalText(cached.answer);
-      setError(null);
-      setActiveModelId(null);
-      setPhase('done');
-      return;
+    const forceFresh = skipCacheRef.current;
+    skipCacheRef.current = false;
+
+    if (!forceFresh) {
+      const cached = getCachedExplainAnswer(fingerprint);
+      if (cached?.answer) {
+        setSource('cache');
+        setAnswer(cached.answer);
+        setFinalText(cached.answer);
+        setSourceLabels(cached.sourceLabels ?? []);
+        setSourcesOpen(false);
+        setError(null);
+        setActiveModelId(null);
+        setPhase('done');
+        return;
+      }
+    } else {
+      invalidateExplainAnswer(fingerprint);
     }
 
     setPhase('loading');
     setAnswer('');
     setFinalText(null);
+    setSourceLabels([]);
+    setSourcesOpen(false);
     setError(null);
     setSource(null);
     setActiveModelId(currentModelId);
@@ -200,22 +207,18 @@ export function SlmInsightSheet({
     leaseRef.current = lease;
     setActiveModelId(currentModelId);
 
-    const context = snapshot
-      ? buildCaregiverAssistantContextFromSnapshot(snapshot)
-      : {};
+    const allowDevNlu =
+      __DEV__ && isDeveloper && settings.nluDevelopmentFallback === true;
 
-    const conditionName = snapshot?.primaryCondition?.name;
-    const retrievalQuery = buildRetrievalQuery(conditionName, activePrompt);
-    const citations = await retrieveClinicalChunksViaBm25(
+    const prepared = await prepareSlmTurn({
+      userText: activePrompt,
+      snapshot,
       retriever,
-      retrievalQuery,
-      3,
-      snapshot?.patient?.patientId,
-    );
-    const citationBlock = formatCitationsForPrompt(citations);
-    const enrichedPrompt = citationBlock
-      ? `${activePrompt}\n\n${citationBlock}\n\nGround your answer in the clinical knowledge above. After claims drawn from a chunk, append that chunk's exact bracket tag (including any · detail and # number).`
-      : activePrompt;
+      forceDeep: true,
+      allowDevelopmentNluFallback: allowDevNlu,
+      logTag: 'SlmInsightSheet',
+    });
+    if (cancelRef.current) return;
 
     if (provider.getModelInfo()) {
       setSource('native');
@@ -224,11 +227,10 @@ export function SlmInsightSheet({
       abortRef.current = controller;
       let firstTokenSeen = false;
       try {
-        const systemContext = buildCaregiverSystemContext(context);
         const result = await provider.chat(
           [
-            { role: 'system', content: systemContext },
-            { role: 'user', content: enrichedPrompt },
+            { role: 'system', content: prepared.systemContext },
+            { role: 'user', content: prepared.userContent },
           ],
           (token) => {
             if (!firstTokenSeen) {
@@ -238,17 +240,23 @@ export function SlmInsightSheet({
             setAnswer((prev) => prev + token);
           },
           controller.signal,
-          CONCIERGE_GENERATION_DEEP,
+          prepared.generation,
         );
         if (cancelRef.current) return;
         const cleaned = stripControlTokens(result.text).answer;
-        setAnswer(cleaned);
-        setFinalText(cleaned);
+        const collapsed = formatAnswerWithCollapsedSources(
+          cleaned,
+          prepared.citationChunks,
+        );
+        setAnswer(collapsed.displayText);
+        setFinalText(collapsed.displayText);
+        setSourceLabels(collapsed.sourceLabels);
         setPhase('done');
         setCachedExplainAnswer({
           fingerprint,
           title: activeTitle,
-          answer: cleaned,
+          answer: collapsed.displayText,
+          sourceLabels: collapsed.sourceLabels,
           patientId: patientId ?? undefined,
         });
       } catch (err) {
@@ -271,7 +279,23 @@ export function SlmInsightSheet({
         : 'Concierge could not load a model. Open Models, load Concierge, then retry.',
     );
     setPhase('error');
-  }, [ensureModelAndLease, provider, snapshot, patientId, currentModelId, retriever]);
+  }, [
+    ensureModelAndLease,
+    provider,
+    snapshot,
+    patientId,
+    currentModelId,
+    retriever,
+    isDeveloper,
+    settings.nluDevelopmentFallback,
+  ]);
+
+  const handleRegenerate = useCallback(() => {
+    if (phase === 'loading' || phase === 'thinking' || phase === 'streaming') return;
+    skipCacheRef.current = true;
+    cancelRef.current = false;
+    void runExplain();
+  }, [phase, runExplain]);
 
   const releaseResources = useCallback(() => {
     cancelRef.current = true;
@@ -682,6 +706,41 @@ export function SlmInsightSheet({
               <Text style={styles.emptyText}>No response.</Text>
             )
           ) : null}
+
+          {phase === 'done' && sourceLabels.length > 0 ? (
+            <View style={styles.sourcesBlock}>
+              <Pressable
+                style={styles.sourcesToggle}
+                onPress={() => setSourcesOpen((v) => !v)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: sourcesOpen }}
+                accessibilityLabel={`Sources, ${sourceLabels.length}`}
+              >
+                <Text style={styles.sourcesToggleText}>
+                  Sources ({sourceLabels.length})
+                </Text>
+                <Text style={styles.sourcesChevron}>{sourcesOpen ? '▾' : '▸'}</Text>
+              </Pressable>
+              {sourcesOpen
+                ? sourceLabels.map((label) => (
+                    <Text key={label} style={styles.sourceRow}>
+                      {'\u2022'} {label}
+                    </Text>
+                  ))
+                : null}
+            </View>
+          ) : null}
+
+          {phase === 'done' || phase === 'error' ? (
+            <Pressable
+              style={styles.regenerateButton}
+              onPress={handleRegenerate}
+              accessibilityRole="button"
+              accessibilityLabel="Regenerate explanation"
+            >
+              <Text style={styles.regenerateButtonText}>Regenerate</Text>
+            </Pressable>
+          ) : null}
         </ScrollView>
 
         {phase === 'streaming' || phase === 'done' ? (
@@ -932,5 +991,49 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 20,
     paddingTop: 10,
+  },
+  sourcesBlock: {
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+    paddingTop: 12,
+  },
+  sourcesToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  sourcesToggleText: {
+    color: AppTheme.colors.brandDark,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  sourcesChevron: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  sourceRow: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 6,
+    fontWeight: '600',
+  },
+  regenerateButton: {
+    marginTop: 16,
+    alignSelf: 'flex-start',
+    backgroundColor: AppTheme.colors.softSurface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  regenerateButtonText: {
+    color: AppTheme.colors.brandDark,
+    fontSize: 13,
+    fontWeight: '900',
   },
 });

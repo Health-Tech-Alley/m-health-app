@@ -20,6 +20,8 @@ export type ExplainCacheEntry = {
   answer: string;
   cachedAt: string;
   patientId?: string;
+  /** Deduped caregiver source labels (no chunk indices). */
+  sourceLabels?: string[];
 };
 
 type CacheStore = {
@@ -100,4 +102,13 @@ export function setCachedExplainAnswer(entry: Omit<ExplainCacheEntry, 'cachedAt'
 
 export function clearExplainAnswerCache(): void {
   writeStore({ entries: [] });
+}
+
+/** Drop one fingerprint so Regenerate forces a fresh Concierge run. */
+export function invalidateExplainAnswer(fingerprint: string): void {
+  if (!fingerprint) return;
+  const store = readStore();
+  writeStore({
+    entries: store.entries.filter((e) => e.fingerprint !== fingerprint),
+  });
 }

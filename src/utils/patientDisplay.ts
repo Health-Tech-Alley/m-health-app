@@ -20,6 +20,25 @@ export function getPatientDisplayName(patient: NormalizedActivePatient | null): 
   return patient.displayName.trim() || UNKNOWN_PATIENT;
 }
 
+/**
+ * English possessive with a typographic apostrophe.
+ * Names ending in s/S/z/Z use trailing apostrophe only (James’ not James’s).
+ */
+export function formatPossessive(name: string): string {
+  const n = name.trim();
+  if (!n || n === UNKNOWN_PATIENT || n === NOT_PROVIDED || n === NOT_AVAILABLE) {
+    return n;
+  }
+  if (/[sSzZ]$/.test(n)) return `${n}\u2019`;
+  return `${n}\u2019s`;
+}
+
+/** First token of a display name (for “James’ Care Plan”). */
+export function getFirstName(displayName: string): string {
+  const n = displayName.trim();
+  return n.split(/\s+/)[0] || n;
+}
+
 export function getPatientAgeDisplay(patient: NormalizedActivePatient | null): string {
   if (!patient) return NOT_PROVIDED;
   return displayEntered(patient.age);
