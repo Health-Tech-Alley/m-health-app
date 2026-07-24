@@ -29,19 +29,27 @@ import {
 import { AppIcon } from '@/components/AppIcon';
 import { AppTheme } from '@/constants/theme';
 import { useCriticalAlert } from '@/contexts/critical-alert-context';
-import { getMlEventForAlert, type MlEvent } from '@/data';
+import { getMlEventForAlert, parseRawVitals, type MlEvent } from '@/data';
+import { HARD_EMERGENCY_THRESHOLDS } from '@/ml-models/uc2-decision-layer/uc2Constants';
 import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
 import { useActivePatientView } from '@/hooks/useActivePatientView';
-import { formatPossessive, getPatientDisplayName } from '@/utils/patientDisplay';
+import { displayEntered, formatPossessive, getPatientDisplayName } from '@/utils/patientDisplay';
 
-function parseRawVitals(event: MlEvent | null): Record<string, number | undefined> {
-  if (!event?.rawVitalsJson) return {};
-  try {
-    return JSON.parse(event.rawVitalsJson) as Record<string, number | undefined>;
-  } catch {
-    return {};
-  }
+type AlertMetricVitals = {
+  blood_oxygen?: number;
+  heart_rate?: number;
+  respiratory_rate?: number;
+  stress_level?: number;
+};
+
+function metricVitalsFromEvent(event: MlEvent | null): AlertMetricVitals {
+  const raw = event ? parseRawVitals(event) : null;
+  if (!raw) return {};
+  const maybeEnvelope = raw as { contract?: unknown; input?: unknown };
+  return maybeEnvelope.contract === 'AppleWatchVitalsInput' && maybeEnvelope.input && typeof maybeEnvelope.input === 'object'
+    ? maybeEnvelope.input as AlertMetricVitals
+    : raw as AlertMetricVitals;
 }
 
 function formatMetric(v: number | undefined, unit: string): string {
@@ -80,13 +88,21 @@ export function CriticalAlertDialog() {
 
   if (!alert) return null;
 
-  const vitals = parseRawVitals(mlEvent);
+  const vitals = metricVitalsFromEvent(mlEvent);
+  const isEmergencyFastPath = alert.pipelinePath === 'RULE_ENGINE_EMERGENCY_FAST_PATH';
+  const spo2Cutoff = isEmergencyFastPath
+    ? `${HARD_EMERGENCY_THRESHOLDS.blood_oxygen_lte}%`
+    : activePatient?.spo2Cutoff;
   const metrics = [
-    { label: 'SpO₂', value: formatMetric(vitals.blood_oxygen, '%'), raw: vitals.blood_oxygen },
-    { label: 'HR', value: formatMetric(vitals.heart_rate, ' BPM'), raw: vitals.heart_rate },
-    { label: 'RR', value: formatMetric(vitals.respiratory_rate, '/min'), raw: vitals.respiratory_rate },
-  ].filter((m) => m.raw !== undefined && m.raw !== null && Number.isFinite(m.raw));
+    { label: 'SpO₂', value: formatMetric(vitals.blood_oxygen, '%'), show: Number.isFinite(vitals.blood_oxygen) },
+    { label: 'SpO₂ cutoff', value: displayEntered(spo2Cutoff), show: true },
+    { label: 'Baseline HR', value: displayEntered(activePatient?.baselineHeartRate), show: true },
+  ].filter((m) => m.show);
   const contextualType = mlEvent?.initialAnomalyType;
+  const contextLabel = isEmergencyFastPath ? 'Path' : 'Pattern';
+  const contextValue = isEmergencyFastPath
+    ? 'emergency fast path'
+    : contextualType?.replace(/_/g, ' ').toLowerCase();
   const visibleAlertBody =
     activePatient && alert.body
       ? alert.body.replace(
@@ -167,9 +183,9 @@ export function CriticalAlertDialog() {
               </View>
             )}
 
-            {contextualType && (
+            {contextValue && (
               <Text style={styles.contextLine}>
-                Pattern: {contextualType.replace(/_/g, ' ').toLowerCase()}
+                {contextLabel}: {contextValue}
               </Text>
             )}
 
@@ -177,6 +193,7 @@ export function CriticalAlertDialog() {
               {visibleAlertBody
                 ? visibleAlertBody
                 : `${formatPossessive(patientDisplayName)} recent vitals show an unusual pattern.`}
+              <Text style={styles.boldText}> You decide.</Text>
             </Text>
 
             <Text style={styles.promptText}>What do you want to do?</Text>

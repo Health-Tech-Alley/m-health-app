@@ -13,7 +13,7 @@ import {
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
-import { getMlEventForAlert, insertCaregiverAction } from "@/data";
+import { getMlEventForAlert, insertCaregiverAction, parseRawVitals } from "@/data";
 import type { MlEvent } from "@/data";
 import { audit } from "@/services/audit/auditService";
 import {
@@ -22,8 +22,9 @@ import {
 } from "@/services/care/careService";
 import { useActiveAlert } from "@/hooks/useActiveAlert";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
+import { HARD_EMERGENCY_THRESHOLDS } from "@/ml-models/uc2-decision-layer/uc2Constants";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
-import { formatPossessive, getPatientDisplayName } from "@/utils/patientDisplay";
+import { displayEntered, formatPossessive, getPatientDisplayName } from "@/utils/patientDisplay";
 
 /**
  * Dashboard / Care active-alert card.
@@ -90,8 +91,18 @@ export function ActiveAlertCard() {
     : `${formatPossessive(patientDisplayName)} recent vitals show an unusual pattern.`;
 
   const contextualType = mlEvent?.initialAnomalyType;
-  const vitals = parseRawVitals(mlEvent);
-  const metrics = pickMetrics(vitals, isEmergency);
+  const vitals = metricVitalsFromEvent(mlEvent);
+  const isEmergencyFastPath = activeAlert.pipelinePath === "RULE_ENGINE_EMERGENCY_FAST_PATH";
+  const metrics = pickMetrics(vitals, isEmergency, {
+    baselineHeartRate: activePatient?.baselineHeartRate,
+    spo2Cutoff: isEmergencyFastPath
+      ? `${HARD_EMERGENCY_THRESHOLDS.blood_oxygen_lte}%`
+      : activePatient?.spo2Cutoff,
+  });
+  const contextLabel = isEmergencyFastPath ? "Path" : "Pattern";
+  const contextValue = isEmergencyFastPath
+    ? "emergency fast path"
+    : contextualType?.replace(/_/g, " ").toLowerCase();
 
   function handleCall911() {
     audit({
@@ -212,9 +223,9 @@ export function ActiveAlertCard() {
         </View>
       )}
 
-      {contextualType && (
+      {contextValue && (
         <Text style={styles.contextLine}>
-          Pattern: {contextualType.replace(/_/g, " ").toLowerCase()}
+          {contextLabel}: {contextValue}
         </Text>
       )}
 
@@ -326,14 +337,20 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-/** Parse the raw-vitals snapshot from the ml_event (best-effort). */
-function parseRawVitals(event: MlEvent | null): Record<string, number | undefined> {
-  if (!event?.rawVitalsJson) return {};
-  try {
-    return JSON.parse(event.rawVitalsJson) as Record<string, number | undefined>;
-  } catch {
-    return {};
-  }
+type AlertMetricVitals = {
+  blood_oxygen?: number;
+  heart_rate?: number;
+  respiratory_rate?: number;
+  stress_level?: number;
+};
+
+function metricVitalsFromEvent(event: MlEvent | null): AlertMetricVitals {
+  const raw = event ? parseRawVitals(event) : null;
+  if (!raw) return {};
+  const maybeEnvelope = raw as { contract?: unknown; input?: unknown };
+  return maybeEnvelope.contract === "AppleWatchVitalsInput" && maybeEnvelope.input && typeof maybeEnvelope.input === "object"
+    ? maybeEnvelope.input as AlertMetricVitals
+    : raw as AlertMetricVitals;
 }
 
 /** Pick up to three metric boxes from the raw vitals, preferring the
@@ -341,6 +358,7 @@ function parseRawVitals(event: MlEvent | null): Record<string, number | undefine
 function pickMetrics(
   vitals: Record<string, number | undefined>,
   isEmergency: boolean,
+  context: { baselineHeartRate?: string; spo2Cutoff?: string } = {},
 ): { label: string; value: string }[] {
   const fmt = (v: number | undefined, unit: string) =>
     v !== undefined && v !== null && Number.isFinite(v)
@@ -350,8 +368,8 @@ function pickMetrics(
   if (isEmergency) {
     return [
       { label: "SpO₂", value: fmt(vitals.blood_oxygen, "%") },
-      { label: "HR", value: fmt(vitals.heart_rate, " BPM") },
-      { label: "RR", value: fmt(vitals.respiratory_rate, "/min") },
+      { label: "SpO₂ cutoff", value: displayEntered(context.spo2Cutoff) },
+      { label: "Baseline HR", value: displayEntered(context.baselineHeartRate) },
     ];
   }
   return [
