@@ -112,7 +112,8 @@ separated before display:
 - **While streaming:** raw tokens render in lighter/grey italic text.
 - **When complete:** reasoning (if any) stays in grey; the **final answer**
   renders below in larger, brighter Markdown (`size="large"`).
-- This keeps behavior identical whether the model is HealthGPT (no thinking),
+- This keeps behavior identical whether the model emits a thinking channel or not
+  (Gemma 4 E2B uses jinja + `reasoning_format: 'auto'`),
   Gemma (harmony channels), or Phi (plain output).
 
 ### Gotcha: raw control tokens showing up

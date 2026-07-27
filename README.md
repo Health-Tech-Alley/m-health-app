@@ -22,11 +22,13 @@ A **Health Tech Alley** project, built with **Expo + React Native**.
 
 A mobile health AI application that supports family caregivers of **severely disabled individuals** (disability level 3 on a 1–5 scale) with comorbidities and specialists involved. Built with **Expo SDK 56 and React Native 0.85** for iOS and Android.
 
-The first-run experience is an **onboarding intake** that captures caregiver, patient, provider, and safety details — with optional FHIR import for EHR auto-population. The profile seeds the on-device SQLite database and drives the dashboard, the Concierge (on-device SLM) system prompt, and the Health Monitor (anomaly detection) threshold engine. After onboarding, the user lands on a **tab-based dashboard** (Dashboard, Care, Medications, Schedule, Concierge, More).
+The first-run experience is an **onboarding intake** that captures caregiver, patient, provider, and safety details — with optional FHIR / demo-preset import (Mike, Elena, James, Sofia). The profile seeds on-device SQLite, kicks off clinical-evidence bundling, and drives Home, the Concierge (on-device SLM) system prompt, and the Health Monitor threshold engine. After onboarding, the user lands on a **5-tab shell**: **Home**, **Care**, **Meds**, **Schedule**, **Concierge** (Settings / More is a stack screen, not a bottom tab).
 
-**Primary use case:** Mike EHR v5.9 case study — see `src/data/fhir/fixtures/mike-fhir-bundle-v5.9.json`.
+**Primary use case:** Mike EHR case study — fixtures `mike-fhir-bundle-v6.2.json` / `mike-fhir-bundle-v5.9.json` (demo preset `mike-ehr-v62`).
 
-**Target conditions:** cerebral palsy, traumatic brain injury (TBI), COPD — plus the three use-case conditions: Spina Bifida, post-stroke rehabilitation, COPD + TBI.
+**Target conditions:** cerebral palsy, traumatic brain injury (TBI), COPD — plus Spina Bifida, post-stroke rehabilitation, and COPD + TBI.
+
+**Caregiver-facing names:** Concierge (not “SLM”), Health Monitor (not “ML”), Your Review (not “HITL”), Clinical Evidence (not RAG jargon).
 
 ## App Pillars
 
@@ -44,47 +46,38 @@ The day-to-day heart of the app. Keeps the medication regimen safe, on schedule,
 - **Pharmacy locator and communicator** *(deferred)* — Geofenced pharmacy search, hours/inventory lookups, and a
   consent-gated, tokenized message channel to the patient's preferred pharmacy. The `src/locator/` directory
   is a scaffold awaiting CBO/pharmacy data integration.
-- **Drug-interaction awareness** *(deferred)* — On-demand RxNorm / OpenFDA lookups grounded in the patient's active
-  medication list; surfaced as **citations**, never as a directive. The `src/clinical-evidence/` directory
-  is a scaffold for live API clients (planned: PubMed, MedlinePlus, RxNorm, DailyMed, OpenFDA — see
-  `planning/22_clinical-data-gathering.md`).
+- **Drug / label awareness** — RxNorm, DailyMed, and OpenFDA clients under `src/clinical-evidence/`
+  ground medication answers as **citations**, never as dosing directives. Knowledge packs bundle at
+  onboarding (and can refresh live when allowed); fixture mode keeps Track A offline-safe.
 
 ### 2. Care Management
 
 The longitudinal, patient-specific plan and the signals that watch it.
 
-- **Personal care plan** — A first-run onboarding flow generates a structured care plan
-  (demographics, conditions, medications, vitals cadence, emergency thresholds). The profile seeds
-  SQLite via `seedDatabaseFromProfile`, and every caregiver action becomes a **trigger event** that
-  can refine the plan over time (the "Netflix model" of continuous personalization). The care plan is
-  mapped to a **FHIR `CarePlan` resource** (per the HL7 CDA-ccda profile) and includes care-plan goals
-  (recovery milestones, target outcomes) in the SLM system prompt.
-- **Anomalies** — The deterministic rule/threshold engine and a separate Alert ML model watch vitals
-  against the care plan. The Care tab and Dashboard show active alerts with severity-colored cards;
-  the `Acute Anomaly` screen exercises the full orchestrator path end-to-end. Anomalies surface with a
-  transparency trace; the SLM is invoked **only after caregiver ground-truth** or on an explicit
-  "Explain" tap. Emergencies short-circuit the SLM path (Severity 3 fast-path) — the confidence router
-  returns preliminary guidance immediately without loading the SLM; "Explain" comes after. After the
-  SLM explains, the caregiver sees **multiple-choice next-step options** (Call 911, Go to ER, Contact
-  PCP, Find nearby pharmacy, Schedule appointment, Share record, Monitor at home, Add note) wired to
-  native deep-links (dialer, maps) or in-app flows.
-- **Caregiver Assistant (SLM chat)** — The `slm.tsx` screen streams answers from the on-device SLM
-  with the full care plan baked into the system prompt. It falls back to a mock response when no
-  model is loaded, and strips structured-output control tokens before display. In **Demo mode** the
-  SLM auto-loads on "Ask the assistant" and auto-unloads after 60s idle or on app background.
+- **Personal care plan (Care tab)** — Living **ADCP** plan spine: Plan Pulse / What changed, priorities,
+  Your Review (pending proposals), therapy trajectory, goals, safety rules, monitoring, and backup/restore.
+  Soft **Care ask** routes free text (intent head + app-surface phrases) into catalog intents or Concierge
+  handoff; proposals never auto-apply. Profile seeds SQLite via `seedDatabaseFromProfile`; caregiver
+  actions refine the plan over time ("Netflix model"). FHIR `CarePlan` + C-CDA export remain available.
+- **Anomalies (Health Monitor)** — Rule/threshold engine + UC2 decision layer watch vitals. Home shows
+  the alerts log and active-alert card; severity-3 opens a critical dialog (incl. caregiver-reported
+  emergencies from Care ask). Concierge is invoked **after** ground-truth or on explicit **Ask the
+  Concierge** (on alert-detail, via `SlmInsightSheet` — stays on the alert). Severity-3 short-circuits
+  generative load; next steps (Call 911, Go to ER, Contact PCP, …) use deep-links / in-app flows.
+- **Concierge (chat tab)** — Full-tab chat (`slm.tsx`): Pre-SLM NLU → deterministic safety refuses →
+  Concierge generation with care-plan context and clinical-evidence citations. Mock fallback on Track A.
+  Demo/auto policy loads/unloads the model around use.
 
 ### 3. Scheduling and Tracking Center
 
 The caregiver's calendar view of the care plan in motion.
 
-- **Appointments** *(UI scaffold)* — Physician + specialist + therapy appointments, tracking, reminders, and a consent-gated,
-  encrypted record-share path (FHIR R4). The Schedule tab shows an alert timeline + recent notifications;
-  the `providers` table and consent gate are ready for the share path. An appointments table is planned.
-- **Tracking** — Adherence history, vitals trends, alert timeline, and audit trail in one place. The
-  Schedule tab shows a timeline of recent alerts and notifications; the Care tab shows latest vitals.
-- **Dashboard** — Summary card + severity-colored alert cards that subscribe to the event bus. HITL
-  confirm / override / escalate controls are present on **every** AI-suggested action. The dashboard
-  is the entry point for all three steel threads (ST-01 anomaly, ST-02 trajectory, ST-03 acute).
+- **Appointments** — Full CRUD on Schedule (`appointmentRepository`), reminders, alert timeline, and
+  notifications (incl. athenahealth appointment-request notify). Consent-gated record share remains
+  available via C-CDA / FHIR export paths.
+- **Tracking** — Adherence, weekly vitals trends (with reading time), alert timeline, and audit trail.
+- **Home** — Patient summary, priorities, non-emergency insights, alerts log, and active-alert card.
+  Your Review / HITL confirm-override is required for AI-proposed clinical plan changes.
 
 ## Cross-Cutting Features
 
@@ -92,7 +85,7 @@ The caregiver's calendar view of the care plan in motion.
 - **Human-in-the-loop** — AI proposes; caregiver confirms or overrides every clinical action; nothing clinical auto-executes
 - **Offline-first** — Core functionality (reminders, rule engine, dashboards) works with zero connectivity
 - **HIPAA-compliant** — Encrypted local storage (SQLCipher + Keychain/Keystore), consent-gated data egress, tamper-evident audit log
-- **Transparency trace** — OpenEvidence citations + orchestration trace on every AI suggestion
+- **Transparency** — Clinical Evidence citations + orchestration trace on AI suggestions
 - **Live RAM dashboard** — The Performance screen polls device memory at 1 Hz and shows
   total / used / free RAM plus a breakdown of how much of the used bucket is owned by
   the on-device SLM model. Color-coded severity (`ok` / `warn` / `crit`, labeled Healthy /
@@ -109,14 +102,13 @@ The caregiver's calendar view of the care plan in motion.
   returns preliminary guidance for severity-3 alerts without loading the SLM. A
   **prompt-budget guard** truncates the explain prompt to fit the model's context window.
   Per-turn RAM + token attribution is logged to `slm_turns`.
-- **Hybrid fused RAG** — One retrieval hop returns both MCP tool schemas (tool-RAG) and
-  clinical knowledge chunks (knowledge-RAG). Track A uses a deterministic hash embedder
-  over synthetic OpenEvidence / RxNorm / DailyMed / OpenFDA fixtures; Track B will use
-  a real sub-1B embedder and live clients. Every clinical answer carries citations.
-- **On-device SQLite data layer** — `expo-sqlite` stores health samples, thresholds,
-  alerts, caregiver actions, SLM turns, RAG citations, trigger events, audit log, and
-  consent tokens. The migration-driven schema is designed so SQLCipher can be swapped in
-  later with minimal changes.
+- **Hybrid fused RAG** — One hop returns tool schemas and clinical chunks. Track A: hash
+  embedder + fixtures; Track B: TFLite leaf-ir embedder + live clients when enabled.
+  Knowledge-bundle runner coordinates condition / medication / SDOH packs at onboarding.
+- **Pre-SLM NLU** — Intent heads (chat + Care) and app-surface entity linking run before
+  Concierge generation; safety refuses block unknown protocols, dose changes, auto-911, and diagnosis asks.
+- **On-device SQLite** — 34 repositories (patient, ADCP, alerts, meds, appointments, UC3/UC4,
+  secure messaging, knowledge cache, …). SQLCipher-ready schema.
 - **Audit + consent spine** — Every egress-bearing action must pass a default-deny consent
   gate; all decisions and clinically significant events are written to a tamper-evident
   audit log (`audit_log` + `consent_tokens` tables, `src/services/audit`,
@@ -148,20 +140,21 @@ The caregiver's calendar view of the care plan in motion.
 
 ## Tech Stack
 
-- **Framework:** Expo SDK 56 + React Native 0.85 + expo-router (file-based routing, tab-based navigation)
-- **On-device SLM:** llama.cpp via `llama.rn` — model catalog includes HealthGPT-Pro-4B (Q4_K_M) and Gemma-4-E2B-it (Q4_K_M); all behind an `InferenceProvider` seam
-- **Orchestration:** In-process MCP — 4 agents (caregiver / patient-state / coordinator / safety-reviewer) mediated by a single `Orchestrator` with CEP debouncing, confidence router, and prompt-budget guard; exposed through `OrchestratorProvider`
-- **Retrieval:** Hybrid RAG (`TrackAFusedRetriever`) — BM25 sparse index + deterministic hash dense embeddings + reciprocal rank fusion; fused tool-RAG + knowledge-RAG in a single hop
-- **Knowledge base:** NLM/NIH public APIs (PubMed, MedlinePlus, RxNorm, DailyMed, OpenFDA) + planned expansion (ClinicalTrials.gov, SemMedDB, Orphanet, UMLS — see `planning/26_clinical-data-sources-research.md`); CachedFusedRetriever reads from the `knowledge_cache` table populated by the condition-bundler at onboarding + live supplement at query time
-- **Local storage:** `expo-sqlite` with migration-driven schema (24 repositories); SQLCipher-ready design
-- **Alert ML:** TensorFlow Lite via `react-native-fast-tflite` with CoreML delegate; UC2 Decision Layer v2 (EHR thresholds, HITL matrix, recurrence risk, personalized thresholds)
-- **Wearables:** HealthKit (iOS), Health Connect (Android) — `src/data/sensors` is scaffolded (mock-only)
-- **Notifications:** `expo-notifications` (dynamic require) with in-app banner fallback; deterministic reminder engine
-- **FHIR/C-CDA:** FHIR R4 resource mappers + onboarding import mapper (`src/data/fhir/`) + C-CDA XML serializer for consent-gated export; 3 synthetic FHIR persona fixtures (Sofia, James, Elena)
-- **State management:** React Context + Redux Toolkit hybrid — Context for snapshot/orchestrator lifecycle (`SettingsProvider → PatientRecordProvider → SLMProvider → OrchestratorProvider → CriticalAlertProvider → UC2RuntimeProvider`), Redux for normalized patient state (`patientSlice`), non-emergency decisions (`nonEmergencyDecisionSlice`), and messaging (`messagesSlice`)
-- **CEP:** Custom TypeScript Complex Event Processing bus (`src/orchestration/event-bus.ts`) correlates sensor + UI + state events before the SLM is called
-- **Secure messaging:** Local AES-256-GCM encryption via `expo-crypto`; stored in SQLite; no transport layer (post-v1.0 for real E2EE)
-- **Security:** `expo-secure-store` for tokens/keys; default-deny consent gate + tamper-evident audit log
+- **Framework:** Expo SDK ~56.0.12 + React Native 0.85.3 + expo-router
+- **On-device Concierge:** llama.cpp via `llama.rn` — **Gemma-4-E2B-it Q4_K_M only** (`InferenceProvider`)
+- **Pre-SLM NLU:** TFLite leaf-ir embedder + chat/care intent heads (`src/nlu/`)
+- **Orchestration:** In-process MCP — 4 agents, CEP debounce, confidence router, prompt-budget guard
+- **Retrieval:** Hybrid RAG (BM25 + dense + RRF) + CachedFusedRetriever
+- **Clinical evidence:** PubMed, MedlinePlus, RxNorm, DailyMed, OpenFDA, ClinicalTrials.gov, UMLS, Orphanet, CDC PLACES + knowledge-bundle runner
+- **Local storage:** `expo-sqlite`, **34 repositories**, ADCP care-plan store (SQLCipher-ready)
+- **Health Monitor / UC2–4:** TFLite autoencoder + decision / rehab-trajectory / micro-priorities engines
+- **Wearables:** Apple Health bridge (iOS) + mock; Health Connect still scaffold
+- **Notifications:** `expo-notifications` + in-app banner; deterministic reminder engine
+- **FHIR/C-CDA:** R4 mappers + import + C-CDA export; fixtures Mike (v5.9/v6.2), Elena, James, Sofia
+- **State management:** Redux Toolkit + Context (`Settings → PatientRecord → SLM → Sensor → UC2Runtime → Orchestrator → CriticalAlert`)
+- **CEP:** Typed event bus before Alert ML / Concierge
+- **Secure messaging:** Local AES-256-GCM; no transport (real E2EE post-v1.0)
+- **Security:** `expo-secure-store`; default-deny consent gate; tamper-evident audit log
 
 ## Getting Started
 
@@ -240,7 +233,7 @@ These steps are for a clean local environment. The current project is an Expo SD
 ```bash
 git clone <repository-url>
 cd <project-folder>
-git checkout sebastian
+git checkout development   # or your personal branch rebased onto development
 npm install
 ```
 
@@ -316,11 +309,11 @@ npm run ios
 - **Environment variables not loading:** this repo currently has no required `.env` template. Confirm the value is actually read from code before adding env files; app tokens currently use in-app secure storage.
 - **Database or seed initialization problems:** use a normal app restart first. For fresh-install testing, clear simulator app data through the simulator/device UI, then relaunch so SQLite initialization and migrations can run before onboarding. Do not delete or recreate app databases on normal startup.
 
-## Caregiver Assistant (SLM Chat)
+## Concierge (chat)
 
-The **SLM Support** screen (`src/app/slm.tsx`) is a chat playground for the on-device
-language model. It is the primary touch-point for the "ask the assistant anything
-about the patient's care" flow.
+The **Concierge** tab (`src/app/(tabs)/assistant.tsx` → `src/app/slm.tsx`) is the full
+caregiver chat surface for on-device **Gemma 4 E2B**. Turns run Pre-SLM NLU and
+deterministic safety refuses before generation.
 
 - **Multiline, auto-growing input** — The chat box is a `TextInput` with a custom
   `getPromptInputHeight()` helper that estimates line count from text length. The box
@@ -371,12 +364,11 @@ backed by `src/services/performance/performanceService.ts`.
 
 ## Documentation
 
-- [`AGENTS.md`](./AGENTS.md) — Contributor / agent guide: project conventions,
-  architecture summary, and how to run the app.
-- [`docs/APP_GUIDE.md`](./docs/APP_GUIDE.md) — Living doc describing the current
-  state of the running app, screen by screen, plus platform-specific notes.
-- [`docs/MARKDOWN_GUIDE.md`](./docs/MARKDOWN_GUIDE.md) — How the
-  `MarkdownRenderer` works and how the SLM is prompted to return Markdown.
+- [`AGENTS.md`](./AGENTS.md) — Contributor / agent guide: architecture, state
+  management authority, git workflow, lint rules.
+- [`docs/CURRENT_STATE.md`](./docs/CURRENT_STATE.md) — Short shipped-vs-deferred snapshot.
+- [`docs/APP_GUIDE.md`](./docs/APP_GUIDE.md) — Screen-by-screen living guide.
+- [`docs/MARKDOWN_GUIDE.md`](./docs/MARKDOWN_GUIDE.md) — Markdown renderer + Concierge output.
 
 ## Building for Production
 
@@ -398,13 +390,13 @@ end-to-end rather than being built one layer at a time.
 
 | Layer | Purpose | Pillar touchpoints |
 |-------|---------|--------------------|
-| L1 | React Native UI (Dashboard, Medication, Appointments, Care Plan, Settings, HITL) | All three pillars' screens |
-| L2 | App Services (controllers, state, notifications, consent gate, audit log) | All three pillars |
-| L3 | Event Bus — Complex Event Processing + Context Aggregator (geofence + patient state) | Medication (pharmacy locator), Care (anomaly CEP) |
-| L4 | Intelligent Orchestration — MCP agents, fused tool-RAG + knowledge-RAG, FHIR adapter | All three pillars |
-| L5 | Decision Engine — on-device SLM (`InferenceProvider`), Alert ML model, re-ranker | All three pillars |
-| L6 | Knowledge — hybrid RAG, OpenEvidence, RxNorm, DailyMed, OpenFDA, vector index | Medication (interactions), Care (care-plan personalization) |
-| L7 | Local Data — SQLite + SQLCipher, repositories, HealthKit/Health Connect, geofence, FHIR sandbox | All three pillars |
+| L1 | React Native UI (Home, Care plan spine, Meds, Schedule, Concierge, Settings stack, HITL) | All three pillars |
+| L2 | App Services (Context + Redux, notifications, consent, audit, care-plan coaching) | All three pillars |
+| L3 | Event Bus — CEP + context aggregator | Care (anomaly CEP), Schedule |
+| L4 | MCP orchestration — 4 agents, fused tool-RAG + knowledge-RAG, FHIR adapter | All three pillars |
+| L5 | Decision Engine — Concierge (Gemma 4 E2B), Pre-SLM NLU, Health Monitor / UC2–4 | All three pillars |
+| L6 | Knowledge — hybrid RAG, clinical-evidence clients, knowledge-bundle runner | Meds + Care |
+| L7 | Local Data — SQLite (34 repos), ADCP, Apple Health / mock sensors, FHIR fixtures | All three pillars |
 
 The **canonical event ordering** all three pillars share:
 
@@ -422,67 +414,40 @@ alert is never delayed; the SLM "Explain" runs on demand after the alert.
 ```
 m-health-app/
 ├── src/
-│   ├── app/                     # Expo Router file-based routes
-│   │   ├── _layout.tsx          # Root: SettingsProvider → SLMProvider → OrchestratorProvider
-│   │   ├── index.tsx            # First route → onboarding or redirect to (tabs)/dashboard
-│   │   ├── onboarding.tsx       # First-run caregiver + patient intake
-│   │   ├── (tabs)/              # Tab-based navigation (Dashboard, Care, Medications, Schedule, Settings)
-│   │   │   ├── _layout.tsx      # 5-tab shell (expo-router Tabs)
-│   │   │   ├── dashboard.tsx    # Branded header + patient summary + alert cards + quick actions
-│   │   │   ├── care.tsx         # Branded header + vitals + alerts + care plan link
-│   │   │   ├── medications.tsx  # Branded header + med list + schedules + mark-as-given
-│   │   │   ├── schedule.tsx     # Branded header + alert timeline + notifications + appointments placeholder
-│   │   │   └── settings.tsx     # Branded header + full settings surface
-│   │   ├── alert-detail.tsx     # Unified alert detail (ST-01/02/03, severity-based)
-│   │   ├── slm-explain.tsx      # SLM explanation + clarifying Q + next-steps flow
-│   │   ├── acute-anomaly.tsx    # End-to-end orchestration demo (dev)
-│   │   ├── slm.tsx              # Caregiver Assistant chat (dev)
-│   │   ├── models.tsx           # → src/app/models/ (model manager, dev)
-│   │   ├── care-management.tsx  # → src/app/care-management/ (vitals → ML → SLM explain)
-│   │   ├── performance.tsx      # 1 Hz RAM dashboard (dev)
-│   │   ├── settings.tsx         # Redirects to (tabs)/settings
+│   ├── app/                     # Expo Router routes
+│   │   ├── _layout.tsx          # Redux + Settings → … → CriticalAlert + overlays
+│   │   ├── index.tsx            # Onboarding gate → Home
+│   │   ├── onboarding.tsx       # Welcome + 5 form steps + demo/FHIR import
+│   │   ├── (tabs)/              # 5 tabs: Home, Care, Meds, Schedule, Concierge
+│   │   │   ├── dashboard.tsx    # Home
+│   │   │   ├── care.tsx         # ADCP care-plan spine + Care ask
+│   │   │   ├── medications.tsx  # Meds
+│   │   │   ├── schedule.tsx     # Appointments + timeline
+│   │   │   └── assistant.tsx    # Concierge tab → slm.tsx
+│   │   ├── more.tsx             # Settings hub (stack, not a tab)
+│   │   ├── alert-detail.tsx     # Alert metrics + on-screen Concierge sheet
+│   │   ├── slm.tsx              # Full Concierge chat
+│   │   ├── secure-messaging.tsx
+│   │   ├── models.tsx / care-management.tsx / performance.tsx / …
 │   │   └── ...
-│   ├── components/              # Reusable UI components
-│   │   ├── dashboard/           # Dashboard cards, alert-card
-│   │   ├── settings/            # Settings screen component
-│   │   ├── notifications/       # In-app banner
-│   │   ├── charts/              # Vitals trend chart
-│   │   ├── ui/                  # Collapsible, ScreenHeader, themed primitives
-│   │   ├── markdown-renderer.tsx
-│   │   └── ...
-│   ├── contexts/                # SettingsProvider, SLMProvider, OrchestratorProvider
-│   ├── inference/               # InferenceProvider seam, llama.rn adapter, model catalog
-│   ├── ml-models/               # Alert autoencoder (TFLite + scaler + metadata)
-│   ├── services/                # L2 app services
-│   │   ├── audit/               # Tamper-evident audit helpers
-│   │   ├── consent/             # Default-deny egress consent gate
-│   │   ├── export/              # C-CDA export service
-│   │   ├── notifications/       # notificationService, reminderEngine, in-app banner
-│   │   ├── device-memory.ts     # Native memory bridge + mock fallback
-│   │   ├── model-download.ts    # Hugging Face downloader
-│   │   ├── model-storage.ts     # On-device GGUF storage helpers
-│   │   ├── performance/         # 1 Hz RAM snapshot hook
-│   │   ├── slm/                 # System prompt builder + download helpers
-│   │   ├── onboarding/          # Profile types + in-memory store
-│   │   ├── ml/                  # Alert ML service wrapper
-│   │   └── medication/ care/ patient/ scheduling/  # UI scaffolds
-│   ├── orchestration/           # MCP client, event bus, CEP, 4 agents, Orchestrator, next-steps
-│   │   ├── next-steps/          # Next-step taxonomy + executor (deep-links)
-│   │   └── ...
-│   ├── knowledge/               # BM25 + dense + RRF fused retriever, graph helpers, fixtures
-│   ├── data/                    # SQLite migrations, repositories, FHIR mappers, seed scripts
-│   │   ├── fhir/                # FHIR R4 types, mappers, C-CDA serializer
-│   │   ├── repositories/        # fhirResource, medicationSchedule, notification, appSettings + more
-│   │   └── ...
-│   ├── locator/                 # Geofence + CBO resource scaffold
-│   ├── clinical-evidence/       # OpenEvidence / NLM / FDA client scaffold (planned)
-│   ├── types/                   # Shared TypeScript types
-│   └── utils/                   # stripControlTokens and helpers
-├── assets/                      # Images, fonts, splash, icons
-├── docs/                        # APP_GUIDE.md, MARKDOWN_GUIDE.md
-├── planning/                    # Architecture, steel-thread, C-CDA, notifications, settings, data-gathering plans
-├── AGENTS.md                    # Contributor / agent guide
-└── package.json                 # "main": "expo-router/entry"
+│   ├── components/              # dashboard/, care/, careConcierge/, messaging/, …
+│   ├── contexts/                # settings, patient-record, slm, sensor, uc2, orchestrator, critical-alert
+│   ├── store/                   # Redux Toolkit slices
+│   ├── inference/               # InferenceProvider, llama.rn, model-catalog (Gemma 4 E2B only)
+│   ├── nlu/                     # Pre-SLM NLU, app-surfaces, intent heads
+│   ├── ml-models/               # UC2 / UC3 / UC4 + alert autoencoder
+│   ├── services/                # carePlan/, slm/, ml/, uc3/, uc4/, messaging/, …
+│   ├── orchestration/           # MCP, CEP bus, agents, next-steps
+│   ├── knowledge/               # BM25 + dense + RRF, embedder (TFLite / hash)
+│   ├── clinical-evidence/       # API clients + knowledge-bundle-runner
+│   ├── data/                    # migrations, 34 repos, adcp/, fhir/, sensors/
+│   ├── locator/                 # Geofence scaffold (deferred)
+│   └── utils/
+├── assets/models/nlu/           # leaf-ir TFLite + intent-head JSON
+├── docs/                        # APP_GUIDE.md, MARKDOWN_GUIDE.md, handoffs/, integration/
+├── planning/                    # Architecture + feature tracker
+├── AGENTS.md
+└── package.json
 ```
 
 ## Target Grants
