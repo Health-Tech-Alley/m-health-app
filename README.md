@@ -12,7 +12,9 @@
   <img src="https://img.shields.io/badge/Status-Active%20Development-orange.svg" alt="Status: Active Development" />
 </p>
 
-[View API Docs](docs/documentations/HTA-Caregiver-Conciertge-Unified-MLTech-Readiness-Level-Assessment-072026.pdf)
+[HTA Caregiver Conciertge Unified MLTech Readiness Level Assessment](docs/documentations/HTA-Caregiver-Conciertge-Unified-MLTech-Readiness-Level-Assessment-072026.pdf)
+
+[HTA Caregiver Concierge - ACL Challenge Readiness Guie Assessment & Performance Report](docs/documentations/HTA%20Caregiver%20Concierge%20-%20ACL%20Challenge%20Readiness%20Guie%20Assessment%20&%20Performance%20Report.pdf)
 
 A **Health Tech Alley** project, built with **Expo + React Native**.
 
