@@ -1,0 +1,552 @@
+2026-07-21T16:40:52.203Z [INFO]  FileLogger configured with default dir
+2026-07-21T16:40:52.204Z [INFO]  Logger test entry
+2026-07-21T16:40:53.212Z [INFO]  Default dir paths: [ '/var/mobile/Containers/Data/Application/7BCA263B-8D26-46EA-8017-00D71F9B6907/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-21-124052.log',
+  '/var/mobile/Containers/Data/Application/7BCA263B-8D26-46EA-8017-00D71F9B6907/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-21-124050.log' ]
+2026-07-21T16:41:14.672Z [INFO]  Log file paths: [ '/var/mobile/Containers/Data/Application/7BCA263B-8D26-46EA-8017-00D71F9B6907/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-21-124052.log',
+  '/var/mobile/Containers/Data/Application/7BCA263B-8D26-46EA-8017-00D71F9B6907/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-21-124050.log' ]
+2026-07-21T16:42:21.102Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:42:21.113Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:42:21.187Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:42:21.188Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:42:21.197Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T16:42:21.198Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T16:42:21.199Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T16:42:21.201Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T16:42:21.202Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T16:42:21.203Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T16:42:21.204Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T16:42:21.205Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T16:42:21.206Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T16:42:21.209Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T16:42:21.211Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T16:42:21.213Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T16:43:08.420Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:43:08.421Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:43:08.451Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:43:08.452Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:43:08.455Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T16:43:08.456Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T16:43:08.457Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T16:43:08.458Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T16:43:08.459Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T16:43:08.460Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T16:43:08.461Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T16:43:08.462Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T16:43:08.463Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T16:43:08.464Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T16:43:08.464Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T16:43:08.465Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T16:47:31.841Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:47:31.847Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:47:31.898Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:47:31.899Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:47:31.904Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T16:47:31.905Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T16:47:31.907Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T16:47:31.908Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T16:47:31.909Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T16:47:31.910Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T16:47:31.911Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T16:47:31.912Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T16:47:31.913Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T16:47:31.914Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T16:47:31.915Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T16:47:31.916Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T16:48:31.816Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T16:48:31.829Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:48:31.831Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:48:31.846Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T16:48:31.849Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T16:48:31.851Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T16:48:31.853Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T16:48:31.855Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T16:48:31.857Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T16:48:31.858Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T16:48:31.860Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T16:48:31.862Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T16:48:31.863Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T16:48:31.865Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T16:48:31.867Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T16:58:39.109Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:58:39.112Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:58:39.160Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:58:39.162Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:58:39.168Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T16:58:39.169Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T16:58:39.170Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T16:58:39.171Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T16:58:39.172Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T16:58:39.173Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T16:58:39.174Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T16:58:39.175Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T16:58:39.176Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T16:58:39.177Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T16:58:39.179Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T16:58:39.181Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T16:59:39.095Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T16:59:39.109Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:59:39.111Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T16:59:39.124Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T16:59:39.128Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T16:59:39.130Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T16:59:39.132Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T16:59:39.134Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T16:59:39.136Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T16:59:39.139Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T16:59:39.141Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T16:59:39.143Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T16:59:39.144Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T16:59:39.146Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T16:59:39.148Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:00:39.101Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:00:39.116Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:00:39.117Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:00:39.129Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:00:39.132Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:00:39.135Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:00:39.137Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:00:39.139Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:00:39.141Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:00:39.144Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:00:39.146Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:00:39.148Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:00:39.150Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:00:39.152Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:00:39.154Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:01:39.104Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:01:39.117Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:01:39.119Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:01:39.131Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:01:39.134Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:01:39.136Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:01:39.138Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:01:39.140Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:01:39.142Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:01:39.144Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:01:39.146Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:01:39.148Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:01:39.150Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:01:39.152Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:01:39.154Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:02:39.114Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:02:39.128Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:02:39.130Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:02:39.142Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:02:39.145Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:02:39.148Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:02:39.152Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:02:39.154Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:02:39.156Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:02:39.158Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:02:39.160Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:02:39.163Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:02:39.165Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:02:39.167Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:02:39.170Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:03:39.119Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:03:39.132Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:03:39.134Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:03:39.144Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:03:39.148Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:03:39.150Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:03:39.152Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:03:39.154Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:03:39.156Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:03:39.158Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:03:39.160Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:03:39.162Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:03:39.164Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:03:39.166Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:03:39.168Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:04:39.133Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:04:39.147Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:04:39.148Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:04:39.160Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:04:39.163Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:04:39.166Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:04:39.168Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:04:39.170Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:04:39.173Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:04:39.175Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:04:39.177Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:04:39.179Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:04:39.181Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:04:39.183Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:04:39.185Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:05:39.148Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:05:39.161Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:05:39.163Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:05:39.174Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:05:39.177Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:05:39.179Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:05:39.181Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:05:39.184Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:05:39.186Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:05:39.188Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:05:39.190Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:05:39.192Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:05:39.194Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:05:39.196Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:05:39.198Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:06:39.161Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:06:39.176Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:06:39.177Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:06:39.189Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:06:39.192Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:06:39.194Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:06:39.196Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:06:39.199Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:06:39.201Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:06:39.203Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:06:39.205Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:06:39.207Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:06:39.209Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:06:39.211Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:06:39.213Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:07:39.176Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:07:39.189Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:07:39.191Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:07:39.202Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:07:39.206Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:07:39.209Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:07:39.212Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:07:39.214Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:07:39.216Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:07:39.218Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:07:39.221Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:07:39.223Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:07:39.225Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:07:39.227Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:07:39.228Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:08:39.188Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:08:39.204Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:08:39.206Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:08:39.222Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:08:39.224Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:08:39.226Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:08:39.228Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:08:39.229Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:08:39.231Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:08:39.233Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:08:39.235Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:08:39.237Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:08:39.238Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:08:39.240Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:08:39.242Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:09:39.202Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:09:39.215Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:09:39.217Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:09:39.233Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:09:39.235Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:09:39.237Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:09:39.239Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:09:39.241Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:09:39.243Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:09:39.244Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:09:39.246Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:09:39.248Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:09:39.250Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:09:39.252Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:09:39.253Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:10:39.215Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:10:39.229Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:10:39.230Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:10:39.243Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:10:39.246Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:10:39.248Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:10:39.250Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:10:39.252Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:10:39.254Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:10:39.255Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:10:39.257Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:10:39.259Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:10:39.261Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:10:39.263Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:10:39.265Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:11:39.228Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:11:39.238Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:11:39.239Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:11:39.248Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:11:39.251Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:11:39.254Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:11:39.257Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:11:39.260Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:11:39.262Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:11:39.263Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:11:39.265Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:11:39.267Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:11:39.269Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:11:39.271Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:11:39.273Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:12:39.239Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:12:39.252Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:12:39.254Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:12:39.263Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:12:39.267Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:12:39.270Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:12:39.272Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:12:39.274Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:12:39.276Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:12:39.278Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:12:39.280Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:12:39.282Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:12:39.283Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:12:39.285Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:12:39.287Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:13:39.253Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:13:39.262Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:13:39.264Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:13:39.273Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:13:39.277Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:13:39.280Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:13:39.283Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:13:39.285Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:13:39.287Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:13:39.289Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:13:39.291Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:13:39.293Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:13:39.295Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:13:39.297Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:13:39.298Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:14:39.264Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:14:39.281Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:14:39.282Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:14:39.291Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:14:39.293Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:14:39.296Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:14:39.298Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:14:39.301Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:14:39.303Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:14:39.305Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:14:39.307Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:14:39.310Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:14:39.313Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:14:39.315Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:14:39.317Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:15:39.278Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:15:39.291Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:15:39.293Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:15:39.305Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:15:39.308Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:15:39.310Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:15:39.312Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:15:39.314Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:15:39.316Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:15:39.317Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:15:39.319Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:15:39.321Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:15:39.323Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:15:39.325Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:15:39.327Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:16:39.291Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:16:39.305Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:16:39.306Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:16:39.319Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:16:39.322Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:16:39.325Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:16:39.327Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:16:39.330Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:16:39.332Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:16:39.334Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:16:39.336Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:16:39.338Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:16:39.340Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:16:39.343Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:16:39.345Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:17:39.304Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:17:39.313Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:17:39.315Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:17:39.327Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:17:39.330Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:17:39.333Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:17:39.335Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:17:39.337Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:17:39.339Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:17:39.342Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:17:39.344Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:17:39.346Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:17:39.348Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:17:39.349Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:17:39.351Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:18:39.319Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:18:39.333Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:18:39.334Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:18:39.346Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:18:39.348Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:18:39.351Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:18:39.353Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:18:39.355Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:18:39.357Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:18:39.359Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:18:39.361Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:18:39.363Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:18:39.365Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:18:39.367Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:18:39.370Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:28:55.463Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:28:55.472Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:28:55.539Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:28:55.540Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:28:55.546Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:28:55.547Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:28:55.548Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:28:55.549Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:28:55.550Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:28:55.551Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:28:55.552Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:28:55.553Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:28:55.554Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:28:55.555Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:28:55.556Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:28:55.557Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:29:55.451Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:29:55.463Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:29:55.477Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:29:55.485Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:29:55.487Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:29:55.489Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:29:55.491Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:29:55.492Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:29:55.495Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:29:55.497Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:29:55.499Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:29:55.500Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:29:55.502Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:29:55.504Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:29:55.506Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:30:55.461Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:30:55.474Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:30:55.475Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:30:55.487Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:30:55.490Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:30:55.492Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:30:55.494Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:30:55.496Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:30:55.498Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:30:55.500Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:30:55.502Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:30:55.504Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:30:55.506Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:30:55.508Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:30:55.510Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:31:55.475Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:31:55.489Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:31:55.491Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:31:55.507Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:31:55.509Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:31:55.511Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:31:55.513Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:31:55.514Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:31:55.517Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:31:55.518Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:31:55.520Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:31:55.522Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:31:55.524Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:31:55.525Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:31:55.527Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:32:55.489Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:32:55.503Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:32:55.505Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:32:55.517Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:32:55.519Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:32:55.522Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:32:55.524Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:32:55.526Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:32:55.528Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:32:55.530Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:32:55.532Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:32:55.534Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:32:55.536Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:32:55.538Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:32:55.541Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:33:55.502Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:33:55.514Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:33:55.516Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:33:55.530Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:33:55.533Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:33:55.535Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:33:55.537Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:33:55.539Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:33:55.541Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:33:55.543Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:33:55.545Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:33:55.547Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:33:55.549Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:33:55.551Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:33:55.553Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:34:55.509Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:34:55.522Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:34:55.524Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:34:55.537Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:34:55.540Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:34:55.542Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:34:55.545Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:34:55.547Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:34:55.549Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:34:55.551Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:34:55.553Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:34:55.555Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:34:55.557Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:34:55.559Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:34:55.562Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:35:55.522Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:35:55.536Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:35:55.538Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:35:55.551Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:35:55.554Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:35:55.557Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:35:55.560Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:35:55.562Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:35:55.564Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:35:55.566Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:35:55.568Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:35:55.571Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:35:55.573Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:35:55.576Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:35:55.578Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:36:03.660Z [ERROR]  [ReferenceError: Property 'sendLogs' doesn't exist]
+2026-07-21T17:36:55.547Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:36:55.558Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:36:55.559Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:36:55.571Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:36:55.573Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:36:55.575Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:36:55.577Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:36:55.579Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:36:55.581Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:36:55.582Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:36:55.584Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:36:55.586Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:36:55.588Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:36:55.590Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:36:55.592Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:37:55.557Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:37:55.570Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:37:55.572Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:37:55.585Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:37:55.588Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:37:55.591Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:37:55.594Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:37:55.596Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:37:55.598Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:37:55.600Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:37:55.602Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:37:55.604Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:37:55.607Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:37:55.609Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:37:55.611Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-21T17:38:55.566Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute ===
+2026-07-21T17:38:55.579Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:38:55.581Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-21T17:38:55.594Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-21T17:38:55.597Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-21T17:38:55.599Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-21T17:38:55.601Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-21T17:38:55.603Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-21T17:38:55.604Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-21T17:38:55.606Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-21T17:38:55.610Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-21T17:38:55.611Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-21T17:38:55.613Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-21T17:38:55.615Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-21T17:38:55.616Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
