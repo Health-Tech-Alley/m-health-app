@@ -1,0 +1,3 @@
+2026-07-21T16:40:50.261Z [INFO]  FileLogger configured with default dir
+2026-07-21T16:40:50.261Z [INFO]  Logger test entry
+2026-07-21T16:40:51.276Z [INFO]  Default dir paths: [ '/var/mobile/Containers/Data/Application/7BCA263B-8D26-46EA-8017-00D71F9B6907/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-21-124050.log' ]
