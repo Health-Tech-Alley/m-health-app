@@ -12,6 +12,8 @@
   <img src="https://img.shields.io/badge/Status-Active%20Development-orange.svg" alt="Status: Active Development" />
 </p>
 
+[View API Docs](docs/documentations/HTA-Caregiver-Conciertge-Unified-MLTech-Readiness-Level-Assessment-072026.pdf)
+
 A **Health Tech Alley** project, built with **Expo + React Native**.
 
 <p>
