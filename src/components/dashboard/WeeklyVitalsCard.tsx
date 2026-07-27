@@ -144,6 +144,7 @@ const RECENT_WINDOW_MS = 100 * 24 * 60 * 60 * 1000;
 
 export function WeeklyVitalsCard() {
   const [selectedKey, setSelectedKey] = useState<HealthSampleType>("spo2");
+  const [timeDifferent, setTimeDifferent] = useState<string | null>("");
   const vitals = useAppSelector(selectLiveVitalsState);
   const activePatient = useActivePatientView();
   const activePatientId = activePatient?.patientId ?? null;
@@ -465,7 +466,7 @@ function TrendChart({ readings }: { readings: LiveVitalReading[] }) {
               ]}
             >
               <Text style={styles.valueBubbleText}>
-                {formatNumber(selectedReading.value)}
+                {formatNumber(selectedReading.value)}, {formatTime(selectedReading.recordedAt)}
               </Text>
             </View>
           ) : null}
@@ -516,6 +517,16 @@ function SmallStat({
 
 function formatNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatTime(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "";
+
+  return new Date(timestamp).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function formatRelativeTime(value: string): string {

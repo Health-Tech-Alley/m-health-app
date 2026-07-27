@@ -329,6 +329,13 @@ export default function ScheduleScreen() {
     setBooking(true);
 
     try {
+      await dispatchImmediate({
+          patientId: patientId,
+          scope: 'anomaly',
+          title: "Appointment Requested",
+          body: 'Appointment requested with athenahealth',
+          severity: 1,
+        });
       const response = await bookSlot(selectedSlot.appointmentid, athenaPatientId);
       if (response) {
         await dispatchImmediate({

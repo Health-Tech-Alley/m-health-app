@@ -160,7 +160,7 @@ export function SensorProvider({ children }: { children: ReactNode }) {
         }
         if (!pollIntervalRef.current && sensor.constructor.name === 'AppleHealthSource') {
           pollIntervalRef.current = setInterval(() => {
-            console.log('[DEBUG] == Polling Apple Health for incremental sync every minute ===');
+            console.log(`[DEBUG] == Polling Apple Health for incremental sync every minute at ${new Date().toLocaleTimeString()} ===`);
             for (const type of ALL_HEALTHKIT_READ_TYPES) {
               void (sensor as any).incrementalSync?.(type);
             }
