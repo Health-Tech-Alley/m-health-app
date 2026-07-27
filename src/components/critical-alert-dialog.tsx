@@ -90,19 +90,39 @@ export function CriticalAlertDialog() {
 
   const vitals = metricVitalsFromEvent(mlEvent);
   const isEmergencyFastPath = alert.pipelinePath === 'RULE_ENGINE_EMERGENCY_FAST_PATH';
+  // Care soft-NLU path inserts severity-3 without an ML event / watch vitals.
+  const isCaregiverReported = alert.pipelinePath === 'caregiver_reported_emergency';
   const spo2Cutoff = isEmergencyFastPath
     ? `${HARD_EMERGENCY_THRESHOLDS.blood_oxygen_lte}%`
     : activePatient?.spo2Cutoff;
+  const hasSpo2 = Number.isFinite(vitals.blood_oxygen);
   const metrics = [
-    { label: 'SpO₂', value: formatMetric(vitals.blood_oxygen, '%'), show: Number.isFinite(vitals.blood_oxygen) },
-    { label: 'SpO₂ cutoff', value: displayEntered(spo2Cutoff), show: true },
-    { label: 'Baseline HR', value: displayEntered(activePatient?.baselineHeartRate), show: true },
+    {
+      label: 'SpO₂',
+      value: formatMetric(vitals.blood_oxygen, '%'),
+      // Avoid a blank SpO₂ dash on caregiver-reported (no sensor sample).
+      show: hasSpo2,
+    },
+    {
+      label: 'SpO₂ cutoff',
+      value: displayEntered(spo2Cutoff),
+      show: !isCaregiverReported || hasSpo2,
+    },
+    {
+      label: 'Baseline HR',
+      value: displayEntered(activePatient?.baselineHeartRate),
+      show: !isCaregiverReported || hasSpo2,
+    },
   ].filter((m) => m.show);
-  const contextualType = mlEvent?.initialAnomalyType;
-  const contextLabel = isEmergencyFastPath ? 'Path' : 'Pattern';
+  const contextualType =
+    mlEvent?.initialAnomalyType ?? alert.initialAnomalyType ?? undefined;
+  const contextLabel =
+    isEmergencyFastPath || isCaregiverReported ? 'Path' : 'Pattern';
   const contextValue = isEmergencyFastPath
     ? 'emergency fast path'
-    : contextualType?.replace(/_/g, ' ').toLowerCase();
+    : isCaregiverReported
+      ? 'caregiver reported'
+      : contextualType?.replace(/_/g, ' ').toLowerCase();
   const visibleAlertBody =
     activePatient && alert.body
       ? alert.body.replace(

@@ -1101,6 +1101,12 @@ export interface BundleStatus {
   chunksAdded: number;
   error?: string;
   updatedAt?: string;
+  /** 0–1 fraction while in_flight (optional; older rows omit it). */
+  progress?: number;
+  /** Short caregiver-facing phase label while in_flight. */
+  phase?: string;
+  completedSteps?: number;
+  totalSteps?: number;
 }
 
 /**

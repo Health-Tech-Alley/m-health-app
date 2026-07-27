@@ -30,7 +30,7 @@
 
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AccessibilityInfo, Alert, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Alert, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { MainTabHeader } from "@/components/MainTabHeader";
@@ -56,6 +56,12 @@ import {
 import { CarePlanBackupSection } from "@/components/care/plan/CarePlanBackupSection";
 import { CarePlanSafetySection } from "@/components/care/plan/CarePlanSafetySection";
 import { WhatChangedSheet } from "@/components/care/plan/WhatChangedSheet";
+import { CareAskRegion } from "@/components/care/plan/CareAskRegion";
+import {
+  CarePlanAskChat,
+  type CarePlanAskLaunch,
+} from "@/components/careConcierge/CarePlanAskChat";
+import type { AdcpProposalIntentId } from "@/data/adcp/types";
 import { AppTheme } from "@/constants/theme";
 import { useCriticalAlert } from "@/contexts/critical-alert-context";
 import { usePatientRecord } from "@/contexts/patient-record-context";
@@ -171,6 +177,16 @@ export default function CareScreen() {
   }, [setExplainRequest]);
 
   const [whatChangedVisible, setWhatChangedVisible] = useState(false);
+
+  // Care soft-NLU / in-card ask chat (therapy-style mini chat + HITL).
+  const [careAskLaunch, setCareAskLaunch] = useState<CarePlanAskLaunch | null>(null);
+
+  const launchCareIntent = useCallback(
+    (intentId: AdcpProposalIntentId, args?: Record<string, unknown>) => {
+      setCareAskLaunch({ intent: intentId, args });
+    },
+    [setCareAskLaunch],
+  );
 
   const handleUc4Respond = useCallback(
     (
@@ -645,6 +661,23 @@ export default function CareScreen() {
               onRestored={refresh}
             />
           </SpineSection>
+
+          <SpineSection id="ask" attention="calm" onMeasure={handleSpineMeasure}>
+            <CareAskRegion
+              patientId={patientId}
+              writable={vm.mode !== "read_only"}
+              onLaunchIntent={(intentId) => launchCareIntent(intentId)}
+            >
+              <CarePlanAskChat
+                snapshot={snapshot}
+                patientName={patientName !== "—" ? patientName : undefined}
+                writable={vm.mode !== "read_only"}
+                externalLaunch={careAskLaunch}
+                onExternalLaunchConsumed={() => setCareAskLaunch(null)}
+                onProposalResolved={refresh}
+              />
+            </CareAskRegion>
+          </SpineSection>
         </ScrollView>
 
         <WhatChangedSheet
@@ -661,6 +694,7 @@ export default function CareScreen() {
           prompt={explainRequest?.prompt ?? ""}
           allowMinimize
         />
+
       </View>
     </SafeAreaView>
   );

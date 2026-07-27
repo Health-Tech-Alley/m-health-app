@@ -1004,10 +1004,15 @@ export class Orchestrator {
 
     // D3 / T3: explain path always runs deep — fetch long-doc chunks too.
     try {
-      const { createReadyEmbedder } = await import('@/knowledge/embedder');
+      const {
+        createReadyEmbedder,
+        DEFAULT_TFLITE_EMBEDDER_LOAD_MS,
+      } = await import('@/knowledge/embedder');
       const patientCtx = buildPatientNluContext(snapshot);
       const nlu = new PreSlmNlu({
-        embedder: await createReadyEmbedder(400, { allowDevelopmentFallback: false }),
+        embedder: await createReadyEmbedder(DEFAULT_TFLITE_EMBEDDER_LOAD_MS, {
+          allowDevelopmentFallback: false,
+        }),
         retriever: this.retriever,
         toolSchemas: TOOL_SCHEMAS as unknown as import('@/knowledge/types').McpToolSummary[],
         allowDevelopmentFallback: false,

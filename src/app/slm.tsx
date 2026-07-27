@@ -79,8 +79,8 @@ import { getIntentDefinition } from '@/services/carePlan/intentRouter';
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
 import type { CareIntentDefinition } from '@/services/carePlan/intentCatalog';
 
-/** Cap Pre-SLM NLU so empty-cache / live network never blocks Concierge. */
-const NLU_TIMEOUT_MS = 2500;
+/** Cap Pre-SLM NLU (embedder is preloaded; budget covers intent + retrieval). */
+const NLU_TIMEOUT_MS = 12_000;
 
 type MessageStatus = 'streaming' | 'done' | 'stopped' | 'error';
 
@@ -576,6 +576,9 @@ export default function SLMScreen({
   >({});
   const [activeSuggestionIntent, setActiveSuggestionIntent] =
     useState<CareIntentDefinition<any, any> | null>(null);
+  const [activeSuggestionIntentArgs, setActiveSuggestionIntentArgs] = useState<
+    Record<string, unknown> | undefined
+  >(undefined);
   const allowDevelopmentNluFallback =
     __DEV__ && isDeveloper && settings.nluDevelopmentFallback === true;
   const canUseLocalAppointmentDemo = __DEV__ && isDeveloper;
@@ -666,6 +669,11 @@ export default function SLMScreen({
       cancelChatUnloadGrace();
 
       void (async () => {
+        // Warm NLU embedder when Concierge is opened (retry if app-start preload failed).
+        void import('@/knowledge/embedder')
+          .then(({ preloadTfliteEmbedder }) => preloadTfliteEmbedder())
+          .catch(() => {});
+
         if (chatLeaseRef.current) return;
         try {
           const lease = await acquireSlm('caregiver_chat');
@@ -763,6 +771,81 @@ export default function SLMScreen({
     // Phase 0 = Understanding (NLU). Phase 1 = Concierge (SLM).
     dispatch({ type: 'set-phase', payload: { assistantId: assistantMessage.id, phase: 0 } });
 
+    // Deterministic safety refuses (ACL Protocol 9-Delta, dose changes, auto-911).
+    // Must run before NLU/SLM so the model cannot improvise unknown protocols.
+    try {
+      const { evaluateSafetyRefuseGate } = await import(
+        '@/services/slm/safety-refuse-guardrails'
+      );
+      const safety = evaluateSafetyRefuseGate(trimmed);
+      if (safety.refuse) {
+        console.log(
+          `[SLM Chat] safety refuse kind=${safety.kind} latency_ms=${Date.now() - assistantMessage.startedAt}`,
+        );
+        dispatch({
+          type: 'send-success',
+          payload: {
+            assistantId: assistantMessage.id,
+            finalText: safety.message,
+            reasoningContent: null,
+            pendingHealthMonitor: null,
+            sourceUserText: trimmed,
+          },
+        });
+        return;
+      }
+    } catch (safetyErr) {
+      console.warn('[SLM Chat] safety gate skipped:', safetyErr);
+    }
+
+    // Care soft-route first (phrase/surface map works without chat SLM loaded).
+    // Structured Care intents open CarePlanInsightSheet, which acquires its own lease.
+    try {
+      const { resolveCareText } = await import('@/services/carePlan/coaching');
+      const careResolution = await resolveCareText(trimmed, {
+        snapshot,
+        timeoutMs: NLU_TIMEOUT_MS,
+      });
+      if (careResolution.kind === 'preselect') {
+        console.log(
+          `[SLM Chat] Care soft-route intent=${careResolution.intent} conf=${careResolution.confidence.toFixed(2)} source=${careResolution.source}`,
+        );
+        const def = getIntentDefinition(careResolution.intent);
+        setActiveSuggestionIntent(def);
+        setActiveSuggestionIntentArgs(careResolution.args);
+        dispatch({
+          type: 'send-success',
+          payload: {
+            assistantId: assistantMessage.id,
+            finalText:
+              `I can run **${def.caregiverLabel}** for you. ` +
+              'Review the sheet that opened — nothing is applied until you confirm.',
+            reasoningContent: null,
+            pendingHealthMonitor: null,
+            sourceUserText: trimmed,
+          },
+        });
+        return;
+      }
+      if (careResolution.kind === 'emergency') {
+        dispatch({
+          type: 'send-success',
+          payload: {
+            assistantId: assistantMessage.id,
+            finalText:
+              'This may be an emergency. If someone is in immediate danger, call 911 or go to the ER. ' +
+              'Concierge does not replace emergency care.',
+            reasoningContent: null,
+            pendingHealthMonitor: null,
+            sourceUserText: trimmed,
+          },
+        });
+        return;
+      }
+    } catch (careRouteErr) {
+      console.warn('[SLM Chat] Care soft-route skipped:', careRouteErr);
+    }
+
     // No production fallback: normal caregiver chat must not synthesize a
     // Concierge answer when the native model is unavailable.
     if (slm.loadStatus !== 'ready') {
@@ -783,7 +866,9 @@ export default function SLMScreen({
     }
 
     // Shared Pre-SLM NLU + retrieval (same path as Care sheets / mini-chat).
+    const turnT0 = Date.now();
     console.log('[SLM Chat] NLU start');
+    const nluT0 = Date.now();
     const prepared = await prepareSlmTurn({
       userText: trimmed,
       snapshot,
@@ -793,6 +878,7 @@ export default function SLMScreen({
       nluTimeoutMs: NLU_TIMEOUT_MS,
       logTag: 'SLM Chat',
     });
+    const nluMs = Date.now() - nluT0;
     const nluPacket = prepared.nluPacket;
     const generationDecision = prepared.generationDecision;
     const systemContext = prepared.systemContext;
@@ -802,7 +888,8 @@ export default function SLMScreen({
       `[SLM Chat] generation=${generationDecision.profile === CONCIERGE_GENERATION_FAST ? 'FAST' : 'DEEP'} ` +
         `reason=${generationDecision.reason} ` +
         `intent=${nluPacket?.intent?.primary ?? 'none'} ` +
-        `conf=${nluPacket?.intent?.confidence?.toFixed(2) ?? 'n/a'}`,
+        `conf=${nluPacket?.intent?.confidence?.toFixed(2) ?? 'n/a'} ` +
+        `nlu_ms=${nluMs}`,
     );
 
     // NLU done → Concierge (SLM) stage
@@ -822,11 +909,16 @@ export default function SLMScreen({
     abortControllerRef.current = new AbortController();
 
     const reasoningStartedAt = { current: null as number | null };
+    const slmT0 = Date.now();
+    let ttftMs: number | null = null;
 
     try {
       const result = await slm.chat(
         messages,
         (token) => {
+          if (ttftMs === null) {
+            ttftMs = Date.now() - slmT0;
+          }
           // First answer token — the indicator hides and the bold answer streams.
           dispatch({
             type: 'mark-answer-started',
@@ -840,6 +932,9 @@ export default function SLMScreen({
         abortControllerRef.current.signal,
         prepared.generation,
         (token) => {
+          if (ttftMs === null) {
+            ttftMs = Date.now() - slmT0;
+          }
           // First reasoning token — stay on Concierge stage (phase 1).
           if (reasoningStartedAt.current === null) {
             reasoningStartedAt.current = Date.now();
@@ -852,10 +947,13 @@ export default function SLMScreen({
         },
       );
 
+      const slmMs = Date.now() - slmT0;
+      const turnMs = Date.now() - turnT0;
+
       let finalText = result.text;
       let finalReasoning = result.reasoningContent;
 
-      // Debug logging: show SLM output
+      // Debug logging: show SLM output + latency for Smart 40 / tech appendix
       console.log('[SLM Chat] === SLM RESPONSE ===');
       console.log(finalText);
       if (finalReasoning) {
@@ -863,6 +961,13 @@ export default function SLMScreen({
         console.log(finalReasoning);
       }
       console.log('[SLM Chat] === END RESPONSE ===');
+      console.log(
+        `[SLM Chat] latency_ms total=${turnMs} nlu=${nluMs} slm_e2e=${slmMs} ` +
+          `ttft=${ttftMs ?? 'n/a'} model=${slm.currentModelId ?? 'unknown'} ` +
+          `mode=${generationDecision.profile === CONCIERGE_GENERATION_FAST ? 'FAST' : 'DEEP'} ` +
+          `intent=${nluPacket?.intent?.primary ?? 'none'} ` +
+          `conf=${nluPacket?.intent?.confidence?.toFixed(2) ?? 'n/a'}`,
+      );
 
       // Health Monitor: prefer NLU-extracted slots, else model ACTION / user NLP.
       const monitorArgs =
@@ -2081,9 +2186,10 @@ export default function SLMScreen({
             <>
               <ConciergeSuggestionBox
                 onSendPrompt={(prompt) => void handleAskAssistant(prompt)}
-                onLaunchIntent={(intentId: AdcpProposalIntentId) =>
-                  setActiveSuggestionIntent(getIntentDefinition(intentId))
-                }
+                onLaunchIntent={(intentId: AdcpProposalIntentId) => {
+                  setActiveSuggestionIntent(getIntentDefinition(intentId));
+                  setActiveSuggestionIntentArgs(undefined);
+                }}
                 disabled={state.runStatus === 'streaming'}
               />
               <View style={styles.howToCard}>
@@ -2190,8 +2296,15 @@ export default function SLMScreen({
         visible={activeSuggestionIntent !== null}
         intent={activeSuggestionIntent}
         snapshot={snapshot}
-        onClose={() => setActiveSuggestionIntent(null)}
-        onProposalResolved={() => setActiveSuggestionIntent(null)}
+        intentArgs={activeSuggestionIntentArgs}
+        onClose={() => {
+          setActiveSuggestionIntent(null);
+          setActiveSuggestionIntentArgs(undefined);
+        }}
+        onProposalResolved={() => {
+          setActiveSuggestionIntent(null);
+          setActiveSuggestionIntentArgs(undefined);
+        }}
       />
     </SafeAreaView>
   );

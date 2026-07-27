@@ -90,18 +90,19 @@ export function HypotheticalCriticalBanner() {
         ]}>
         <View style={styles.content}>
           <Text style={styles.title} numberOfLines={1}>
-            Hypothetical Critical Alert
+            Critical alert — is this real?
           </Text>
-          <Text style={styles.body} numberOfLines={2}>
-            ML severity {event.mlResult.severity}
-            {vitalsEntries ? ` — ${vitalsEntries}` : ''}
+          <Text style={styles.body} numberOfLines={3}>
+            Health Monitor severity {event.mlResult.severity}
+            {vitalsEntries ? ` — ${vitalsEntries}` : ''}. Confirm only if this is
+            happening now (not a what-if). Confirm opens the emergency dialogue.
           </Text>
           <View style={styles.buttonRow}>
             <Pressable onPress={confirm} style={styles.confirmButton}>
-              <Text style={styles.confirmText}>Confirm</Text>
+              <Text style={styles.confirmText}>Yes — this is real</Text>
             </Pressable>
             <Pressable onPress={dismiss} style={styles.dismissButton}>
-              <Text style={styles.dismissText}>Dismiss</Text>
+              <Text style={styles.dismissText}>No — hypothetical</Text>
             </Pressable>
           </View>
         </View>

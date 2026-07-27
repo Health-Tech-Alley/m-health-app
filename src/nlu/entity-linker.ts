@@ -6,6 +6,7 @@
  */
 
 import type { LinkedEntity, PatientNluContext } from './types';
+import { APP_SURFACE_LEXICON, findAppSurface } from './app-surfaces';
 
 /**
  * Normalize text for matching: lowercase, strip punctuation, collapse whitespace.
@@ -121,6 +122,28 @@ export function linkEntities(
     if (mentionsLabel(textNorm, v)) {
       addEntity('vital', `vital:${normalize(v)}`, v, 1.0);
     }
+  }
+
+  // Named app surfaces (priorities list, watch areas, knowledge base, tabs…)
+  const surfaceLabels =
+    ctx.appSurfaces && ctx.appSurfaces.length > 0
+      ? ctx.appSurfaces
+      : APP_SURFACE_LEXICON.map((e) => e.label);
+  for (const label of surfaceLabels) {
+    if (mentionsLabel(textNorm, label)) {
+      const entry = findAppSurface(normalize(label)) ?? findAppSurface(textNorm);
+      addEntity(
+        'app_surface',
+        `surface:${entry?.id ?? normalize(label)}`,
+        entry?.label ?? label,
+        0.95,
+      );
+    }
+  }
+  // Alias sweep when labels alone miss multi-word caregiver phrasing
+  const hit = findAppSurface(textNorm);
+  if (hit) {
+    addEntity('app_surface', `surface:${hit.id}`, hit.label, 0.95);
   }
 
   // Functional scales (GMFCS, MACS, etc.)

@@ -1391,6 +1391,9 @@ export function AdvancedDeveloperSettingsScreen() {
                 {snapshot?.bundleStatus.state === 'complete'
                   ? ` - ${snapshot.bundleStatus.chunksAdded} chunks added`
                   : ''}
+                {snapshot?.bundleStatus.state === 'in_flight' && snapshot.bundleStatus.phase
+                  ? `\n${snapshot.bundleStatus.phase}`
+                  : ''}
                 {snapshot?.bundleStatus.state === 'failed' && snapshot.bundleStatus.error
                   ? ` - ${snapshot.bundleStatus.error}`
                   : ''}
@@ -1398,6 +1401,31 @@ export function AdvancedDeveloperSettingsScreen() {
                   ? `\nLast updated: ${snapshot.bundleStatus.updatedAt}`
                   : ''}
               </Text>
+              {snapshot?.bundleStatus.state === 'in_flight' ? (
+                <View style={styles.knowledgeProgressWrap}>
+                  <View style={styles.knowledgeProgressTrack}>
+                    <View
+                      style={[
+                        styles.knowledgeProgressFill,
+                        {
+                          width: `${Math.round(
+                            Math.min(1, Math.max(0, snapshot.bundleStatus.progress ?? 0.05)) * 100,
+                          )}%`,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.devInfo}>
+                    {typeof snapshot.bundleStatus.completedSteps === 'number' &&
+                    typeof snapshot.bundleStatus.totalSteps === 'number'
+                      ? `${snapshot.bundleStatus.completedSteps}/${snapshot.bundleStatus.totalSteps} steps`
+                      : 'Downloading…'}
+                    {snapshot.bundleStatus.chunksAdded > 0
+                      ? ` · ${snapshot.bundleStatus.chunksAdded} chunks`
+                      : ''}
+                  </Text>
+                </View>
+              ) : null}
               <Text style={styles.devInfo}>
                 Total chunks: {snapshot?.knowledgeStats.total ?? 0}
                 {snapshot && snapshot.knowledgeStats.total > 0
@@ -2187,6 +2215,13 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
   const [exportingZip, setExportingZip] = useState(false);
   const [enrichmentLogOpen, setEnrichmentLogOpen] = useState(false);
   const [enrichmentLog, setEnrichmentLog] = useState<PatientEnrichmentLogEntry[]>([]);
+  const [redownloadProgress, setRedownloadProgress] = useState<{
+    phase: string;
+    progress: number;
+    completedSteps: number;
+    totalSteps: number;
+    chunksAdded: number;
+  } | null>(null);
 
   const loadChunkList = useCallback(() => {
     if (showAllPatients) {
@@ -2305,8 +2340,27 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
 
   const handleRedownloadAll = useCallback(async () => {
     setBusyId('__all__');
+    setRedownloadProgress({
+      phase: 'Starting clinical knowledge download',
+      progress: 0,
+      completedSteps: 0,
+      totalSteps: 1,
+      chunksAdded: 0,
+    });
     try {
-      const result = await redownloadAllForPatient(patientId);
+      const result = await redownloadAllForPatient(patientId, {
+        onProgress: (update) => {
+          setRedownloadProgress({
+            phase: update.phase,
+            progress: update.progress,
+            completedSteps: update.completedSteps,
+            totalSteps: update.totalSteps,
+            chunksAdded: update.chunksAdded,
+          });
+          // Keep chunk list live while downloading.
+          loadChunkList();
+        },
+      });
       refresh();
       if (result.errors.length === 0) {
         Alert.alert('Re-downloaded', 'Knowledge cache rebuilt from current patient record.');
@@ -2315,8 +2369,9 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
       }
     } finally {
       setBusyId(null);
+      setRedownloadProgress(null);
     }
-  }, [patientId, refresh]);
+  }, [patientId, refresh, loadChunkList]);
 
   // Export the full knowledge cache as a single zip archive. Each chunk
   // is written as a sanitized .txt file inside a per-source folder, plus a
@@ -2529,6 +2584,31 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
             {busyId === '__all__' ? 'Re-downloading…' : 'Re-download all (this patient)'}
           </Text>
         </Pressable>
+        {redownloadProgress ? (
+          <View style={styles.knowledgeProgressWrap}>
+            <Text style={styles.devInfo} numberOfLines={2}>
+              {redownloadProgress.phase}
+            </Text>
+            <View style={styles.knowledgeProgressTrack}>
+              <View
+                style={[
+                  styles.knowledgeProgressFill,
+                  {
+                    width: `${Math.round(
+                      Math.min(1, Math.max(0.05, redownloadProgress.progress)) * 100,
+                    )}%`,
+                  },
+                ]}
+              />
+            </View>
+            <Text style={styles.devInfo}>
+              {redownloadProgress.completedSteps}/{redownloadProgress.totalSteps || 1} steps
+              {redownloadProgress.chunksAdded > 0
+                ? ` · ${redownloadProgress.chunksAdded} chunks`
+                : ''}
+            </Text>
+          </View>
+        ) : null}
         <Pressable
           style={[styles.actionButton, (exportingZip || chunks.length === 0) && styles.disabledActionButton]}
           onPress={() => void handleExportZip()}
@@ -3066,6 +3146,27 @@ const styles = StyleSheet.create({
   chainBroken: { color: dangerRed },
   closeButton: { backgroundColor: '#6B7280' },
   cacheViewerWrap: { gap: 8, marginTop: 8 },
+  knowledgeProgressWrap: {
+    gap: 6,
+    marginTop: 8,
+    marginBottom: 4,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: AppTheme.colors.softSurface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  knowledgeProgressTrack: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: AppTheme.colors.chip,
+    overflow: 'hidden',
+  },
+  knowledgeProgressFill: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: AppTheme.colors.brand,
+  },
   cacheSourceGroup: { gap: 4, marginTop: 8 },
   cacheSourceHeader: {
     flexDirection: 'row',

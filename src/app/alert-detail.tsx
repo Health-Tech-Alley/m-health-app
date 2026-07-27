@@ -4,12 +4,14 @@
  * Pushed on top of the tab shell. Handles all three steel threads via a
  * single `alertId` param. For severity-3 alerts it renders an emergency
  * banner with direct-action options (Call 911, Go to ER, Contact Provider,
- * Acknowledge, Explain, Add Note). For severity 1–2 it shows vitals context
- * and routes to the shared SLM explain screen.
+ * Acknowledge, Explain, Add Note). For severity 1–2 it shows vitals context.
+ *
+ * "Ask the Concierge" opens SlmInsightSheet (Care-style minimize/scroll popup)
+ * on top of this per-alert screen — it does not leave the alert focus.
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Modal,
   Pressable,
@@ -35,15 +37,14 @@ import {
   updateAlertStatus,
 } from '@/data';
 import { ObservationPicker } from '@/components/ObservationPicker';
+import { SlmInsightSheet } from '@/components/slm-insight-sheet';
 import {
   useOrchestratorPatientId,
   useOrchestratorSafe,
 } from '@/contexts/orchestrator-context';
-import { useSettings } from '@/contexts/settings-context';
-import { useSLM } from '@/contexts/slm-context';
 import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
-import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
+import { buildAlertExplainPrompt } from '@/services/alerts/alertExplainPrompt';
 
 const TEAL = AppTheme.colors.brand;
 const BG = AppTheme.colors.screen;
@@ -56,8 +57,6 @@ export default function AlertDetailScreen() {
   const { alertId } = useLocalSearchParams<{ alertId: string }>();
   const orchestrator = useOrchestratorSafe();
   const activePatientId = useOrchestratorPatientId();
-  const { settings } = useSettings();
-  const { acquireSlm } = useSLM();
 
   const [version, setVersion] = useState(0);
   const [noteOpen, setNoteOpen] = useState(false);
@@ -65,6 +64,11 @@ export default function AlertDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [observationCodes, setObservationCodes] = useState<string[]>([]);
+  const [conciergeOpen, setConciergeOpen] = useState(false);
+  const [conciergeRequest, setConciergeRequest] = useState<{
+    title: string;
+    prompt: string;
+  } | null>(null);
 
   const loadedAlert = alertId ? getAlertById(alertId) : null;
   const alertUnavailableMessage = !alertId
@@ -76,33 +80,11 @@ export default function AlertDetailScreen() {
         : null;
   const alert = alertUnavailableMessage ? null : loadedAlert;
 
-  useFocusEffect(
-    useCallback(() => {
-      if (settings.dynamicSlmLoading === false) return;
-      let lease: SlmTaskLease | null = null;
-      let cancelled = false;
-
-      void (async () => {
-        try {
-          lease = await acquireSlm('preload_warm');
-          if (cancelled) {
-            lease.release();
-            lease = null;
-          }
-        } catch {
-          // RAM gate / not installed; the explanation screen reports availability.
-        }
-      })();
-
-      return () => {
-        cancelled = true;
-        lease?.release();
-      };
-    }, [acquireSlm, settings.dynamicSlmLoading]),
-  );
-
   // Compute the 24h-ago cutoff once (impure Date.now() allowed in a useState
   // initializer, not during render).
+  // Note: do NOT preload_warm here. Dynamic mode unloads on last lease release,
+  // so a warm lease released right before SlmInsightSheet opens races unload vs
+  // load and makes the first "Ask the Concierge" fail. The sheet owns load.
   const [since] = useState(() =>
     new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
   );
@@ -189,11 +171,34 @@ export default function AlertDetailScreen() {
 
   const askAssistant = useCallback(() => {
     if (!alert) return;
-    router.push({
-      pathname: '/slm-explain',
-      params: { alertId: alert.alertId, patientId: alert.patientId },
+
+    const topFeatures = mlDetails?.topFeatures ?? [];
+    const prompt = buildAlertExplainPrompt({
+      title: alert.title,
+      body: alert.body,
+      severity: alert.severity,
+      status: alert.status,
+      createdAt: alert.createdAt,
+      mlScore: alert.mlScore ?? alert.aeScore ?? null,
+      initialAnomalyType:
+        alert.initialAnomalyType ?? mlDetails?.event?.initialAnomalyType ?? null,
+      postHitlAnomalyType:
+        alert.postHitlAnomalyType ?? mlDetails?.event?.postHitlAnomalyType ?? null,
+      topFeatures,
+      rawVitals: (mlDetails?.rawVitals ?? null) as Record<string, unknown> | null,
+      observationCodes,
+      recentSpo2: recentSpo2.map((s) => ({ value: s.value })),
+      recentHr: recentHr.map((s) => ({ value: s.value })),
     });
-  }, [alert, router]);
+    setConciergeRequest({
+      title:
+        alert.severity === 3
+          ? 'Concierge on this emergency alert'
+          : 'Concierge on this alert',
+      prompt,
+    });
+    setConciergeOpen(true);
+  }, [alert, mlDetails, observationCodes, recentHr, recentSpo2]);
 
   const saveObservations = useCallback(async () => {
     if (!alert || observationCodes.length === 0) return;
@@ -410,6 +415,19 @@ export default function AlertDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Care-style Concierge popup on top of this per-alert screen (minimize/scroll). */}
+      <SlmInsightSheet
+        visible={conciergeOpen && conciergeRequest !== null}
+        onClose={() => {
+          setConciergeOpen(false);
+          setConciergeRequest(null);
+        }}
+        title={conciergeRequest?.title ?? 'Concierge on this alert'}
+        prompt={conciergeRequest?.prompt ?? ''}
+        reason="care_explain"
+        allowMinimize
+      />
     </SafeAreaView>
   );
 }

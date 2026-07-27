@@ -108,9 +108,11 @@ export async function runIntent<O extends AnyIntentOutput>(
     : await runIntentFallbackStub(intent, input);
 
   const output = def.buildOutput(input, text) as O;
-  const proposalPayload = def.buildProposalCandidate?.(input, output) as
-    | AdcpProposalPayload
-    | undefined;
+  const rawCandidate = def.buildProposalCandidate?.(input, output);
+  const proposalPayload = normalizeProposalPayload(
+    rawCandidate,
+    snapshot.patient?.patientId ?? '',
+  );
   const enqueuedProposalIds: string[] = [];
   let proposalQueueStatus: AdcpProposalStatus = 'draft';
 
@@ -120,7 +122,7 @@ export async function runIntent<O extends AnyIntentOutput>(
       intent,
       payload: proposalPayload,
       section: deriveSectionForIntent(intent),
-      kind: deriveKindForProposal(proposalPayload),
+      kind: proposalPayload.kind,
     });
     enqueuedProposalIds.push(proposal.proposalId);
     proposalQueueStatus = proposal.status;
@@ -173,8 +175,32 @@ function deriveSectionForIntent(intent: AdcpProposalIntentId): PendingPlanPropos
   return 'monitoringContract';
 }
 
-function deriveKindForProposal(payload: AdcpProposalPayload): PendingPlanProposal['kind'] {
-  return payload.kind;
+const VALID_PROPOSAL_KINDS = new Set([
+  'threshold_patch',
+  'therapy_patch',
+  'priority_promote',
+  'goal_patch',
+  'note_wording',
+]);
+
+/**
+ * Only enqueue payloads that carry a real AdcpProposalKind. SLM free-text
+ * replies often yield empty / shape-wrong candidates (missing `kind`) which
+ * used to crash SQLite: NOT NULL pending_plan_proposals.kind.
+ */
+function normalizeProposalPayload(
+  candidate: unknown,
+  patientId: string,
+): AdcpProposalPayload | null {
+  if (!candidate || typeof candidate !== 'object') return null;
+  const obj = candidate as Record<string, unknown>;
+  const kind = obj.kind;
+  if (typeof kind !== 'string' || !VALID_PROPOSAL_KINDS.has(kind)) return null;
+  // Ensure patientId is present for apply path.
+  if (typeof obj.patientId !== 'string' || !obj.patientId) {
+    return { ...obj, patientId } as AdcpProposalPayload;
+  }
+  return candidate as AdcpProposalPayload;
 }
 
 function buildUserPrompt(intent: AdcpProposalIntentId, args: AnyIntentInputs): string {

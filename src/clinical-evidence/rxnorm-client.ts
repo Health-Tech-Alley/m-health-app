@@ -10,7 +10,7 @@
 import { withRetry } from './rate-limiter';
 
 const RXNORM_BASE = 'https://rxnav.nlm.nih.gov/REST';
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 8_000;
 
 export interface DrugNormalizationResult {
   rxCui: string;

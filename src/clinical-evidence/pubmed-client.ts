@@ -12,7 +12,7 @@ import { getNcbiApiKey } from '@/services/ncbi-token-store';
 import { withRetry } from './rate-limiter';
 
 const EUTILS_BASE = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 10_000;
 
 export interface PubMedSearchResult {
   pmids: string[];

@@ -234,7 +234,27 @@ export const INTENT_CATALOG: Record<AdcpProposalIntentId, CareIntentDefinition<a
       proposedThresholds: [],
       citations: [],
     }),
-    buildProposalCandidate: (_args, output: ReviewMonitoringContractOutput) => output.proposedThresholds,
+    buildProposalCandidate: (args, output: ReviewMonitoringContractOutput) => {
+      const thresholds = (output.proposedThresholds ?? []).filter(
+        (t) => t && typeof t.vitalType === 'string' && typeof t.value === 'number',
+      );
+      if (thresholds.length === 0) return null;
+      return {
+        kind: 'threshold_patch' as const,
+        patientId: args.snapshot?.patient?.patientId ?? '',
+        thresholds: thresholds.map((t) => ({
+          thresholdId: t.thresholdId,
+          vitalType: t.vitalType,
+          direction: t.direction,
+          value: t.value,
+          severity: t.severity,
+          source: t.source || 'slm',
+          pendingMlVet: t.pendingMlVet ?? true,
+        })),
+        rationale: output.explanation || 'Monitoring settings review',
+        citations: output.citations ?? [],
+      };
+    },
   },
   explain_uc3_result: {
     intentId: 'explain_uc3_result',
@@ -259,7 +279,26 @@ export const INTENT_CATALOG: Record<AdcpProposalIntentId, CareIntentDefinition<a
       exerciseAssignments: [],
       citations: [],
     }),
-    buildProposalCandidate: (_args, output: ProposeTherapyPatchOutput) => output,
+    buildProposalCandidate: (args, output: ProposeTherapyPatchOutput) => {
+      const hasContent =
+        (output.activities?.length ?? 0) > 0 ||
+        (output.rehabMetrics?.length ?? 0) > 0 ||
+        (output.exerciseAssignments?.length ?? 0) > 0;
+      if (!hasContent) return null;
+      return {
+        kind: 'therapy_patch' as const,
+        patientId: args.snapshot?.patient?.patientId ?? '',
+        therapyContract: {
+          present: true as const,
+          activities: output.activities ?? [],
+          rehabMetrics: output.rehabMetrics ?? [],
+          exerciseAssignments: output.exerciseAssignments ?? [],
+          reviewWindowDays: 7,
+        },
+        rationale: output.rationale || 'Therapy plan tweak',
+        citations: output.citations ?? [],
+      };
+    },
   },
   explain_uc4_card: {
     intentId: 'explain_uc4_card',
@@ -286,7 +325,35 @@ export const INTENT_CATALOG: Record<AdcpProposalIntentId, CareIntentDefinition<a
       domain: '',
       weight: 0,
     }),
-    buildProposalCandidate: (_args, output: PromoteUc4ToPlanOutput) => output,
+    buildProposalCandidate: (args, output: PromoteUc4ToPlanOutput) => {
+      const title = (output.title || '').trim();
+      const rationale = (output.rationale || '').trim();
+      // Plain-markdown SLM replies have no structured priority — do not enqueue.
+      if (!title && !rationale) return null;
+      const cardId =
+        typeof (args as PromoteUc4ToPlanInputs).cardId === 'string'
+          ? (args as PromoteUc4ToPlanInputs).cardId
+          : '';
+      const priorityId =
+        (output.priorityId || '').trim() ||
+        `priority:adcp:${Date.now().toString(36)}`;
+      return {
+        kind: 'priority_promote' as const,
+        patientId: args.snapshot?.patient?.patientId ?? '',
+        sourceCardId: cardId,
+        rationale: rationale || title,
+        priority: {
+          priorityId,
+          sourceCardId: cardId || null,
+          title: title || 'Care focus priority',
+          description: (output.description || rationale || title).trim(),
+          domain: (output.domain || 'general').trim() || 'general',
+          status: 'active' as const,
+          promotedAt: new Date().toISOString(),
+          weight: typeof output.weight === 'number' && output.weight > 0 ? output.weight : 0.5,
+        },
+      };
+    },
   },
   suggest_todays_logging: {
     intentId: 'suggest_todays_logging',
@@ -309,7 +376,24 @@ export const INTENT_CATALOG: Record<AdcpProposalIntentId, CareIntentDefinition<a
       rationale: text,
       proposedPatches: [],
     }),
-    buildProposalCandidate: (_args, output: WeeklyCarePlanReviewOutput) => output,
+    buildProposalCandidate: (args, output: WeeklyCarePlanReviewOutput) => {
+      // Weekly review may return multiple section patches; enqueue only when a
+      // single well-formed payload is present. Multi-patch is handled by the
+      // sheet/HITL path when structured. Never insert a bare output object.
+      const first = output.proposedPatches?.[0];
+      if (!first?.payloadSnippet || typeof first.payloadSnippet !== 'object') return null;
+      const snippet = first.payloadSnippet as { kind?: string };
+      if (!snippet.kind) return null;
+      const patientId = args.snapshot?.patient?.patientId ?? '';
+      return {
+        ...first.payloadSnippet,
+        patientId:
+          'patientId' in first.payloadSnippet &&
+          typeof (first.payloadSnippet as { patientId?: string }).patientId === 'string'
+            ? (first.payloadSnippet as { patientId: string }).patientId
+            : patientId,
+      };
+    },
   },
   handoff_summary: {
     intentId: 'handoff_summary',

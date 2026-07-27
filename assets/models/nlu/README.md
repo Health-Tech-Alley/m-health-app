@@ -1,4 +1,13 @@
-# On-device NLU embedder assets (plan 35)
+# On-device NLU embedder assets (plan 35 + plan 40)
+
+## Intent heads (retrain both when the embedder changes)
+
+| File | Labels | Corpus | Train |
+|------|--------|--------|-------|
+| `intent-head.json` | 14 chat labels | `planning/nlu-training/utterances-800.json` | `training/nlu/train_intent_head.py` |
+| `care-intent-head.json` | 9 Care catalog + `out_of_care` | `planning/nlu-training/care-utterances-v1.json` | `training/nlu/train_care_intent_head.py` |
+
+Both heads use the **same frozen** `mdbr-leaf-ir` 768-d embedder with the query prefix below.
 
 ## Primary ship files
 

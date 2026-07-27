@@ -17,8 +17,11 @@ import { extractSectionsFromSplXml, buildDrugLabelText } from './dailymed-spl-pa
 import { sleep, withRetry } from './rate-limiter';
 
 const DAILYMED_BASE = 'https://dailymed.nlm.nih.gov/dailymed/services/v2';
-const TIMEOUT_MS = 15_000;
-const FETCH_DELAY_MS = 900;
+/** Keep short — DailyMed is flaky; fail fast and soft-skip rather than hang the bundle. */
+const TIMEOUT_MS = 6_000;
+const FETCH_DELAY_MS = 200;
+/** One label is enough for med safety context; second SPL doubled hang time. */
+const MAX_SETIDS = 1;
 
 /**
  * Reduce free-text medication labels to a DailyMed-friendly query.
@@ -92,7 +95,7 @@ export async function fetchDrugLabel(drugName: string, fullSpl = false): Promise
   const now = new Date().toISOString();
   const chunks: KnowledgeChunk[] = [];
   const setidsToFetch = spls
-    .slice(0, 2)
+    .slice(0, MAX_SETIDS)
     .map((s) => s.setid)
     .filter((id): id is string => Boolean(id));
 
@@ -173,7 +176,7 @@ async function fetchDailyMed(
   kind: 'search' | 'spl',
 ): Promise<Response | null> {
   try {
-    const result = await withRetry(
+      const result = await withRetry(
       async (): Promise<Response | 'soft-fail'> => {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -199,7 +202,8 @@ async function fetchDailyMed(
           clearTimeout(timer);
         }
       },
-      { maxRetries: 3, baseDelayMs: 1200, maxDelayMs: 10_000 },
+      // One quick 5xx retry only — never stack timeouts (was hanging profile load).
+      { maxRetries: 1, baseDelayMs: 400, maxDelayMs: 1_200 },
     );
     return result === 'soft-fail' ? null : result;
   } catch (err) {

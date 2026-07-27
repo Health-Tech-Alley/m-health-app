@@ -302,13 +302,11 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
     if (!patientId || retryAttemptedRef.current) return;
     if (snapshot?.bundleStatus?.state !== 'failed') return;
     retryAttemptedRef.current = true;
-    void import('@/clinical-evidence/condition-bundler').then(({ bundleConditionPack }) => {
-      void bundleConditionPack(patientId).catch((err) => {
+    void import('@/clinical-evidence/knowledge-bundle-runner')
+      .then(({ runKnowledgeBundle }) => runKnowledgeBundle(patientId))
+      .catch((err) => {
         console.error('[PatientRecordProvider] Bundle retry failed:', err);
       });
-    }).catch(() => {
-      // clinical-evidence module not available — graceful.
-    });
   }, [patientId, snapshot?.bundleStatus?.state]);
 
   const value = useMemo<PatientRecordContextValue>(

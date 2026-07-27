@@ -8,6 +8,7 @@
  * planning/35 §4.
  */
 
+import { Platform } from 'react-native';
 import type { Embedder } from './types';
 
 /** Query prefix required by leaf-ir for user/query strings only. */
@@ -15,6 +16,45 @@ const QUERY_PREFIX = 'Represent this sentence for searching relevant passages: '
 
 /** Max sequence length for the leaf-ir model. */
 const MAX_SEQ_LENGTH = 512;
+
+/**
+ * Default wait for first TFLite leaf-ir load (~59 MB INT8). 400ms was far too
+ * short and caused every chat turn to hit "TFLite embedder load timeout".
+ */
+export const DEFAULT_TFLITE_EMBEDDER_LOAD_MS = 20_000;
+
+/**
+ * Lazy require so Jest does not parse binary .tflite at import time.
+ * Paths match intent-head.json (src/nlu → ../../assets/...).
+ * Metro needs a static string literal inside require().
+ */
+function leafIrInt8Asset(): number {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('../../assets/models/nlu/mdbr-leaf-ir-int8.tflite') as number;
+}
+
+function leafIrFp32Asset(): number {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('../../assets/models/nlu/mdbr-leaf-ir.tflite') as number;
+}
+
+type DelegateList = readonly string[];
+
+/**
+ * Leaf-ir is a full encoder-style graph. CoreML/Metal delegates often fail
+ * createModel on device (unlike the tiny Alert autoencoder). Prefer CPU first.
+ */
+function leafIrDelegateAttempts(): DelegateList[] {
+  const attempts: DelegateList[] = [[]]; // CPU always first
+  if (Platform.OS === 'ios') {
+    attempts.push(['core-ml']);
+    attempts.push(['metal']);
+  } else if (Platform.OS === 'android') {
+    attempts.push(['nnapi']);
+    attempts.push(['android-gpu']);
+  }
+  return attempts;
+}
 
 /** Cosine similarity between two equal-length vectors. */
 export function cosineSimilarity(a: number[], b: number[]): number {
@@ -72,6 +112,29 @@ function djb2(str: string): number {
 }
 
 /**
+ * Load WordPiece vocab from bundled tokenizer.json (Metro resolves .json reliably;
+ * bare .txt requires often fail outside Expo's default asset pipeline).
+ */
+function loadVocabFromTokenizerJson(): Map<string, number> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const raw = require('../../assets/models/nlu/tokenizer/tokenizer.json') as {
+    model?: { vocab?: Record<string, number> };
+  };
+  const vocabObj = raw?.model?.vocab;
+  if (!vocabObj || typeof vocabObj !== 'object') {
+    throw new Error('tokenizer.json missing model.vocab');
+  }
+  const map = new Map<string, number>();
+  for (const [token, id] of Object.entries(vocabObj)) {
+    if (typeof id === 'number') map.set(token, id);
+  }
+  if (map.size < 100) {
+    throw new Error(`tokenizer.json vocab too small (${map.size})`);
+  }
+  return map;
+}
+
+/**
  * BertTokenizer — lightweight WordPiece tokenizer for leaf-ir.
  *
  * Loads the HF tokenizer.json from assets/models/nlu/tokenizer/ and
@@ -89,32 +152,14 @@ class BertTokenizer {
   readonly CLS_ID = 101;
   readonly SEP_ID = 102;
 
-  async load(vocabPath: string): Promise<void> {
-    try {
-      const response = await fetch(vocabPath);
-      const text = await response.text();
-      const lines = text.split('\n').filter(Boolean);
-      for (let i = 0; i < lines.length; i++) {
-        const token = lines[i].trim();
-        this.vocab.set(token, i);
-        this.invVocab.set(i, token);
-      }
-    } catch {
-      // Fallback: try require()
-      try {
-        const vocabText = require('@/assets/models/nlu/tokenizer/vocab.txt');
-        if (typeof vocabText === 'string') {
-          const lines = vocabText.split('\n').filter(Boolean);
-          for (let i = 0; i < lines.length; i++) {
-            const token = lines[i].trim();
-            this.vocab.set(token, i);
-            this.invVocab.set(i, token);
-          }
-        }
-      } catch {
-        throw new Error('Failed to load vocabulary for BertTokenizer');
-      }
+  async load(_vocabPath?: string): Promise<void> {
+    const map = loadVocabFromTokenizerJson();
+    this.vocab = map;
+    this.invVocab = new Map<number, string>();
+    for (const [token, id] of map) {
+      this.invVocab.set(id, token);
     }
+    console.log(`[BertTokenizer] Loaded vocab (${map.size} tokens) from tokenizer.json`);
   }
 
   /**
@@ -208,6 +253,7 @@ export class TfliteEmbedder implements Embedder {
   private tokenizer: BertTokenizer | null = null;
   private loaded = false;
   private loadPromise: Promise<void> | null = null;
+  private lastLoadError: string | null = null;
 
   /**
    * Load the TFLite model and tokenizer.
@@ -216,47 +262,97 @@ export class TfliteEmbedder implements Embedder {
     if (this.loaded) return;
     if (this.loadPromise) return this.loadPromise;
 
-    this.loadPromise = this._load(modelPath, tokenizerDir);
+    this.loadPromise = this._load(modelPath, tokenizerDir).finally(() => {
+      // Allow retry after a failed load (do not stick on a dead promise).
+      if (!this.loaded) {
+        this.loadPromise = null;
+      }
+    });
     return this.loadPromise;
   }
 
-  private async _load(modelPath?: string, tokenizerDir?: string): Promise<void> {
-    try {
-      // Load tokenizer
-      this.tokenizer = new BertTokenizer();
-      const vocabPath = tokenizerDir
-        ? `${tokenizerDir}/vocab.txt`
-        : 'assets/models/nlu/tokenizer/vocab.txt';
-      await this.tokenizer.load(vocabPath);
+  getLastLoadError(): string | null {
+    return this.lastLoadError;
+  }
 
-      // Load TFLite model via react-native-fast-tflite
-      try {
-        const { loadTensorflowModel } = require('react-native-fast-tflite');
-        const modelFilePath = modelPath ?? 'mdbr-leaf-ir-int8.tflite';
-        this.interpreter = await loadTensorflowModel(modelFilePath);
-        this.loaded = true;
-        console.log('[TfliteEmbedder] Loaded TFLite model (768-d)');
-      } catch (tfliteErr) {
-        console.warn('[TfliteEmbedder] TFLite load failed, trying FP32 fallback:', tfliteErr);
-        try {
-          const { loadTensorflowModel } = require('react-native-fast-tflite');
-          this.interpreter = await loadTensorflowModel('mdbr-leaf-ir.tflite');
-          this.loaded = true;
-          console.log('[TfliteEmbedder] Loaded FP32 TFLite fallback (768-d)');
-        } catch (fallbackErr) {
-          console.warn('[TfliteEmbedder] All TFLite loads failed:', fallbackErr);
-          this.loaded = false;
+  private logModelIO(): void {
+    const model = this.interpreter as {
+      inputs?: unknown;
+      outputs?: unknown;
+    } | null;
+    if (!model) return;
+    console.log('[TfliteEmbedder] Inputs:', model.inputs);
+    console.log('[TfliteEmbedder] Outputs:', model.outputs);
+  }
+
+  private async _load(modelPath?: string, tokenizerDir?: string): Promise<void> {
+    const t0 = Date.now();
+    this.lastLoadError = null;
+    try {
+      this.tokenizer = new BertTokenizer();
+      await this.tokenizer.load(tokenizerDir);
+
+      const { loadTensorflowModel } = require('react-native-fast-tflite') as {
+        loadTensorflowModel: (
+          source: number | string,
+          delegates?: readonly string[],
+        ) => Promise<unknown>;
+      };
+
+      type Candidate = { label: string; source: number | string };
+      const candidates: Candidate[] = modelPath
+        ? [{ label: 'custom', source: modelPath }]
+        : [
+            { label: 'int8', source: leafIrInt8Asset() },
+            { label: 'fp32', source: leafIrFp32Asset() },
+          ];
+
+      const errors: string[] = [];
+      for (const cand of candidates) {
+        for (const delegates of leafIrDelegateAttempts()) {
+          const delLabel = delegates.length ? delegates.join('+') : 'cpu';
+          try {
+            console.log(
+              `[TfliteEmbedder] Trying ${cand.label} delegates=[${delLabel}]…`,
+            );
+            this.interpreter = await loadTensorflowModel(cand.source, [
+              ...delegates,
+            ]);
+            this.loaded = true;
+            console.log(
+              `[TfliteEmbedder] Loaded leaf-ir ${cand.label} (${delLabel}) ` +
+                `768-d in ${Date.now() - t0}ms`,
+            );
+            this.logModelIO();
+            return;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            errors.push(`${cand.label}/${delLabel}: ${msg}`);
+            console.warn(
+              `[TfliteEmbedder] ${cand.label}/${delLabel} failed:`,
+              msg,
+            );
+          }
         }
       }
+
+      throw new Error(
+        `All leaf-ir TFLite load attempts failed:\n${errors.join('\n')}`,
+      );
     } catch (err) {
-      console.error('[TfliteEmbedder] Initialization failed:', err);
       this.loaded = false;
+      this.interpreter = null;
+      this.lastLoadError = err instanceof Error ? err.message : String(err);
+      console.error('[TfliteEmbedder] Initialization failed:', err);
+      throw err instanceof Error ? err : new Error(String(err));
     }
   }
 
   /**
    * Embed text into a 768-d vector.
    * If isQuery is true, prepends the IR query prefix.
+   *
+   * react-native-fast-tflite v3: `run(ArrayBuffer[])` in model.inputs order.
    */
   async embed(text: string, opts?: { isQuery?: boolean }): Promise<number[]> {
     if (!this.loaded || !this.tokenizer || !this.interpreter) {
@@ -266,23 +362,62 @@ export class TfliteEmbedder implements Embedder {
     const input = opts?.isQuery ? QUERY_PREFIX + text : text;
     const { inputIds, attentionMask } = this.tokenizer.encode(input);
 
-    // Run inference
     const model = this.interpreter as {
-      run: (inputs: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      inputs: Array<{ name: string; dataType: string; shape: number[] }>;
+      outputs: Array<{ name: string; dataType: string; shape: number[] }>;
+      run: (input: ArrayBuffer[]) => Promise<ArrayBuffer[]>;
     };
 
-    const outputs = await model.run({
-      input_ids: new Int32Array(inputIds),
-      attention_mask: new Int32Array(attentionMask),
+    // Leaf-ir expects int64 input_ids + attention_mask shaped [1, 512].
+    const seqLen = Math.max(
+      inputIds.length,
+      ...model.inputs.map((t) => {
+        const last = t.shape?.[t.shape.length - 1];
+        return typeof last === 'number' && last > 0 ? last : 0;
+      }),
+      1,
+    );
+
+    const padTo = (arr: number[], len: number, pad: number) => {
+      const out = arr.slice(0, len);
+      while (out.length < len) out.push(pad);
+      return out;
+    };
+    const idsPadded = padTo(inputIds, seqLen, 0);
+    const maskPadded = padTo(attentionMask, seqLen, 0);
+
+    const toTensorBuffer = (values: number[], dataType: string): ArrayBuffer => {
+      const dtype = (dataType || 'int64').toLowerCase();
+      const n = values.length;
+      if (dtype.includes('32') && !dtype.includes('64')) {
+        const a = new Int32Array(values);
+        return a.buffer.slice(a.byteOffset, a.byteOffset + a.byteLength);
+      }
+      // Device log: leaf-ir input_ids / attention_mask are int64
+      const buf = new ArrayBuffer(n * 8);
+      const view = new BigInt64Array(buf);
+      for (let i = 0; i < n; i++) view[i] = BigInt(values[i] | 0);
+      return buf;
+    };
+
+    const buffers: ArrayBuffer[] = model.inputs.map((tensor) => {
+      const n = tensor.name.toLowerCase();
+      const values = n.includes('mask') ? maskPadded : idsPadded;
+      return toTensorBuffer(values, tensor.dataType);
     });
 
-    // The model outputs a pooled sentence embedding (768-d).
-    // Output key may vary by model; try common names.
-    const outputKey = Object.keys(outputs)[0];
-    const rawOutput = outputs[outputKey] as Float32Array | number[];
+    const outputs = await model.run(buffers);
+    if (!outputs?.[0]) {
+      throw new Error('TfliteEmbedder: empty model output');
+    }
+    const rawOutput = new Float32Array(outputs[0]);
+    // sentence_embedding may be [1, 768] — take first 768 floats
+    const dim = this.dimensions;
+    const vector =
+      rawOutput.length >= dim
+        ? Array.from(rawOutput.slice(0, dim))
+        : Array.from(rawOutput);
 
-    // L2-normalize
-    const vector = Array.from(rawOutput);
     const norm = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
     if (norm === 0) return vector;
     return vector.map((v) => v / norm);
@@ -347,10 +482,10 @@ export function createDefaultEmbedder(options?: {
 
 /**
  * Resolve an embedder that is safe for the chat NLU hot path.
- * Waits briefly for TFLite; on timeout/failure returns HashMock immediately.
+ * Waits for TFLite first load (default 20s); on timeout/failure may return HashMock in dev.
  */
 export async function createReadyEmbedder(
-  timeoutMs = 400,
+  timeoutMs = DEFAULT_TFLITE_EMBEDDER_LOAD_MS,
   options?: { allowDevelopmentFallback?: boolean },
 ): Promise<Embedder> {
   const allowDevFallback = __DEV__ && options?.allowDevelopmentFallback === true;
@@ -360,14 +495,31 @@ export async function createReadyEmbedder(
   }
   const embedder = getSharedTfliteEmbedder();
   if (embedder.isReady()) return embedder;
+  const t0 = Date.now();
   try {
     await Promise.race([
       embedder.load(),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('TFLite embedder load timeout')), timeoutMs),
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `TFLite embedder load timeout after ${timeoutMs}ms` +
+                  (embedder.getLastLoadError()
+                    ? ` (last error: ${embedder.getLastLoadError()})`
+                    : ''),
+              ),
+            ),
+          timeoutMs,
+        ),
       ),
     ]);
-    if (embedder.isReady()) return embedder;
+    if (embedder.isReady()) {
+      console.log(
+        `[createReadyEmbedder] ready in ${Date.now() - t0}ms backend=tflite`,
+      );
+      return embedder;
+    }
   } catch (err) {
     if (!allowDevFallback) {
       throw err instanceof Error ? err : new Error('TFLite embedder load failed');
@@ -376,4 +528,16 @@ export async function createReadyEmbedder(
   }
   if (allowDevFallback) return new HashMockEmbedder();
   throw new Error('TFLite embedder did not become ready');
+}
+
+/**
+ * Kick off leaf-ir load at app start so the first chat turn does not race a cold load.
+ */
+export function preloadTfliteEmbedder(): void {
+  if (!isTfliteNluAvailable()) return;
+  const embedder = getSharedTfliteEmbedder();
+  if (embedder.isReady()) return;
+  void embedder.load().catch((err) => {
+    console.warn('[preloadTfliteEmbedder] failed:', err);
+  });
 }

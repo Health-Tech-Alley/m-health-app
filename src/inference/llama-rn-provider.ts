@@ -390,16 +390,23 @@ export class LlamaRnProvider implements InferenceProvider {
           // Final answer resolution. Prefer llama.rn's parsed `content`. If it
           // didn't split the channels, `result.text` holds the raw stream that
           // may still contain <think>…</think> markers — strip them here so the
-          // returned answer never leaks the thought process. If, after
-          // stripping, there is no answer but there WAS reasoning, the
-          // generation was cut off mid-thought; return empty so the caller
-          // treats it as "no answer yet" rather than rendering partial
-          // thinking.
+          // returned answer never leaks the thought process.
+          //
+          // Important: when structured content is empty but we streamed answer
+          // tokens via onToken (tokensGenerated > 0 and not only reasoning), do
+          // not return empty — callers that overwrite UI with result.text would
+          // blank a visible stream. Prefer stripped raw text in that case.
           const rawText: string = (result?.text ?? '');
           const strippedRaw = stripThinkMarkers(rawText).trim();
           const sawReasoning = reasoning.length > 0 || insideThink || /<think>/i.test(rawText);
-          const answer: string =
+          let answer: string =
             structuredAnswer || strippedRaw || (sawReasoning ? '' : rawText.trim());
+          if (!answer && strippedRaw) {
+            answer = strippedRaw;
+          }
+          if (!answer && rawText.trim() && !sawReasoning) {
+            answer = rawText.trim();
+          }
 
           resolve({
             text: answer,

@@ -57,6 +57,15 @@ export type { MedSafetyContextResult } from './med-safety-context';
 export { HEDIS_MEASURES, measuresForPatient } from './hedis-measures';
 export type { HedisMeasure } from './hedis-measures';
 export { redownloadForChunk, redownloadAllForPatient } from './re-download';
+export {
+  runKnowledgeBundle,
+  buildKnowledgeBundleFingerprint,
+  shouldSkipKnowledgeBundle,
+  countLiteratureChunks,
+  KNOWLEDGE_BUNDLE_FRESHNESS_MS,
+} from './knowledge-bundle-runner';
+export type { KnowledgeBundleResult, RunKnowledgeBundleOptions } from './knowledge-bundle-runner';
+export type { BundleProgressUpdate, BundlePackOptions } from './condition-bundler';
 export { RateLimiter, withRetry, sleep } from './rate-limiter';
 export {
   retrieveClinicalChunks,

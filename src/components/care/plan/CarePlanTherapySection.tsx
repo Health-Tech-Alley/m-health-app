@@ -35,6 +35,7 @@ import {
 } from '@/data';
 import { getRehabilitationMeasurements } from '@/data/repositories/rehabilitationMeasurementRepository';
 import { buildUc3ResultExplainPrompt } from '@/services/carePlan/careExplainPrompts';
+import { buildUc3TherapySeedSupplement } from '@/services/carePlan/uc3TherapyChatContext';
 import { evaluateAndPersistUc3Trajectory } from '@/services/uc3/uc3EvaluationService';
 import { evaluateAndPersistUc4Priorities } from '@/services/uc4/uc4EvaluationService';
 import {
@@ -155,7 +156,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
     uc3ResultId,
   } = props;
 
-  const { mutatePatientRecord } = usePatientRecord();
+  const { mutatePatientRecord, snapshot } = usePatientRecord();
 
   const [uc3CompletionRunning, setUc3CompletionRunning] = useState(false);
   const [uc3CompletionStatus, setUc3CompletionStatus] = useState<string | null>(null);
@@ -717,8 +718,11 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
         visible={uc3ExplainOpen}
         embedded
         title="Explain rehabilitation progress"
-        seedPrompt={buildUc3ResultExplainPrompt(uc3ResultDisplay)}
-        cacheTitle={`rehab-progress:${uc3ResultId ?? therapySessionDate}:${uc3ResultDisplay.statusLabel}:${uc3ResultDisplay.dataQualityLabel ?? ''}:${uc3ResultDisplay.detailLines.join('|')}`}
+        contextProfile="uc3_therapy"
+        seedPrompt={buildUc3ResultExplainPrompt(uc3ResultDisplay, {
+          therapySeedSupplement: buildUc3TherapySeedSupplement(snapshot),
+        })}
+        cacheTitle={`rehab-progress:${uc3ResultId ?? therapySessionDate}:${uc3ResultDisplay.statusLabel}:${uc3ResultDisplay.dataQualityLabel ?? ''}:${uc3ResultDisplay.detailLines.join('|')}:${(snapshot?.rehabExerciseAssignments ?? []).map((a) => a.exerciseKey).join(',')}:${(snapshot?.medications ?? []).filter((m) => m.active !== false).map((m) => m.name).join(',')}`}
         onClose={() => setUc3ExplainOpen(false)}
         enableObservationHitl
       />

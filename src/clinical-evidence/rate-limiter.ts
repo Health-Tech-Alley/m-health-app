@@ -47,8 +47,12 @@ export class RateLimiter {
 }
 
 /**
- * Retry a function with exponential backoff on 429 (Too Many Requests) and
- * transient network errors. Used by all clinical-evidence API clients.
+ * Retry a function with exponential backoff on 429 / 5xx.
+ *
+ * Timeouts and aborts are NOT retried by default — the caller already waited
+ * the full timeout budget; re-waiting multiplies hang time (DailyMed was
+ * spending 45s+ on canceled fetches). Pass `retryNetwork: true` only when a
+ * single quick retry is worth it.
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
@@ -56,9 +60,16 @@ export async function withRetry<T>(
     maxRetries?: number;
     baseDelayMs?: number;
     maxDelayMs?: number;
+    /** Retry generic network blips (not timeouts/aborts). Default false. */
+    retryNetwork?: boolean;
   } = {},
 ): Promise<T> {
-  const { maxRetries = 3, baseDelayMs = 1000, maxDelayMs = 8000 } = options;
+  const {
+    maxRetries = 3,
+    baseDelayMs = 1000,
+    maxDelayMs = 8000,
+    retryNetwork = false,
+  } = options;
 
   let lastError: unknown;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -66,7 +77,13 @@ export async function withRetry<T>(
       return await fn();
     } catch (err) {
       lastError = err;
-      const isRetryable = is429Error(err) || is5xxError(err) || isNetworkError(err);
+      if (isTimeoutOrAbortError(err)) {
+        throw err;
+      }
+      const isRetryable =
+        is429Error(err) ||
+        is5xxError(err) ||
+        (retryNetwork && isNetworkError(err));
       if (!isRetryable || attempt === maxRetries) {
         throw err;
       }
@@ -99,9 +116,18 @@ function is5xxError(err: unknown): boolean {
   return false;
 }
 
+function isTimeoutOrAbortError(err: unknown): boolean {
+  if (err instanceof Error) {
+    if (err.name === 'AbortError') return true;
+    return /timeout|aborted|abort|canceled|cancelled/i.test(err.message);
+  }
+  return false;
+}
+
 function isNetworkError(err: unknown): boolean {
   if (err instanceof Error) {
-    return /network|timeout|abort|fetch failed|canceled|cancelled/i.test(err.message);
+    if (isTimeoutOrAbortError(err)) return false;
+    return /network|fetch failed|ECONNRESET|ENOTFOUND|ETIMEDOUT/i.test(err.message);
   }
   return false;
 }

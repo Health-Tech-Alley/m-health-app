@@ -43,9 +43,31 @@ import {
   writeSharesMedicationEdges,
 } from '@/knowledge/graph/knowledge-chunk-edge-writers';
 
-// 500ms between NLM API calls = 2 req/s (well under the 3 req/s limit
-// without an API key, and under 10 req/s with one).
-const nlmRateLimiter = new RateLimiter(500);
+// Per-host limiters so PubMed / DailyMed / OpenFDA don't serialize each other.
+// NCBI allows ~3 req/s without a key; DailyMed is flakier so stay gentler.
+const pubmedLimiter = new RateLimiter(350);
+const medlineplusLimiter = new RateLimiter(300);
+const rxnormLimiter = new RateLimiter(300);
+const dailymedLimiter = new RateLimiter(400);
+const openfdaLimiter = new RateLimiter(300);
+
+export type BundleProgressUpdate = {
+  phase: string;
+  completedSteps: number;
+  totalSteps: number;
+  chunksAdded: number;
+};
+
+export type BundlePackOptions = {
+  /** When false, caller owns setBundleStatus lifecycle. Default true. */
+  manageLifecycle?: boolean;
+  onProgress?: (update: BundleProgressUpdate) => void;
+  /** Optional step offset when this pack is one phase of a larger run. */
+  stepOffset?: number;
+  totalSteps?: number;
+};
+
+const MED_CONCURRENCY = 3;
 
 /**
  * Section-chunk long knowledge rows before insertion (planning/35 §5.4).
@@ -149,14 +171,29 @@ function selectConditionsForBundling(patientId: string): PatientCondition[] {
  * Bundle condition packs for a patient: PubMed abstracts + MedlinePlus topics
  * for each confirmed condition. Fire-and-forget — caller does not await.
  *
- * Per planning/32 §10.2, this also calls UMLS (ICD-10 → MeSH) and the SDOH
- * CDC-Places bundler. UMLS is woven into the per-condition loop so the
- * returned MeSH term can be fed back into the next PubMed search.
+ * Per planning/32 §10.2, this also calls UMLS (ICD-10 → MeSH). UMLS runs first
+ * so the returned MeSH term can expand the PubMed query; remaining sources for
+ * a condition run in parallel.
+ *
+ * When `manageLifecycle` is false (unified runner), status is left to the caller
+ * so medication packs can keep "in_flight" until everything finishes.
  */
-export async function bundleConditionPack(patientId: string): Promise<void> {
-  // Mark in-flight so the UI can show "Enrichment in progress…".
-  setBundlePending(patientId, true);
-  setBundleStatus(patientId, { state: 'in_flight', chunksAdded: 0 });
+export async function bundleConditionPack(
+  patientId: string,
+  options: BundlePackOptions = {},
+): Promise<number> {
+  const manageLifecycle = options.manageLifecycle !== false;
+  if (manageLifecycle) {
+    setBundlePending(patientId, true);
+    setBundleStatus(patientId, {
+      state: 'in_flight',
+      chunksAdded: 0,
+      progress: 0,
+      phase: 'Conditions',
+      completedSteps: 0,
+      totalSteps: 1,
+    });
+  }
 
   const conditions = selectConditionsForBundling(patientId);
   const profile = getOnboardingProfile();
@@ -171,19 +208,27 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
 
   let totalChunks = 0;
   let lastError: string | undefined;
+  const stepOffset = options.stepOffset ?? 0;
+  const totalSteps = options.totalSteps ?? Math.max(conditions.length + 1, 1);
+  let completedLocal = 0;
 
-  // Cache UMLS-derived MeSH terms per condition so the PubMed query can be
-  // expanded for better recall (planning/32 §10.2).
-  const meshTermCache: Record<string, string> = {};
+  const report = (phase: string) => {
+    options.onProgress?.({
+      phase,
+      completedSteps: stepOffset + completedLocal,
+      totalSteps,
+      chunksAdded: totalChunks,
+    });
+  };
 
   try {
     for (const condition of conditions) {
       const conditionName = condition.name;
       const icdCode = condition.icd10;
+      report(`Conditions · ${conditionName}`);
 
-      // --- UMLS (ICD-10 → CUI + MeSH term) ------------------------------
-      // D5: improves PubMed recall on the next condition's search and
-      // produces a KnowledgeChunk for the graph projector.
+      // --- UMLS first (feeds MeSH into PubMed) ----------------------------
+      let meshTerm: string | undefined;
       if (icdCode) {
         try {
           const t0 = Date.now();
@@ -199,92 +244,92 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
               `ICD10:${icdCode}`, tagged.length, Date.now() - t0,
               tagged.map((c) => c.chunkId),
             );
-            // Feed the MeSH term back into the next PubMed query for better recall.
-            const mesh = mapping.related.find((r) => r.vocabulary === 'MeSH')?.term;
-            if (mesh) meshTermCache[conditionName] = mesh;
+            meshTerm = mapping.related.find((r) => r.vocabulary === 'MeSH')?.term;
           }
         } catch (err) {
           console.error(`[condition-bundler] UMLS failed for ${icdCode}:`, err);
         }
       }
 
-      // --- PubMed ---
-      try {
-        const meshTerm = meshTermCache[conditionName];
-        const baseQuery = buildPubMedQuery(conditionName, { caregiverFocus: true });
-        const expandedQuery = meshTerm ? `${baseQuery} (${meshTerm}[MeSH Terms])` : baseQuery;
-        const deidQuery = deidentifyQuery(expandedQuery, pii);
-        const t0 = Date.now();
-        await nlmRateLimiter.throttle();
-        const searchResult = await searchPubMed({ query: deidQuery, retmax: 5 });
-        await nlmRateLimiter.throttle();
-        const abstracts = await fetchAbstracts(searchResult.pmids);
+      // PubMed + MedlinePlus + Orphanet in parallel (separate hosts / fixtures).
+      const parallel: Promise<void>[] = [];
 
-        // Tag chunks with the condition name
-        const taggedChunks: KnowledgeChunk[] = abstracts.map((c) => ({
-          ...c,
-          conditions: conditionName,
-          queryHash: hashQuery(deidQuery),
-        }));
-
-        totalChunks += insertWithSectionChunking(patientId, taggedChunks);
-
-        logEnrichment(
-          patientId, 'condition', condition.conditionId, 'pubmed', 'bundled',
-          deidQuery, taggedChunks.length, Date.now() - t0,
-          taggedChunks.map((c) => c.chunkId),
-        );
-      } catch (err) {
-        lastError = err instanceof Error ? err.message : String(err);
-        console.error(`[condition-bundler] PubMed failed for ${conditionName}:`, err);
-      }
-
-      // --- MedlinePlus Connect ---
-      if (icdCode) {
+      parallel.push((async () => {
         try {
+          const baseQuery = buildPubMedQuery(conditionName, { caregiverFocus: true });
+          const expandedQuery = meshTerm ? `${baseQuery} (${meshTerm}[MeSH Terms])` : baseQuery;
+          const deidQuery = deidentifyQuery(expandedQuery, pii);
           const t0 = Date.now();
-          await nlmRateLimiter.throttle();
-          const topics = await fetchHealthTopic({ code: icdCode, codeSystem: 'icd10' });
-
-          const taggedChunks: KnowledgeChunk[] = topics.map((c) => ({
+          await pubmedLimiter.throttle();
+          const searchResult = await searchPubMed({ query: deidQuery, retmax: 5 });
+          await pubmedLimiter.throttle();
+          const abstracts = await fetchAbstracts(searchResult.pmids);
+          const taggedChunks: KnowledgeChunk[] = abstracts.map((c) => ({
             ...c,
             conditions: conditionName,
+            queryHash: hashQuery(deidQuery),
           }));
-
           totalChunks += insertWithSectionChunking(patientId, taggedChunks);
-
           logEnrichment(
-            patientId, 'condition', condition.conditionId, 'medlineplus', 'bundled',
-            `ICD10:${icdCode}`, taggedChunks.length, Date.now() - t0,
+            patientId, 'condition', condition.conditionId, 'pubmed', 'bundled',
+            deidQuery, taggedChunks.length, Date.now() - t0,
             taggedChunks.map((c) => c.chunkId),
           );
         } catch (err) {
           lastError = err instanceof Error ? err.message : String(err);
-          console.error(`[condition-bundler] MedlinePlus failed for ${icdCode}:`, err);
+          console.error(`[condition-bundler] PubMed failed for ${conditionName}:`, err);
         }
+      })());
+
+      if (icdCode) {
+        parallel.push((async () => {
+          try {
+            const t0 = Date.now();
+            await medlineplusLimiter.throttle();
+            const topics = await fetchHealthTopic({ code: icdCode, codeSystem: 'icd10' });
+            const taggedChunks: KnowledgeChunk[] = topics.map((c) => ({
+              ...c,
+              conditions: conditionName,
+            }));
+            totalChunks += insertWithSectionChunking(patientId, taggedChunks);
+            logEnrichment(
+              patientId, 'condition', condition.conditionId, 'medlineplus', 'bundled',
+              `ICD10:${icdCode}`, taggedChunks.length, Date.now() - t0,
+              taggedChunks.map((c) => c.chunkId),
+            );
+          } catch (err) {
+            lastError = err instanceof Error ? err.message : String(err);
+            console.error(`[condition-bundler] MedlinePlus failed for ${icdCode}:`, err);
+          }
+        })());
       }
 
-      // --- Orphanet (rare-disease / CP-specific guidance) ---
-      try {
-        const t0 = Date.now();
-        const record = await searchOrphanet({ disease: conditionName });
-        if (record) {
-          const tagged = orphanetToChunks(record).map((c) => ({
-            ...c,
-            conditions: conditionName,
-          }));
-          totalChunks += insertWithSectionChunking(patientId, tagged);
-          logEnrichment(
-            patientId, 'condition', condition.conditionId, 'orphanet', 'bundled',
-            conditionName, tagged.length, Date.now() - t0,
-            tagged.map((c) => c.chunkId),
-          );
+      parallel.push((async () => {
+        try {
+          const t0 = Date.now();
+          const record = await searchOrphanet({ disease: conditionName });
+          if (record) {
+            const tagged = orphanetToChunks(record).map((c) => ({
+              ...c,
+              conditions: conditionName,
+            }));
+            totalChunks += insertWithSectionChunking(patientId, tagged);
+            logEnrichment(
+              patientId, 'condition', condition.conditionId, 'orphanet', 'bundled',
+              conditionName, tagged.length, Date.now() - t0,
+              tagged.map((c) => c.chunkId),
+            );
+          }
+        } catch (err) {
+          console.error(`[condition-bundler] Orphanet failed for ${conditionName}:`, err);
         }
-      } catch (err) {
-        console.error(`[condition-bundler] Orphanet failed for ${conditionName}:`, err);
-      }
+      })());
+
+      await Promise.all(parallel);
+      completedLocal += 1;
+      report(`Conditions · ${conditionName}`);
     }
-    // Offline CPG + disability care-gap packs (stable ids, small volume).
+
     try {
       const curated = seedCuratedKnowledgePacks(patientId, conditions.map((c) => c.name));
       totalChunks += curated.cpgCount + curated.gapCount;
@@ -294,23 +339,27 @@ export async function bundleConditionPack(patientId: string): Promise<void> {
     } catch (err) {
       console.error('[condition-bundler] Curated knowledge packs failed:', err);
     }
+    completedLocal += 1;
+    report('Conditions · offline packs');
   } catch (err) {
-    // A top-level failure (e.g. repository read threw) — record and degrade.
     lastError = err instanceof Error ? err.message : String(err);
     console.error('[condition-bundler] Bundle aborted:', err);
   } finally {
-    // Always clear the in-flight flag so the UI never gets stuck on
-    // "Enrichment in progress…" — even when the network is unavailable.
-    const status: BundleStatus =
-      totalChunks > 0
-        ? { state: 'complete', chunksAdded: totalChunks }
-        : lastError
-          ? { state: 'failed', chunksAdded: 0, error: lastError }
-          : { state: 'complete', chunksAdded: 0 };
-    setBundleStatus(patientId, status);
-    setBundlePending(patientId, false);
-    console.log(`[condition-bundler] Bundle finished for ${patientId}: ${status.state} (${totalChunks} chunks)`);
+    if (manageLifecycle) {
+      const status: BundleStatus =
+        totalChunks > 0
+          ? { state: 'complete', chunksAdded: totalChunks, progress: 1 }
+          : lastError
+            ? { state: 'failed', chunksAdded: 0, error: lastError, progress: 1 }
+            : { state: 'complete', chunksAdded: 0, progress: 1 };
+      setBundleStatus(patientId, status);
+      setBundlePending(patientId, false);
+      console.log(`[condition-bundler] Bundle finished for ${patientId}: ${status.state} (${totalChunks} chunks)`);
+    } else {
+      console.log(`[condition-bundler] Condition pack done for ${patientId}: ${totalChunks} chunks`);
+    }
   }
+  return totalChunks;
 }
 
 /**
@@ -327,22 +376,39 @@ export async function bundleCuratedKnowledgePacks(patientId: string): Promise<vo
  * D5: the geography comes from `patient.location` (free-text county/state
  * set during onboarding). Falls back to a fixture record on failure.
  */
-export async function bundleSdohPack(patientId: string, location?: string): Promise<void> {
+export async function bundleSdohPack(
+  patientId: string,
+  location?: string,
+  options: BundlePackOptions = {},
+): Promise<number> {
   const profile = getOnboardingProfile();
   const loc = (location ?? (profile.patient as { location?: string }).location ?? '').trim();
   if (!loc) {
     console.log('[condition-bundler] bundleSdohPack skipped — no patient.location set.');
-    return;
+    options.onProgress?.({
+      phase: 'Community context · skipped',
+      completedSteps: (options.stepOffset ?? 0) + 1,
+      totalSteps: options.totalSteps ?? 1,
+      chunksAdded: 0,
+    });
+    return 0;
   }
+  let chunks = 0;
   try {
     const t0 = Date.now();
+    options.onProgress?.({
+      phase: `Community context · ${loc}`,
+      completedSteps: options.stepOffset ?? 0,
+      totalSteps: options.totalSteps ?? 1,
+      chunksAdded: 0,
+    });
     const rec = await fetchCdcPlaces({ location: loc });
     if (rec) {
       const tagged = cdcToChunks(rec).map((c) => ({
         ...c,
         conditions: 'SDOH',
       }));
-      insertWithSectionChunking(patientId, tagged);
+      chunks = insertWithSectionChunking(patientId, tagged);
       logEnrichment(
         patientId, 'condition', 'sdoh', 'cdc-places', 'bundled',
         loc, tagged.length, Date.now() - t0,
@@ -352,6 +418,13 @@ export async function bundleSdohPack(patientId: string, location?: string): Prom
   } catch (err) {
     console.error(`[condition-bundler] CDC PLACES failed for ${loc}:`, err);
   }
+  options.onProgress?.({
+    phase: 'Community context · done',
+    completedSteps: (options.stepOffset ?? 0) + 1,
+    totalSteps: options.totalSteps ?? 1,
+    chunksAdded: chunks,
+  });
+  return chunks;
 }
 
 /**
@@ -387,9 +460,9 @@ export async function bundleSystematicReviewPack(patientId: string): Promise<voi
       const rawQuery = buildPubMedQuery(condition.name, { caregiverFocus: true });
       const deidQuery = deidentifyQuery(rawQuery, pii);
       const t0 = Date.now();
-      await nlmRateLimiter.throttle();
+      await pubmedLimiter.throttle();
       const search = await searchPubMed({ query: deidQuery, retmax: 5, filter: 'systematic_review' });
-      await nlmRateLimiter.throttle();
+      await pubmedLimiter.throttle();
       const abstracts = await fetchAbstracts(search.pmids);
       const tagged: KnowledgeChunk[] = filterNewChunks(patientId, abstracts.map((c) => ({
         ...c,
@@ -423,7 +496,7 @@ export async function bundleFullSplPack(patientId: string): Promise<void> {
   for (const med of medications) {
     try {
       const t0 = Date.now();
-      await nlmRateLimiter.throttle();
+      await dailymedLimiter.throttle();
       const labels = await fetchDrugLabel(med.name, true);
       if (labels.length === 0) {
         console.warn(
@@ -449,92 +522,135 @@ export async function bundleFullSplPack(patientId: string): Promise<void> {
 /**
  * Bundle medication packs for a patient: RxNorm normalization, DailyMed labels,
  * OpenFDA adverse events + recalls for each active medication.
+ *
+ * Meds run with limited concurrency; per-med sources hit different hosts in
+ * parallel so DailyMed slowness no longer blocks OpenFDA/RxNorm.
  */
-export async function bundleMedicationPack(patientId: string): Promise<void> {
+export async function bundleMedicationPack(
+  patientId: string,
+  options: BundlePackOptions = {},
+): Promise<number> {
   const medications = getActiveMedications(patientId);
+  let totalChunks = 0;
+  const stepOffset = options.stepOffset ?? 0;
+  const totalSteps = options.totalSteps ?? Math.max(medications.length, 1);
+  let completedLocal = 0;
 
-  for (const med of medications) {
-    // --- RxNorm normalization ---
-    try {
-      const t0 = Date.now();
-      await nlmRateLimiter.throttle();
-      const normalized = await normalizeDrugName(med.name);
-      if (normalized) {
-        logEnrichment(
-          patientId, 'medication', med.medicationId, 'rxnorm', 'bundled',
-          med.name, 1, Date.now() - t0, [],
-        );
+  const report = (phase: string) => {
+    options.onProgress?.({
+      phase,
+      completedSteps: stepOffset + completedLocal,
+      totalSteps,
+      chunksAdded: totalChunks,
+    });
+  };
+
+  const runOne = async (med: (typeof medications)[number]): Promise<void> => {
+    report(`Medications · ${med.name}`);
+    const medKey = med.name.trim().toLowerCase();
+    let medChunks = 0;
+
+    await Promise.all([
+      (async () => {
+        try {
+          const t0 = Date.now();
+          await rxnormLimiter.throttle();
+          const normalized = await normalizeDrugName(med.name);
+          if (normalized) {
+            logEnrichment(
+              patientId, 'medication', med.medicationId, 'rxnorm', 'bundled',
+              med.name, 1, Date.now() - t0, [],
+            );
+          }
+        } catch (err) {
+          console.error(`[condition-bundler] RxNorm failed for ${med.name}:`, err);
+        }
+      })(),
+      (async () => {
+        try {
+          const t0 = Date.now();
+          await dailymedLimiter.throttle();
+          const labels = await fetchDrugLabel(med.name);
+          if (labels.length === 0) {
+            console.warn(
+              `[condition-bundler] DailyMed returned no label for ${med.name} (skipped)`,
+            );
+            return;
+          }
+          const taggedChunks: KnowledgeChunk[] = labels.map((c) => ({
+            ...c,
+            conditions: med.name,
+          }));
+          medChunks += insertWithSectionChunking(patientId, taggedChunks, { medKey });
+          logEnrichment(
+            patientId, 'medication', med.medicationId, 'dailymed', 'bundled',
+            med.name, taggedChunks.length, Date.now() - t0,
+            taggedChunks.map((c) => c.chunkId),
+          );
+        } catch (err) {
+          console.warn(
+            `[condition-bundler] DailyMed skipped for ${med.name}:`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      })(),
+      (async () => {
+        try {
+          const t0 = Date.now();
+          await openfdaLimiter.throttle();
+          const events = await fetchAdverseEvents(med.name);
+          medChunks += insertWithSectionChunking(patientId, events, { medKey });
+          logEnrichment(
+            patientId, 'medication', med.medicationId, 'openfda', 'bundled',
+            med.name, events.length, Date.now() - t0,
+            events.map((c) => c.chunkId),
+          );
+        } catch (err) {
+          console.error(`[condition-bundler] OpenFDA events failed for ${med.name}:`, err);
+        }
+      })(),
+      (async () => {
+        try {
+          const t0 = Date.now();
+          await openfdaLimiter.throttle();
+          const recalls = await fetchDrugRecalls(med.name);
+          medChunks += insertWithSectionChunking(patientId, recalls, { medKey });
+          logEnrichment(
+            patientId, 'medication', med.medicationId, 'openfda', 'bundled',
+            med.name, recalls.length, Date.now() - t0,
+            recalls.map((c) => c.chunkId),
+          );
+        } catch (err) {
+          console.error(`[condition-bundler] OpenFDA recalls failed for ${med.name}:`, err);
+        }
+      })(),
+    ]);
+
+    totalChunks += medChunks;
+    completedLocal += 1;
+    report(`Medications · ${med.name}`);
+  };
+
+  // Limited-concurrency pool so we don't stampede DailyMed.
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(MED_CONCURRENCY, Math.max(medications.length, 1)) },
+    async () => {
+      while (next < medications.length) {
+        const idx = next;
+        next += 1;
+        await runOne(medications[idx]);
       }
-    } catch (err) {
-      console.error(`[condition-bundler] RxNorm failed for ${med.name}:`, err);
-    }
-
-    // --- DailyMed label (soft-fail: upstream 5xx is common under load) ---
-    try {
-      const t0 = Date.now();
-      await nlmRateLimiter.throttle();
-      const labels = await fetchDrugLabel(med.name);
-      if (labels.length === 0) {
-        console.warn(
-          `[condition-bundler] DailyMed returned no label for ${med.name} (skipped)`,
-        );
-      } else {
-        const medKey = med.name.trim().toLowerCase();
-        const taggedChunks: KnowledgeChunk[] = labels.map((c) => ({
-          ...c,
-          conditions: med.name,
-        }));
-        insertWithSectionChunking(patientId, taggedChunks, { medKey });
-
-        logEnrichment(
-          patientId, 'medication', med.medicationId, 'dailymed', 'bundled',
-          med.name, taggedChunks.length, Date.now() - t0,
-          taggedChunks.map((c) => c.chunkId),
-        );
-      }
-    } catch (err) {
-      console.warn(
-        `[condition-bundler] DailyMed skipped for ${med.name}:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-
-    // --- OpenFDA adverse events ---
-    try {
-      const t0 = Date.now();
-      await nlmRateLimiter.throttle();
-      const events = await fetchAdverseEvents(med.name);
-      insertWithSectionChunking(patientId, events, {
-        medKey: med.name.trim().toLowerCase(),
-      });
-
-      logEnrichment(
-        patientId, 'medication', med.medicationId, 'openfda', 'bundled',
-        med.name, events.length, Date.now() - t0,
-        events.map((c) => c.chunkId),
-      );
-    } catch (err) {
-      console.error(`[condition-bundler] OpenFDA events failed for ${med.name}:`, err);
-    }
-
-    // --- OpenFDA recalls ---
-    try {
-      const t0 = Date.now();
-      await nlmRateLimiter.throttle();
-      const recalls = await fetchDrugRecalls(med.name);
-      insertWithSectionChunking(patientId, recalls, {
-        medKey: med.name.trim().toLowerCase(),
-      });
-
-      logEnrichment(
-        patientId, 'medication', med.medicationId, 'openfda', 'bundled',
-        med.name, recalls.length, Date.now() - t0,
-        recalls.map((c) => c.chunkId),
-      );
-    } catch (err) {
-      console.error(`[condition-bundler] OpenFDA recalls failed for ${med.name}:`, err);
-    }
+    },
+  );
+  if (medications.length > 0) {
+    await Promise.all(workers);
+  } else {
+    report('Medications · none');
   }
+
+  console.log(`[condition-bundler] Medication pack done for ${patientId}: ${totalChunks} chunks`);
+  return totalChunks;
 }
 
 /**
@@ -561,9 +677,9 @@ export async function liveSupplement(
       const rawQuery = buildPubMedQuery(condition, { caregiverFocus: true });
       const deidQuery = deidentifyQuery(rawQuery, pii);
       const t0 = Date.now();
-      await nlmRateLimiter.throttle();
+      await pubmedLimiter.throttle();
       const searchResult = await searchPubMed({ query: deidQuery, retmax: 5 });
-      await nlmRateLimiter.throttle();
+      await pubmedLimiter.throttle();
       const abstracts = await fetchAbstracts(searchResult.pmids);
 
       const taggedChunks: KnowledgeChunk[] = abstracts.map((c) => ({

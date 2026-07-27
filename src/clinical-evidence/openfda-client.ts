@@ -15,7 +15,7 @@ import type { KnowledgeChunk } from '@/data/types';
 import { getOpenFdaApiKey } from '@/services/openfda-token-store';
 
 const OPENFDA_BASE = 'https://api.fda.gov';
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 8_000;
 const ADVERSE_EVENT_TTL_DAYS = 30;
 /** Fetch more rows than we store so the summary can merge reaction terms. */
 const AE_FETCH_LIMIT = 10;

@@ -107,10 +107,16 @@ export class PreSlmNlu {
     let embedding: number[];
     try {
       embedding = await this.embedder.embed(prompt, { isQuery: true });
-    } catch {
+    } catch (firstErr) {
       try {
         embedding = await this.embedder.embed(prompt);
       } catch (err) {
+        console.warn(
+          '[PreSlmNlu] embed failed:',
+          err instanceof Error ? err.message : err,
+          '| first:',
+          firstErr instanceof Error ? firstErr.message : firstErr,
+        );
         throw new NluUnavailableError('NLU embedder unavailable', { cause: err });
       }
     }
@@ -241,8 +247,34 @@ export class PreSlmNlu {
       return { primary: 'vitals_what_if', confidence: 0.7, alternatives: [], skillId: skillHint ?? 'caregiver-chat' };
     }
 
+    // App surfaces / care plan language (ADCP living plan, UC3/UC4 caregiver copy)
+    if (/\b(priorit(y|ies)\s+list|care focus|priority card)\b/i.test(lower)) {
+      return { primary: 'next_steps', confidence: 0.65, alternatives: [], skillId: skillHint ?? 'next-steps' };
+    }
+    if (/\b(medication watch|watch areas|areas to watch)\b/i.test(lower)) {
+      return { primary: 'med_check', confidence: 0.65, alternatives: [], skillId: skillHint ?? 'caregiver-chat' };
+    }
+    if (/\b(clinical knowledge|knowledge (base|pack)|clinical evidence)\b/i.test(lower)) {
+      return { primary: 'knowledge_qa', confidence: 0.65, alternatives: [], skillId: skillHint ?? 'caregiver-chat' };
+    }
+    if (/\b(what changed|care plan changes|plan history)\b/i.test(lower)) {
+      return { primary: 'summarize_ehr', confidence: 0.62, alternatives: [], skillId: skillHint ?? 'summarize-ehr' };
+    }
+    if (/\b(therap(y|ies)|rehab|recovery trajectory|rom plateau)\b/i.test(lower)) {
+      return { primary: 'detect_care_gaps', confidence: 0.62, alternatives: [], skillId: skillHint ?? 'detect-care-gaps' };
+    }
+    if (/\b(living care plan|care plan|edit (the )?plan|plan (update|tweak))\b/i.test(lower)) {
+      return { primary: 'draft_care_plan', confidence: 0.62, alternatives: [], skillId: skillHint ?? 'draft-care-plan' };
+    }
+    if (/\b(what should i log|log today|data entry times?|care log)\b/i.test(lower)) {
+      return { primary: 'detect_care_gaps', confidence: 0.65, alternatives: [], skillId: skillHint ?? 'detect-care-gaps' };
+    }
+    if (/\b(where is|how do i open|which tab)\b/i.test(lower)) {
+      return { primary: 'caregiver_chat_general', confidence: 0.6, alternatives: [], skillId: skillHint ?? 'caregiver-chat' };
+    }
+
     // Explain anomaly
-    if (/\b(alert|anomal|explain|what happened|why is)\b/i.test(lower)) {
+    if (/\b(alert|anomal|explain|what happened|why is|health monitor)\b/i.test(lower)) {
       return { primary: 'explain_anomaly', confidence: 0.6, alternatives: [], skillId: skillHint ?? 'explain-anomaly' };
     }
 

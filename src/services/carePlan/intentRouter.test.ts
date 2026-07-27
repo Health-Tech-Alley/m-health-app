@@ -224,6 +224,41 @@ describe('router failsafe', () => {
     expect(result.output).toBeDefined();
     expect(result.enqueuedProposalIds.length).toBe(0);
   });
+
+  it('does not enqueue therapy patches without structured contract fields', async () => {
+    const result = await runIntent({
+      snapshot: TEST_SNAPSHOT,
+      intent: 'propose_therapy_contract_patch',
+      args: { snapshot: TEST_SNAPSHOT },
+      completePrompt: async () =>
+        'Therapy is going well overall; no specific patch JSON provided.',
+    });
+    expect(result.enqueuedProposalIds.length).toBe(0);
+  });
+
+  it('does not enqueue empty monitoring review proposals', async () => {
+    const result = await runIntent({
+      snapshot: TEST_SNAPSHOT,
+      intent: 'review_monitoring_contract',
+      args: { snapshot: TEST_SNAPSHOT },
+      completePrompt: async () =>
+        'Thresholds look fine for now. No changes recommended.',
+    });
+    expect(result.enqueuedProposalIds.length).toBe(0);
+  });
+
+  it('promote_uc4 free-text still enqueues a valid priority_promote kind', async () => {
+    const before = createdProposalIds.length;
+    const result = await runIntent({
+      snapshot: TEST_SNAPSHOT,
+      intent: 'promote_uc4_to_plan_task',
+      args: { snapshot: TEST_SNAPSHOT, cardId: 'card-x' },
+      completePrompt: async () =>
+        'Add fatigue timing checks to the durable care plan for the weekend.',
+    });
+    expect(result.enqueuedProposalIds.length).toBe(1);
+    expect(createdProposalIds.length).toBe(before + 1);
+  });
 });
 
 // Reference MIN_TAG so the linter doesn't drop the import in CI strips.

@@ -34,7 +34,7 @@ import { insertAppointment, deleteDemoAppointmentsForPatient } from '../reposito
 import { ensureDefaultNotificationPreferences } from '../repositories/notificationRepository';
 import { upsertSymptom, deleteSymptomsForPatient } from '../repositories/symptomRepository';
 import { upsertWearableDevice } from '../repositories/wearableDeviceRepository';
-import { setBundlePending, setBundleStatus, getPatientRecordSnapshot } from '../repositories/patientRecordRepository';
+import { getPatientRecordSnapshot } from '../repositories/patientRecordRepository';
 import { seedAdcpV1FromSnapshot } from '../repositories/adcpRepository';
 
 function makeId(prefix: string): string {
@@ -385,27 +385,15 @@ export function seedDatabaseFromProfile(
     return patientId;
   }
 
-  // -- Mark bundle as pending so the clinical-evidence bundler can run -----
-  setBundlePending(patientId, true);
-  setBundleStatus(patientId, { state: 'in_flight', chunksAdded: 0 });
-
-  // Fire-and-forget the condition + medication bundles. The UI doesn't block
-  // on this; the retriever uses synthetic fixtures until the cache is populated,
-  // then picks up the cached chunks on the next index rebuild.
+  // Fire-and-forget. Runner owns lifecycle, progress, and 24h freshness skip.
   // (See planning/22_clinical-data-gathering.md §9a)
-  void import('@/clinical-evidence/condition-bundler').then(({ bundleConditionPack, bundleMedicationPack, bundleSdohPack }) => {
-    void bundleConditionPack(patientId).catch((err) => {
-      console.error('[seedFromProfile] condition bundle failed:', err);
+  void import('@/clinical-evidence/knowledge-bundle-runner')
+    .then(({ runKnowledgeBundle }) =>
+      runKnowledgeBundle(patientId, { location: profile.patient.location }),
+    )
+    .catch((err) => {
+      console.error('[seedFromProfile] knowledge bundle failed:', err);
     });
-    void bundleMedicationPack(patientId).catch((err) => {
-      console.error('[seedFromProfile] medication bundle failed:', err);
-    });
-    void bundleSdohPack(patientId, profile.patient.location).catch((err) => {
-      console.error('[seedFromProfile] SDOH bundle failed:', err);
-    });
-  }).catch((err) => {
-    console.error('[seedFromProfile] Failed to load condition-bundler:', err);
-  });
 
   return patientId;
 }

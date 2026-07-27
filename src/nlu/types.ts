@@ -31,7 +31,9 @@ export type LinkedEntityType =
   | 'symptom'
   | 'vital'
   | 'knowledge_keyword'
-  | 'tool';
+  | 'tool'
+  /** Named app surfaces / cards / tabs (priorities list, watch areas, etc.). */
+  | 'app_surface';
 
 export type LinkedEntity = {
   type: LinkedEntityType;
@@ -89,6 +91,8 @@ export type PatientNluContext = {
     edacs?: string;
   };
   vitalTypes: string[];
+  /** Named UI surfaces caregivers may refer to by card/tab name. */
+  appSurfaces?: string[];
   activePersona?: string;
 };
 

@@ -95,6 +95,14 @@ export function OrchestratorProvider({ children }: { children: ReactNode }) {
         alertMlReleaseRef.current = real;
         setAlertMlModel(real);
         console.log('[OrchestratorProvider] AlertAutoencoder (TFLite) loaded');
+        // Preload leaf-ir *after* the tiny AE so we do not stack two large
+        // createModel calls; CPU path only (see embedder leafIrDelegateAttempts).
+        setTimeout(() => {
+          if (cancelled) return;
+          void import('@/knowledge/embedder')
+            .then(({ preloadTfliteEmbedder }) => preloadTfliteEmbedder())
+            .catch(() => {});
+        }, 1500);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -103,6 +111,12 @@ export function OrchestratorProvider({ children }: { children: ReactNode }) {
           err instanceof Error ? err.message : err,
         );
         setAlertMlModel(new MockAlertAutoencoder());
+        setTimeout(() => {
+          if (cancelled) return;
+          void import('@/knowledge/embedder')
+            .then(({ preloadTfliteEmbedder }) => preloadTfliteEmbedder())
+            .catch(() => {});
+        }, 1500);
       });
     return () => {
       cancelled = true;

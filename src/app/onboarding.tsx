@@ -727,34 +727,31 @@ export default function OnboardingScreen() {
     const nextImportedFields: ImportedEhrFieldLocks = {};
     const conditionsText = importedEhrSummary.conditions.join(", ");
     const medicationsText = importedEhrSummary.medications.join(", ");
+    const nextFullName = importedEhrSummary.fullName;
+    const nextAge = importedEhrSummary.age;
+    const nextSpo2Cutoff = importedEhrSummary.spo2Cutoff;
+    const nextBaselineHeartRate = importedEhrSummary.baselineHeartRate;
 
-    if (importedEhrSummary.fullName) {
-      setPatientFullName(importedEhrSummary.fullName);
-      nextImportedFields.fullName = true;
-    }
-    if (importedEhrSummary.age) {
-      setPatientAge(importedEhrSummary.age);
-      nextImportedFields.age = true;
-    }
-    if (conditionsText) {
-      setPatientConditions(conditionsText);
-      nextImportedFields.conditions = true;
-    }
-    if (medicationsText) {
-      setPatientCurrentMedications(medicationsText);
-      nextImportedFields.medications = true;
-    }
-    if (importedEhrSummary.spo2Cutoff) {
-      setSpo2Cutoff(importedEhrSummary.spo2Cutoff);
-      nextImportedFields.spo2Cutoff = true;
-    }
-    if (importedEhrSummary.baselineHeartRate) {
-      setBaselineHeartRate(importedEhrSummary.baselineHeartRate);
-      nextImportedFields.baselineHeartRate = true;
-    }
+    if (nextFullName) nextImportedFields.fullName = true;
+    if (nextAge) nextImportedFields.age = true;
+    if (conditionsText) nextImportedFields.conditions = true;
+    if (medicationsText) nextImportedFields.medications = true;
+    if (nextSpo2Cutoff) nextImportedFields.spo2Cutoff = true;
+    if (nextBaselineHeartRate) nextImportedFields.baselineHeartRate = true;
 
-    setImportedEhrFields(nextImportedFields);
-    setAppliedImportedEhrRequestKey(requestKey);
+    // Defer setState out of the effect body (react-hooks/set-state-in-effect).
+    const timer = setTimeout(() => {
+      if (nextFullName) setPatientFullName(nextFullName);
+      if (nextAge) setPatientAge(nextAge);
+      if (conditionsText) setPatientConditions(conditionsText);
+      if (medicationsText) setPatientCurrentMedications(medicationsText);
+      if (nextSpo2Cutoff) setSpo2Cutoff(nextSpo2Cutoff);
+      if (nextBaselineHeartRate) setBaselineHeartRate(nextBaselineHeartRate);
+      setImportedEhrFields(nextImportedFields);
+      setAppliedImportedEhrRequestKey(requestKey);
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, [
     appliedImportedEhrRequestKey,
     ehrImportRequest,

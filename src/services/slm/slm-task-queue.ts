@@ -115,12 +115,21 @@ export class SlmTaskQueue {
     // A load is already in progress — await it rather than starting a second.
     if (status === 'loading') {
       const existing = this.config.getLoadPromise();
-      if (!existing) {
-        throw new SlmNotReadyError(reason);
+      if (existing) {
+        try {
+          await existing;
+        } catch {
+          // Prior load failed; fall through to a fresh auto-load attempt.
+        }
       }
-      await existing;
-      this.refcount++;
-      return this.makeLease(reason);
+      // Only grant if the shared load actually left the model ready.
+      // (Previously we always granted after await, which produced a lease with
+      // no native model — sheets then reported "could not load a model".)
+      if (this.config.getLoadStatus() === 'ready') {
+        this.refcount++;
+        return this.makeLease(reason);
+      }
+      // Fall through to idle/error auto-load path below.
     }
 
     // status is 'idle' or 'error' — check if we may auto-load.

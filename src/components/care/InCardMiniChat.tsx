@@ -38,6 +38,7 @@ import {
   setCachedExplainAnswer,
 } from '@/services/slm/explainAnswerCache';
 import { prepareSlmTurn } from '@/services/slm/prepareSlmTurn';
+import { buildUc3TherapySystemContext } from '@/services/carePlan/uc3TherapyChatContext';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 
 type ChatRole = 'user' | 'assistant';
@@ -50,6 +51,9 @@ type ChatMessage = {
   /** Seed prompt is sent to the model but not shown to the caregiver. */
   hidden?: boolean;
 };
+
+/** Domain grounding injected every turn (system + plan RAG). */
+export type InCardMiniChatContextProfile = 'default' | 'uc3_therapy';
 
 export type InCardMiniChatProps = {
   visible: boolean;
@@ -66,6 +70,11 @@ export type InCardMiniChatProps = {
   cacheTitle?: string;
   /** Embedded inside another card (no outer border/title chrome). */
   embedded?: boolean;
+  /**
+   * When `uc3_therapy`, every turn gets a compact therapy + medications
+   * system block (no NLU / tool dump / plan-RAG — keeps n_ctx headroom).
+   */
+  contextProfile?: InCardMiniChatContextProfile;
 };
 
 function makeId(prefix: string): string {
@@ -80,6 +89,7 @@ export function InCardMiniChat({
   enableObservationHitl = true,
   cacheTitle,
   embedded = false,
+  contextProfile = 'default',
 }: InCardMiniChatProps) {
   const slm = useSLM();
   const {
@@ -242,12 +252,20 @@ export function InCardMiniChat({
 
       const allowDevNlu =
         __DEV__ && isDeveloper && settings.nluDevelopmentFallback === true;
+      const useUc3Therapy = contextProfile === 'uc3_therapy';
+      // UC3: snapshot already has exercises/meds — skip NLU (avoids TFLite
+      // failures blocking the turn) and drop tools/plan-RAG to protect n_ctx.
       const prepared = await prepareSlmTurn({
         userText: trimmed,
         snapshot,
-        retriever,
+        retriever: useUc3Therapy ? null : retriever,
         forceDeep: true,
         allowDevelopmentNluFallback: allowDevNlu,
+        skipNlu: useUc3Therapy,
+        toolsOverride: useUc3Therapy ? [] : undefined,
+        extraSystemContext: useUc3Therapy
+          ? buildUc3TherapySystemContext(snapshot)
+          : undefined,
         logTag: 'InCardMiniChat',
       });
       if (cancelRef.current) {
@@ -255,12 +273,14 @@ export function InCardMiniChat({
         return;
       }
 
-      // Multi-turn: keep prior answer-only turns; refresh system each seed/turn.
+      // Multi-turn: store clean user text in history (not citation-bloated
+      // prepared.userContent) so follow-ups stay inside n_ctx.
       const priorTurns = historyRef.current.filter((m) => m.role !== 'system');
+      const userForModel = useUc3Therapy ? trimmed : prepared.userContent;
       historyRef.current = [
         { role: 'system', content: prepared.systemContext },
         ...priorTurns,
-        { role: 'user', content: prepared.userContent },
+        { role: 'user', content: userForModel },
       ];
 
       const controller = new AbortController();
@@ -325,6 +345,7 @@ export function InCardMiniChat({
       }
     },
     [
+      contextProfile,
       currentModelId,
       effectiveCacheTitle,
       enableObservationHitl,

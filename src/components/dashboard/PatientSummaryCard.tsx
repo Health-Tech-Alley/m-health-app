@@ -145,9 +145,33 @@ export function PatientSummaryCard() {
       {snapshot.bundleStatus.state === 'in_flight' ? (
         <View style={styles.bundlePendingPill}>
           <Text style={styles.bundlePendingText}>Updating clinical knowledge</Text>
-          {cacheSummary ? (
-            <Text style={styles.bundlePendingDetail}>{cacheSummary}</Text>
+          {snapshot.bundleStatus.phase ? (
+            <Text style={styles.bundlePendingDetail} numberOfLines={2}>
+              {snapshot.bundleStatus.phase}
+            </Text>
           ) : null}
+          <View style={styles.bundleProgressTrack}>
+            <View
+              style={[
+                styles.bundleProgressFill,
+                {
+                  width: `${Math.round(
+                    Math.min(1, Math.max(0, snapshot.bundleStatus.progress ?? 0.05)) * 100,
+                  )}%`,
+                },
+              ]}
+            />
+          </View>
+          <Text style={styles.bundlePendingDetail}>
+            {typeof snapshot.bundleStatus.completedSteps === 'number' &&
+            typeof snapshot.bundleStatus.totalSteps === 'number' &&
+            snapshot.bundleStatus.totalSteps > 0
+              ? `${snapshot.bundleStatus.completedSteps} of ${snapshot.bundleStatus.totalSteps} steps`
+              : cacheSummary ?? 'Downloading references…'}
+            {snapshot.bundleStatus.chunksAdded > 0
+              ? ` · ${snapshot.bundleStatus.chunksAdded} cached`
+              : ''}
+          </Text>
         </View>
       ) : snapshot.bundleStatus.state === 'failed' ? (
         <View style={styles.bundleFailedPill}>
@@ -532,10 +556,10 @@ const styles = StyleSheet.create({
   },
   bundlePendingPill: {
     backgroundColor: AppTheme.colors.warningSoft,
-    borderRadius: AppTheme.radius.pill,
+    borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    alignSelf: 'flex-start',
+    paddingVertical: 10,
+    alignSelf: 'stretch',
   },
   bundlePendingText: {
     color: AppTheme.colors.warning,
@@ -547,6 +571,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     marginTop: 4,
+  },
+  bundleProgressTrack: {
+    marginTop: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: AppTheme.colors.softSurface,
+    overflow: 'hidden',
+  },
+  bundleProgressFill: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: AppTheme.colors.warning,
   },
   bundleFailedPill: {
     backgroundColor: AppTheme.colors.dangerLight,

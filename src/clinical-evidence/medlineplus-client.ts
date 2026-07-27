@@ -11,7 +11,7 @@
 import type { KnowledgeChunk } from '@/data/types';
 
 const MLP_BASE = 'https://connect.medlineplus.gov/service';
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 8_000;
 
 const ICD10_OID = '2.16.840.1.113883.6.90';
 const SNOMED_OID = '2.16.840.1.113883.6.96';

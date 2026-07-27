@@ -116,6 +116,9 @@ export function SlmInsightSheet({
   const titleRef = useRef(title);
   const promptRef = useRef(prompt);
   const closingRef = useRef(false);
+  /** Tokens delivered via onToken during this run (may be wiped if final parse is empty). */
+  const streamAccRef = useRef('');
+  const reasoningAccRef = useRef('');
 
   const [backdropOpacity] = useState(() => new Animated.Value(0));
   const [sheetTranslateY] = useState(() => new Animated.Value(FULL_SHEET_APPROX));
@@ -134,30 +137,105 @@ export function SlmInsightSheet({
     promptRef.current = prompt;
   }, [title, prompt]);
 
-  const ensureModelAndLease = useCallback(async (): Promise<SlmTaskLease | null> => {
+  const waitForProviderReady = useCallback(
+    async (attempts = 20, delayMs = 100): Promise<boolean> => {
+      for (let i = 0; i < attempts; i++) {
+        if (cancelRef.current) return false;
+        if (provider.getModelInfo()) return true;
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+      return Boolean(provider.getModelInfo());
+    },
+    [provider],
+  );
+
+  const ensureModelAndLease = useCallback(async (): Promise<{
+    lease: SlmTaskLease | null;
+    errorDetail?: string;
+  }> => {
     loadedBySheetRef.current = false;
-    try {
-      return await acquireSlm(reason);
-    } catch {
-      /* fall through */
+
+    // Fast path: already native-ready — acquire a tracked lease if possible.
+    if (provider.getModelInfo()) {
+      try {
+        return { lease: await acquireSlm(reason) };
+      } catch {
+        // Manual policy without force-auto still allows chat if provider is hot.
+        return { lease: null };
+      }
     }
+
+    // Single-flight acquire (joins in-flight loads; auto-loads in dynamic mode).
+    try {
+      const lease = await acquireSlm(reason);
+      if (await waitForProviderReady()) return { lease };
+      // Lease without native model — release and try an explicit load.
+      lease.release();
+    } catch (err) {
+      console.warn('[SlmInsightSheet] acquireSlm:', err);
+    }
+
     const installed = MODEL_CATALOG.filter(isModelInstalled);
-    if (installed.length === 0) return null;
+    if (installed.length === 0) {
+      return {
+        lease: null,
+        errorDetail: 'No Concierge model is installed. Open Models to download one.',
+      };
+    }
     const preferred = installed.find((m) => m.id === defaultModelId) ?? installed[0];
+
+    // Only unload when status looks stuck (error/ready-but-empty). Never unload
+    // on a cold idle start — that races and makes the first open fail.
+    const status = slm.loadStatus;
+    if (
+      !provider.getModelInfo() &&
+      (status === 'error' || status === 'ready')
+    ) {
+      try {
+        await slmUnloadModel();
+      } catch {
+        /* ignore */
+      }
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    if (cancelRef.current) return { lease: null };
+
     try {
       await slmLoadModel(preferred.id);
-    } catch {
-      return null;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn('[SlmInsightSheet] loadModel failed:', message);
+      return { lease: null, errorDetail: message };
     }
     loadedBySheetRef.current = true;
-    await new Promise((r) => setTimeout(r, 0));
-    if (cancelRef.current) return null;
-    try {
-      return await acquireSlm(reason);
-    } catch {
-      return null;
+
+    if (!(await waitForProviderReady())) {
+      return {
+        lease: null,
+        errorDetail:
+          slm.loadError ??
+          'Model load finished but the native runtime is not ready yet. Tap Retry.',
+      };
     }
-  }, [acquireSlm, reason, defaultModelId, slmLoadModel]);
+
+    try {
+      return { lease: await acquireSlm(reason) };
+    } catch {
+      // Provider is ready; proceed without a queue lease.
+      return { lease: null };
+    }
+  }, [
+    acquireSlm,
+    reason,
+    defaultModelId,
+    slmLoadModel,
+    slmUnloadModel,
+    provider,
+    waitForProviderReady,
+    slm.loadStatus,
+    slm.loadError,
+  ]);
 
   const runExplain = useCallback(async () => {
     const activeTitle = titleRef.current;
@@ -198,14 +276,33 @@ export function SlmInsightSheet({
     setSource(null);
     setActiveModelId(currentModelId);
     cancelRef.current = false;
+    streamAccRef.current = '';
+    reasoningAccRef.current = '';
 
-    const lease = await ensureModelAndLease();
+    const ensured = await ensureModelAndLease();
     if (cancelRef.current) {
-      lease?.release();
+      ensured.lease?.release();
       return;
     }
-    leaseRef.current = lease;
-    setActiveModelId(currentModelId);
+    leaseRef.current = ensured.lease;
+    setActiveModelId(currentModelId ?? defaultModelId);
+
+    if (!provider.getModelInfo()) {
+      ensured.lease?.release();
+      leaseRef.current = null;
+      const installed = MODEL_CATALOG.filter(isModelInstalled);
+      const detail =
+        ensured.errorDetail || slm.loadError
+          ? ` ${ensured.errorDetail ?? slm.loadError}`
+          : '';
+      setError(
+        installed.length === 0
+          ? 'Concierge is unavailable — no model is installed. Open Models to download one, then retry.'
+          : `Concierge could not load a model.${detail} Free memory, then tap Retry Concierge load.`,
+      );
+      setPhase('error');
+      return;
+    }
 
     const allowDevNlu =
       __DEV__ && isDeveloper && settings.nluDevelopmentFallback === true;
@@ -220,74 +317,114 @@ export function SlmInsightSheet({
     });
     if (cancelRef.current) return;
 
-    if (provider.getModelInfo()) {
-      setSource('native');
-      setPhase('thinking');
-      const controller = new AbortController();
-      abortRef.current = controller;
-      let firstTokenSeen = false;
-      try {
-        const result = await provider.chat(
-          [
-            { role: 'system', content: prepared.systemContext },
-            { role: 'user', content: prepared.userContent },
-          ],
-          (token) => {
-            if (!firstTokenSeen) {
-              firstTokenSeen = true;
-              setPhase('streaming');
-            }
-            setAnswer((prev) => prev + token);
-          },
-          controller.signal,
-          prepared.generation,
-        );
-        if (cancelRef.current) return;
-        const cleaned = stripControlTokens(result.text).answer;
-        const collapsed = formatAnswerWithCollapsedSources(
-          cleaned,
-          prepared.citationChunks,
-        );
-        setAnswer(collapsed.displayText);
-        setFinalText(collapsed.displayText);
-        setSourceLabels(collapsed.sourceLabels);
-        setPhase('done');
-        setCachedExplainAnswer({
-          fingerprint,
-          title: activeTitle,
-          answer: collapsed.displayText,
-          sourceLabels: collapsed.sourceLabels,
-          patientId: patientId ?? undefined,
-        });
-      } catch (err) {
-        if (cancelRef.current || controller.signal.aborted) {
-          setPhase('done');
-          return;
-        }
-        setError(err instanceof Error ? err.message : String(err));
-        setPhase('error');
-      } finally {
-        abortRef.current = null;
-      }
-      return;
-    }
+    // One-off sheets need a visible caregiver answer. DEEP+auto reasoning can
+    // finish with empty `content` (all tokens in the thinking channel) which
+    // previously wiped the UI to "No response." Prefer no-thinking generation.
+    const generation = {
+      ...prepared.generation,
+      reasoningFormat: 'none' as const,
+    };
 
-    const installed = MODEL_CATALOG.filter(isModelInstalled);
-    setError(
-      installed.length === 0
-        ? 'Concierge is unavailable — no model is installed. Open Models to download one, then retry.'
-        : 'Concierge could not load a model. Open Models, load Concierge, then retry.',
-    );
-    setPhase('error');
+    setSource('native');
+    setPhase('thinking');
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let firstTokenSeen = false;
+    try {
+      const result = await provider.chat(
+        [
+          { role: 'system', content: prepared.systemContext },
+          { role: 'user', content: prepared.userContent },
+        ],
+        (token) => {
+          if (!firstTokenSeen) {
+            firstTokenSeen = true;
+            setPhase('streaming');
+          }
+          streamAccRef.current += token;
+          setAnswer(streamAccRef.current);
+        },
+        controller.signal,
+        generation,
+        (reasoningToken) => {
+          reasoningAccRef.current += reasoningToken;
+        },
+      );
+      if (cancelRef.current) return;
+
+      // Prefer provider final text; never overwrite a good stream with empty parse.
+      const fromResult = stripControlTokens(result.text ?? '').answer.trim();
+      const fromStream = stripControlTokens(streamAccRef.current).answer.trim();
+      const fromStreamRaw = streamAccRef.current.trim();
+      const fromReasoning = stripControlTokens(reasoningAccRef.current).answer.trim();
+      const resolved =
+        fromResult ||
+        fromStream ||
+        fromStreamRaw ||
+        // Last resort: if the model only emitted a thinking channel, surface a
+        // short note rather than a blank sheet (Regenerate still available).
+        (fromReasoning
+          ? 'Concierge finished internal reasoning but did not return a caregiver answer. Tap Regenerate to try again.'
+          : '');
+
+      if (!resolved) {
+        setError(
+          'Concierge finished without producing text. Tap Retry Concierge load or Regenerate.',
+        );
+        setPhase('error');
+        return;
+      }
+
+      const collapsed = formatAnswerWithCollapsedSources(
+        resolved,
+        prepared.citationChunks,
+      );
+      const display =
+        collapsed.displayText.trim() ||
+        resolved;
+      setAnswer(display);
+      setFinalText(display);
+      setSourceLabels(collapsed.sourceLabels);
+      setPhase('done');
+      setCachedExplainAnswer({
+        fingerprint,
+        title: activeTitle,
+        answer: display,
+        sourceLabels: collapsed.sourceLabels,
+        patientId: patientId ?? undefined,
+      });
+    } catch (err) {
+      if (cancelRef.current || controller.signal.aborted) {
+        // Keep any partial stream visible instead of a blank "done".
+        const partial = streamAccRef.current.trim();
+        if (partial) {
+          setAnswer(partial);
+          setFinalText(partial);
+          setPhase('done');
+        }
+        return;
+      }
+      setError(err instanceof Error ? err.message : String(err));
+      setPhase('error');
+    } finally {
+      abortRef.current = null;
+      // One-off explain: drop lease as soon as generation finishes so auto/
+      // dynamic policy can unload Concierge without waiting for sheet close.
+      leaseRef.current?.release();
+      leaseRef.current = null;
+      loadedBySheetRef.current = false;
+    }
   }, [
     ensureModelAndLease,
     provider,
     snapshot,
     patientId,
     currentModelId,
+    defaultModelId,
     retriever,
     isDeveloper,
     settings.nluDevelopmentFallback,
+    slm.loadError,
   ]);
 
   const handleRegenerate = useCallback(() => {
@@ -296,6 +433,31 @@ export function SlmInsightSheet({
     cancelRef.current = false;
     void runExplain();
   }, [phase, runExplain]);
+
+  const handleRetryLoad = useCallback(async () => {
+    if (phase === 'loading' || phase === 'thinking' || phase === 'streaming') return;
+    setPhase('loading');
+    setError(null);
+    cancelRef.current = false;
+    try {
+      leaseRef.current?.release();
+      leaseRef.current = null;
+      // Only hard-reset native state on explicit retry (not on first open).
+      try {
+        await slmUnloadModel();
+      } catch {
+        /* ignore */
+      }
+      await new Promise((r) => setTimeout(r, 500));
+      if (cancelRef.current) return;
+      skipCacheRef.current = true;
+      ranRef.current = true;
+      await runExplain();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setPhase('error');
+    }
+  }, [phase, runExplain, slmUnloadModel]);
 
   const releaseResources = useCallback(() => {
     cancelRef.current = true;
@@ -684,9 +846,21 @@ export function SlmInsightSheet({
           <Text style={styles.answerLabel}>Concierge response</Text>
 
           {phase === 'error' ? (
-            <Text style={styles.errorText}>
-              Couldn&apos;t generate an explanation: {error}
-            </Text>
+            <View>
+              <Text style={styles.errorText}>
+                Couldn&apos;t generate an explanation: {error}
+              </Text>
+              <Pressable
+                style={styles.retryButton}
+                onPress={() => {
+                  void handleRetryLoad();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Retry loading Concierge"
+              >
+                <Text style={styles.retryButtonText}>Retry Concierge load</Text>
+              </Pressable>
+            </View>
           ) : null}
 
           {(phase === 'loading' || phase === 'thinking') && source !== 'cache' ? (
@@ -1020,6 +1194,19 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 6,
     fontWeight: '600',
+  },
+  retryButton: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
   },
   regenerateButton: {
     marginTop: 16,
