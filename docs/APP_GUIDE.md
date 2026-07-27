@@ -4,8 +4,6 @@ This document describes the current state of the mobile app: how it is built,
 how each screen works, and the platform-specific (iOS/Android) considerations.
 It is a living document — update it as the UI evolves.
 
-> For the project mission, architecture summary, and contributor conventions,
-> see the root [`AGENTS.md`](../AGENTS.md).
 > For a short shipped-vs-deferred snapshot, see [`CURRENT_STATE.md`](./CURRENT_STATE.md).
 > For how Markdown is rendered and how Concierge is prompted to return
 > Markdown, see [`MARKDOWN_GUIDE.md`](./MARKDOWN_GUIDE.md).
@@ -653,7 +651,7 @@ render Markdown in the app.
 
 ---
 
-## 7. Pre-SLM NLU (planning/35)
+## 7. Pre-SLM NLU
 
 The **Pre-SLM NLU** pipeline runs *before* the Concierge SLM on every chat
 and explain turn. It classifies caregiver intent, links entities, and
@@ -681,8 +679,8 @@ prompt → EntityLinker → leaf-ir embed (TFLite) → IntentHead (JS)
 | `src/knowledge/embedder.ts` | TfliteEmbedder (mdbr-leaf-ir, 768-d) + HashMockEmbedder (Track A) |
 | `assets/models/nlu/mdbr-leaf-ir-int8.tflite` | Primary embedder model (~59 MB, weight-only INT8) |
 | `assets/models/nlu/intent-head.json` | Trained intent classifier coefficients |
-| `training/nlu/` | Offline Python training + eval scripts |
-| `planning/nlu-training/` | Authoritative training corpus (utterances-800.json, retrieval-qrels.json, use-cases-and-conditions.md) |
+| `assets/models/nlu/care-intent-head.json` | Care soft-NLU second head |
+| `training/nlu/` | Offline Python training + eval scripts (expects local utterance / qrel corpora) |
 
 ### Intent labels (14)
 
@@ -703,12 +701,16 @@ prompt → EntityLinker → leaf-ir embed (TFLite) → IntentHead (JS)
 ### Training
 
 ```bash
-# Prefer project venv (sentence-transformers + sklearn)
-planning/python-testing/.venv/bin/python training/nlu/train_intent_head.py
-planning/python-testing/.venv/bin/python training/nlu/eval_intent.py
-planning/python-testing/.venv/bin/python training/nlu/eval_retrieval.py
-planning/python-testing/.venv/bin/python training/nlu/build_entity_lexicon.py
+# venv with sentence-transformers + scikit-learn
+python training/nlu/train_intent_head.py
+python training/nlu/eval_intent.py
+python training/nlu/eval_retrieval.py
+python training/nlu/build_entity_lexicon.py
+python training/nlu/train_care_intent_head.py
+python training/nlu/eval_care_intent.py
 ```
+
+See `training/nlu/README.md` and `assets/models/nlu/README.md` for corpus paths and quality gates.
 
 ### Latest offline metrics (2026-07-13)
 

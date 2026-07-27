@@ -364,8 +364,6 @@ backed by `src/services/performance/performanceService.ts`.
 
 ## Documentation
 
-- [`AGENTS.md`](./AGENTS.md) — Contributor / agent guide: architecture, state
-  management authority, git workflow, lint rules.
 - [`docs/CURRENT_STATE.md`](./docs/CURRENT_STATE.md) — Short shipped-vs-deferred snapshot.
 - [`docs/APP_GUIDE.md`](./docs/APP_GUIDE.md) — Screen-by-screen living guide.
 - [`docs/MARKDOWN_GUIDE.md`](./docs/MARKDOWN_GUIDE.md) — Markdown renderer + Concierge output.
@@ -444,9 +442,8 @@ m-health-app/
 │   ├── locator/                 # Geofence scaffold (deferred)
 │   └── utils/
 ├── assets/models/nlu/           # leaf-ir TFLite + intent-head JSON
-├── docs/                        # APP_GUIDE.md, MARKDOWN_GUIDE.md, handoffs/, integration/
-├── planning/                    # Architecture + feature tracker
-├── AGENTS.md
+├── training/nlu/                # Offline NLU train / eval scripts
+├── docs/                        # CURRENT_STATE, APP_GUIDE, MARKDOWN_GUIDE, …
 └── package.json
 ```
 

@@ -1,7 +1,7 @@
 # Current project state (snapshot)
 
 > **Date edited:** 2026-07-27  
-> Living summary of what is shipped in the codebase. Prefer this + `APP_GUIDE.md` + root `AGENTS.md` over older planning drafts when they disagree.
+> Living summary of what is shipped in the codebase. Prefer this + `APP_GUIDE.md` + root `README.md` when docs disagree.
 
 ## Product surface
 
@@ -23,7 +23,7 @@
 - Expo SDK ~56.0.12, React Native 0.85.3, expo-router
 - Concierge: `llama.rn` / **Gemma-4-E2B-it Q4_K_M** only (`src/inference/model-catalog.ts`)
 - NLU: TFLite `mdbr-leaf-ir` + chat/care intent heads (`src/nlu/`, `assets/models/nlu/`)
-- Redux Toolkit + React Context hybrid (see AGENTS.md State Management Authority)
+- Redux Toolkit + React Context hybrid (SQLite repos → `PatientRecordSnapshot` → UI; Redux for workflow slices)
 - SQLite: **34** repositories under `src/data/repositories/`
 - Sensors: Apple Health bridge (iOS) + mock; Health Connect still scaffold
 - Locator / pharmacy geofence: scaffold only (`src/locator/`)
@@ -42,12 +42,10 @@
 | Doc | Role |
 |-----|------|
 | [`../README.md`](../README.md) | Pitch + getting started + architecture snapshot |
-| [`../AGENTS.md`](../AGENTS.md) | Agent/contributor authority (architecture, state rules, git) |
 | [`APP_GUIDE.md`](./APP_GUIDE.md) | Screen-by-screen living guide |
 | [`MARKDOWN_GUIDE.md`](./MARKDOWN_GUIDE.md) | Markdown renderer + Concierge output |
 | [`handoffs/`](./handoffs/) | Point-in-time handoff notes (may be stale) |
 | [`integration/`](./integration/) | Point-in-time integration reviews (may be stale) |
-| [`../planning/`](../planning/) | Plans + progress log — check date stamps |
 
 ## Still deferred / partial
 

@@ -10,7 +10,7 @@ vector index** (`dense-index.ts`) using a deterministic hash embedder
 and the **fused retriever** (`fused-retriever.ts`) that collapses tool-RAG +
 knowledge-RAG into a single hop. Knowledge sources: **PubMed E-utilities** (NLM
 literature) + **MedlinePlus Connect** (NLM health topics) + RxNorm + DailyMed +
-OpenFDA + (per `planning/26`) ClinicalTrials.gov + Orphanet + UMLS + CDC PLACES.
+OpenFDA + ClinicalTrials.gov + Orphanet + UMLS + CDC PLACES.
 
 **Corpus focus:** the three use-case conditions — **Spina Bifida** (autonomic
 dysreflexia), **post-stroke** (ROM recovery milestones), **COPD + TBI**

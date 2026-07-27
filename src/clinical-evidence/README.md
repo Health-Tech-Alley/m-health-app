@@ -5,8 +5,8 @@
 **What lives here:** the **PubMed E-utilities** client (NLM literature + abstracts), **MedlinePlus Connect** (NLM
 health topics + drug info), **RxNorm** (NLM drug normalization + interactions), **DailyMed** (NLM full drug
 labels), and **OpenFDA** (adverse events + drug recalls) — all using the public NLM/NIH/FDA APIs. Plus four
-new clients (ClinicalTrials.gov, UMLS Metathesaurus, Orphanet, CDC PLACES) added per
-`planning/26_clinical-data-sources-research.md`. Every client follows a **default-deny** pattern: requests are
+additional clients (ClinicalTrials.gov, UMLS Metathesaurus, Orphanet, CDC PLACES). Every client follows a
+**default-deny** pattern: requests are
 logged to the audit trail and no PHI leaves the device without an active consent token (via the L2 consent
 gate). All queries are de-identified via `deidentifyQuery()` before they hit the network.
 
