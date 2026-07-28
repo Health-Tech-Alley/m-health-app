@@ -1,0 +1,44 @@
+ACCESS-DP clinician trajectory review note
+
+Use case:
+ACCESS-DP · USE CASE #3: LONG-TERM TRAJECTORY FAILURE
+
+Patient:
+James Okafor, 67 years old.
+Post-stroke rehabilitation, monitored offline at home with caregiver assistance.
+
+Event:
+NO_TRAJECTORY_FAILURE
+
+Summary:
+The patient demonstrates high recent adherence to the home rehabilitation plan, but range-of-motion
+progress is below the personalized expected trajectory.
+
+Trajectory findings:
+- ROM gap vs week-3 milestone: 19.2%
+- Plateau duration: 0 days
+- Recent adherence average: 89.8%
+- Recent pain average: 3.03
+- Alert probability: 0.285
+
+Emergency status:
+No emergency threshold breach was detected by the app.
+
+EHR-derived rehab context used for personalization:
+- neurologic motor recovery context
+- tone/spasticity management context
+- ROM limitation or contracture context
+- musculoskeletal structural limitation context
+- assistive device or mobility equipment context
+- pain-relevant rehabilitation context
+
+Plan metadata:
+- Plan ID: ACCESS-DP-REHAB-PLAN-DEMO-001
+- Condition group: post_stroke_rehabilitation
+- Complexity score: 10 / 10
+- Monitoring anchor: latest available EHR visit
+- Relative day axis: ehr_relative_day = latest_ehr_relative_day + home_rehab_day
+
+Requested review:
+Please evaluate whether the home rehabilitation plan should be modified, whether additional assessment
+is needed, or whether caregiver coaching is appropriate.

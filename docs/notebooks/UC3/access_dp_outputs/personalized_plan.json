@@ -1,0 +1,237 @@
+{
+  "plan_id": "ACCESS-DP-REHAB-PLAN-DEMO-001",
+  "scenario": "ACCESS-DP · USE CASE #3: LONG-TERM TRAJECTORY FAILURE",
+  "patient": {
+    "name": "James Okafor",
+    "age": "67 years old",
+    "condition": "Post-stroke rehabilitation, monitored entirely offline at home",
+    "caregiver": "Diane, wife, non-clinical",
+    "location": "Rural Maryland, intermittent connectivity"
+  },
+  "condition_group": "post_stroke_rehabilitation",
+  "duration_days": 21,
+  "complexity_score": 10,
+  "complexity_breakdown": {
+    "score": 10,
+    "raw_score": 12,
+    "factors": [
+      {
+        "factor": "Neurologic motor recovery context",
+        "points": 2
+      },
+      {
+        "factor": "Tone/spasticity management context",
+        "points": 2
+      },
+      {
+        "factor": "Contracture or ROM limitation",
+        "points": 2
+      },
+      {
+        "factor": "Musculoskeletal structural limitation",
+        "points": 2
+      },
+      {
+        "factor": "Assistive device or mobility equipment",
+        "points": 1
+      },
+      {
+        "factor": "Pain-relevant rehab context",
+        "points": 1
+      },
+      {
+        "factor": "Vascular risk history",
+        "points": 1
+      },
+      {
+        "factor": "Deconditioning or hospitalization context",
+        "points": 1
+      }
+    ]
+  },
+  "metric_relevance": {
+    "rom_degrees": 1.0,
+    "exercise_reps": 0.8,
+    "adherence": 0.8,
+    "pain_score": 0.87,
+    "fatigue_score": 0.65,
+    "walking_minutes": 0.5
+  },
+  "baseline_values": {
+    "rom_degrees": 42,
+    "exercise_reps": 8,
+    "adherence": 0.86,
+    "pain_score": 3.2,
+    "fatigue_score": 4.0,
+    "walking_minutes": 5
+  },
+  "target_values": {
+    "rom_degrees": 64.5,
+    "exercise_reps": 18.5,
+    "adherence": 0.9,
+    "pain_score": 2.24,
+    "fatigue_score": 3.2,
+    "walking_minutes": 12.5
+  },
+  "milestones": {
+    "rom_degrees": [
+      42.0,
+      44.0,
+      45.87,
+      47.61,
+      49.24,
+      50.76,
+      52.18,
+      53.5,
+      54.74,
+      55.9,
+      56.97,
+      57.98,
+      58.92,
+      59.8,
+      60.61,
+      61.38,
+      62.09,
+      62.76,
+      63.38,
+      63.96,
+      64.5
+    ],
+    "exercise_reps": [
+      8.0,
+      9.07,
+      10.05,
+      10.95,
+      11.77,
+      12.52,
+      13.21,
+      13.84,
+      14.42,
+      14.95,
+      15.43,
+      15.87,
+      16.28,
+      16.65,
+      16.99,
+      17.3,
+      17.58,
+      17.84,
+      18.08,
+      18.3,
+      18.5
+    ],
+    "adherence": [
+      0.86,
+      0.86,
+      0.87,
+      0.87,
+      0.87,
+      0.88,
+      0.88,
+      0.88,
+      0.88,
+      0.89,
+      0.89,
+      0.89,
+      0.89,
+      0.89,
+      0.89,
+      0.9,
+      0.9,
+      0.9,
+      0.9,
+      0.9,
+      0.9
+    ],
+    "pain_score": [
+      3.2,
+      3.15,
+      3.1,
+      3.06,
+      3.01,
+      2.96,
+      2.91,
+      2.86,
+      2.82,
+      2.77,
+      2.72,
+      2.67,
+      2.62,
+      2.58,
+      2.53,
+      2.48,
+      2.43,
+      2.38,
+      2.34,
+      2.29,
+      2.24
+    ],
+    "fatigue_score": [
+      4.0,
+      3.96,
+      3.92,
+      3.88,
+      3.84,
+      3.8,
+      3.76,
+      3.72,
+      3.68,
+      3.64,
+      3.6,
+      3.56,
+      3.52,
+      3.48,
+      3.44,
+      3.4,
+      3.36,
+      3.32,
+      3.28,
+      3.24,
+      3.2
+    ],
+    "walking_minutes": [
+      5.0,
+      5.67,
+      6.29,
+      6.87,
+      7.41,
+      7.92,
+      8.39,
+      8.83,
+      9.25,
+      9.63,
+      9.99,
+      10.33,
+      10.64,
+      10.93,
+      11.2,
+      11.46,
+      11.7,
+      11.92,
+      12.13,
+      12.32,
+      12.5
+    ]
+  },
+  "clinician_authored_goals": [
+    "Continue daily home PT program.",
+    "Improve functional range of motion over 3 weeks.",
+    "Maintain adherence without increasing pain or fatigue.",
+    "Escalate non-emergently if progress plateaus despite adherence."
+  ],
+  "safety_boundaries": {
+    "emergency_thresholds": [
+      "new severe neurologic symptoms",
+      "chest pain",
+      "shortness of breath",
+      "fall with injury",
+      "sudden severe pain"
+    ],
+    "non_emergency_escalation": [
+      "sustained trajectory failure",
+      "9-day plateau",
+      "ROM 35% below week-3 milestone",
+      "caregiver uncertainty despite adherence"
+    ]
+  }
+}

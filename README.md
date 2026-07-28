@@ -14,7 +14,29 @@
 
 [HTA Caregiver Conciertge Unified MLTech Readiness Level Assessment](docs/documentations/HTA-Caregiver-Conciertge-Unified-MLTech-Readiness-Level-Assessment-072026.pdf)
 
+## Developer Contributions
+
+**1. Sebastian Yanez** <br>
+
+[sebastian-yanez-technical-development-appendix](docs/documentations/sebastian-yanez-technical-development-appendix.md)
+
+**2. Ethan Christian** <br>
+
 [HTA Caregiver Concierge - ACL Challenge Readiness Guie Assessment & Performance Report](docs/documentations/HTA%20Caregiver%20Concierge%20-%20ACL%20Challenge%20Readiness%20Guie%20Assessment%20&%20Performance%20Report.pdf)
+
+**3. Jay Modi** <br>
+1. [Notebooks for Use Case 1 & 2](docs/notebooks/UC2)
+2. [Notebooks for Use Case 3](docs/notebooks/UC3)
+3. [Logs for Access DP](docs/notebooks/UC3/access_dp_outputs/)
+3. [Notebooks for Use Case 4](docs/notebooks/UC4)
+
+**4. Rahal Danthanarayana** <br>
+
+[Athena API Documentation](docs/documentations/Athena%20API%20Documentation.pdf)
+
+
+
+## Introduction
 
 A **Health Tech Alley** project, built with **Expo + React Native**.
 

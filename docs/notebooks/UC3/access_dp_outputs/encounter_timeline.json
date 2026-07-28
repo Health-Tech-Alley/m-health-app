@@ -1,0 +1,746 @@
+[
+  {
+    "visit_index":1,
+    "days_from_first_visit":0,
+    "days_since_previous_visit":null,
+    "source_file":"DOC0095_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":2,
+    "days_from_first_visit":87,
+    "days_since_previous_visit":87.0,
+    "source_file":"DOC0094_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":3,
+    "days_from_first_visit":1372,
+    "days_since_previous_visit":1285.0,
+    "source_file":"DOC0008_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":4,
+    "days_from_first_visit":1372,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0021_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":5,
+    "days_from_first_visit":2519,
+    "days_since_previous_visit":1146.0,
+    "source_file":"DOC0093_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":6,
+    "days_from_first_visit":2522,
+    "days_since_previous_visit":2.0,
+    "source_file":"DOC0091_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":7,
+    "days_from_first_visit":2522,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0090_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":8,
+    "days_from_first_visit":2527,
+    "days_since_previous_visit":5.0,
+    "source_file":"DOC0092_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":9,
+    "days_from_first_visit":2568,
+    "days_since_previous_visit":40.0,
+    "source_file":"DOC0089_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":10,
+    "days_from_first_visit":2666,
+    "days_since_previous_visit":98.0,
+    "source_file":"DOC0088_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":11,
+    "days_from_first_visit":2666,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0086_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":12,
+    "days_from_first_visit":2666,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0087_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":13,
+    "days_from_first_visit":2701,
+    "days_since_previous_visit":34.0,
+    "source_file":"DOC0084_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":14,
+    "days_from_first_visit":2705,
+    "days_since_previous_visit":4.0,
+    "source_file":"DOC0085_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":15,
+    "days_from_first_visit":2746,
+    "days_since_previous_visit":40.0,
+    "source_file":"DOC0083_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":16,
+    "days_from_first_visit":2746,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0082_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":17,
+    "days_from_first_visit":2858,
+    "days_since_previous_visit":111.0,
+    "source_file":"DOC0081_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":18,
+    "days_from_first_visit":2858,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0080_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":19,
+    "days_from_first_visit":2933,
+    "days_since_previous_visit":75.0,
+    "source_file":"DOC0079_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":20,
+    "days_from_first_visit":2950,
+    "days_since_previous_visit":17.0,
+    "source_file":"DOC0078_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":21,
+    "days_from_first_visit":3157,
+    "days_since_previous_visit":206.0,
+    "source_file":"DOC0077_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":22,
+    "days_from_first_visit":3376,
+    "days_since_previous_visit":219.0,
+    "source_file":"DOC0075_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":23,
+    "days_from_first_visit":3376,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0076_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":24,
+    "days_from_first_visit":3376,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0074_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":25,
+    "days_from_first_visit":3776,
+    "days_since_previous_visit":399.0,
+    "source_file":"DOC0073_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":26,
+    "days_from_first_visit":3923,
+    "days_since_previous_visit":147.0,
+    "source_file":"DOC0072_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":27,
+    "days_from_first_visit":3992,
+    "days_since_previous_visit":69.0,
+    "source_file":"DOC0071_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":28,
+    "days_from_first_visit":4126,
+    "days_since_previous_visit":133.0,
+    "source_file":"DOC0070_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":29,
+    "days_from_first_visit":4224,
+    "days_since_previous_visit":98.0,
+    "source_file":"DOC0069_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":30,
+    "days_from_first_visit":4244,
+    "days_since_previous_visit":19.0,
+    "source_file":"DOC0068_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":31,
+    "days_from_first_visit":4244,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0066_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":32,
+    "days_from_first_visit":4244,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0067_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":33,
+    "days_from_first_visit":4326,
+    "days_since_previous_visit":82.0,
+    "source_file":"DOC0065_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":34,
+    "days_from_first_visit":4388,
+    "days_since_previous_visit":61.0,
+    "source_file":"DOC0064_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":35,
+    "days_from_first_visit":4399,
+    "days_since_previous_visit":10.0,
+    "source_file":"DOC0062_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":36,
+    "days_from_first_visit":4437,
+    "days_since_previous_visit":37.0,
+    "source_file":"DOC0061_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":37,
+    "days_from_first_visit":4451,
+    "days_since_previous_visit":14.0,
+    "source_file":"DOC0060_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":38,
+    "days_from_first_visit":4451,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0059_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":39,
+    "days_from_first_visit":4460,
+    "days_since_previous_visit":8.0,
+    "source_file":"DOC0063_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":40,
+    "days_from_first_visit":4460,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0058_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":41,
+    "days_from_first_visit":4463,
+    "days_since_previous_visit":3.0,
+    "source_file":"DOC0057_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":42,
+    "days_from_first_visit":4497,
+    "days_since_previous_visit":33.0,
+    "source_file":"DOC0055_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":43,
+    "days_from_first_visit":4497,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0056_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":44,
+    "days_from_first_visit":4525,
+    "days_since_previous_visit":27.0,
+    "source_file":"DOC0054_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":45,
+    "days_from_first_visit":4563,
+    "days_since_previous_visit":37.0,
+    "source_file":"DOC0053_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":46,
+    "days_from_first_visit":4563,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0051_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":47,
+    "days_from_first_visit":4563,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0052_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":48,
+    "days_from_first_visit":4567,
+    "days_since_previous_visit":4.0,
+    "source_file":"DOC0049_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":49,
+    "days_from_first_visit":4640,
+    "days_since_previous_visit":73.0,
+    "source_file":"DOC0048_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":50,
+    "days_from_first_visit":4658,
+    "days_since_previous_visit":17.0,
+    "source_file":"DOC0050_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":51,
+    "days_from_first_visit":4703,
+    "days_since_previous_visit":45.0,
+    "source_file":"DOC0047_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":52,
+    "days_from_first_visit":4784,
+    "days_since_previous_visit":80.0,
+    "source_file":"DOC0046_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":53,
+    "days_from_first_visit":4784,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0045_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":54,
+    "days_from_first_visit":4881,
+    "days_since_previous_visit":97.0,
+    "source_file":"DOC0044_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":55,
+    "days_from_first_visit":4969,
+    "days_since_previous_visit":88.0,
+    "source_file":"DOC0043_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":56,
+    "days_from_first_visit":4969,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0042_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":57,
+    "days_from_first_visit":5025,
+    "days_since_previous_visit":55.0,
+    "source_file":"DOC0041_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":58,
+    "days_from_first_visit":5069,
+    "days_since_previous_visit":43.0,
+    "source_file":"DOC0040_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":59,
+    "days_from_first_visit":5103,
+    "days_since_previous_visit":34.0,
+    "source_file":"DOC0039_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":60,
+    "days_from_first_visit":5133,
+    "days_since_previous_visit":29.0,
+    "source_file":"DOC0038_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":61,
+    "days_from_first_visit":5173,
+    "days_since_previous_visit":40.0,
+    "source_file":"DOC0037_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":62,
+    "days_from_first_visit":5173,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0036_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":63,
+    "days_from_first_visit":5217,
+    "days_since_previous_visit":43.0,
+    "source_file":"DOC0034_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":64,
+    "days_from_first_visit":5250,
+    "days_since_previous_visit":33.0,
+    "source_file":"DOC0035_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":65,
+    "days_from_first_visit":5250,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0032_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":66,
+    "days_from_first_visit":5257,
+    "days_since_previous_visit":7.0,
+    "source_file":"DOC0031_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":67,
+    "days_from_first_visit":5266,
+    "days_since_previous_visit":9.0,
+    "source_file":"DOC0033_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":68,
+    "days_from_first_visit":5267,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0030_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":69,
+    "days_from_first_visit":5379,
+    "days_since_previous_visit":112.0,
+    "source_file":"DOC0029_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":70,
+    "days_from_first_visit":5446,
+    "days_since_previous_visit":67.0,
+    "source_file":"DOC0028_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":71,
+    "days_from_first_visit":5635,
+    "days_since_previous_visit":189.0,
+    "source_file":"DOC0027_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":72,
+    "days_from_first_visit":5720,
+    "days_since_previous_visit":84.0,
+    "source_file":"DOC0026_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":73,
+    "days_from_first_visit":5817,
+    "days_since_previous_visit":97.0,
+    "source_file":"DOC0025_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":74,
+    "days_from_first_visit":5823,
+    "days_since_previous_visit":5.0,
+    "source_file":"DOC0024_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":75,
+    "days_from_first_visit":5823,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0022_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":76,
+    "days_from_first_visit":5823,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0023_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":77,
+    "days_from_first_visit":5915,
+    "days_since_previous_visit":92.0,
+    "source_file":"DOC0019_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":78,
+    "days_from_first_visit":5928,
+    "days_since_previous_visit":13.0,
+    "source_file":"DOC0020_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":79,
+    "days_from_first_visit":5929,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0018_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":80,
+    "days_from_first_visit":5953,
+    "days_since_previous_visit":24.0,
+    "source_file":"DOC0017_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":81,
+    "days_from_first_visit":5994,
+    "days_since_previous_visit":41.0,
+    "source_file":"DOC0016_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":82,
+    "days_from_first_visit":5999,
+    "days_since_previous_visit":4.0,
+    "source_file":"DOC0015_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":83,
+    "days_from_first_visit":6001,
+    "days_since_previous_visit":1.0,
+    "source_file":"DOC0014_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":84,
+    "days_from_first_visit":6027,
+    "days_since_previous_visit":26.0,
+    "source_file":"DOC0012_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":85,
+    "days_from_first_visit":6034,
+    "days_since_previous_visit":6.0,
+    "source_file":"DOC0013_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":86,
+    "days_from_first_visit":6034,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0011_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":87,
+    "days_from_first_visit":6072,
+    "days_since_previous_visit":38.0,
+    "source_file":"DOC0009_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":88,
+    "days_from_first_visit":6072,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0010_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":89,
+    "days_from_first_visit":6177,
+    "days_since_previous_visit":105.0,
+    "source_file":"DOC0006_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":90,
+    "days_from_first_visit":6183,
+    "days_since_previous_visit":6.0,
+    "source_file":"DOC0007_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":91,
+    "days_from_first_visit":6184,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0005_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":92,
+    "days_from_first_visit":6198,
+    "days_since_previous_visit":14.0,
+    "source_file":"DOC0004_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  },
+  {
+    "visit_index":93,
+    "days_from_first_visit":6198,
+    "days_since_previous_visit":0.0,
+    "source_file":"DOC0003_deidentified_timeline.json",
+    "encounter_type":"EHR encounter",
+    "section_count":null
+  }
+]

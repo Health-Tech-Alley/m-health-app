@@ -1,0 +1,64 @@
+{
+  "event_type": "NO_TRAJECTORY_FAILURE",
+  "requires_human_review": false,
+  "emergency_threshold_breach": false,
+  "notification_path": "continue_monitoring",
+  "offline_first_status": {
+    "local_analysis_completed": true,
+    "queued_for_sync": false,
+    "connectivity_required_for_detection": false,
+    "connectivity_required_for_escalation": true
+  },
+  "primary_findings": {
+    "rom_gap_percent": 0.192,
+    "rom_gap_human": "ROM gap below escalation threshold",
+    "plateau_days": 0,
+    "plateau_human": "0-day plateau",
+    "average_recent_adherence": 0.898,
+    "average_recent_pain": 3.03,
+    "alert_probability": 0.285
+  },
+  "metric_analyses": {
+    "rom_degrees": {
+      "metric": "rom_degrees",
+      "final_actual": 52.11,
+      "final_expected": 64.5,
+      "gap": 12.39,
+      "gap_percent": 0.192,
+      "recent_9_day_slope": -0.055,
+      "plateau_days": 0
+    },
+    "exercise_reps": {
+      "metric": "exercise_reps",
+      "final_actual": 17.67,
+      "final_expected": 18.5,
+      "gap": 0.83,
+      "gap_percent": 0.045,
+      "recent_9_day_slope": 0.465,
+      "plateau_days": 0
+    },
+    "walking_minutes": {
+      "metric": "walking_minutes",
+      "final_actual": 9.03,
+      "final_expected": 12.5,
+      "gap": 3.47,
+      "gap_percent": 0.278,
+      "recent_9_day_slope": 0.163,
+      "plateau_days": 0
+    }
+  },
+  "rehab_anchor": {
+    "anchor_type": "latest_available_ehr_visit",
+    "latest_ehr_relative_day": 6198,
+    "home_rehab_day_0": 6198,
+    "home_rehab_relative_axis": "ehr_relative_day = latest_ehr_relative_day + home_rehab_day"
+  },
+  "access_dp_layers": {
+    "L1": "L1 — CAREGIVER UI",
+    "L2_L6": "L2 + L6 — OFFLINE QUEUE",
+    "L3": "L3 — AGENTIC / MCP",
+    "L4": "L4 — DECISION ENGINE",
+    "L5": "L5 — RAG context",
+    "L6": "L6 — OFFLINE SYNC"
+  }
+}

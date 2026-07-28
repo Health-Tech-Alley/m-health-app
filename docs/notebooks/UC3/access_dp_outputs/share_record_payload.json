@@ -1,0 +1,113 @@
+{
+  "jsonrpc": "2.0",
+  "method": "share_record",
+  "params": {
+    "event_type": "NO_TRAJECTORY_FAILURE",
+    "transport_profile": {
+      "format": "FHIR R4",
+      "envelope": "JSON-RPC 2.0",
+      "encryption": "AES-GCM-256 ciphertext bundle",
+      "session_security": "Signal Protocol / Double Ratchet Algorithm",
+      "local_storage": "SQLCipher",
+      "key_storage": "iOS Keychain / Android Keystore"
+    },
+    "offline_first": {
+      "created_offline": true,
+      "detection_requires_network": false,
+      "queued_for_sync": false,
+      "sync_when_connectivity_returns": true
+    },
+    "patient_summary": {
+      "name": "James Okafor",
+      "age": "67 years old",
+      "condition": "Post-stroke rehabilitation, monitored entirely offline at home",
+      "caregiver": "Diane, wife, non-clinical",
+      "location": "Rural Maryland, intermittent connectivity"
+    },
+    "plan_id": "ACCESS-DP-REHAB-PLAN-DEMO-001",
+    "decision": {
+      "event_type": "NO_TRAJECTORY_FAILURE",
+      "requires_human_review": false,
+      "emergency_threshold_breach": false,
+      "notification_path": "continue_monitoring",
+      "offline_first_status": {
+        "local_analysis_completed": true,
+        "queued_for_sync": false,
+        "connectivity_required_for_detection": false,
+        "connectivity_required_for_escalation": true
+      },
+      "primary_findings": {
+        "rom_gap_percent": 0.192,
+        "rom_gap_human": "ROM gap below escalation threshold",
+        "plateau_days": 0,
+        "plateau_human": "0-day plateau",
+        "average_recent_adherence": 0.898,
+        "average_recent_pain": 3.03,
+        "alert_probability": 0.285
+      },
+      "metric_analyses": {
+        "rom_degrees": {
+          "metric": "rom_degrees",
+          "final_actual": 52.11,
+          "final_expected": 64.5,
+          "gap": 12.39,
+          "gap_percent": 0.192,
+          "recent_9_day_slope": -0.055,
+          "plateau_days": 0
+        },
+        "exercise_reps": {
+          "metric": "exercise_reps",
+          "final_actual": 17.67,
+          "final_expected": 18.5,
+          "gap": 0.83,
+          "gap_percent": 0.045,
+          "recent_9_day_slope": 0.465,
+          "plateau_days": 0
+        },
+        "walking_minutes": {
+          "metric": "walking_minutes",
+          "final_actual": 9.03,
+          "final_expected": 12.5,
+          "gap": 3.47,
+          "gap_percent": 0.278,
+          "recent_9_day_slope": 0.163,
+          "plateau_days": 0
+        }
+      },
+      "rehab_anchor": {
+        "anchor_type": "latest_available_ehr_visit",
+        "latest_ehr_relative_day": 6198,
+        "home_rehab_day_0": 6198,
+        "home_rehab_relative_axis": "ehr_relative_day = latest_ehr_relative_day + home_rehab_day"
+      },
+      "access_dp_layers": {
+        "L1": "L1 — CAREGIVER UI",
+        "L2_L6": "L2 + L6 — OFFLINE QUEUE",
+        "L3": "L3 — AGENTIC / MCP",
+        "L4": "L4 — DECISION ENGINE",
+        "L5": "L5 — RAG context",
+        "L6": "L6 — OFFLINE SYNC"
+      }
+    },
+    "relative_timeline": {
+      "rehab_anchor": {
+        "anchor_type": "latest_available_ehr_visit",
+        "latest_ehr_relative_day": 6198,
+        "home_rehab_day_0": 6198,
+        "home_rehab_relative_axis": "ehr_relative_day = latest_ehr_relative_day + home_rehab_day"
+      },
+      "home_rehab_day_start": 1,
+      "home_rehab_day_end": 21,
+      "ehr_relative_day_start": 6199,
+      "ehr_relative_day_end": 6219
+    },
+    "attachments": {
+      "personalized_plan_json": "personalized_plan.json",
+      "synthetic_daily_rehab_data_csv": "synthetic_daily_rehab_data.csv",
+      "trajectory_decision_payload_json": "trajectory_decision_payload.json",
+      "caregiver_context_txt": "caregiver_context.txt",
+      "provider_note_txt": "provider_note.txt"
+    }
+  },
+  "id": "access-dp-share-record-demo-001"
+}
