@@ -161,18 +161,26 @@ export function buildWatchAreaExplainPrompt(area: MedicationWatchArea): string {
 /**
  * Seed prompt for the in-card mini chat when explaining a rehab progress
  * (UC3) result — especially the "more information is needed" path.
+ *
+ * Optional `therapySeedSupplement` injects assigned exercises, metrics, and
+ * active meds so the first turn (and history for follow-ups) carries plan truth.
  */
-export function buildUc3ResultExplainPrompt(display: {
-  statusLabel: string;
-  explanation: string | null;
-  detailLines: string[];
-  dataQualityLabel: string | null;
-  reviewLabel: string | null;
-}): string {
+export function buildUc3ResultExplainPrompt(
+  display: {
+    statusLabel: string;
+    explanation: string | null;
+    detailLines: string[];
+    dataQualityLabel: string | null;
+    reviewLabel: string | null;
+  },
+  options?: { therapySeedSupplement?: string },
+): string {
   const details =
     display.detailLines.length > 0
       ? `Logged detail:\n${display.detailLines.map((line) => `- ${line}`).join('\n')}`
       : 'No metric detail lines were available.';
+
+  const therapyBlock = options?.therapySeedSupplement?.trim() ?? '';
 
   return [
     'Please help me understand this rehabilitation progress evaluation in plain language.',
@@ -182,9 +190,11 @@ export function buildUc3ResultExplainPrompt(display: {
     display.explanation ? `Engine note: ${display.explanation}` : '',
     display.dataQualityLabel ? display.dataQualityLabel : '',
     details,
+    therapyBlock,
     '',
     'If more information is needed, tell me exactly what I should log next (exercises, pain, fatigue, walking, range of motion)',
     'and why that would make the progress picture clearer. Keep it short and practical.',
+    'When discussing exercises or medications, use only the therapy plan context and active medication list provided.',
     'Do not diagnose or recommend treatment changes. End with 1–3 concrete next logging steps.',
   ]
     .filter(Boolean)

@@ -29,9 +29,11 @@ import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { usePatientRecord } from '@/contexts/patient-record-context';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG, type ModelEntry } from '@/inference/model-catalog';
-import { isModelInstalled, deleteModel, clearAllModels } from '@/services/model-storage';
-import { downloadModel } from '@/services/model-download';
+import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
+import { KnowledgePackProgressCard } from '@/components/models/KnowledgePackProgressCard';
+import { SlmDownloadCard } from '@/components/models/SlmDownloadCard';
+import { useModelDownloadQueue } from '@/hooks/useModelDownloadQueue';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import {
   clearKnowledgeCache,
   clearKnowledgeCacheForPatient,
@@ -70,8 +72,7 @@ import { grantConsent, revokeConsentAndAudit } from '@/services/consent/consentG
 import { ensureDefaultAdcpBackupConsent } from '@/services/consent/defaultConsents';
 import { getNcbiApiKey, setNcbiApiKey, clearNcbiApiKey } from '@/services/ncbi-token-store';
 import { getOpenFdaApiKey, setOpenFdaApiKey, clearOpenFdaApiKey } from '@/services/openfda-token-store';
-import { getUmlsApiKey, setUmlsApiKey, clearUmlsApiKey } from '@/services/umls-token-store';
-import { applyElenaGarciaDemoProfile } from '@/services/onboarding/fhirDemoImport';
+import { beginOnboardingRerun } from '@/services/onboarding/onboardingService';
 import {
   exportPatientCcda,
   getRecordConsentStatus,
@@ -157,6 +158,8 @@ type ExpandableId =
   | 'nlu-development-fallback'
   | 'evidence-development-fallback'
   | 'knowledge-graph-expansion'
+  | 'knowledge-pack-runner'
+  | 'live-clinical-fetch'
   | 'consent-adcp_backup'
   | 'healthkit-integration';
 
@@ -612,8 +615,10 @@ export function AdvancedDeveloperSettingsScreen() {
     setNluDevelopmentFallback,
     setEvidenceDevelopmentFallback,
     setKnowledgeGraphExpansion,
+    setLiveClinicalFetch,
   } = useSettings();
   const slm = useSLM();
+  const modelQueue = useModelDownloadQueue();
   const memoryInfo = useMemoryInfo(2000);
   const hasNativeMemory = isNativeMemoryAvailable();
   const patientId = useOrchestratorPatientId();
@@ -626,22 +631,31 @@ export function AdvancedDeveloperSettingsScreen() {
   const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
   const [ncbiKeyInput, setNcbiKeyInput] = useState('');
   const [openfdaKeyInput, setOpenfdaKeyInput] = useState('');
-  const [umlsKeyInput, setUmlsKeyInput] = useState('');
   const [ncbiKeyStored, setNcbiKeyStored] = useState(false);
   const [openfdaKeyStored, setOpenfdaKeyStored] = useState(false);
-  const [umlsKeyStored, setUmlsKeyStored] = useState(false);
 
   const refreshKeyStatus = useCallback(async () => {
     setNcbiKeyStored(Boolean(await getNcbiApiKey()));
     setOpenfdaKeyStored(Boolean(await getOpenFdaApiKey()));
-    setUmlsKeyStored(Boolean(await getUmlsApiKey()));
   }, []);
 
   // On mount, read the secure-store to show stored/empty badges for each key.
   // This is a legit external-system sync (expo-secure-store), not a cascading render.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void refreshKeyStatus(); }, [refreshKeyStatus]);
-  const [downloads, setDownloads] = useState<Map<string, { progress: number; cancel: () => void }>>(new Map());
+
+  useEffect(() => {
+    const tag = 'settings-downloads';
+    if (modelQueue.anyDownloading) {
+      void activateKeepAwakeAsync(tag).catch(() => undefined);
+    } else {
+      void deactivateKeepAwake(tag).catch(() => undefined);
+    }
+    return () => {
+      void deactivateKeepAwake(tag).catch(() => undefined);
+    };
+  }, [modelQueue.anyDownloading]);
+
   const [thresholdRecs, setThresholdRecs] = useState<ThresholdRecommendation[]>([]);
   const [recVersion, setRecVersion] = useState(0);
   const [rerunningDemo, setRerunningDemo] = useState(false);
@@ -762,25 +776,20 @@ export function AdvancedDeveloperSettingsScreen() {
     }
   }, [refresh, snapshot]);
 
-  const handleRerunElenaDemo = useCallback(async () => {
+  const handleRerunElenaDemo = useCallback(() => {
     setRerunningDemo(true);
     try {
-      const patientId = await applyElenaGarciaDemoProfile();
-      refresh();
-      Alert.alert(
-        'Demo persona loaded',
-        'Elena Garcia (COPD + TBI) onboarding data has been saved and seeded. Open the Dashboard to view.',
-      );
-      void patientId;
+      // Clear completion gate + active patient, queue Elena preset, open wizard.
+      beginOnboardingRerun({ demoProfileId: 'elena-gracia' });
+      router.replace('/onboarding');
     } catch (err) {
       Alert.alert(
-        'Failed to load demo',
+        'Failed to open onboarding',
         err instanceof Error ? err.message : String(err),
       );
-    } finally {
       setRerunningDemo(false);
     }
-  }, [refresh]);
+  }, [router]);
 
   const handleImportEhrZip = useCallback(async () => {
     setImportingEhr(true);
@@ -943,60 +952,6 @@ export function AdvancedDeveloperSettingsScreen() {
     setRecVersion((version) => version + 1);
   }, [patientId]);
 
-  const handleDownload = useCallback((entry: ModelEntry) => {
-    const handle = downloadModel(entry, null, {
-      onProgress: (bytesWritten, totalBytes) => {
-        const progress = totalBytes > 0 ? bytesWritten / totalBytes : 0;
-        setDownloads((prev) => {
-          const next = new Map(prev);
-          next.set(entry.id, { progress, cancel: handle.cancel });
-          return next;
-        });
-      },
-      onComplete: () => {
-        setDownloads((prev) => {
-          const next = new Map(prev);
-          next.delete(entry.id);
-          return next;
-        });
-        Alert.alert('Download Complete', `${entry.displayName} is ready to use.`);
-      },
-      onError: (error) => {
-        setDownloads((prev) => {
-          const next = new Map(prev);
-          next.delete(entry.id);
-          return next;
-        });
-        Alert.alert('Download Failed', error);
-      },
-    });
-    setDownloads((prev) => {
-      const next = new Map(prev);
-      next.set(entry.id, { progress: 0, cancel: handle.cancel });
-      return next;
-    });
-  }, []);
-
-  const handleDelete = useCallback((entry: ModelEntry) => {
-    Alert.alert(
-      'Remove Model',
-      `Remove ${entry.displayName}? You'll need to download it again to use it.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            if (slm.currentModelId === entry.id) {
-              slm.unloadModel();
-            }
-            deleteModel(entry);
-          },
-        },
-      ],
-    );
-  }, [slm]);
-
   const handleDeleteAll = useCallback(() => {
     Alert.alert(
       'Delete All Models',
@@ -1010,13 +965,13 @@ export function AdvancedDeveloperSettingsScreen() {
             if (slm.currentModelId) {
               slm.unloadModel();
             }
-            const count = clearAllModels();
+            const count = modelQueue.clearAll();
             Alert.alert('Complete', `Removed ${count} model${count !== 1 ? 's' : ''}.`);
           },
         },
       ],
     );
-  }, [slm]);
+  }, [slm, modelQueue]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -1047,67 +1002,24 @@ export function AdvancedDeveloperSettingsScreen() {
               {slm.loadError ? (
                 <Text style={styles.devInfo}>Load error: {slm.loadError}</Text>
               ) : null}
-              <View style={styles.modelRow}>
+              <SlmDownloadCard showDelete title="Concierge models" subtitle="Same download queue as Device setup · one at a time" />
+              <View style={styles.modelActions}>
                 {MODEL_CATALOG.map((m) => {
-                  const installed = isModelInstalled(m);
-                  const isActive = slm.currentModelId === m.id;
-                  const download = downloads.get(m.id);
-                  const isDownloading = !!download;
+                  const row = modelQueue.rows.find((r) => r.id === m.id);
+                  const installed = row?.status === 'installed';
                   return (
-                    <View key={m.id} style={styles.modelItem}>
-                      <Text style={styles.modelName}>{m.displayName}</Text>
-                      <Text style={styles.modelStatus}>
-                        {isDownloading
-                          ? `Downloading... ${Math.round(download.progress * 100)}%`
-                          : installed
-                            ? 'Installed'
-                            : 'Not installed'}
-                        {isActive ? ' - Active' : ''}
-                      </Text>
-                      {isDownloading ? (
-                        <View style={styles.progressBar}>
-                          <View
-                            style={[
-                              styles.progressFill,
-                              { width: `${Math.round(download.progress * 100)}%` },
-                            ]}
-                          />
-                        </View>
-                      ) : null}
-                      <View style={styles.modelActions}>
-                        {!installed && !isDownloading ? (
-                          <Pressable
-                            style={styles.smallButton}
-                            onPress={() => handleDownload(m)}>
-                            <Text style={styles.smallButtonText}>Download</Text>
-                          </Pressable>
-                        ) : null}
-                        {isDownloading ? (
-                          <Pressable
-                            style={[styles.smallButton, styles.dangerSmallButton]}
-                            onPress={() => download.cancel()}>
-                            <Text style={styles.smallButtonText}>Cancel</Text>
-                          </Pressable>
-                        ) : null}
-                        {installed ? (
-                          <>
-                            <Pressable
-                              style={[styles.smallButton, !installed && styles.disabledButton]}
-                              disabled={!installed || slm.loadStatus === 'loading'}
-                              onPress={() => slm.loadModel(m.id)}>
-                              <Text style={styles.smallButtonText}>Load</Text>
-                            </Pressable>
-                            <Pressable
-                              style={[styles.smallButton, styles.dangerSmallButton]}
-                              onPress={() => handleDelete(m)}>
-                              <Text style={styles.smallButtonText}>Remove</Text>
-                            </Pressable>
-                          </>
-                        ) : null}
-                      </View>
-                    </View>
+                    <Pressable
+                      key={`load-${m.id}`}
+                      style={[styles.smallButton, !installed && styles.disabledButton]}
+                      disabled={!installed || slm.loadStatus === 'loading'}
+                      onPress={() => slm.loadModel(m.id)}>
+                      <Text style={styles.smallButtonText}>Load {m.displayName}</Text>
+                    </Pressable>
                   );
                 })}
+                <Pressable style={[styles.smallButton, styles.dangerSmallButton]} onPress={handleDeleteAll}>
+                  <Text style={styles.smallButtonText}>Delete all models</Text>
+                </Pressable>
               </View>
 
               <Text style={[styles.devLabel, { marginTop: 8 }]}>Default Concierge model (Demo auto-load)</Text>
@@ -1171,10 +1083,21 @@ export function AdvancedDeveloperSettingsScreen() {
                 label="Evidence graph expansion"
                 value={settings.knowledgeGraphExpansion === true}
                 expanded={expandedId === 'knowledge-graph-expansion'}
-                explanation="Adds one-hop evidence-graph neighbors into retrieval ranking. It is ranking-only, defaults off, and falls back to ordinary BM25 when edges are missing."
+                explanation="Adds one-hop evidence-graph neighbors into retrieval ranking over the on-device pack and patient overlay. Defaults on with the knowledge pack."
                 onToggleExpand={toggleExpanded}
                 onValueChange={setKnowledgeGraphExpansion}
                 accessibilityLabel="Evidence graph expansion"
+              />
+              <CompactToggleRow
+                id="live-clinical-fetch"
+                emoji=""
+                label="Live clinical evidence (NLM)"
+                value={settings.liveClinicalFetch !== false}
+                expanded={expandedId === 'live-clinical-fetch'}
+                explanation="Default on. Knowledge pack install (including first onboarding Device setup) hits live MedlinePlus, DailyMed, RxNorm, and PubMed lit_lite when online; layers soft-fall back to offline digests on failure. Wi‑Fi recommended. Optional NCBI key below raises PubMed rate limits. After changing, tap Redownload on Clinical knowledge."
+                onToggleExpand={toggleExpanded}
+                onValueChange={setLiveClinicalFetch}
+                accessibilityLabel="Live clinical evidence NLM fetch"
               />
 
               <Pressable
@@ -1343,63 +1266,25 @@ export function AdvancedDeveloperSettingsScreen() {
                 </View>
               </View>
 
-              <View style={styles.keyLabelRow}>
-                <Text style={[styles.devLabel, { marginTop: 8 }]}>UMLS API Key (Terminology Mapping)</Text>
-                <Text style={[styles.keyStatusBadge, umlsKeyStored ? styles.keyStatusStored : styles.keyStatusEmpty]}>
-                  {umlsKeyStored ? 'stored' : 'empty'}
-                </Text>
-              </View>
-              <View style={styles.modelRow}>
-                <View style={styles.modelItem}>
-                  <TextInput
-                    style={styles.ncbiInput}
-                    value={umlsKeyInput}
-                    onChangeText={setUmlsKeyInput}
-                    placeholder="Enter UMLS API key..."
-                    placeholderTextColor={mutedText}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  <View style={styles.modelActions}>
-                    <Pressable
-                      style={styles.smallButton}
-                      onPress={async () => {
-                        await setUmlsApiKey(umlsKeyInput.trim());
-                        setUmlsKeyInput('');
-                        await refreshKeyStatus();
-                        Alert.alert('Saved', 'UMLS API key stored securely.');
-                      }}>
-                      <Text style={styles.smallButtonText}>Save Key</Text>
-                    </Pressable>
-                    <Pressable
-                      style={[styles.smallButton, styles.dangerSmallButton]}
-                      onPress={async () => {
-                        await clearUmlsApiKey();
-                        setUmlsKeyInput('');
-                        await refreshKeyStatus();
-                        Alert.alert('Cleared', 'UMLS API key removed.');
-                      }}>
-                      <Text style={styles.smallButtonText}>Clear</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              </View>
-
-              <Text style={[styles.devLabel, { marginTop: 16 }]}>Knowledge Cache</Text>
+              <Text style={[styles.devLabel, { marginTop: 16 }]}>Clinical knowledge</Text>
               <Text style={styles.devInfo}>
-                Bundle status: {snapshot?.bundleStatus.state ?? 'unknown'}
-                {snapshot?.bundleStatus.state === 'complete'
-                  ? ` - ${snapshot.bundleStatus.chunksAdded} chunks added`
-                  : ''}
-                {snapshot?.bundleStatus.state === 'failed' && snapshot.bundleStatus.error
-                  ? ` - ${snapshot.bundleStatus.error}`
-                  : ''}
-                {snapshot?.bundleStatus.updatedAt
-                  ? `\nLast updated: ${snapshot.bundleStatus.updatedAt}`
-                  : ''}
+                Device pack is global (one copy). Patient overlay holds CDA/ADCP/on-demand
+                meds only and is never wiped by pack reset.
               </Text>
+              <KnowledgePackProgressCard
+                showUpdateReset
+                runnerOptions={{
+                  conditions: (snapshot?.conditions ?? [])
+                    .map((c) => c.name)
+                    .filter(Boolean),
+                  medications: (snapshot?.medications ?? [])
+                    .map((m) => m.name)
+                    .filter(Boolean),
+                  location: snapshot?.patient?.location,
+                }}
+              />
               <Text style={styles.devInfo}>
-                Total chunks: {snapshot?.knowledgeStats.total ?? 0}
+                Patient overlay chunks: {snapshot?.knowledgeStats.total ?? 0}
                 {snapshot && snapshot.knowledgeStats.total > 0
                   ? Object.entries(snapshot.knowledgeStats.bySource)
                     .map(([src, count]) => `\n  ${src}: ${count}`)
@@ -1413,12 +1298,12 @@ export function AdvancedDeveloperSettingsScreen() {
                     const n = clearKnowledgeCacheForPatient(patientId);
                     refresh();
                     Alert.alert(
-                      'Cleared',
-                      `Removed ${n} knowledge chunk${n === 1 ? '' : 's'} for this patient only.`,
+                      'Cleared patient overlay',
+                      `Removed ${n} overlay chunk${n === 1 ? '' : 's'} for this patient. Device pack unchanged.`,
                     );
                   }}>
                   <Text style={styles.actionButtonText}>
-                    Clear Knowledge Cache (this patient)
+                    Clear patient evidence overlay
                   </Text>
                 </Pressable>
               ) : null}
@@ -1427,24 +1312,24 @@ export function AdvancedDeveloperSettingsScreen() {
                   style={[styles.actionButton, styles.dangerButton]}
                   onPress={() => {
                     Alert.alert(
-                      'Clear ALL patients’ knowledge?',
-                      'This wipes every profile’s knowledge cache. Retrieval for all patients will re-bundle on next open.',
+                      'Clear ALL patients’ overlays?',
+                      'Wipes every profile’s knowledge_cache overlay. Does not delete the device clinical pack.',
                       [
                         { text: 'Cancel', style: 'cancel' },
                         {
-                          text: 'Clear all',
+                          text: 'Clear all overlays',
                           style: 'destructive',
                           onPress: () => {
                             clearKnowledgeCache();
                             refresh();
-                            Alert.alert('Cleared', 'All patients’ knowledge caches wiped.');
+                            Alert.alert('Cleared', 'All patients’ knowledge overlays wiped.');
                           },
                         },
                       ],
                     );
                   }}>
                   <Text style={styles.actionButtonText}>
-                    Clear ALL Knowledge (dev)
+                    Clear ALL patient overlays (dev)
                   </Text>
                 </Pressable>
               ) : null}
@@ -1525,9 +1410,9 @@ export function AdvancedDeveloperSettingsScreen() {
 
               <Text style={[styles.devLabel, { marginTop: 16 }]}>Demo Data</Text>
               <Text style={styles.devInfo}>
-                Re-run onboarding with the pre-populated Elena Garcia demo
-                bundle (ST-03: COPD + TBI). Saves the profile, seeds the
-                database, and fires the clinical-evidence bundler.
+                Re-open the onboarding wizard with Elena (ST-03: COPD + TBI)
+                pre-selected. Clears the completed-onboarding gate so the
+                wizard shows again; finish Device setup to seed Home.
               </Text>
               <Pressable
                 style={[styles.actionButton, rerunningDemo && styles.disabledActionButton]}
@@ -1535,7 +1420,7 @@ export function AdvancedDeveloperSettingsScreen() {
                 onPress={handleRerunElenaDemo}
               >
                 <Text style={styles.actionButtonText}>
-                  {rerunningDemo ? 'Loading Elena Garcia demo…' : 'Re-run onboarding with Elena Garcia demo'}
+                  {rerunningDemo ? 'Opening onboarding…' : 'Re-run onboarding with Elena Garcia demo'}
                 </Text>
               </Pressable>
 
@@ -2187,6 +2072,13 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
   const [exportingZip, setExportingZip] = useState(false);
   const [enrichmentLogOpen, setEnrichmentLogOpen] = useState(false);
   const [enrichmentLog, setEnrichmentLog] = useState<PatientEnrichmentLogEntry[]>([]);
+  const [redownloadProgress, setRedownloadProgress] = useState<{
+    phase: string;
+    progress: number;
+    completedSteps: number;
+    totalSteps: number;
+    chunksAdded: number;
+  } | null>(null);
 
   const loadChunkList = useCallback(() => {
     if (showAllPatients) {
@@ -2305,8 +2197,27 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
 
   const handleRedownloadAll = useCallback(async () => {
     setBusyId('__all__');
+    setRedownloadProgress({
+      phase: 'Starting clinical knowledge download',
+      progress: 0,
+      completedSteps: 0,
+      totalSteps: 1,
+      chunksAdded: 0,
+    });
     try {
-      const result = await redownloadAllForPatient(patientId);
+      const result = await redownloadAllForPatient(patientId, {
+        onProgress: (update) => {
+          setRedownloadProgress({
+            phase: update.phase,
+            progress: update.progress,
+            completedSteps: update.completedSteps,
+            totalSteps: update.totalSteps,
+            chunksAdded: update.chunksAdded,
+          });
+          // Keep chunk list live while downloading.
+          loadChunkList();
+        },
+      });
       refresh();
       if (result.errors.length === 0) {
         Alert.alert('Re-downloaded', 'Knowledge cache rebuilt from current patient record.');
@@ -2315,8 +2226,9 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
       }
     } finally {
       setBusyId(null);
+      setRedownloadProgress(null);
     }
-  }, [patientId, refresh]);
+  }, [patientId, refresh, loadChunkList]);
 
   // Export the full knowledge cache as a single zip archive. Each chunk
   // is written as a sanitized .txt file inside a per-source folder, plus a
@@ -2529,6 +2441,31 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
             {busyId === '__all__' ? 'Re-downloading…' : 'Re-download all (this patient)'}
           </Text>
         </Pressable>
+        {redownloadProgress ? (
+          <View style={styles.knowledgeProgressWrap}>
+            <Text style={styles.devInfo} numberOfLines={2}>
+              {redownloadProgress.phase}
+            </Text>
+            <View style={styles.knowledgeProgressTrack}>
+              <View
+                style={[
+                  styles.knowledgeProgressFill,
+                  {
+                    width: `${Math.round(
+                      Math.min(1, Math.max(0.05, redownloadProgress.progress)) * 100,
+                    )}%`,
+                  },
+                ]}
+              />
+            </View>
+            <Text style={styles.devInfo}>
+              {redownloadProgress.completedSteps}/{redownloadProgress.totalSteps || 1} steps
+              {redownloadProgress.chunksAdded > 0
+                ? ` · ${redownloadProgress.chunksAdded} chunks`
+                : ''}
+            </Text>
+          </View>
+        ) : null}
         <Pressable
           style={[styles.actionButton, (exportingZip || chunks.length === 0) && styles.disabledActionButton]}
           onPress={() => void handleExportZip()}
@@ -3066,6 +3003,27 @@ const styles = StyleSheet.create({
   chainBroken: { color: dangerRed },
   closeButton: { backgroundColor: '#6B7280' },
   cacheViewerWrap: { gap: 8, marginTop: 8 },
+  knowledgeProgressWrap: {
+    gap: 6,
+    marginTop: 8,
+    marginBottom: 4,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: AppTheme.colors.softSurface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  knowledgeProgressTrack: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: AppTheme.colors.chip,
+    overflow: 'hidden',
+  },
+  knowledgeProgressFill: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: AppTheme.colors.brand,
+  },
   cacheSourceGroup: { gap: 4, marginTop: 8 },
   cacheSourceHeader: {
     flexDirection: 'row',

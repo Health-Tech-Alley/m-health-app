@@ -1,12 +1,11 @@
 /**
- * CareAskRegion — Care tab region reserved for the future suggestion
- * strip + ask input (planning/40) plus the existing Care Concierge
- * intents card.
+ * CareAskRegion — Care tab Concierge region: optional children (soft-NLU /
+ * in-card ask) above the intent catalog.
  *
- * Per planning/41 D10 the slot is stable so doc 40 can mount its strip
- * here as children without redoing the Care tab IA. Read-only mode
- * filters the intent catalog to non-mutating intents so caregivers see
- * only what they can act on.
+ * Doc 40 P1c ships soft-NLU via CarePlanAskChat (and optional CareAskInput).
+ * Proactive suggestion-strip chips (doc 40 P0) are deferred — mount here as
+ * children above the catalog when resumed. Read-only mode filters the intent
+ * catalog to non-mutating intents.
  */
 
 import { useMemo, type ReactNode } from 'react';

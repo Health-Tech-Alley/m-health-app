@@ -6,7 +6,7 @@
  *
  * Strategy:
  *   - Plan D3 (b) — static curated map for the demo. The full UMLS
- *     cross-walk is a fallback (see umls-token-store); for the
+ *     cross-walk is a static fallback (no live UMLS); for the
  *     dataset this covers 100% of the observed conditions.
  *   - Unknown SNOMED codes fall through to `lookupSnomedToIcd10` which
  *     returns `{ icd10: null, label: null }`. The importer still writes

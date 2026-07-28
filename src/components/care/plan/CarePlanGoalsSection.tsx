@@ -127,7 +127,7 @@ export function CarePlanGoalsSection({
   );
   const careTeam = parseCareTeam(primaryPlan?.careTeamDisplayJson);
 
-  // Overview + care-area groups open by default so bullet cards are visible.
+  // Section open; care-area groups + individual goals/activities stay collapsed.
   const [sectionExpanded, setSectionExpanded] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
@@ -196,13 +196,11 @@ export function CarePlanGoalsSection({
     ...careTeam,
   ].join('|');
 
-  // Open every care-area group whenever plan content changes (no flash of collapsed previews).
+  // Reset expand state when plan content changes — groups/items stay collapsed.
   useEffect(() => {
-    const openGroups: Record<string, boolean> = {};
-    for (const g of orderedGroups) openGroups[g.key] = true;
     const handle = setTimeout(() => {
       setSectionExpanded(true);
-      setExpandedGroups(openGroups);
+      setExpandedGroups({});
       setExpandedItems({});
       setStatusInfoFor(null);
       setExpandedConsiderations({});
@@ -246,18 +244,14 @@ export function CarePlanGoalsSection({
             <View>
               <Text style={styles.bodySectionTitle}>Care areas</Text>
               {orderedGroups.map((group) => {
-                // Default open: missing key means expanded so first paint shows bullets.
-                const expanded = expandedGroups[group.key] !== false;
+                const expanded = Boolean(expandedGroups[group.key]);
                 return (
                   <View key={group.key} style={styles.groupBlock}>
                     <View style={styles.groupHeaderRow}>
                       <Pressable
                         style={styles.groupHeader}
                         onPress={() =>
-                          setExpandedGroups((current) => ({
-                            ...current,
-                            [group.key]: !(current[group.key] !== false),
-                          }))
+                          setExpandedGroups((current) => toggle(current, group.key))
                         }
                         accessibilityRole="button"
                         accessibilityState={{ expanded }}

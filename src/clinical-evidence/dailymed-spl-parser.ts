@@ -5,23 +5,37 @@
  * documents. SPL uses LOINC codes to identify standard sections (indications,
  * warnings, adverse reactions, etc.).
  *
- * See planning/22_clinical-data-gathering.md §5d.
+ * Handles the actual DailyMed XML structure which uses nested <component><section>
+ * and has many 42229-5 (SPL UNCLASSIFIED) subsections.
  */
 
-/**
- * LOINC codes for key SPL sections.
- * These are the most clinically relevant sections for caregiver decision support.
- */
-const KEY_SECTION_CODES: Record<string, string> = {
-  '34066-0': 'INDICATIONS & USAGE',
-  '34068-5': 'DOSAGE & ADMINISTRATION',
-  '34067-8': 'CONTRAINDICATIONS',
-  '34067-9': 'WARNINGS AND PRECAUTIONS',
-  '34068-7': 'ADVERSE REACTIONS',
-  '34030-7': 'DRUG INTERACTIONS',
-  '43684-0': 'CLINICAL PHARMACOLOGY',
-  '42232-6': 'DESCRIPTION',
+/** LOINC → friendly heading for known sections. */
+const KNOWN_SECTION_HEADINGS: Record<string, string> = {
+  '34066-0': 'Indications & Usage',
+  '34068-5': 'Dosage & Administration',
+  '34067-8': 'Contraindications',
+  '34067-9': 'Warnings',
+  '34068-7': 'Dosage & Administration',
+  '34070-3': 'Contraindications',
+  '34071-1': 'Warnings',
+  '34084-4': 'Adverse Reactions',
+  '34088-5': 'Overdosage',
+  '34069-5': 'How Supplied',
+  '34090-1': 'Clinical Pharmacology',
+  '42232-6': 'Description',
+  '42232-9': 'Precautions',
+  '34030-7': 'Drug Interactions',
+  '34072-8': 'Clinical Studies',
+  '42227-9': 'Drug Abuse and Dependence',
+  '42231-8': 'Pharmacokinetics',
+  '43678-2': 'Dosage Forms & Strengths',
+  '44425-7': 'Storage and Handling',
+  '60559-2': 'Patient Medication Information',
+  '42229-5': 'Section',
 };
+
+/** Codes that carry useful clinical text (skip package/display junk). */
+const SKIP_CODES = new Set(['51945-4', '48780-1']);
 
 export interface SplSection {
   code: string;
@@ -30,51 +44,53 @@ export interface SplSection {
 }
 
 /**
- * Extract key sections from SPL XML.
+ * Extract sections from SPL XML.
  *
- * SPL XML structure:
- *   <document>
- *     <section>
- *       <code code="34067-9" codeSystem="2.16.840.1.113883.6.1"/>
- *       <title>Warnings</title>
- *       <text>...section content...</text>
- *     </section>
- *   </document>
- *
- * Returns a map of LOINC code → section content.
+ * Real DailyMed XML has:
+ *   <component><section><code code="..."/><title>...</title><text>...</text></section></component>
+ * Nested sections are rare; subsections use <component><section> too.
  */
 export function extractSectionsFromSplXml(xml: string): Map<string, SplSection> {
   const sections = new Map<string, SplSection>();
 
-  // Match <section> blocks
+  // Match each <section> block. Use non-greedy so nested <component> doesn't swallow siblings.
   const sectionRegex = /<section[^>]*>([\s\S]*?)<\/section>/gi;
-  let sectionMatch;
+  let match: RegExpExecArray | null;
+  let index = 0;
 
-  while ((sectionMatch = sectionRegex.exec(xml)) !== null) {
-    const sectionContent = sectionMatch[1];
+  while ((match = sectionRegex.exec(xml)) !== null) {
+    const body = match[1];
 
-    // Extract LOINC code from <code code="XXXXX" .../>
-    const codeMatch = sectionContent.match(/<code[^>]+code="([^"]+)"/i);
-    if (!codeMatch) continue;
+    const codeMatch = body.match(/<code[^>]+code="([^"]+)"/i);
+    const code = codeMatch?.[1] ?? `UNK-${index}`;
+    if (SKIP_CODES.has(code)) {
+      index++;
+      continue;
+    }
 
-    const code = codeMatch[1];
-    const heading = KEY_SECTION_CODES[code];
-    if (!heading) continue; // Skip sections we don't care about
+    const titleMatch = body.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const rawTitle = titleMatch?.[1] ?? '';
+    const title = stripXmlTags(rawTitle).trim();
 
-    // Extract text content
-    const textMatch = sectionContent.match(/<text[^>]*>([\s\S]*?)<\/text>/i);
-    if (!textMatch) continue;
+    const textMatch = body.match(/<text[^>]*>([\s\S]*?)<\/text>/i);
+    const rawText = textMatch?.[1] ?? '';
+    const text = stripXmlTags(rawText).trim();
+    if (text.length < 50) {
+      index++;
+      continue;
+    }
 
-    const rawText = textMatch[1];
-    const cleanText = stripXmlTags(rawText).trim();
+    const heading =
+      title || KNOWN_SECTION_HEADINGS[code] || KNOWN_SECTION_HEADINGS[code.split('-')[0]] || `Section ${code}`;
 
-    if (cleanText.length < 50) continue; // Skip very short sections
-
-    sections.set(code, {
+    // Dedupe: later section with same code+heading wins (labels usually one per setid).
+    const key = `${code}::${heading}`;
+    sections.set(key, {
       code,
       heading,
-      text: cleanText,
+      text,
     });
+    index++;
   }
 
   return sections;
@@ -86,11 +102,9 @@ export function extractSectionsFromSplXml(xml: string): Map<string, SplSection> 
  */
 function stripXmlTags(xml: string): string {
   return xml
-    // Convert common block elements to newlines
     .replace(/<\/?(paragraph|list|item|table|row|content)[^>]*>/gi, '\n')
-    // Remove all remaining tags
+    .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, '')
-    // Decode common XML entities
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -98,7 +112,6 @@ function stripXmlTags(xml: string): string {
     .replace(/&apos;/g, "'")
     .replace(/&#x27;/g, "'")
     .replace(/&#39;/g, "'")
-    // Normalize whitespace
     .replace(/\s+/g, ' ')
     .replace(/\n\s*\n/g, '\n')
     .trim();
@@ -106,7 +119,6 @@ function stripXmlTags(xml: string): string {
 
 /**
  * Build a consolidated drug label text from extracted sections.
- * Combines key sections in a clinically useful order.
  */
 export function buildDrugLabelText(
   title: string,
@@ -120,17 +132,21 @@ export function buildDrugLabelText(
     '34066-0', // Indications & Usage
     '34068-5', // Dosage & Administration
     '34067-8', // Contraindications
-    '34067-9', // Warnings and Precautions
+    '34067-9', // Warnings
+    '34071-1', // Warnings
     '34030-7', // Drug Interactions
+    '34084-4', // Adverse Reactions
     '34068-7', // Adverse Reactions
   ];
 
+  const seen = new Set<string>();
   for (const code of sectionOrder) {
     const section = sections.get(code);
-    if (section) {
+    if (section && !seen.has(section.heading)) {
       lines.push(`${section.heading}:`);
       lines.push(section.text);
       lines.push('');
+      seen.add(section.heading);
     }
   }
 

@@ -1,8 +1,13 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTheme } from '@/constants/theme';
+import { CitationList } from '@/components/common/CitationList';
 import { usePatientRecord } from '@/contexts/patient-record-context';
+import {
+  getKnowledgePackInstallState,
+  subscribeKnowledgePackInstall,
+} from '@/clinical-evidence/pack';
 import type { PatientCondition } from '@/data/types';
 import { useActivePatientView } from '@/hooks/useActivePatientView';
 import {
@@ -21,6 +26,11 @@ export function PatientSummaryCard() {
   const [expanded, setExpanded] = useState(false);
   const [referencesOpen, setReferencesOpen] = useState(false);
   const activePatient = useActivePatientView();
+  const packUi = useSyncExternalStore(
+    subscribeKnowledgePackInstall,
+    getKnowledgePackInstallState,
+    getKnowledgePackInstallState,
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -67,6 +77,12 @@ export function PatientSummaryCard() {
   const sourceBreakdown = formatKnowledgeSourceBreakdown(
     snapshot.knowledgeStats.bySource,
   );
+  // Global pack (new system) is the primary clinical knowledge surface;
+  // patient overlay counts are the secondary detail.
+  const packSummary =
+    packUi.status === 'ready' && packUi.chunksInstalled > 0
+      ? `Clinical knowledge · ${packUi.chunksInstalled.toLocaleString()} references on device`
+      : null;
 
   const primaryDisplay = primaryCondition
     ? `${primaryCondition.icd10 ? `${primaryCondition.icd10} · ` : ''}${primaryCondition.name}`
@@ -145,26 +161,50 @@ export function PatientSummaryCard() {
       {snapshot.bundleStatus.state === 'in_flight' ? (
         <View style={styles.bundlePendingPill}>
           <Text style={styles.bundlePendingText}>Updating clinical knowledge</Text>
-          {cacheSummary ? (
-            <Text style={styles.bundlePendingDetail}>{cacheSummary}</Text>
+          {snapshot.bundleStatus.phase ? (
+            <Text style={styles.bundlePendingDetail} numberOfLines={2}>
+              {snapshot.bundleStatus.phase}
+            </Text>
           ) : null}
+          <View style={styles.bundleProgressTrack}>
+            <View
+              style={[
+                styles.bundleProgressFill,
+                {
+                  width: `${Math.round(
+                    Math.min(1, Math.max(0, snapshot.bundleStatus.progress ?? 0.05)) * 100,
+                  )}%`,
+                },
+              ]}
+            />
+          </View>
+          <Text style={styles.bundlePendingDetail}>
+            {typeof snapshot.bundleStatus.completedSteps === 'number' &&
+            typeof snapshot.bundleStatus.totalSteps === 'number' &&
+            snapshot.bundleStatus.totalSteps > 0
+              ? `${snapshot.bundleStatus.completedSteps} of ${snapshot.bundleStatus.totalSteps} steps`
+              : cacheSummary ?? 'Downloading references…'}
+            {snapshot.bundleStatus.chunksAdded > 0
+              ? ` · ${snapshot.bundleStatus.chunksAdded} cached`
+              : ''}
+          </Text>
         </View>
       ) : snapshot.bundleStatus.state === 'failed' ? (
         <View style={styles.bundleFailedPill}>
-          <Text style={styles.bundleFailedText}>Live fetch unavailable — using offline knowledge</Text>
+          <Text style={styles.bundleFailedText}>Clinical knowledge update incomplete — using offline knowledge</Text>
           {cacheSummary ? (
             <Text style={styles.bundleFailedDetail}>{cacheSummary}</Text>
           ) : null}
         </View>
-      ) : snapshot.knowledgeStats.total > 0 ? (
+      ) : packSummary != null || snapshot.knowledgeStats.total > 0 ? (
         <Pressable
           style={styles.knowledgeStatsPill}
           onPress={() => setReferencesOpen((v) => !v)}
           accessibilityRole="button"
           accessibilityState={{ expanded: referencesOpen }}
-          accessibilityLabel={`${cacheSummary}. ${referencesOpen ? 'Hide' : 'Show'} sources.`}
+          accessibilityLabel={`${(packSummary ?? cacheSummary) ?? 'Clinical knowledge'}. ${referencesOpen ? 'Hide' : 'Show'} sources.`}
         >
-          <Text style={styles.knowledgeStatsText}>{cacheSummary}</Text>
+          <Text style={styles.knowledgeStatsText}>{packSummary ?? cacheSummary}</Text>
           {sourceBreakdown && !referencesOpen ? (
             <Text style={styles.knowledgeStatsDetail}>{sourceBreakdown}</Text>
           ) : null}
@@ -172,16 +212,18 @@ export function PatientSummaryCard() {
             {referencesOpen ? 'Hide sources ▴' : 'Tap to view sources ▾'}
           </Text>
           {referencesOpen ? (
-            <View style={styles.referencesList}>
-              {Object.entries(snapshot.knowledgeStats.bySource)
+            <CitationList
+              sources={Object.entries(snapshot.knowledgeStats.bySource)
                 .filter(([, count]) => count > 0)
                 .sort((a, b) => b[1] - a[1])
-                .map(([src, count]) => (
-                  <Text key={src} style={styles.referenceRow}>
-                    {'\u2022'} {formatSourceLabel(src)} — {count}
-                  </Text>
-                ))}
-            </View>
+                .map(([src, count]) => ({
+                  label: formatSourceLabel(src),
+                  count,
+                }))}
+              collapsible={false}
+              compact
+              maxItems={10}
+            />
           ) : null}
         </Pressable>
       ) : null}
@@ -532,10 +574,10 @@ const styles = StyleSheet.create({
   },
   bundlePendingPill: {
     backgroundColor: AppTheme.colors.warningSoft,
-    borderRadius: AppTheme.radius.pill,
+    borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    alignSelf: 'flex-start',
+    paddingVertical: 10,
+    alignSelf: 'stretch',
   },
   bundlePendingText: {
     color: AppTheme.colors.warning,
@@ -547,6 +589,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     marginTop: 4,
+  },
+  bundleProgressTrack: {
+    marginTop: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: AppTheme.colors.softSurface,
+    overflow: 'hidden',
+  },
+  bundleProgressFill: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: AppTheme.colors.warning,
   },
   bundleFailedPill: {
     backgroundColor: AppTheme.colors.dangerLight,

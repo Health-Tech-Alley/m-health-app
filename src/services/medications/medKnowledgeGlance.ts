@@ -1,9 +1,12 @@
 /**
- * Glanceable medication facts derived from knowledge_cache chunks
- * (DailyMed / OpenFDA / RxNorm / fixtures). Read-only — no snapshot changes.
+ * Glanceable medication facts derived from the global knowledge pack
+ * (DailyMed / OpenFDA / RxNorm layers) ∪ patient overlay (on-demand pins).
+ * Read-only — no snapshot changes.
  */
 
 import { searchKnowledgeCache, type KnowledgeChunk } from '@/data';
+import { searchPackChunks } from '@/clinical-evidence/pack';
+import { citationSourceLabel } from '@/clinical-evidence/retrieval-helper';
 
 export type MedKnowledgeGlance = {
   indication: string | null;
@@ -39,7 +42,7 @@ function sourceLabel(source: KnowledgeChunk['source']): string {
     case 'pubmed':
       return 'PubMed';
     default:
-      return source;
+      return citationSourceLabel(String(source));
   }
 }
 
@@ -50,6 +53,22 @@ function pickMatching(chunks: KnowledgeChunk[], pattern: RegExp): string | null 
     }
   }
   return null;
+}
+
+/** Map a pack row to the KnowledgeChunk shape used by the glance ranker. */
+function packRowToKnowledgeChunk(row: {
+  chunkId: string;
+  source: string;
+  text: string;
+  retrievedAt: string;
+}): KnowledgeChunk {
+  return {
+    chunkId: row.chunkId,
+    source: row.source as KnowledgeChunk['source'],
+    text: row.text,
+    retrievedAt: row.retrievedAt,
+    useCount: 0,
+  };
 }
 
 /**
@@ -66,9 +85,12 @@ export function getMedKnowledgeGlance(
 
   // Prefer the leading token (generic/brand root) for broader cache hits.
   const root = name.split(/[\s(/,]/)[0] ?? name;
-  const chunks = [
+  const chunks: KnowledgeChunk[] = [
     ...searchKnowledgeCache(root, 12, patientId),
     ...(root !== name ? searchKnowledgeCache(name, 6, patientId) : []),
+    // Global pack holds the chart-med labels (DailyMed/OpenFDA/RxNorm layers).
+    ...searchPackChunks(root, 12).map(packRowToKnowledgeChunk),
+    ...(root !== name ? searchPackChunks(name, 6).map(packRowToKnowledgeChunk) : []),
   ];
 
   // Dedup by chunkId, prefer med-ish sources.

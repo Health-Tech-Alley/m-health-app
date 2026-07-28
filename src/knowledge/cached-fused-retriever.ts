@@ -1,16 +1,9 @@
 /**
- * CachedFusedRetriever — BM25-only retriever that reads from the knowledge_cache
- * table + synthetic fixtures, with a live-supplement hook.
+ * CachedFusedRetriever — BM25 → graph 1-hop → dense rerank over
+ * global pack ∪ patient overlay (doc 42).
  *
- * Replaces TrackAFusedRetriever's dense + RRF approach with BM25-only (medical
- * terminology is highly lexical — condition names, drug names, and symptom
- * keywords are exact-match-friendly). Drops the Track B dense embedder
- * dependency.
- *
- * If BM25 returns < 3 results, calls `liveSupplement()` to hit PubMed +
- * MedlinePlus on the spot, cache the results, and re-search.
- *
- * See planning/22_clinical-data-gathering.md §7.
+ * Live supplement remains a residual path when the pack runner flag is off
+ * or BM25 is sparse.
  */
 
 import { Bm25Index } from '@/knowledge/bm25-index';
@@ -35,6 +28,15 @@ import {
   fuseBm25AndGraph,
   type RankHit,
 } from '@/knowledge/graph/evidence-expand';
+import { cosineSimilarity, createReadyEmbedder } from '@/knowledge/embedder';
+import {
+  float16BufferToFloat32Array,
+  getAllPackChunks,
+  getPackIncidentEdges,
+  getPackVectorsForChunks,
+  isKnowledgePackRunnerEnabled,
+  PACK_EMBEDDER_ID,
+} from '@/clinical-evidence/pack';
 
 const LIVE_SUPPLEMENT_THRESHOLD = 3;
 
@@ -58,17 +60,6 @@ function parseChunkMetadata(chunk: KnowledgeChunk): ChunkMetadata {
   } catch {
     return {};
   }
-}
-
-function metadataPatientId(chunk: KnowledgeChunk): string | undefined {
-  return chunk.patientId ?? parseChunkMetadata(chunk).patientId;
-}
-
-function chunkBelongsToPatient(chunk: KnowledgeChunk, patientId?: string): boolean {
-  const chunkPatientId = metadataPatientId(chunk);
-  // Fail closed: unscoped rows never enter retrieval.
-  if (!patientId?.trim() || !chunkPatientId) return false;
-  return chunkPatientId === patientId;
 }
 
 function knowledgeChunkToRetrievedChunk(
@@ -153,8 +144,19 @@ export class CachedFusedRetriever implements FusedRetriever {
     // Clear expired OpenFDA chunks for this patient before building
     clearExpiredKnowledgeChunks(this.patientId);
 
-    // Load ONLY this patient's knowledge_cache rows
+    // Patient overlay only (CDA, ADCP, pinned on-demand meds, legacy cache)
     const cachedChunks = getKnowledgeChunksForPatient(this.patientId);
+
+    // Global pack corpus (Approach C) — no patient_id; shared across patients
+    const packChunks = isKnowledgePackRunnerEnabled()
+      ? (() => {
+          try {
+            return getAllPackChunks();
+          } catch {
+            return [];
+          }
+        })()
+      : [];
 
     // Optional dev fixtures are tagged with this patient id so they don't
     // pollute other profiles' indexes.
@@ -189,6 +191,32 @@ export class CachedFusedRetriever implements FusedRetriever {
       };
       this.chunkMap.set(c.docId, retrieved);
       allChunks.push({ docId: c.docId, text: `${c.docId} ${c.text}`, chunk: retrieved });
+    }
+
+    for (const p of packChunks) {
+      const retrieved: RetrievedChunk = {
+        docId: p.chunkId,
+        text: p.text,
+        score: 0,
+        source: p.source as RetrievedChunk['source'],
+        documentType: p.documentType as RetrievedChunk['documentType'],
+        lengthTier: p.lengthTier as RetrievedChunk['lengthTier'],
+        sectionHeading: p.sectionHeading,
+        sourceId: p.externalId ?? p.chunkId,
+        sourceType: p.source,
+        resourceId: p.externalId,
+        createdAt: p.retrievedAt,
+        synthetic: false,
+        retrievalMethod: 'pack',
+      };
+      if (!this.chunkMap.has(p.chunkId)) {
+        this.chunkMap.set(p.chunkId, retrieved);
+        allChunks.push({
+          docId: p.chunkId,
+          text: `${p.chunkId} ${p.text}`,
+          chunk: retrieved,
+        });
+      }
     }
 
     for (const c of cachedChunks) {
@@ -259,9 +287,12 @@ export class CachedFusedRetriever implements FusedRetriever {
     // Clinical chunk BM25 seed list.
     let chunkRank: RankHit[] = this.clinicalBm25.search(query, overFetch);
 
-    // Live supplement if insufficient results (opt-out for chat NLU hot path).
-    if (
+    // Live supplement residual — only when pack path is off or still sparse.
+    const allowLive =
       q.allowLiveSupplement !== false &&
+      (!isKnowledgePackRunnerEnabled() || chunkRank.length < LIVE_SUPPLEMENT_THRESHOLD);
+    if (
+      allowLive &&
       chunkRank.length < LIVE_SUPPLEMENT_THRESHOLD &&
       this.patientId &&
       this.patientConditions.length > 0
@@ -291,13 +322,33 @@ export class CachedFusedRetriever implements FusedRetriever {
       }
     }
 
-    // Evidence graph expansion (doc 36) — flag-gated.
+    // Evidence graph expansion (doc 36/42) — pack edges ∪ overlay edges.
     let relationByDoc = new Map<string, { type: string; seedId: string }>();
 
     if (getAppSettings().knowledgeGraphExpansion) {
       const tGraph = performance.now();
       const seedIds = chunkRank.map((r) => r.docId);
-      const edges = getIncidentEdges(seedIds);
+      const overlayEdges = getIncidentEdges(seedIds);
+      let packEdges: ReturnType<typeof getPackIncidentEdges> = [];
+      if (isKnowledgePackRunnerEnabled()) {
+        try {
+          packEdges = getPackIncidentEdges(seedIds);
+        } catch {
+          packEdges = [];
+        }
+      }
+      const edges = [
+        ...overlayEdges,
+        ...packEdges.map((e) => ({
+          fromChunkId: e.fromChunkId,
+          toChunkId: e.toChunkId,
+          type: e.type,
+          weight: e.weight,
+          source: e.source,
+          metadataJson: e.metadataJson,
+          createdAt: '',
+        })),
+      ];
       const known = new Set(this.chunkMap.keys());
       const expanded = expandSeedsWithEdges({
         bm25Rank: chunkRank,
@@ -310,6 +361,49 @@ export class CachedFusedRetriever implements FusedRetriever {
         `[CachedFusedRetriever] graphExpand seeds=${seedIds.length} edges=${edges.length} ` +
           `neighbors=${relationByDoc.size} ms=${Math.round(performance.now() - tGraph)}`,
       );
+    }
+
+    // Dense rerank over BM25/graph candidates only (never full pack scan).
+    // Only curated layers carry vectors (PACK_EMBED_LAYER_IDS); candidates
+    // without vectors keep a scaled BM25 score and no dense bonus.
+    if (isKnowledgePackRunnerEnabled() && chunkRank.length > 0) {
+      try {
+        const candidateIds = chunkRank.slice(0, Math.max(overFetch, 50)).map((r) => r.docId);
+        const vectors = getPackVectorsForChunks(candidateIds, PACK_EMBEDDER_ID);
+        // Also try mock embedder id used on Track A
+        const mockVectors =
+          vectors.size === 0
+            ? getPackVectorsForChunks(candidateIds, `${PACK_EMBEDDER_ID}-mock`)
+            : vectors;
+        const vecMap = vectors.size > 0 ? vectors : mockVectors;
+        if (vecMap.size > 0) {
+          const emb = await createReadyEmbedder(4_000, { allowDevelopmentFallback: true });
+          const qVec = await emb.embed(query, { isQuery: true });
+          // Pad/truncate query vec to match stored dim if needed
+          const qAligned =
+            qVec.length === 768
+              ? qVec
+              : (() => {
+                  const out = new Array(768).fill(0);
+                  for (let i = 0; i < 768; i++) out[i] = qVec[i % qVec.length] ?? 0;
+                  return out;
+                })();
+          chunkRank = chunkRank
+            .map((r) => {
+              const blob = vecMap.get(r.docId);
+              // Keep the same 0.55 BM25 base for un-embedded candidates
+              // (lit_lite has no vectors by design) so scores stay comparable.
+              if (!blob) return { docId: r.docId, score: r.score * 0.55 };
+              const docVec = float16BufferToFloat32Array(blob);
+              const cos = cosineSimilarity(qAligned, docVec);
+              // Blend BM25 rank score with dense cosine
+              return { docId: r.docId, score: r.score * 0.55 + Math.max(0, cos) * 0.45 };
+            })
+            .sort((a, b) => b.score - a.score);
+        }
+      } catch (err) {
+        console.warn('[CachedFusedRetriever] dense rerank skipped:', err);
+      }
     }
 
     // Patient-conditioned boosts for NLU relevance:

@@ -171,6 +171,22 @@ export function getMedicationById(medicationId: string): Medication | null {
   );
 }
 
+/**
+ * Active medications across every stored patient record (read-only).
+ * Used for device-global knowledge pack inputs so profile switches never
+ * re-download shared medication content.
+ */
+export function getAllActiveMedications(): Medication[] {
+  const db = getDatabase();
+  return db.getAllSync<Medication>(
+    `SELECT medication_id AS medicationId, patient_id AS patientId, name, dosage, frequency,
+            route, indication, active, source
+     FROM medications
+     WHERE active = 1
+     ORDER BY name;`,
+  );
+}
+
 /** Soft-delete (deactivate) a medication. Hard-delete is reserved for custom meds. */
 export function deleteMedication(medicationId: string, hard = false): void {
   const db = getDatabase();
@@ -251,6 +267,33 @@ export function getConditionsForPatient(patientId: string): PatientCondition[] {
               needs_review ASC,
               name;`,
     patientId,
+  );
+  return rows.map((row) => {
+    const { sourceReferencesJson, ...condition } = row;
+    return {
+      ...condition,
+      isPrimary: Boolean(row.isPrimary),
+      needsReview: Boolean(row.needsReview),
+      sourceReferences: parseConditionSourceReferences(sourceReferencesJson),
+    };
+  });
+}
+
+/**
+ * Conditions across every stored patient record (read-only).
+ * Used for device-global knowledge pack inputs (union with global seeds).
+ */
+export function getAllConditions(): PatientCondition[] {
+  const db = getDatabase();
+  const rows = db.getAllSync<PatientConditionRow>(
+    `SELECT condition_id AS conditionId, patient_id AS patientId, name, icd10,
+            snomed_code AS snomedCode,
+            onset_date AS onsetDate, category, is_primary AS isPrimary,
+            source, source_doc_id AS sourceDocId, retrieved_at AS retrievedAt,
+            needs_review AS needsReview, condition_role AS conditionRole,
+            source_references_json AS sourceReferencesJson
+     FROM patient_conditions
+     ORDER BY name;`,
   );
   return rows.map((row) => {
     const { sourceReferencesJson, ...condition } = row;

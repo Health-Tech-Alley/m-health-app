@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -15,7 +16,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
+import { DeviceSetupStep } from "@/components/models/DeviceSetupStep";
 import { AppTheme } from "@/constants/theme";
+import { isPackReady } from "@/clinical-evidence/pack";
+import { useModelDownloadQueue } from "@/hooks/useModelDownloadQueue";
+import { useKnowledgePackInstall } from "@/hooks/useKnowledgePackInstall";
 import {
   refreshPatientRecord,
   selectPatientRecord,
@@ -35,6 +40,7 @@ import {
   WEARABLE_DEVICE_OPTIONS,
   completeOnboardingProfileForImportedPatient,
   completeOnboardingProfile,
+  consumePendingOnboardingDemoProfileId,
   getOnboardingProfile,
   type AddressProfile,
   type Availability,
@@ -50,8 +56,8 @@ import {
   type WearableDeviceType,
 } from "@/services/onboarding/onboardingService";
 
-const totalScreens = 6;
-const formStepCount = 5;
+const totalScreens = 7;
+const formStepCount = 6;
 
 const formProgressSteps = [
   "Caregiver",
@@ -59,6 +65,7 @@ const formProgressSteps = [
   "Patient",
   "Safety",
   "Device",
+  "Setup",
 ];
 
 const experienceOptions: CaregivingExperience[] = [
@@ -564,7 +571,8 @@ export default function OnboardingScreen() {
   );
 
   function handleSelectDemoProfile(profileId: DemoOnboardingProfileId) {
-    const nextProfile = applyDemoOnboardingPreset(existingProfile, profileId);
+    const base = getOnboardingProfile();
+    const nextProfile = applyDemoOnboardingPreset(base, profileId);
     const caregiver = nextProfile.caregiver;
 
     setSelectedDemoProfileId(profileId);
@@ -727,48 +735,92 @@ export default function OnboardingScreen() {
     const nextImportedFields: ImportedEhrFieldLocks = {};
     const conditionsText = importedEhrSummary.conditions.join(", ");
     const medicationsText = importedEhrSummary.medications.join(", ");
+    const nextFullName = importedEhrSummary.fullName;
+    const nextAge = importedEhrSummary.age;
+    const nextSpo2Cutoff = importedEhrSummary.spo2Cutoff;
+    const nextBaselineHeartRate = importedEhrSummary.baselineHeartRate;
 
-    if (importedEhrSummary.fullName) {
-      setPatientFullName(importedEhrSummary.fullName);
-      nextImportedFields.fullName = true;
-    }
-    if (importedEhrSummary.age) {
-      setPatientAge(importedEhrSummary.age);
-      nextImportedFields.age = true;
-    }
-    if (conditionsText) {
-      setPatientConditions(conditionsText);
-      nextImportedFields.conditions = true;
-    }
-    if (medicationsText) {
-      setPatientCurrentMedications(medicationsText);
-      nextImportedFields.medications = true;
-    }
-    if (importedEhrSummary.spo2Cutoff) {
-      setSpo2Cutoff(importedEhrSummary.spo2Cutoff);
-      nextImportedFields.spo2Cutoff = true;
-    }
-    if (importedEhrSummary.baselineHeartRate) {
-      setBaselineHeartRate(importedEhrSummary.baselineHeartRate);
-      nextImportedFields.baselineHeartRate = true;
-    }
+    if (nextFullName) nextImportedFields.fullName = true;
+    if (nextAge) nextImportedFields.age = true;
+    if (conditionsText) nextImportedFields.conditions = true;
+    if (medicationsText) nextImportedFields.medications = true;
+    if (nextSpo2Cutoff) nextImportedFields.spo2Cutoff = true;
+    if (nextBaselineHeartRate) nextImportedFields.baselineHeartRate = true;
 
-    setImportedEhrFields(nextImportedFields);
-    setAppliedImportedEhrRequestKey(requestKey);
+    // Defer setState out of the effect body (react-hooks/set-state-in-effect).
+    const timer = setTimeout(() => {
+      if (nextFullName) setPatientFullName(nextFullName);
+      if (nextAge) setPatientAge(nextAge);
+      if (conditionsText) setPatientConditions(conditionsText);
+      if (medicationsText) setPatientCurrentMedications(medicationsText);
+      if (nextSpo2Cutoff) setSpo2Cutoff(nextSpo2Cutoff);
+      if (nextBaselineHeartRate) setBaselineHeartRate(nextBaselineHeartRate);
+      setImportedEhrFields(nextImportedFields);
+      setAppliedImportedEhrRequestKey(requestKey);
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, [
     appliedImportedEhrRequestKey,
     ehrImportRequest,
     importedEhrSummary,
   ]);
 
+  // Developer "Re-run onboarding" clears completion and queues a demo preset.
+  useEffect(() => {
+    const pending = consumePendingOnboardingDemoProfileId();
+    if (!pending) return;
+    const known = getDemoOnboardingOptions().some((o) => o.id === pending);
+    if (!known) return;
+    const t = setTimeout(() => {
+      handleSelectDemoProfile(pending as DemoOnboardingProfileId);
+    }, 0);
+    return () => clearTimeout(t);
+    // Mount-only: apply queued demo once when the wizard opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const isIntroScreen = stepIndex === 0;
   const canGoBack = stepIndex > 0;
-  const isFinalStep = stepIndex === totalScreens - 1;
+  const isWearableStep = stepIndex === 5;
+  const isDeviceSetupStep = stepIndex === 6;
+  const isFinalStep = isDeviceSetupStep;
   const formStepNumber = Math.max(stepIndex, 1);
+  const packInstall = useKnowledgePackInstall();
+  const modelQueue = useModelDownloadQueue();
+  const knowledgeReady = packInstall.isReady || (() => {
+    try {
+      return isPackReady();
+    } catch {
+      return false;
+    }
+  })();
+
+  const deviceSetupRunnerOptions = useMemo(() => {
+    const conditions = patientConditions
+      .split(/[,;]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const medications = patientCurrentMedications
+      .split(/[,;]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return {
+      conditions,
+      medications,
+      location: patientAddress.city || caregiverAddress.city || undefined,
+    };
+  }, [
+    patientConditions,
+    patientCurrentMedications,
+    patientAddress.city,
+    caregiverAddress.city,
+  ]);
 
   function goBack() {
     if (canGoBack) {
       setExpandedSelect(null);
+      // Do not go back from Device setup into a re-seed loop casually — allow once.
       setStepIndex((current) => current - 1);
     }
   }
@@ -776,12 +828,48 @@ export default function OnboardingScreen() {
   function goNext() {
     setExpandedSelect(null);
 
+    if (isWearableStep) {
+      void saveProfileThenDeviceSetup();
+      return;
+    }
+
     if (isFinalStep) {
-      void saveProfileAndContinue();
+      void finishOnboardingFromDeviceSetup();
       return;
     }
 
     setStepIndex((current) => Math.min(current + 1, totalScreens - 1));
+  }
+
+  async function finishOnboardingFromDeviceSetup() {
+    if (!knowledgeReady) {
+      Alert.alert(
+        "Clinical knowledge required",
+        "Clinical knowledge must finish downloading first.",
+      );
+      return;
+    }
+    if (!modelQueue.anyInstalled) {
+      Alert.alert(
+        "Continue without Concierge model?",
+        "Clinical knowledge is ready, but the on-device Concierge model is not downloaded. Chat and some explanations will be limited until you download a model (Device setup can be reopened from Settings → Models).",
+        [
+          { text: "Stay and download", style: "cancel" },
+          {
+            text: "Continue to Home",
+            onPress: () => {
+              router.replace("/dashboard");
+            },
+          },
+        ],
+      );
+      return;
+    }
+    router.replace("/dashboard");
+  }
+
+  async function saveProfileThenDeviceSetup() {
+    await saveProfileAndContinue({ advanceToDeviceSetup: true });
   }
 
   async function handleImportSelectedEhrProfile() {
@@ -813,7 +901,7 @@ export default function OnboardingScreen() {
     }
   }
 
-  async function saveProfileAndContinue() {
+  async function saveProfileAndContinue(opts?: { advanceToDeviceSetup?: boolean }) {
     const finalPatientAddress = patientAddressSameAsCaregiver
       ? caregiverAddress
       : patientAddress;
@@ -936,6 +1024,10 @@ export default function OnboardingScreen() {
         }
         selectPatientRecord(importedPatientId);
         refreshPatientRecord(importedPatientId);
+        if (opts?.advanceToDeviceSetup) {
+          setStepIndex(6);
+          return;
+        }
         router.replace("/dashboard");
       } catch (error) {
         console.error("Failed to complete onboarding for imported patient", error);
@@ -950,6 +1042,10 @@ export default function OnboardingScreen() {
     const result = await completeOnboardingProfile(profile);
     if (result.patientId) {
       selectPatientRecord(result.patientId);
+    }
+    if (opts?.advanceToDeviceSetup) {
+      setStepIndex(6);
+      return;
     }
     router.replace("/dashboard");
   }
@@ -1637,6 +1733,10 @@ export default function OnboardingScreen() {
               </StepShell>
             ) : null}
 
+            {stepIndex === 6 ? (
+              <DeviceSetupStep runnerOptions={deviceSetupRunnerOptions} />
+            ) : null}
+
             {stepIndex === 5 ? (
               <StepShell
                 title="Device"
@@ -1709,15 +1809,27 @@ export default function OnboardingScreen() {
           </ScrollView>
 
           <View style={styles.footer}>
-            <Pressable style={styles.primaryButton} onPress={goNext}>
+            <Pressable
+              style={[
+                styles.primaryButton,
+                isFinalStep && !knowledgeReady && styles.primaryButtonDisabled,
+              ]}
+              disabled={isFinalStep && !knowledgeReady}
+              onPress={goNext}
+            >
               <Text style={styles.primaryButtonText}>
                 {isIntroScreen
                   ? "Start Onboarding"
                   : isFinalStep
-                    ? "Go to Dashboard"
+                    ? "Continue to Home"
                     : "Continue"}
               </Text>
             </Pressable>
+            {isFinalStep && !knowledgeReady ? (
+              <Text style={styles.footerHint}>
+                Clinical knowledge must finish downloading first.
+              </Text>
+            ) : null}
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -3091,6 +3203,15 @@ const styles = StyleSheet.create({
     backgroundColor: AppTheme.colors.screen,
     borderTopWidth: 1,
     borderTopColor: AppTheme.colors.border,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.45,
+  },
+  footerHint: {
+    marginTop: 8,
+    textAlign: "center",
+    fontSize: 13,
+    color: AppTheme.colors.textMuted,
   },
   primaryButton: {
     minHeight: 58,

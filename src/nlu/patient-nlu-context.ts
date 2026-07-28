@@ -8,6 +8,7 @@
 
 import type { PatientNluContext } from './types';
 import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
+import { APP_SURFACE_LABELS } from './app-surfaces';
 
 const VITAL_LEXICON = [
   'SpO2',
@@ -41,6 +42,14 @@ const GENERIC_CLINICAL_KEYWORDS = [
   'catheter',
   'bowel',
   'bladder',
+  'therapy progress',
+  'rehab plateau',
+  'care focus',
+  'priorities',
+  'watch areas',
+  'monitoring thresholds',
+  'care plan',
+  'handoff',
 ];
 
 export function buildPatientNluContext(
@@ -56,6 +65,7 @@ export function buildPatientNluContext(
       symptoms: [],
       knowledgeKeywords: GENERIC_CLINICAL_KEYWORDS,
       vitalTypes: VITAL_LEXICON,
+      appSurfaces: APP_SURFACE_LABELS,
     };
   }
 
@@ -100,5 +110,6 @@ export function buildPatientNluContext(
     knowledgeKeywords,
     functionalScales,
     vitalTypes: VITAL_LEXICON,
+    appSurfaces: APP_SURFACE_LABELS,
   };
 }

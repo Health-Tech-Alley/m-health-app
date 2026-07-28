@@ -4,7 +4,7 @@
  *
  * Track A uses in-memory BM25 + a deterministic hash embedder + RRF over
  * synthetic fixtures. Track B will swap the embedder and corpora for real
- * models and live NLM / FDA / ClinicalTrials.gov clients.
+ * models and live NLM / FDA clients.
  */
 
 import { Bm25Index } from '@/knowledge/bm25-index';

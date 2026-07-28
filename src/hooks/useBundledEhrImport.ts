@@ -6,8 +6,6 @@ import {
 } from "@/contexts/patient-record-context";
 import {
   getPatient,
-  setBundlePending,
-  setBundleStatus,
   type Patient,
 } from "@/data";
 import type { PatientProfileEntry } from "@/data/fhir/patient-profiles";
@@ -47,33 +45,12 @@ function startBundledEhrKnowledgeBundle(params: {
 }): void {
   const { patientId, location } = params;
 
-  setBundlePending(patientId, true);
-  setBundleStatus(patientId, { state: "in_flight", chunksAdded: 0 });
-
-  void import("@/clinical-evidence/condition-bundler")
-    .then(
-      async ({
-        bundleConditionPack,
-        bundleMedicationPack,
-        bundleSdohPack,
-      }) => {
-        const bundleTasks = [
-          bundleConditionPack(patientId).catch((error) => {
-            console.error("[useBundledEhrImport] condition bundle failed:", error);
-          }),
-          bundleMedicationPack(patientId).catch((error) => {
-            console.error("[useBundledEhrImport] medication bundle failed:", error);
-          }),
-          bundleSdohPack(patientId, location).catch((error) => {
-            console.error("[useBundledEhrImport] SDOH bundle failed:", error);
-          }),
-        ];
-
-        await Promise.all(bundleTasks);
-      },
+  void import("@/clinical-evidence/knowledge-bundle-runner")
+    .then(({ runKnowledgeBundle }) =>
+      runKnowledgeBundle(patientId, { location, reason: "import" }),
     )
     .catch((error) => {
-      console.error("[useBundledEhrImport] Failed to load condition-bundler:", error);
+      console.error("[useBundledEhrImport] knowledge bundle failed:", error);
     })
     .finally(() => {
       try {

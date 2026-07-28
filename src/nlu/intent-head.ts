@@ -29,7 +29,8 @@ type IntentPrediction = {
   skillId?: SkillId;
 };
 
-let cachedCoefficients: IntentHeadCoefficients | null = null;
+/** Path-keyed cache so chat + Care heads can coexist (planning/40 §6.8). */
+const cachedByKey = new Map<string, IntentHeadCoefficients>();
 
 function isValidIntentHead(
   data: IntentHeadCoefficients | null | undefined,
@@ -48,36 +49,67 @@ function isValidIntentHead(
   );
 }
 
-/**
- * Load intent head coefficients from JSON asset.
- * Prefer bundled require() first — fetch(file path) can hang in RN.
- */
-export async function loadIntentHead(
-  _jsonPath?: string,
-): Promise<IntentHeadCoefficients> {
-  if (cachedCoefficients) return cachedCoefficients;
+function cacheKeyForPath(jsonPath?: string): string {
+  if (!jsonPath) return 'chat';
+  const lower = jsonPath.toLowerCase();
+  if (lower.includes('care-intent-head')) return 'care';
+  if (lower.includes('intent-head')) return 'chat';
+  return lower;
+}
 
-  // 1) Bundled asset (fast, no network). Paths relative to this file / Metro alias.
+function tryRequireBundled(key: 'chat' | 'care'): IntentHeadCoefficients | null {
+  // Metro requires static string literals in require().
+  if (key === 'care') {
+    try {
+      const data = require('../../assets/models/nlu/care-intent-head.json') as IntentHeadCoefficients;
+      if (isValidIntentHead(data)) return data;
+    } catch {
+      // ignore
+    }
+    try {
+      const data = require('@/assets/models/nlu/care-intent-head.json') as IntentHeadCoefficients;
+      if (isValidIntentHead(data)) return data;
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
   try {
     const data = require('../../assets/models/nlu/intent-head.json') as IntentHeadCoefficients;
-    if (isValidIntentHead(data)) {
-      cachedCoefficients = data;
-      return data;
-    }
+    if (isValidIntentHead(data)) return data;
   } catch {
     // ignore
   }
   try {
     const data = require('@/assets/models/nlu/intent-head.json') as IntentHeadCoefficients;
-    if (isValidIntentHead(data)) {
-      cachedCoefficients = data;
-      return data;
-    }
+    if (isValidIntentHead(data)) return data;
   } catch {
     // ignore
   }
+  return null;
+}
 
-  // 2) Optional short-timeout fetch only if require failed
+/**
+ * Load intent head coefficients from JSON asset.
+ * Prefer bundled require() first — fetch(file path) can hang in RN.
+ * Pass a path containing `care-intent-head` to load the Care second head.
+ */
+export async function loadIntentHead(
+  _jsonPath?: string,
+): Promise<IntentHeadCoefficients> {
+  const key = cacheKeyForPath(_jsonPath);
+  const cached = cachedByKey.get(key);
+  if (cached) return cached;
+
+  const bundledKey = key === 'care' ? 'care' : 'chat';
+  const bundled = tryRequireBundled(bundledKey);
+  if (bundled) {
+    cachedByKey.set(key, bundled);
+    return bundled;
+  }
+
+  // Optional short-timeout fetch only if require failed
   if (_jsonPath) {
     try {
       const data = await Promise.race([
@@ -87,7 +119,7 @@ export async function loadIntentHead(
         ),
       ]);
       if (isValidIntentHead(data)) {
-        cachedCoefficients = data;
+        cachedByKey.set(key, data);
         return data;
       }
     } catch {
@@ -96,7 +128,9 @@ export async function loadIntentHead(
   }
 
   throw new Error(
-    'Failed to load intent-head.json. Ensure assets/models/nlu/intent-head.json is bundled with trained coefficients',
+    key === 'care'
+      ? 'Failed to load care-intent-head.json. Train with training/nlu/train_care_intent_head.py'
+      : 'Failed to load intent-head.json. Ensure assets/models/nlu/intent-head.json is bundled with trained coefficients',
   );
 }
 
@@ -160,5 +194,5 @@ export function predictIntent(
  * Clear cached coefficients (for testing).
  */
 export function clearIntentHeadCache(): void {
-  cachedCoefficients = null;
+  cachedByKey.clear();
 }

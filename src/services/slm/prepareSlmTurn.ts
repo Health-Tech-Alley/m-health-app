@@ -15,9 +15,13 @@ import {
   type ChatGenerationDecision,
   type RetrievedCitation,
 } from '@/clinical-evidence';
+import { fetchOnDemandMedToOverlay } from '@/clinical-evidence/pack';
 import { CONCIERGE_GENERATION_DEEP } from '@/constants/concierge';
 import type { GenerateOptions } from '@/inference/inference-provider';
-import { createReadyEmbedder } from '@/knowledge/embedder';
+import {
+  createReadyEmbedder,
+  DEFAULT_TFLITE_EMBEDDER_LOAD_MS,
+} from '@/knowledge/embedder';
 import type { FusedRetriever, McpToolSummary } from '@/knowledge/types';
 import type { PatientRecordSnapshot } from '@/data/types';
 import {
@@ -37,11 +41,42 @@ import {
 } from '@/services/slm/slmService';
 import { detectIdentityMismatches } from '@/services/slm/identity-guardrails';
 
-const DEFAULT_NLU_TIMEOUT_MS = 2500;
+/** Whole NLU stage budget (embedder may already be warm from preload). */
+const DEFAULT_NLU_TIMEOUT_MS = 12_000;
 const MED_SAFETY_TIMEOUT_MS = 4000;
 
 const CITE_INSTRUCTION =
   'Ground your answer in the clinical knowledge above where relevant. After claims drawn from a chunk, append that chunk\'s exact tag (e.g. [PubMed #1], [Drug Label #2], [Care Plan #3]) — include the # number.';
+
+/**
+ * NLU-mentioned meds that are NOT on the patient's chart — the global pack
+ * only carries chart meds, so ad-hoc drugs are pinned on demand. Exported
+ * for tests.
+ */
+export function selectOnDemandMedCandidates(
+  mentionedMeds: string[],
+  chartMeds: string[],
+  max = 2,
+): string[] {
+  const chartKeys = chartMeds.map((m) => m.trim().toLowerCase()).filter(Boolean);
+  // Chart coverage on token boundaries: 'baclofen' is covered by chart entry
+  // 'baclofen 10mg', but 'insulin lispro' is NOT covered by 'insulin glargine'.
+  const onChart = (key: string) =>
+    chartKeys.some(
+      (c) => c === key || c.startsWith(`${key} `) || key.startsWith(`${c} `),
+    );
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const m of mentionedMeds) {
+    const name = m.trim();
+    const key = name.toLowerCase();
+    if (!key || onChart(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+    if (out.length >= max) break;
+  }
+  return out;
+}
 
 export type PrepareSlmTurnOptions = {
   userText: string;
@@ -54,6 +89,18 @@ export type PrepareSlmTurnOptions = {
   skillHint?: SkillId;
   /** Extra citations merged after NLU/BM25 (e.g. plan-as-RAG). */
   extraCitations?: RetrievedCitation[];
+  /**
+   * Appended to the caregiver system prompt after base context (e.g. UC3
+   * therapy + medications ground truth for in-card rehab chat).
+   */
+  extraSystemContext?: string;
+  /**
+   * When set (including []), replaces default caregiver-chat tool dump.
+   * UC3 in-card explain passes [] to save context for therapy ground truth.
+   */
+  toolsOverride?: McpToolSummary[];
+  /** Skip Pre-SLM NLU entirely (e.g. UC3 path already has snapshot ground truth). */
+  skipNlu?: boolean;
   nluTimeoutMs?: number;
   allowDevelopmentNluFallback?: boolean;
   logTag?: string;
@@ -136,45 +183,60 @@ export async function prepareSlmTurn(
 
   let nluPacket: PreSlmPacket | null = null;
 
-  try {
-    const patientCtx = buildPatientNluContext(snapshot);
-    patientCtx.medications = [
-      ...new Set([...patientCtx.medications, ...medNames].filter(Boolean)),
-    ];
+  if (options.skipNlu === true) {
+    console.log(`[${tag}] skipNlu=true — using snapshot/extra context only`);
+  } else {
+    try {
+      const patientCtx = buildPatientNluContext(snapshot);
+      patientCtx.medications = [
+        ...new Set([...patientCtx.medications, ...medNames].filter(Boolean)),
+      ];
 
-    const embedder = await createReadyEmbedder(400, {
-      allowDevelopmentFallback: allowDev,
-    });
-    const nlu = new PreSlmNlu({
-      embedder,
-      retriever: options.retriever ?? {
-        retrieve: async () => ({ tools: [], chunks: [], citations: [], latencyMs: 0 }),
-      },
-      toolSchemas: TOOL_SCHEMAS as unknown as McpToolSummary[],
-      allowDevelopmentFallback: allowDev,
-      filterToolsForSkill: (id, tools) =>
-        filterToolsForSkill(id, tools as typeof TOOL_SCHEMAS) as McpToolSummary[],
-    });
+      const embedderWaitMs = Math.min(
+        DEFAULT_TFLITE_EMBEDDER_LOAD_MS,
+        Math.max(4_000, nluTimeout - 1_500),
+      );
+      const embedderT0 = Date.now();
+      const embedder = await createReadyEmbedder(embedderWaitMs, {
+        allowDevelopmentFallback: allowDev,
+      });
+      console.log(
+        `[${tag}] embedder ready in ${Date.now() - embedderT0}ms ` +
+          `(dims=${embedder.dimensions})`,
+      );
+      const nlu = new PreSlmNlu({
+        embedder,
+        retriever: options.retriever ?? {
+          retrieve: async () => ({ tools: [], chunks: [], citations: [], latencyMs: 0 }),
+        },
+        toolSchemas: TOOL_SCHEMAS as unknown as McpToolSummary[],
+        allowDevelopmentFallback: allowDev,
+        filterToolsForSkill: (id, tools) =>
+          filterToolsForSkill(id, tools as typeof TOOL_SCHEMAS) as McpToolSummary[],
+      });
 
-    nluPacket = await Promise.race([
-      nlu.run(trimmed, patientCtx, {
-        skillHint: options.skillHint,
-        intentOverride: options.intentOverride,
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`NLU timeout after ${nluTimeout}ms`)),
-          nluTimeout,
+      const nluRunT0 = Date.now();
+      nluPacket = await Promise.race([
+        nlu.run(trimmed, patientCtx, {
+          skillHint: options.skillHint,
+          intentOverride: options.intentOverride,
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`NLU timeout after ${nluTimeout}ms`)),
+            nluTimeout,
+          ),
         ),
-      ),
-    ]);
-    console.log(
-      `[${tag}] NLU intent=${nluPacket.intent.primary} conf=${nluPacket.intent.confidence.toFixed(2)} ` +
-        `entities=${nluPacket.entities.length} tools=${nluPacket.tools.length} ` +
-        `chunks=${nluPacket.chunks.length} backend=${nluPacket.trace.backend}`,
-    );
-  } catch (nluErr) {
-    console.warn(`[${tag}] NLU unavailable or timed out; continuing without NLU:`, nluErr);
+      ]);
+      console.log(`[${tag}] nlu.run finished in ${Date.now() - nluRunT0}ms`);
+      console.log(
+        `[${tag}] NLU intent=${nluPacket.intent.primary} conf=${nluPacket.intent.confidence.toFixed(2)} ` +
+          `entities=${nluPacket.entities.length} tools=${nluPacket.tools.length} ` +
+          `chunks=${nluPacket.chunks.length} backend=${nluPacket.trace.backend}`,
+      );
+    } catch (nluErr) {
+      console.warn(`[${tag}] NLU unavailable or timed out; continuing without NLU:`, nluErr);
+    }
   }
 
   const generationDecision = selectChatGeneration({
@@ -186,9 +248,16 @@ export async function prepareSlmTurn(
     forceDeep,
   });
 
+  const toolsOverride =
+    options.toolsOverride !== undefined
+      ? options.toolsOverride
+      : nluPacket
+        ? nluPacket.tools
+        : undefined;
+
   let systemContext = buildCaregiverSystemContext(baseContext, {
     skillId: nluPacket?.intent.skillId ?? options.skillHint,
-    toolsOverride: nluPacket ? nluPacket.tools : undefined,
+    toolsOverride,
   });
 
   const identityGuard = detectIdentityMismatches(trimmed, {
@@ -199,6 +268,11 @@ export async function prepareSlmTurn(
   });
   if (identityGuard.hasMismatch) {
     systemContext = `${systemContext}\n\n${identityGuard.systemPromptBlock}`;
+  }
+
+  const extraSystem = options.extraSystemContext?.trim();
+  if (extraSystem) {
+    systemContext = `${systemContext}\n\n${extraSystem}`;
   }
 
   const mentionedMeds = (nluPacket?.entities ?? [])
@@ -231,8 +305,49 @@ export async function prepareSlmTurn(
     console.warn(`[${tag}] Med safety context skipped:`, medErr);
   }
 
+  // Ad-hoc (non-chart) meds mentioned this turn: pin a DailyMed label into the
+  // patient overlay on demand so this turn — and future turns — can cite it.
+  // The global pack intentionally carries chart meds only.
+  let onDemandChunks: RetrievedCitation[] = [];
+  const onDemandPatientId = snapshot?.patient?.patientId;
+  const onDemandMeds = selectOnDemandMedCandidates(mentionedMeds, medNames);
+  if (onDemandPatientId && onDemandMeds.length > 0) {
+    const pinned = await Promise.all(
+      onDemandMeds.map(async (name) => {
+        try {
+          const chunks = await Promise.race([
+            fetchOnDemandMedToOverlay(onDemandPatientId, name),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 6_000)),
+          ]);
+          return chunks ?? [];
+        } catch {
+          return [];
+        }
+      }),
+    );
+    onDemandChunks = pinned
+      .flat()
+      .map((c) =>
+        chunkToCitation({
+          docId: c.chunkId,
+          source: String(c.source),
+          text: c.text,
+          patientId: onDemandPatientId,
+        }),
+      );
+    if (onDemandChunks.length > 0) {
+      console.log(
+        `[${tag}] On-demand med labels pinned for ${onDemandMeds.join(', ')} ` +
+          `(${onDemandChunks.length} chunk(s))`,
+      );
+    }
+  }
+
   let userContent = trimmed;
-  let citationChunks: RetrievedCitation[] = [...(options.extraCitations ?? [])];
+  let citationChunks: RetrievedCitation[] = [
+    ...(options.extraCitations ?? []),
+    ...onDemandChunks,
+  ];
 
   if (nluPacket && nluPacket.chunks.length > 0) {
     const entityHint = formatEntityHint(nluPacket.entities);
@@ -247,10 +362,11 @@ export async function prepareSlmTurn(
   } else if (nluPacket && nluPacket.entities.length > 0) {
     const entityHint = formatEntityHint(nluPacket.entities);
     citationChunks = [...citationChunks, ...medSafetyChunks];
-    const ddiBlock = medSafetyChunks.length
-      ? `\n\n${formatCitationsForPrompt(medSafetyChunks)}`
+    const citationBlock = formatCitationsForPrompt(citationChunks);
+    const knowledgeBlock = citationBlock
+      ? `\n\n${citationBlock}\n\n${CITE_INSTRUCTION}`
       : '';
-    userContent = `${trimmed}\n${entityHint}${ddiBlock}`;
+    userContent = `${trimmed}\n${entityHint}${knowledgeBlock}`;
   } else {
     const hasClinicalIntent = messageHasClinicalKeywords(
       trimmed,
@@ -278,7 +394,7 @@ export async function prepareSlmTurn(
       citationChunks = [...citationChunks, ...medSafetyChunks];
       const citationBlock = formatCitationsForPrompt(citationChunks);
       if (citationBlock) {
-        userContent = `${trimmed}\n\n${citationBlock}\n\nGround medication safety claims in the knowledge above where relevant.`;
+        userContent = `${trimmed}\n\n${citationBlock}\n\n${CITE_INSTRUCTION}`;
       }
     }
   }

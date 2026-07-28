@@ -16,6 +16,7 @@ import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { SlmInsightSheet } from "@/components/slm-insight-sheet";
 import { AppTheme } from "@/constants/theme";
+import { CitationList } from "@/components/common/CitationList";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
 import {
@@ -257,6 +258,10 @@ export default function MedicationsScreen() {
     setEditing(null);
     refresh();
     reload();
+    void import("@/clinical-evidence/knowledge-bundle-runner").then(
+      ({ scheduleMedicationKnowledgeSync }) =>
+        scheduleMedicationKnowledgeSync(patientId),
+    );
   };
 
   const handleDelete = (row: MedRow) => {
@@ -281,6 +286,10 @@ export default function MedicationsScreen() {
             });
             refresh();
             reload();
+            void import("@/clinical-evidence/knowledge-bundle-runner").then(
+              ({ scheduleMedicationKnowledgeSync }) =>
+                scheduleMedicationKnowledgeSync(patientId),
+            );
           },
         },
       ],
@@ -678,9 +687,13 @@ function MedKnowledgeCollapsibles({
         );
       })}
       {glance?.sourceLabels?.length ? (
-        <Text style={styles.knowledgeSources}>
-          Sources: {glance.sourceLabels.join(' · ')}
-        </Text>
+        <CitationList
+          sources={glance.sourceLabels.map((label) => ({ label }))}
+          collapsible
+          defaultExpanded={false}
+          compact
+          maxItems={6}
+        />
       ) : null}
     </View>
   );

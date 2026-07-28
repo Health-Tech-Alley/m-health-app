@@ -90,19 +90,29 @@ export function ActiveAlertCard() {
     ? visibleAlertBody
     : `${formatPossessive(patientDisplayName)} recent vitals show an unusual pattern.`;
 
-  const contextualType = mlEvent?.initialAnomalyType;
+  const contextualType =
+    mlEvent?.initialAnomalyType ?? activeAlert.initialAnomalyType ?? undefined;
   const vitals = metricVitalsFromEvent(mlEvent);
-  const isEmergencyFastPath = activeAlert.pipelinePath === "RULE_ENGINE_EMERGENCY_FAST_PATH";
+  const isEmergencyFastPath =
+    activeAlert.pipelinePath === "RULE_ENGINE_EMERGENCY_FAST_PATH";
+  // Care soft-NLU path inserts severity-3 without an ML event / watch vitals.
+  const isCaregiverReported =
+    activeAlert.pipelinePath === "caregiver_reported_emergency";
   const metrics = pickMetrics(vitals, isEmergency, {
     baselineHeartRate: activePatient?.baselineHeartRate,
     spo2Cutoff: isEmergencyFastPath
       ? `${HARD_EMERGENCY_THRESHOLDS.blood_oxygen_lte}%`
       : activePatient?.spo2Cutoff,
+    caregiverReportedNoVitals:
+      isCaregiverReported && !Number.isFinite(vitals.blood_oxygen),
   });
-  const contextLabel = isEmergencyFastPath ? "Path" : "Pattern";
+  const contextLabel =
+    isEmergencyFastPath || isCaregiverReported ? "Path" : "Pattern";
   const contextValue = isEmergencyFastPath
     ? "emergency fast path"
-    : contextualType?.replace(/_/g, " ").toLowerCase();
+    : isCaregiverReported
+      ? "caregiver reported"
+      : contextualType?.replace(/_/g, " ").toLowerCase();
 
   function handleCall911() {
     audit({
@@ -358,12 +368,21 @@ function metricVitalsFromEvent(event: MlEvent | null): AlertMetricVitals {
 function pickMetrics(
   vitals: Record<string, number | undefined>,
   isEmergency: boolean,
-  context: { baselineHeartRate?: string; spo2Cutoff?: string } = {},
+  context: {
+    baselineHeartRate?: string;
+    spo2Cutoff?: string;
+    /** Caregiver free-text emergency — no watch sample; skip blank SpO₂ row. */
+    caregiverReportedNoVitals?: boolean;
+  } = {},
 ): { label: string; value: string }[] {
   const fmt = (v: number | undefined, unit: string) =>
     v !== undefined && v !== null && Number.isFinite(v)
       ? `${Math.round(v * 100) / 100}${unit}`
       : "—";
+
+  if (context.caregiverReportedNoVitals) {
+    return [];
+  }
 
   if (isEmergency) {
     return [

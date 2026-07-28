@@ -103,7 +103,10 @@
       "positioning", "post-feed desats", "pressure injury",
       "recovery plateau", "red flags", "rural access", "scoliosis",
       "secondary prevention", "seizure", "shunt malfunction",
-      "spasticity", "suction frequency", "swallow safety", "visit prep"
+      "spasticity", "suction frequency", "swallow safety", "visit prep",
+      "care focus", "priorities list", "medication watch areas",
+      "clinical knowledge", "therapy progress", "monitoring settings",
+      "care plan changes", "handoff summary", "what changed"
     ],
     "scales": ["CFCS", "EDACS", "GMFCS", "MACS"]
   }

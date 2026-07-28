@@ -33,7 +33,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   dynamicSlmLoading: true,
   nluDevelopmentFallback: false,
   evidenceDevelopmentFallback: false,
-  knowledgeGraphExpansion: false,
+  knowledgeGraphExpansion: true,
+  knowledgePackRunner: true,
+  liveClinicalFetch: true,
   carePlanMode: 'full',
   healthKitIntegrationEnabled: true,
 };
@@ -124,6 +126,21 @@ export function updateKnowledgeGraphExpansion(enabled: boolean): AppSettings {
   const current = getAppSettings();
   const updated = { ...current, knowledgeGraphExpansion: enabled };
   saveAppSettings(updated);
+  return updated;
+}
+
+export function updateLiveClinicalFetch(enabled: boolean): AppSettings {
+  const current = getAppSettings();
+  const updated = { ...current, liveClinicalFetch: enabled };
+  saveAppSettings(updated);
+  try {
+    const { setLiveClinicalFetch } = require('@/clinical-evidence/fixture-mode') as {
+      setLiveClinicalFetch: (v: boolean) => void;
+    };
+    setLiveClinicalFetch(enabled);
+  } catch {
+    /* optional */
+  }
   return updated;
 }
 

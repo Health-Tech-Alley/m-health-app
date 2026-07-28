@@ -867,8 +867,19 @@ export interface AppSettings {
   nluDevelopmentFallback: boolean;
   /** __DEV__ only: allow bundled evidence fixtures in retrieval indexes. */
   evidenceDevelopmentFallback: boolean;
-  /** Evidence graph expansion for RAG retrieval (doc 36). Default false. */
+  /** Evidence graph expansion for RAG retrieval (doc 36). Default true after pack (doc 42). */
   knowledgeGraphExpansion: boolean;
+  /**
+   * When true (default): primary clinical knowledge path is the on-device pack
+   * runner (doc 42). When false: legacy live multi-host knowledge bundle.
+   */
+  knowledgePackRunner: boolean;
+  /**
+   * When true (default): pack layers + clinical clients hit live NLM/open APIs
+   * (MedlinePlus, DailyMed, PubMed lit_lite, RxNorm, …), including first
+   * onboarding Device setup. When false: offline fixtures / owned digests only.
+   */
+  liveClinicalFetch: boolean;
   /**
    * Living care plan mutation policy (planning/41 D1).
    * 'full' (default): Concierge can queue proposal → HITL → ML vet → publish.
@@ -1101,6 +1112,12 @@ export interface BundleStatus {
   chunksAdded: number;
   error?: string;
   updatedAt?: string;
+  /** 0–1 fraction while in_flight (optional; older rows omit it). */
+  progress?: number;
+  /** Short caregiver-facing phase label while in_flight. */
+  phase?: string;
+  completedSteps?: number;
+  totalSteps?: number;
 }
 
 /**

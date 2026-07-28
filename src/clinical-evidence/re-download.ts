@@ -23,10 +23,8 @@ import { getActiveMedications, getConditionsForPatient } from '@/data/repositori
 import { searchPubMed, fetchAbstracts } from './pubmed-client';
 import { fetchHealthTopic } from './medlineplus-client';
 import { searchOrphanet, orphanetToChunks } from './orphanet-client';
-import { searchClinicalTrials, trialsToChunks } from './clinicaltrials-client';
 import { fetchDrugLabel } from './dailymed-client';
 import { fetchAdverseEvents, fetchDrugRecalls } from './openfda-client';
-import { lookupUmls, umlsToChunks } from './umls-client';
 import { fetchCdcPlaces, cdcToChunks } from './cdc-places-client';
 import { setLiveClinicalFetch } from './fixture-mode';
 import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
@@ -120,15 +118,6 @@ export async function redownloadForChunk(
         logSupplemented(patientId, 'orphanet', conditionName, newChunks.length);
         break;
       }
-      case 'clinicaltrials': {
-        if (!conditionName) throw new Error('No condition tag on chunk');
-        const trials = await searchClinicalTrials({ condition: conditionName, pageSize: 5 });
-        for (const c of trialsToChunks(trials)) {
-          newChunks.push({ ...c, conditions: conditionName });
-        }
-        logSupplemented(patientId, 'clinicaltrials', conditionName, newChunks.length);
-        break;
-      }
       case 'dailymed': {
         // Re-fetch by drug name (parsed from the metadata or conditions tag).
         const drugName = conditionName;
@@ -143,19 +132,6 @@ export async function redownloadForChunk(
         const recalls = await fetchDrugRecalls(drugName);
         newChunks.push(...events, ...recalls);
         logSupplemented(patientId, 'openfda', drugName, newChunks.length);
-        break;
-      }
-      case 'umls': {
-        // Existing chunks are tagged with the ICD-10 code in conditions or
-        // embedded in the chunkId (UMLS-CXXXXX). Re-fetch the ICD code.
-        const code = conditionName || existing.chunkId.replace(/^UMLS-/, '');
-        const mapping = await lookupUmls({ code, vocabulary: 'ICD10' });
-        if (mapping) {
-          for (const c of umlsToChunks(mapping)) {
-            newChunks.push({ ...c, conditions: conditionName || code });
-          }
-        }
-        logSupplemented(patientId, 'umls', code, newChunks.length);
         break;
       }
       case 'cdc-places': {
@@ -194,36 +170,43 @@ export async function redownloadForChunk(
 }
 
 /**
- * Re-run the full condition + medication + SDOH + measure bundles against
- * the *current* patient record. Used by the dev menu's "Re-download all"
- * button so the caregiver can refresh the cache after editing the patient
- * record (e.g. adding a new condition).
+ * Re-run the full condition + medication + SDOH bundles against the *current*
+ * patient record. Used by the dev menu's "Re-download all" button.
  */
-export async function redownloadAllForPatient(patientId: string): Promise<{ reDownloaded: number; errors: string[] }> {
-  const errors: string[] = [];
-  // Default re-download: condition + med + SDOH only.
-  // Full SPL / systematic-review packs are deep-mode only (explicit opt-in
-  // below stays available for power users via the same entry if flags grow).
-  // HEDIS measure packs are permanently disabled (no auto-goals / BM25 noise).
-  const { bundleConditionPack, bundleMedicationPack, bundleSdohPack, bundleCuratedKnowledgePacks } =
-    await import('./condition-bundler');
+export async function redownloadAllForPatient(
+  patientId: string,
+  options?: {
+    onProgress?: (update: {
+      phase: string;
+      completedSteps: number;
+      totalSteps: number;
+      chunksAdded: number;
+      progress: number;
+    }) => void;
+  },
+): Promise<{ reDownloaded: number; errors: string[] }> {
   // Wipe literature only — keep ADCP plan + CDA patient-record chunks.
   const {
     clearLiteratureKnowledgeCacheForPatient,
     getKnowledgeChunksForPatient,
   } = await import('@/data/repositories/knowledgeCacheRepository');
-  // Active patient only — never wipe other profiles' corpora.
   clearLiteratureKnowledgeCacheForPatient(patientId);
 
-  // Re-download always hits the live APIs (not fixtures) — the user explicitly
-  // asked for fresh data from all available clinical sources.
+  // Re-download always hits the live APIs (not fixtures).
   setLiveClinicalFetch(true);
 
-  try { await bundleConditionPack(patientId); } catch (e) { errors.push(`condition: ${e}`); }
-  try { await bundleMedicationPack(patientId); } catch (e) { errors.push(`medication: ${e}`); }
-  try { await bundleSdohPack(patientId); } catch (e) { errors.push(`sdoh: ${e}`); }
-  try { await bundleCuratedKnowledgePacks(patientId); } catch (e) { errors.push(`curated: ${e}`); }
+  const { runKnowledgeBundle } = await import('./knowledge-bundle-runner');
+  const result = await runKnowledgeBundle(patientId, {
+    force: true,
+    onProgress: options?.onProgress,
+  });
+
   // Silence unused-import warning for the active meds/conditions helpers.
-  void getActiveMedications; void getConditionsForPatient;
-  return { reDownloaded: getKnowledgeChunksForPatient(patientId).length, errors };
+  void getActiveMedications;
+  void getConditionsForPatient;
+
+  return {
+    reDownloaded: getKnowledgeChunksForPatient(patientId).length,
+    errors: result.errors,
+  };
 }

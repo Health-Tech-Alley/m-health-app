@@ -19,6 +19,7 @@ import numpy as np
 # --- Configuration ---
 UTTERANCES_PATH = Path(__file__).resolve().parent.parent.parent / "planning" / "nlu-training" / "utterances-800.json"
 OUTPUT_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "models" / "nlu" / "intent-head.json"
+MIN_UTTERANCES = 800
 EMBEDDER_MODEL = "MongoDB/mdbr-leaf-ir"
 DIM = 768
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
@@ -54,11 +55,12 @@ def load_utterances(path: Path) -> list[dict]:
     with open(path, "r") as f:
         data = json.load(f)
 
-    assert data["count"] == 800, f"Expected 800 utterances, got {data['count']}"
+    assert data["count"] >= MIN_UTTERANCES, f"Expected ≥{MIN_UTTERANCES} utterances, got {data['count']}"
     assert set(data["label_set"]) == set(LABEL_SET), "Label set mismatch"
 
     utterances = data["utterances"]
-    assert len(utterances) == 800, f"Expected 800 items, got {len(utterances)}"
+    assert len(utterances) == data["count"], f"count field {data['count']} != len {len(utterances)}"
+    assert len(utterances) >= MIN_UTTERANCES, f"Expected ≥{MIN_UTTERANCES} items, got {len(utterances)}"
 
     # Validate all labels are in label_set
     for u in utterances:
@@ -259,7 +261,7 @@ def main():
         "W": W.tolist(),
         "b": b.tolist(),
         "trainedAt": datetime.now(timezone.utc).isoformat(),
-        "sourceCorpus": "utterances-800@v1",
+        "sourceCorpus": f"utterances-800@v1.1({len(utterances)})",
         "embedder": EMBEDDER_MODEL,
         "trainIds": train_ids,
         "holdoutIds": holdout_ids,

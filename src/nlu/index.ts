@@ -11,6 +11,7 @@ export {
 } from './query-expand';
 export { INTENT_LABELS, INTENT_TO_SKILL, INTENT_BUDGETS, CONFIDENCE_THRESHOLD } from './intent-labels';
 export { loadIntentHead, predictIntent, clearIntentHeadCache } from './intent-head';
+export { APP_SURFACE_LEXICON, APP_SURFACE_LABELS, findAppSurface } from './app-surfaces';
 export { sectionChunk, mergeByParent, SHORT_MAX_CHARS, TARGET_CHARS, MAX_CHARS } from './section-chunker';
 export { assembleBudgetedPacket } from './budget-assembler';
 export { buildPatientNluContext } from './patient-nlu-context';

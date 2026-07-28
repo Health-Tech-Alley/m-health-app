@@ -1,4 +1,15 @@
-# On-device NLU embedder assets (plan 35)
+# On-device NLU embedder assets
+
+## Intent heads (retrain both when the embedder changes)
+
+| File | Labels | Corpus (input to train scripts) | Train |
+|------|--------|----------------------------------|-------|
+| `intent-head.json` | 14 chat labels | `utterances-800.json` | `training/nlu/train_intent_head.py` |
+| `care-intent-head.json` | 9 Care catalog + `out_of_care` | `care-utterances-v1.json` | `training/nlu/train_care_intent_head.py` |
+
+Corpus paths are configured in the train scripts (see `training/nlu/README.md`).
+
+Both heads use the **same frozen** `mdbr-leaf-ir` 768-d embedder with the query prefix below.
 
 ## Primary ship files
 
@@ -40,12 +51,13 @@ Documents / tool descriptions: **no** prefix.
 
 ## Regenerate
 
+Use a Python env with the export tooling (`sentence-transformers`, ONNX/TFLite export stack, optional `ai_edge_quantizer`):
+
 ```bash
-cd planning/python-testing
-source .venv/bin/activate
+# Export leaf-ir TFLite from Hugging Face MongoDB/mdbr-leaf-ir (team export script)
 python export_leaf_ir_tflite.py
 # weight-only INT8 from validated FP32:
 python -c "from ai_edge_quantizer import quantizer, recipe; q=quantizer.Quantizer('.../mdbr-leaf-ir.tflite'); q.load_quantization_recipe(recipe.weight_only_wi8_afp32()); q.quantize(serialize_to_path='.../mdbr-leaf-ir-int8.tflite')"
 ```
 
-Source model: `MongoDB/mdbr-leaf-ir` (+ optional overlay `planning/model.safetensors`).
+Source model: `MongoDB/mdbr-leaf-ir` on Hugging Face.

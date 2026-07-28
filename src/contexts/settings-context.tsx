@@ -19,6 +19,7 @@ import {
   updateNluDevelopmentFallback,
   updateEvidenceDevelopmentFallback,
   updateKnowledgeGraphExpansion,
+  updateLiveClinicalFetch,
   updateHealthKitIntegrationEnabled,
   type AppSettings,
 } from '@/data';
@@ -42,6 +43,7 @@ interface SettingsContextValue {
   setNluDevelopmentFallback: (enabled: boolean) => void;
   setEvidenceDevelopmentFallback: (enabled: boolean) => void;
   setKnowledgeGraphExpansion: (enabled: boolean) => void;
+  setLiveClinicalFetch: (enabled: boolean) => void;
   setCarePlanMode: (mode: CarePlanMode) => void;
   setHealthKitIntegrationEnabled: (enabled: boolean) => void;
 }
@@ -96,6 +98,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSettings(updated);
   }, []);
 
+  const setLiveClinicalFetch = useCallback((enabled: boolean) => {
+    const updated = updateLiveClinicalFetch(enabled);
+    setSettings(updated);
+  }, []);
+
   const setCarePlanMode = useCallback((mode: CarePlanMode) => {
     const updated = updateCarePlanMode(mode);
     setSettings(updated);
@@ -120,6 +127,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setNluDevelopmentFallback,
       setEvidenceDevelopmentFallback,
       setKnowledgeGraphExpansion,
+      setLiveClinicalFetch,
       setCarePlanMode,
       setHealthKitIntegrationEnabled,
     }),
@@ -134,6 +142,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setNluDevelopmentFallback,
       setEvidenceDevelopmentFallback,
       setKnowledgeGraphExpansion,
+      setLiveClinicalFetch,
       setCarePlanMode,
       setHealthKitIntegrationEnabled,
     ],

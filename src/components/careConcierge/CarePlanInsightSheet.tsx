@@ -30,17 +30,16 @@ import {
 
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { AppTheme } from '@/constants/theme';
+import { CitationList } from '@/components/common/CitationList';
 import { useSLM } from '@/contexts/slm-context';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import {
-  retrieveClinicalChunksViaBm25,
   retrievePlanChunks,
   formatCitationsForPrompt,
   buildRetrievalQuery,
   type RetrievedCitation,
 } from '@/clinical-evidence/retrieval-helper';
-import { useOrchestratorRetriever } from '@/contexts/orchestrator-context';
 import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
@@ -57,6 +56,8 @@ export interface CarePlanInsightSheetProps {
   snapshot: PatientRecordSnapshot | null;
   onClose: () => void;
   onProposalResolved?: (result: RunIntentResult<AnyIntentOutput>) => void;
+  /** Optional prefilled args from Care soft-NLU / chips (planning/40). */
+  intentArgs?: Record<string, unknown>;
 }
 
 type Phase = 'idle' | 'loading' | 'thinking' | 'streaming' | 'done' | 'error';
@@ -69,6 +70,7 @@ export function CarePlanInsightSheet({
   snapshot,
   onClose,
   onProposalResolved,
+  intentArgs,
 }: CarePlanInsightSheetProps) {
   const slm = useSLM();
   const {
@@ -81,7 +83,6 @@ export function CarePlanInsightSheet({
   } = slm;
   const { settings } = useSettings();
   const { snapshot: liveSnapshot } = usePatientRecord();
-  const retriever = useOrchestratorRetriever();
   const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
   const [phase, setPhase] = useState<Phase>('idle');
   const [answer, setAnswer] = useState('');
@@ -196,60 +197,30 @@ export function CarePlanInsightSheet({
       setPhase('thinking');
 
       const conditionName = effectiveSnapshot.primaryCondition?.name;
-      const args: Record<string, unknown> = {};
+      const args: Record<string, unknown> = { ...(intentArgs ?? {}) };
       const retrievalQuery = buildRetrievalQuery(conditionName, intent.caregiverLabel);
       const patientId = effectiveSnapshot.patient?.patientId ?? '';
-      const planCitations: RetrievedCitation[] = patientId
-        ? retrievePlanChunks(patientId, retrievalQuery, 4)
-        : [];
-      const literatureCitations = await retrieveClinicalChunksViaBm25(
-        retriever,
-        retrievalQuery,
-        3,
-        patientId || undefined,
-      );
-      const citationKey = (c: RetrievedCitation) =>
-        c.docId || c.sourceId || c.resourceId || c.text.slice(0, 48);
-      const seen = new Set(planCitations.map(citationKey));
-      const mergedCitations: RetrievedCitation[] = [
-        ...planCitations,
-        ...literatureCitations.filter((c) => {
-          const key = citationKey(c);
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        }),
-      ];
-      const citationBlock = formatCitationsForPrompt(mergedCitations);
+      // Plan-only RAG, tightly capped — ADCP assembler already carries priorities/meds.
+      const planCitations: RetrievedCitation[] = (
+        patientId ? retrievePlanChunks(patientId, retrievalQuery, 2) : []
+      ).map((c) => ({
+        ...c,
+        text: c.text.length > 280 ? `${c.text.slice(0, 280)}…` : c.text,
+      }));
+      citationChunksRef.current = planCitations;
+      const citationBlock = formatCitationsForPrompt(planCitations, 600);
 
       const routerResult = await runIntent<AnyIntentOutput>({
         snapshot: effectiveSnapshot,
         intent: intent.intentId,
         args,
         completePrompt: async (params) => {
-          // NLU parity with main Concierge: enrich the intent user prompt.
-          let systemContext = params.systemContext;
-          let userPrompt = citationBlock
-            ? `${params.userPrompt}\n\nClinical knowledge:\n${citationBlock}`
+          // Intent system already has compact ADCP + meds + UC slices.
+          // Do not stack full caregiver+tools+NLU system (blows n_ctx).
+          const systemContext = params.systemContext;
+          const userPrompt = citationBlock
+            ? `${params.userPrompt}\n\n${citationBlock}`
             : params.userPrompt;
-          try {
-            const { prepareSlmTurn } = await import('@/services/slm/prepareSlmTurn');
-            const prepared = await prepareSlmTurn({
-              userText: params.userPrompt,
-              snapshot: effectiveSnapshot,
-              retriever,
-              forceDeep: true,
-              extraCitations: mergedCitations,
-              logTag: 'CarePlanInsightSheet',
-            });
-            // Keep intent-specific system framing; append NLU system tools/skills.
-            systemContext = `${params.systemContext}\n\n${prepared.systemContext}`;
-            userPrompt = prepared.userContent;
-            citationChunksRef.current = prepared.citationChunks;
-          } catch (nluErr) {
-            console.warn('[CarePlanInsightSheet] NLU enrich skipped:', nluErr);
-            citationChunksRef.current = mergedCitations;
-          }
           let firstToken = false;
           setCurrentModelId(slmCurrentModelId);
           answerAccRef.current = '';
@@ -298,14 +269,19 @@ export function CarePlanInsightSheet({
       setPhase('error');
     } finally {
       abortRef.current = null;
+      // One-off Care intent explain: release lease immediately so Concierge
+      // can unload under auto/dynamic policy (do not wait for sheet dismiss).
+      leaseRef.current?.release();
+      leaseRef.current = null;
+      loadedBySheetRef.current = false;
     }
   }, [
     intent,
+    intentArgs,
     effectiveSnapshot,
     ensureModelAndLease,
     slm.provider,
     slmCurrentModelId,
-    retriever,
   ]);
 
   // One auto-run per open+intent; StrictMode-safe via ranRef.
@@ -511,27 +487,11 @@ export function CarePlanInsightSheet({
             ) : null}
 
             {phase === 'done' && sourceLabels.length > 0 ? (
-              <View style={styles.sourcesBlock}>
-                <Pressable
-                  style={styles.sourcesToggle}
-                  onPress={() => setSourcesOpen((v) => !v)}
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: sourcesOpen }}
-                  accessibilityLabel={`Sources, ${sourceLabels.length}`}
-                >
-                  <Text style={styles.sourcesToggleText}>
-                    Sources ({sourceLabels.length})
-                  </Text>
-                  <Text style={styles.sourcesChevron}>{sourcesOpen ? '▾' : '▸'}</Text>
-                </Pressable>
-                {sourcesOpen
-                  ? sourceLabels.map((label) => (
-                      <Text key={label} style={styles.sourceRow}>
-                        {'\u2022'} {label}
-                      </Text>
-                    ))
-                  : null}
-              </View>
+              <CitationList
+                sources={sourceLabels.map((label) => ({ label }))}
+                collapsible
+                defaultExpanded={false}
+              />
             ) : null}
 
             {phase === 'done' || phase === 'error' ? (

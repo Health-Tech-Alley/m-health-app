@@ -38,6 +38,8 @@ import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { getEventBus } from '@/orchestration/event-bus';
 import { audit } from '@/services/audit/auditService';
+import { insertAlert } from '@/data/repositories/alertRepository';
+import type { Alert } from '@/data/types';
 import {
   dismissCareAlert,
   getActiveCareAlerts,
@@ -57,6 +59,16 @@ interface CriticalAlertContextValue {
   closeForSession: () => void;
   dismiss: (alertId: string) => void;
   reopenOnCareFocus: () => void;
+  /**
+   * Caregiver confirmed a free-text / Care-ask emergency phrase is real
+   * (not a hypothetical). Inserts a severity-3 open alert and forces the
+   * critical-alert dialogue open (Call 911 / Go to ER).
+   */
+  presentCaregiverReportedEmergency: (params: {
+    title?: string;
+    body: string;
+    matchedPhrase?: string;
+  }) => string | null;
 }
 
 const CriticalAlertContext = createContext<CriticalAlertContextValue | null>(null);
@@ -188,6 +200,74 @@ export function CriticalAlertProvider({ children }: { children: ReactNode }) {
     }
   }, [patientId]);
 
+  const presentCaregiverReportedEmergency = useCallback(
+    (params: {
+      title?: string;
+      body: string;
+      matchedPhrase?: string;
+    }): string | null => {
+      if (!patientId) return null;
+      const alertId = `care-ask-emg-${Date.now().toString(36)}`;
+      const createdAt = new Date().toISOString();
+      const title = params.title?.trim() || 'Caregiver-reported emergency';
+      const body =
+        params.body.trim() ||
+        (params.matchedPhrase
+          ? `Caregiver reported: “${params.matchedPhrase}”. Confirm the patient is safe and take emergency action if needed.`
+          : 'Caregiver reported a possible emergency. Confirm the patient is safe and take emergency action if needed.');
+
+      const row: Alert = {
+        alertId,
+        patientId,
+        severity: 3,
+        status: 'open',
+        title,
+        body,
+        createdAt,
+        pipelinePath: 'caregiver_reported_emergency',
+        initialAnomalyType: 'CAREGIVER_REPORTED_EMERGENCY',
+      };
+
+      try {
+        insertAlert(row);
+      } catch (err) {
+        console.warn('[CriticalAlert] failed to insert caregiver-reported emergency:', err);
+        return null;
+      }
+
+      audit({
+        actor: 'caregiver',
+        action: 'confirmed_care_ask_emergency',
+        resourceType: 'alert',
+        resourceId: alertId,
+        patientId,
+        payload: {
+          matchedPhrase: params.matchedPhrase ?? null,
+          source: 'care_ask',
+        },
+      });
+
+      const bus = getEventBus();
+      bus.publish({
+        type: 'ml_alert_created',
+        alertId,
+        patientId,
+        severity: 3,
+        score: 1,
+        features: [],
+        at: createdAt,
+      });
+
+      // Force dialogue open immediately (don't wait for bus refresh).
+      closedForSessionRef.current.delete(alertId);
+      knownIdRef.current = alertId;
+      setAlert(row);
+      setVisible(true);
+      return alertId;
+    },
+    [patientId],
+  );
+
   useEffect(() => {
     if (!visible || !alert || settings.dynamicSlmLoading === false) return;
 
@@ -217,7 +297,14 @@ export function CriticalAlertProvider({ children }: { children: ReactNode }) {
 
   return (
     <CriticalAlertContext.Provider
-      value={{ alert, visible, closeForSession, dismiss, reopenOnCareFocus }}
+      value={{
+        alert,
+        visible,
+        closeForSession,
+        dismiss,
+        reopenOnCareFocus,
+        presentCaregiverReportedEmergency,
+      }}
     >
       {children}
     </CriticalAlertContext.Provider>

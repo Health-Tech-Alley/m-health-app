@@ -4,11 +4,13 @@ This document describes the current state of the mobile app: how it is built,
 how each screen works, and the platform-specific (iOS/Android) considerations.
 It is a living document — update it as the UI evolves.
 
-> For the project mission, architecture summary, and contributor conventions,
-> see the root [`AGENTS.md`](../AGENTS.md).
-> For how Markdown is rendered and how the SLM is prompted to return
+> For a short shipped-vs-deferred snapshot, see [`CURRENT_STATE.md`](./CURRENT_STATE.md).
+> For how Markdown is rendered and how Concierge is prompted to return
 > Markdown, see [`MARKDOWN_GUIDE.md`](./MARKDOWN_GUIDE.md).
 > For the high-level pitch, see the root [`README.md`](../README.md).
+>
+> **Last pass aligned to codebase:** 2026-07-27 (5-tab shell, Gemma-only catalog,
+> Care ADCP spine, NLU/safety refuses, knowledge-bundle runner, 34 repos).
 
 ---
 
@@ -50,40 +52,56 @@ they must not throw at startup when the bridge is absent.
 ## 2. Navigation & Screens
 
 Routing is file-based under `src/app/`. The root layout
-(`src/app/_layout.tsx`) wraps everything in the Expo theme, the
-`AnimatedSplashOverlay`, the **global SettingsProvider**
-(`src/contexts/settings-context.tsx`), the **global SLMProvider**
-(`src/contexts/slm-context.tsx`), the **global OrchestratorProvider**
-(`src/contexts/orchestrator-context.tsx`), the `InAppBanner`, and the
-`Stack` router with hidden headers.
+(`src/app/_layout.tsx`) wraps Redux `Provider`, then:
 
-Post-onboarding, the app uses a **tab-based layout** (`src/app/(tabs)/_layout.tsx`)
-with five tabs: Dashboard, Care, Medications, Schedule, Settings. Stack overlay
-screens (`alert-detail`, `slm-explain`, dev screens) are pushed on top of the tabs.
+`SettingsProvider → PatientRecordProvider → SLMProvider → SensorProvider →
+UC2RuntimeProvider → OrchestratorProvider → CriticalAlertProvider`
 
-Every tab screen shares a consistent branded header: the **Health Tech Alley logo**
-in a teal rounded square to the left of the screen title, rendered by the reusable
-`ScreenHeader` component (`src/components/ui/screen-header.tsx`).
+plus global overlays (`InAppBanner`, `HypotheticalCriticalBanner`,
+`CriticalAlertDialog`) and the `Stack` router (headers hidden).
 
-| Route file | Implementation | Purpose |
-|------------|----------------|---------|
-| `index.tsx` | Redirect | First route → onboarding or `/(tabs)/dashboard` |
-| `onboarding.tsx` | Inline | 5-step intake (welcome + 4 data steps). Redirects to `/(tabs)/dashboard` on completion. |
-| `(tabs)/_layout.tsx` | expo-router `Tabs` | 6-tab shell (Dashboard, Care, Medications, Schedule, Assistant, More) |
-| `(tabs)/dashboard.tsx` | Inline | Branded header + patient summary + weekly vitals + non-emergency insight + priority/activity |
-| `(tabs)/care.tsx` | Inline | Branded header + patient snapshot + tappable safety considerations + editable care plan (daily entry persisted to `daily_care_entries`) + care analysis link |
-| `(tabs)/medications.tsx` | Inline | Branded header + med list + schedules + "Mark as given" |
-| `(tabs)/schedule.tsx` | Inline | Branded header + appointments placeholder + alert timeline + notifications |
-| `(tabs)/assistant.tsx` | Re-exports `slm.tsx` with `showBackButton={false}` | Caregiver Assistant (SLM prompt) chat as a main-nav tab |
-| `(tabs)/more.tsx` | Inline | Profile + preferences + device/integrations + dev/demo hub |
-| `alert-detail.tsx` | Inline | Unified alert detail (ST-01/02/03, severity-based) |
-| `slm-explain.tsx` | Inline | SLM explanation + clarifying Q + next-steps flow |
-| `acute-anomaly.tsx` | Inline | End-to-end orchestration demo (dev) |
-| `slm.tsx` | Inline | Caregiver Assistant chat — also rendered as the Assistant tab (stack version keeps the "← Back" button; reachable from Settings → Developer → Raw SLM Chat) |
-| `profile.tsx` | Inline | Caregiver & patient profile — isolated stack screen (no tab bar) reached from More → Profile |
-| `models.tsx` → `models-screen.tsx` | `src/app/models/` (MVC) | Model manager (dev) |
-| `care-management.tsx` → `care-management-screen.tsx` | `src/app/care-management/` (MVC) | Vitals → Alert ML → SLM "Explain" flow |
-| `performance.tsx` | Inline | 1Hz RAM dashboard (dev) |
+Post-onboarding, the app uses a **5-tab** layout (`src/app/(tabs)/_layout.tsx`):
+
+| Tab label | Route file | Role |
+|-----------|------------|------|
+| **Home** | `dashboard.tsx` | Patient summary, vitals, priorities, alerts |
+| **Care** | `care.tsx` | Living care-plan spine (ADCP) + Care ask |
+| **Meds** | `medications.tsx` | Medication CRUD + mark-as-given |
+| **Schedule** | `schedule.tsx` | Appointments + timeline + notifications |
+| **Concierge** | `assistant.tsx` → `slm.tsx` | Full on-device Concierge chat |
+
+**Settings / More is not a bottom tab** — it is the stack screen `more.tsx`
+(reached from Home chrome / profile entry points). Advanced prefs live at
+`/settings`.
+
+User-facing names (see `src/constants/user-terms.ts`): **Concierge**,
+**Health Monitor**, **Your Review**, **Clinical Evidence** — never SLM / ML /
+HITL / ADCP / UC2–4 in caregiver copy.
+
+Every tab uses the branded `ScreenHeader` (Health Tech Alley logo + title).
+
+| Route file | Purpose |
+|------------|---------|
+| `index.tsx` | Onboarding gate → Home or `/onboarding` |
+| `onboarding.tsx` | Welcome + 5 form steps; demo presets + FHIR import |
+| `(tabs)/_layout.tsx` | **5-tab** shell (Home, Care, Meds, Schedule, Concierge) |
+| `(tabs)/dashboard.tsx` | **Home** — summary, weekly vitals (with reading time), alerts log, priorities |
+| `(tabs)/care.tsx` | Care-plan spine: Plan Pulse, priorities, Your Review, therapy, goals, safety, monitoring, backup, **Care ask** |
+| `(tabs)/medications.tsx` | Med list, schedules, confirm / custom-med Concierge check |
+| `(tabs)/schedule.tsx` | Appointment CRUD, reminders, alert timeline, notifications |
+| `(tabs)/assistant.tsx` | Concierge tab (re-exports `slm.tsx`, no back button) |
+| `more.tsx` | Settings hub (stack) — profile, prefs, secure messaging, privacy, FHIR import, developer hub |
+| `alert-detail.tsx` | Alert metrics + **Ask the Concierge** via on-screen `SlmInsightSheet` |
+| `slm-explain.tsx` | Legacy/standalone orchestrator explain + next-steps path |
+| `slm.tsx` | Full Concierge chat (also Concierge tab) |
+| `secure-messaging.tsx` | Local encrypted messaging UI |
+| `select-fhir-profile.tsx` / `ehr-complete.tsx` | FHIR persona pick + post-import |
+| `profile.tsx` | Caregiver & patient profile (stack) |
+| `models.tsx` | Concierge Brain download manager (Gemma 4 E2B only) |
+| `care-management.tsx` / `health-monitor-demo.tsx` | Health Monitor harness |
+| `acute-anomaly.tsx` | Orchestration E2E demo (developer) |
+| `performance.tsx` | 1 Hz RAM dashboard |
+| `notifications-reminders.tsx` / `logs.tsx` / `advanced-developer-settings.tsx` | Prefs / logs / dev |
 
 ### Service-layer rule
 
@@ -107,38 +125,38 @@ fallback in one place.
 
 ### Onboarding (`onboarding.tsx`)
 
-First-run intake that populates the `OnboardingProfile` in the
-`onboardingService`. The flow is a welcome step followed by four data steps:
-About You, Your Caregiving, About Patient, and Safety & Providers. On app
-start, `OrchestratorProvider` seeds the local SQLite database from the
-onboarding profile via `src/data/seed/seedFromProfile.ts`. The seeded patient,
-caregiver, conditions, medications, and initial thresholds drive the Care
-Context card, the SLM system prompt, and the orchestrator's threshold engine.
+First-run intake that populates `OnboardingProfile` via `onboardingService`.
+Flow: **Welcome** + five form steps (Caregiver, Caregiving, Patient,
+Safety/Provider, Wearable) + final **Device setup** slide. Optional **demo
+presets** (Mike `mike-ehr-v62`, Elena, James, Sofia) and **FHIR import**.
+After profile seed, Device setup shows two shared cards: **Concierge model**
+(HF catalog, one download at a time) and **Clinical knowledge** (on-device pack
+with section progress). **Continue to Home** stays disabled until the knowledge
+pack is ready; leaving without a Concierge model shows a confirm dialog.
+Keep-awake is active while downloads run. Seeded data drives Home, Concierge
+system context, Health Monitor thresholds, and the Care plan spine.
 
-### Dashboard (`(tabs)/dashboard.tsx`)
+### Home (`(tabs)/dashboard.tsx`)
 
-The main caregiver home dashboard. Shows the **Health Tech Alley logo + branded
-header** ("Caregiver Concierge / ACCESS-DP"), a patient summary card, the
-**AlertsLogCard** (every alert grouped into **Active** / **Inactive** — tap an
-alert to open `alert-detail` for notes/actions; remove an alert from the log
-with a confirm, which keeps the row for the audit trail), the **Weekly Vitals
-card** (emoji-tabbed vital trends with time-range selectors), and the
-**Non-Emergency Insight card** (context-aware anomaly explanation with
-caregiver context tags). Below: Today's Priority and Recent Activity cards.
+Main caregiver home. Branded header, **patient summary** (bundle status),
+**Alerts log** (Active / Inactive; open `alert-detail`; remove keeps audit row),
+**Active alert card** (severity-aware metrics: SpO₂, SpO₂ cutoff, baseline HR;
+Apple Watch vitals envelope; Path/Pattern including emergency fast path and
+caregiver-reported), **Weekly vitals** (trends + selected reading **time**),
+**Non-emergency insight**, priorities / activity, quick actions.
 
 ### Alert Detail (`alert-detail.tsx`)
 
-A unified screen pushed on top of the tabs that handles all three steel
-threads, parameterized by alert severity:
+Unified alert screen for all severities:
 
-- **Severity 3 (ST-03 acute):** Big red emergency banner with options — Call
-  911, Go to ER, Contact Provider, Acknowledge, Explain, Add Note. Each option
-  (except Acknowledge/Explain) is wired to `executeNextStep()` which fires
-  native deep-links (dialer, maps) or in-app flows. The "Explain" button pushes
-  to `slm-explain`.
-- **Severity 1–2 (ST-01 anomaly):** Shows vitals info and an "Ask the
-  assistant" button that pushes to `slm-explain?alertId=...`.
-- Acknowledge and Dismiss buttons update the alert status.
+- **Severity 3:** Emergency actions — Call 911, Go to ER, Contact Provider,
+  Acknowledge, Add Note — via `executeNextStep()` deep-links / in-app flows.
+- **All severities:** Health Monitor metrics (top features, anomaly type,
+  rule engine when present). **Ask the Concierge** opens `SlmInsightSheet` **on
+  this screen** (prompt from `buildAlertExplainPrompt`) — it does **not**
+  navigate away to a separate chat route. `slm-explain` remains available as a
+  legacy/orchestrator path from developer flows.
+- Acknowledge / Dismiss update alert status.
 
 ### SLM Explain (`slm-explain.tsx`)
 
@@ -161,30 +179,34 @@ The shared SLM explanation screen for all three steel threads. Takes an
 
 ### Care (`(tabs)/care.tsx`)
 
-Care management hub. Shows the **Health Tech Alley logo + branded header**
-("Care Management / Care"), a patient snapshot (name, conditions), and the
-**Safety Considerations** card: each consideration renders on its own line
-(no trailing period). Tapping a consideration opens a combined explanation
-dialog (safety note + why it matters + recommendation) with an
-**Explain with assistant** button that opens the shared `SlmInsightSheet`
-(controlled SLM load/unload — see below). The **Care Plan** card shows the
-therapy day's progress; pain before/after, fatigue, and the caregiver note are
-**tappable and persisted** to the `daily_care_entries` SQLite table via
-`upsertDailyCareEntry`. The legacy "Your Response" action block was removed
-(those actions now live in the critical-alert popup and the alerts log).
+Living **care-plan spine** (ADCP `accessdp.careplan.v1` via `adcpRepository` +
+`src/services/carePlan/`). Typical sections top-to-bottom:
+
+1. **Hero / Plan Pulse** — ring + “What changed”
+2. **Priorities** — UC4 micro-priorities (caregiver-facing cards; promote-to-plan HITL)
+3. **Your Review** — pending plan proposals (confirm / reject; never silent apply)
+4. **Therapy** — UC3 trajectory + daily care entry; in-card Concierge with compact therapy context
+5. **Goals & activities** / **Safety rules** / **Monitoring**
+6. **Backup & restore** — ADCP export/import
+7. **Care ask** — free-text soft-NLU (`src/services/carePlan/coaching/`) +
+   `CarePlanAskChat` / chips: emergency screen → care-intent head → preselect/chips →
+   Concierge handoff. **Never auto-runs** clinical actions. Confirmed emergencies call
+   `presentCaregiverReportedEmergency` (severity-3 dialog, path
+   `caregiver_reported_emergency`).
+
+Catalog intents include explain alert/monitoring/therapy/priorities, propose
+therapy patch, promote priority, today’s logging, weekly review, handoff summary
+(`intentCatalog.ts`). Proposal enqueue only accepts valid ADCP proposal kinds.
 
 ### Critical alert popup + Alerts log
 
-The severity-3 active alert is shown as a **transient red popup dialogue**
-(`CriticalAlertDialog`, mounted once at the root via `CriticalAlertProvider`),
-not a persistent card. It appears immediately as an overlay when a severity-3
-alert is created (e.g. the ML care-analysis demo judges a scenario critical),
-and re-surfaces whenever the **Care tab is (re)opened** — until the alert is
-Dismissed or resolved. Buttons: **Call 911** / **Go to ER** / **Contact
-Provider** (native deep-links via `executeNextStep()`), **Close** (hide for
-this session; reappears next time the Care tab opens), **Dismiss** (confirm
-prompt — permanently suppresses; sets status `dismissed`), and **View full
-alert →** (opens `alert-detail`).
+Severity-3 is a **transient red dialog** (`CriticalAlertDialog` via
+`CriticalAlertProvider`) — not a permanent card. Triggers: Health Monitor
+emergency fast path, Care-ask caregiver-reported emergency, etc. Metrics show
+SpO₂ when present, plus SpO₂ cutoff / baseline HR for sensor emergencies; Path
+labels include **emergency fast path** and **caregiver reported**. Re-opens on
+Care focus until dismissed. Actions: Call 911 / Go to ER / Contact Provider /
+Close (session) / Dismiss / View full alert.
 
 The **Dashboard** shows an **Alerts Log** (`AlertsLogCard`) instead of a
 persistent card: alerts are grouped **Active** (`open` / `acknowledged`) and
@@ -224,17 +246,26 @@ mode (doc 34), the model unloads **immediately** when the last lease ends
 (`autoUnloadMs = 0`). The default model is configurable in **Settings →
 Developer → Default SLM Model** (`demoDefaultModelId` in `app_settings`).
 
-### Clinical-evidence bundle status
+### Clinical knowledge pack (on-device)
 
-The condition bundler (`src/clinical-evidence/condition-bundler.ts`) now wraps
-its run in try/finally and records a 3-state `BundleStatus`
-(`in_flight` / `complete` / `failed`) in `app_settings`, so the dashboard never
-gets stuck on "Enrichment in progress…" — if the live PubMed/MedlinePlus fetch
-fails (e.g. offline on Track A), the Patient Summary shows
-"Live fetch unavailable — using offline knowledge" and the bundle is retried
-once on the next cold start. **Settings → Developer → Clinical Evidence API
-Keys** exposes NCBI (PubMed) and OpenFDA key fields; MedlinePlus, RxNorm, and
-DailyMed require no key.
+Primary path is the **global knowledge pack** (`src/clinical-evidence/pack/`):
+condition layers (spine, CPG digests, MedlinePlus topics, Orphanet, public
+health, DME, lit_lite abstracts) install into
+`Documents/knowledge-pack/pack.sqlite` once per device. **Medication layers**
+(DailyMed labels, OpenFDA AE/recalls, live DDI, MedlinePlus drug pages) cover
+**active chart medications only** and re-sync when meds are added/removed
+(Meds tab, Concierge tools, FHIR import). Curated practical DDI pairs stay
+offline. Ad-hoc drugs use on-demand overlay fetch. After install the pack
+rebuilds an evidence graph and embeds **curated layers** (not PubMed
+abstracts) with on-device leaf-ir (**float16**). Retrieval unions **pack ∪ patient overlay** (`knowledge_cache`
+for CDA/ADCP/on-demand meds) with **BM25 → graph 1-hop → dense rerank**. Pack
+updates never wipe patient overlay. The pack path is the **only** clinical
+knowledge system (legacy multi-host bundling retired). Pack med/condition
+inputs cover the **union of all stored patient records**, so switching
+profiles only swaps the patient overlay and checks for deltas — never a full
+re-download. Settings → Clinical knowledge uses the same progress card as
+onboarding Device setup (install / update / reset pack vs clear patient
+overlay). Developer settings hold NCBI / OpenFDA keys for higher limits.
 
 ### Medications (`(tabs)/medications.tsx`)
 
@@ -274,20 +305,13 @@ Full settings surface with the **Health Tech Alley logo + branded header**
 - **Consent Management** — Grant/revoke scopes (`ccda_export`, `location_access`,
   `fhir-share`, `pharmacy-communicator`, `provider-message`)
 
-### More (`(tabs)/more.tsx`)
+### More (`more.tsx` — stack, not a tab)
 
-Profile + preferences + privacy + developer hub (Sebastian's visual design).
-Sections: **Profile** (caregiver + patient links to `/profile`), **Appearance**
-(theme picker: light / dark / system), **Preferences** (notifications, device,
-data source), **Communication** (secure messages — coming soon), **Privacy &
-Records** (C-CDA export consent toggle + export button, backed by
-`recordsService`), **Future integrations** (EHR import, care team), **Developer /
-Demo** (developer-mode toggle, acute-anomaly demo, models, performance, raw SLM
-chat, advanced developer settings link to `/settings`, and an **audit log
-viewer** that verifies the hash chain and shows recent audited events), and
-**About**. The full `SettingsScreen` (SLM management, model downloads, API keys,
-knowledge cache, data reset) is accessible via the "Advanced developer settings"
-link.
+Settings hub: **Profile**, **Appearance**, **Preferences**, **Communication**
+(secure messaging — local AES-256-GCM store), **Privacy & Records** (C-CDA
+export), **EHR import** / FHIR persona select, **Developer / Demo** (mode
+toggle, Health Monitor / acute-anomaly demos, Models, Performance, Concierge
+chat, audit log hash-chain viewer, advanced settings → `/settings`), **About**.
 
 ### Profile (`/profile`)
 
@@ -309,11 +333,9 @@ current used ratio.
 
 ### Tab navigation
 
-The 6-tab shell (Dashboard, Care, Medications, Schedule, Assistant, More)
-animates the active icon: a spring scales the icon up and a timing transition
-fills the circle background, giving a tactile transition between tabs. The
-**Assistant** tab renders the caregiver SLM prompt interface (`slm.tsx`) without
-a back button so it behaves as a persistent tab.
+The **5-tab** shell (Home, Care, Meds, Schedule, Concierge) animates the active
+icon (spring scale + fill). The **Concierge** tab renders `slm.tsx` without a
+back button. Settings/More is stack-only.
 - **Data** — Export C-CDA record (consent-gated), Reset all data
 - **Developer** — Developer mode toggle, manual SLM load/unload, RAM dashboard
   link, audit log viewer with hash-chain verification, dev screen links
@@ -347,15 +369,15 @@ the SQLite data layer, and the SLM in one flow.
 The screen is wrapped in `SafeAreaView edges={['top', 'bottom']}`.
 Alerts can be swipe-dismissed (resolved) from the active list.
 
-### SLM Prompt / Caregiver Assistant (`slm.tsx`)
+### Concierge chat (`slm.tsx`)
 
-The on-device SLM chat playground. Also surfaced as the **Assistant** tab on the
-main navigation bar (`(tabs)/assistant.tsx` re-exports this screen with
-`showBackButton={false}`). The standalone `/slm` route (Settings → Developer →
-Raw SLM Chat) keeps the "← Back" button. Streaming output, control-token
-stripping, multiline auto-growing input, and a detailed Care Context card.
+On-device Concierge chat (Gemma 4 E2B). Also the **Concierge** tab
+(`assistant.tsx`, `showBackButton={false}`). Standalone `/slm` keeps Back.
+Pipeline: **safety refuses** → **Pre-SLM NLU** (embedder + intent head +
+retrieval packet) → generation with care context + citations. Streaming,
+control-token stripping, multiline input, Care Context card.
 
-- **Header card** — "Caregiver Assistant / SLM Support" hero with subtitle.
+- **Header card** — Concierge hero with subtitle.
 - **Model Status card** — Current model id, size on disk, load status, and a
   horizontal chip selector of installed models + Download/Unload buttons.
 - **Device RAM card** — Mini version of the Performance dashboard. Updates
@@ -384,16 +406,13 @@ stripping, multiline auto-growing input, and a detailed Care Context card.
 
 ### Models (`src/app/models/`)
 
-- Lists the model catalog (`src/inference/model-catalog.ts`): HealthGPT Pro
-  4B (Q4_K_M), HealthGPT Pro 8B (Q3_K_M), Gemma 4 E2B (Q4_K_M).
-- Download from Hugging Face with live progress, cancel, delete.
-- Optional Hugging Face token (stored via `expo-secure-store`) for gated
-  repos; token can be shown/hidden and saved from the same screen.
-- "Clear All Models" wipes the on-device `models/` directory (incl.
-  partial downloads).
-- Models are stored in the app's document directory and are **git-ignored**.
-- Implemented as an MVC trio (`models-screen`, `models-controller`,
-  `models-view`) using `ThemedText` / `ThemedView`.
+- Catalog is **Gemma 4 E2B Instruct only** (`gemma-4-e2b`, Q4_K_M, ~2.4 GB) —
+  `src/inference/model-catalog.ts`. HealthGPT-Pro entries were removed.
+- Download from Hugging Face with progress, cancel, delete; optional HF token
+  in `expo-secure-store`.
+- Models live under the app documents `models/` directory (**git-ignored**).
+- Shared **`SlmDownloadCard` + `useModelDownloadQueue`** power Models, Settings,
+  and onboarding Device setup (one SLM download app-wide).
 
 ### Care Management (`src/app/care-management/`)
 
@@ -421,21 +440,18 @@ Implements the canonical ST-01-style flow:
 
 ## 4. On-Device AI
 
-### SLM (`llama.rn`)
+### Concierge SLM (`llama.rn`)
 
-- Wrapped behind `InferenceProvider`
-  (`src/inference/inference-provider.ts`); the real impl is
-  `LlamaRnProvider`.
-- A single instance is shared app-wide via `SLMProvider`
-  (`src/contexts/slm-context.tsx`) and consumed with the `useSLM()` hook.
-- **Metal GPU acceleration** is enabled (`n_gpu_layers: -1`).
-- Model catalog lives in `src/inference/model-catalog.ts`: HealthGPT Pro
-  4B, HealthGPT Pro 8B, Gemma 4 E2B.
-- Structured-output models (Gemma "harmony" channels, `<thinking>` tags)
-  are parsed by llama.rn into `content` (answer) + `reasoning_content`
-  (thinking). A `stripControlTokens()` safety net in
-  `src/utils/stripControlTokens.ts` removes any leftover control tokens
-  before Markdown rendering.
+- `InferenceProvider` → `LlamaRnProvider`; app-wide `SLMProvider` / `useSLM()`.
+- **Single catalog model:** Gemma-4-E2B-it Q4_K_M (`DEFAULT_SLM_MODEL_ID`).
+- Metal GPU when available (`n_gpu_layers: -1`).
+- Reasoning channel via jinja + `reasoning_format: 'auto'`;
+  `stripControlTokens()` before Markdown.
+- Task queue + RAM gate control load/unload (Demo/auto vs Developer/manual).
+- **Pre-SLM NLU** (`src/nlu/`): leaf-ir TFLite embedder (Track B) or hash mock
+  (Track A); chat intent head + Care intent head; app-surface lexicon.
+- **Safety refuses** (`safety-refuse-guardrails.ts`): unknown protocol, dose
+  change, auto-emergency action, diagnosis request — before NLU/generation.
 
 ### System prompt: the caregiver assistant preamble
 
@@ -487,7 +503,7 @@ changes. The public API is exported from `src/data/index.ts`.
 both MCP tool schemas (tool-RAG) and clinical knowledge chunks
 (knowledge-RAG) in a single hop using BM25 + deterministic hash
 embedder + reciprocal rank fusion. Track A runs over synthetic fixtures
-for OpenEvidence, RxNorm, DailyMed, OpenFDA, and the patient plan.
+for PubMed/MedlinePlus, RxNorm, DailyMed, OpenFDA, and the patient plan.
 Track B will use a real sub-1B embedder and live clinical clients. The
 layer also contains graph helpers (`src/knowledge/graph/`) for context
 subgraph projection and edge writing.
@@ -597,9 +613,10 @@ After that, the user must tap to retry manually.
   card is wrapped in `SafeAreaView` with at least `edges={['top']}`; the
   ones with sticky bottom inputs also include `'bottom'` so the iOS
   home bar never overlaps content.
-- Tab-based navigation uses `expo-router` `Tabs` (5 tabs: Dashboard, Care,
-  Medications, Schedule, Settings).
-- SLM uses **Metal**; Alert ML uses the **CoreML delegate**.
+- Tab-based navigation uses `expo-router` `Tabs` (5 tabs: Home, Care,
+  Meds, Schedule, Concierge). Settings/More is a stack screen.
+- Concierge uses **Metal** when available; Health Monitor TFLite may use the
+  **CoreML** delegate on iOS.
 - Local dev build requires macOS + Xcode. A physical device gives
   realistic SLM/ML performance; the simulator works for UI but not for
   representative inference speed or memory.
@@ -648,7 +665,7 @@ render Markdown in the app.
 
 ---
 
-## 7. Pre-SLM NLU (planning/35)
+## 7. Pre-SLM NLU
 
 The **Pre-SLM NLU** pipeline runs *before* the Concierge SLM on every chat
 and explain turn. It classifies caregiver intent, links entities, and
@@ -676,8 +693,8 @@ prompt → EntityLinker → leaf-ir embed (TFLite) → IntentHead (JS)
 | `src/knowledge/embedder.ts` | TfliteEmbedder (mdbr-leaf-ir, 768-d) + HashMockEmbedder (Track A) |
 | `assets/models/nlu/mdbr-leaf-ir-int8.tflite` | Primary embedder model (~59 MB, weight-only INT8) |
 | `assets/models/nlu/intent-head.json` | Trained intent classifier coefficients |
-| `training/nlu/` | Offline Python training + eval scripts |
-| `planning/nlu-training/` | Authoritative training corpus (utterances-800.json, retrieval-qrels.json, use-cases-and-conditions.md) |
+| `assets/models/nlu/care-intent-head.json` | Care soft-NLU second head |
+| `training/nlu/` | Offline Python training + eval scripts (expects local utterance / qrel corpora) |
 
 ### Intent labels (14)
 
@@ -698,12 +715,16 @@ prompt → EntityLinker → leaf-ir embed (TFLite) → IntentHead (JS)
 ### Training
 
 ```bash
-# Prefer project venv (sentence-transformers + sklearn)
-planning/python-testing/.venv/bin/python training/nlu/train_intent_head.py
-planning/python-testing/.venv/bin/python training/nlu/eval_intent.py
-planning/python-testing/.venv/bin/python training/nlu/eval_retrieval.py
-planning/python-testing/.venv/bin/python training/nlu/build_entity_lexicon.py
+# venv with sentence-transformers + scikit-learn
+python training/nlu/train_intent_head.py
+python training/nlu/eval_intent.py
+python training/nlu/eval_retrieval.py
+python training/nlu/build_entity_lexicon.py
+python training/nlu/train_care_intent_head.py
+python training/nlu/eval_care_intent.py
 ```
+
+See `training/nlu/README.md` and `assets/models/nlu/README.md` for corpus paths and quality gates.
 
 ### Latest offline metrics (2026-07-13)
 
