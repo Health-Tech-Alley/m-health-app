@@ -28,6 +28,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThinkingIndicator } from '@/components/concierge/ThinkingIndicator';
 import { AiSuggestsTagline } from '@/components/AiSuggestsTagline';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
+import { CitationList } from '@/components/common/CitationList';
 import {
   useOrchestrator,
   useOrchestratorPatientId,
@@ -474,14 +475,12 @@ export default function SlmExplainScreen() {
             </View>
 
             {proposal.citations.length > 0 && (
-              <View style={styles.citationsSection}>
-                <Text style={styles.sectionTitle}>Clinical Citations</Text>
-                {proposal.citations.map((c) => (
-                  <Text key={c} style={styles.citation}>
-                    [{c}]
-                  </Text>
-                ))}
-              </View>
+              <CitationList
+                sources={proposal.citations.map((c) => ({ label: c }))}
+                collapsible
+                defaultExpanded
+                compact
+              />
             )}
 
             {proposal.clarifyingQuestion && (

@@ -56,6 +56,7 @@ import {
   type RetrievedCitation,
 } from '@/clinical-evidence/retrieval-helper';
 import { formatAnswerWithCollapsedSources } from '@/clinical-evidence/citation-display';
+import { CitationList, citationsToSources } from '@/components/common/CitationList';
 import { runSlmCompletion } from '@/services/carePlan/careSlmAdapter';
 import { buildCompactCarePlanSystemContext } from '@/services/carePlan/contextAssembler';
 
@@ -67,6 +68,8 @@ type ChatMessage = {
   text: string;
   status: 'streaming' | 'done' | 'error';
   hidden?: boolean;
+  /** Sources for assistant messages (for display) */
+  sources?: { label: string; count?: number }[];
 };
 
 export type CarePlanAskLaunch = {
@@ -441,10 +444,11 @@ export function CarePlanAskChat({
         const cleaned = stripControlTokens(raw).answer;
         const collapsed = formatAnswerWithCollapsedSources(cleaned, mergedCitations);
         const display = collapsed.displayText || cleaned || 'No response.';
+        const sources = citationsToSources(mergedCitations);
         historyRef.current.push({ role: 'assistant', content: display });
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId ? { ...m, text: display, status: 'done' } : m,
+            m.id === assistantId ? { ...m, text: display, status: 'done', sources } : m,
           ),
         );
         setStatusLine(currentModelId ? `Complete · ${currentModelId}` : 'Complete');
@@ -959,7 +963,18 @@ export function CarePlanAskChat({
                   {msg.role === 'user' ? 'You' : 'Concierge'}
                 </Text>
                 {msg.role === 'assistant' && msg.status === 'done' ? (
-                  <MarkdownRenderer size="normal">{msg.text || '…'}</MarkdownRenderer>
+                  <>
+                    <MarkdownRenderer size="normal">{msg.text || '…'}</MarkdownRenderer>
+                    {msg.sources && msg.sources.length > 0 ? (
+                      <CitationList
+                        sources={msg.sources}
+                        collapsible
+                        defaultExpanded={false}
+                        compact
+                        maxItems={5}
+                      />
+                    ) : null}
+                  </>
                 ) : (
                   <Text
                     style={[

@@ -30,6 +30,7 @@ import {
 
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { AppTheme } from '@/constants/theme';
+import { CitationList } from '@/components/common/CitationList';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
@@ -882,27 +883,11 @@ export function SlmInsightSheet({
           ) : null}
 
           {phase === 'done' && sourceLabels.length > 0 ? (
-            <View style={styles.sourcesBlock}>
-              <Pressable
-                style={styles.sourcesToggle}
-                onPress={() => setSourcesOpen((v) => !v)}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: sourcesOpen }}
-                accessibilityLabel={`Sources, ${sourceLabels.length}`}
-              >
-                <Text style={styles.sourcesToggleText}>
-                  Sources ({sourceLabels.length})
-                </Text>
-                <Text style={styles.sourcesChevron}>{sourcesOpen ? '▾' : '▸'}</Text>
-              </Pressable>
-              {sourcesOpen
-                ? sourceLabels.map((label) => (
-                    <Text key={label} style={styles.sourceRow}>
-                      {'\u2022'} {label}
-                    </Text>
-                  ))
-                : null}
-            </View>
+            <CitationList
+              sources={sourceLabels.map((label) => ({ label }))}
+              collapsible
+              defaultExpanded={false}
+            />
           ) : null}
 
           {phase === 'done' || phase === 'error' ? (

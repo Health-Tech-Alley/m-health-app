@@ -33,17 +33,30 @@ export function sectionChunkKnowledge(chunk: KnowledgeChunk): KnowledgeChunk[] {
     return [chunk];
   }
 
-  return children.map((child) => ({
-    ...chunk,
-    chunkId: child.chunkId,
-    text: child.text,
-    lengthTier: child.lengthTier,
-    sectionHeading: child.sectionHeading ?? chunk.sectionHeading,
-    metadataJson: JSON.stringify({
-      parentDocId: child.parentDocId,
-      sectionHeading: child.sectionHeading,
-    }),
-  }));
+  return children.map((child) => {
+    // Merge (not replace) metadata so section children keep pmid / medKey /
+    // source fields used by the evidence graph and citation rendering.
+    let parentMeta: Record<string, unknown> = {};
+    if (chunk.metadataJson) {
+      try {
+        parentMeta = JSON.parse(chunk.metadataJson) as Record<string, unknown>;
+      } catch {
+        parentMeta = {};
+      }
+    }
+    return {
+      ...chunk,
+      chunkId: child.chunkId,
+      text: child.text,
+      lengthTier: child.lengthTier,
+      sectionHeading: child.sectionHeading ?? chunk.sectionHeading,
+      metadataJson: JSON.stringify({
+        ...parentMeta,
+        parentDocId: child.parentDocId,
+        sectionHeading: child.sectionHeading,
+      }),
+    };
+  });
 }
 
 /**

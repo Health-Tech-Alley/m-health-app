@@ -246,17 +246,103 @@ class BertTokenizer {
  *
  * planning/35 §4.
  */
+type TensorInfo = { name: string; dataType: string; shape: number[] };
+type TfliteModelHandle = {
+  inputs: TensorInfo[];
+  outputs: TensorInfo[];
+  run: (input: ArrayBuffer[]) => Promise<ArrayBuffer[]>;
+  runSync?: (input: ArrayBuffer[]) => ArrayBuffer[];
+};
+
+type IntPackMode = 'i64_dataview' | 'i64_bigint' | 'i32';
+
+/** Write signed ints as little-endian int64 without relying on BigInt64Array bridges. */
+function packInt64LE(values: number[]): ArrayBuffer {
+  const bytes = new Uint8Array(values.length * 8);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i] | 0;
+    view.setUint32(i * 8, v >>> 0, true);
+    view.setInt32(i * 8 + 4, v < 0 ? -1 : 0, true);
+  }
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+function packInt64BigInt(values: number[]): ArrayBuffer {
+  const buf = new ArrayBuffer(values.length * 8);
+  const view = new BigInt64Array(buf);
+  for (let i = 0; i < values.length; i++) view[i] = BigInt(values[i] | 0);
+  return buf;
+}
+
+function packInt32(values: number[]): ArrayBuffer {
+  const a = new Int32Array(values.length);
+  for (let i = 0; i < values.length; i++) a[i] = values[i] | 0;
+  return a.buffer.slice(a.byteOffset, a.byteOffset + a.byteLength);
+}
+
+function elementCount(shape: number[]): number {
+  let n = 1;
+  for (const d of shape) {
+    if (typeof d === 'number' && d > 0) n *= d;
+  }
+  return Math.max(n, 1);
+}
+
+function padTo(arr: number[], len: number, pad: number): number[] {
+  const out = arr.slice(0, len);
+  while (out.length < len) out.push(pad);
+  return out;
+}
+
+function valuesForTensor(
+  tensor: TensorInfo,
+  ids: number[],
+  mask: number[],
+): number[] {
+  const n = elementCount(tensor.shape);
+  const name = (tensor.name || '').toLowerCase();
+  const src = name.includes('mask') ? mask : ids;
+  return padTo(src, n, 0);
+}
+
+function packTensorValues(
+  values: number[],
+  dataType: string,
+  mode: IntPackMode,
+): ArrayBuffer {
+  const dtype = (dataType || 'int64').toLowerCase();
+  if (mode === 'i32' || (dtype.includes('32') && !dtype.includes('64'))) {
+    return packInt32(values);
+  }
+  if (mode === 'i64_bigint') return packInt64BigInt(values);
+  return packInt64LE(values);
+}
+
+function parseOutputVector(buf: ArrayBuffer, dim: number): number[] {
+  const raw = new Float32Array(buf);
+  const vector =
+    raw.length >= dim ? Array.from(raw.slice(0, dim)) : Array.from(raw);
+  const norm = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
+  if (norm === 0) return vector;
+  return vector.map((v) => v / norm);
+}
+
 export class TfliteEmbedder implements Embedder {
   readonly dimensions = 768;
 
-  private interpreter: unknown = null;
+  private interpreter: TfliteModelHandle | null = null;
   private tokenizer: BertTokenizer | null = null;
   private loaded = false;
   private loadPromise: Promise<void> | null = null;
   private lastLoadError: string | null = null;
+  /** Packing mode proven by load-time probe. */
+  private packMode: IntPackMode = 'i64_dataview';
+  private modelLabel = 'unknown';
 
   /**
    * Load the TFLite model and tokenizer.
+   * Only marks ready after a successful native run() probe.
    */
   async load(modelPath?: string, tokenizerDir?: string): Promise<void> {
     if (this.loaded) return;
@@ -275,14 +361,52 @@ export class TfliteEmbedder implements Embedder {
     return this.lastLoadError;
   }
 
-  private logModelIO(): void {
-    const model = this.interpreter as {
-      inputs?: unknown;
-      outputs?: unknown;
-    } | null;
-    if (!model) return;
-    console.log('[TfliteEmbedder] Inputs:', model.inputs);
-    console.log('[TfliteEmbedder] Outputs:', model.outputs);
+  private async runModel(
+    model: TfliteModelHandle,
+    buffers: ArrayBuffer[],
+  ): Promise<ArrayBuffer[]> {
+    if (typeof model.runSync === 'function') {
+      try {
+        return model.runSync(buffers);
+      } catch {
+        /* fall through to async run */
+      }
+    }
+    return model.run(buffers);
+  }
+
+  private async probeRun(
+    model: TfliteModelHandle,
+    tokenizer: BertTokenizer,
+  ): Promise<IntPackMode> {
+    const { inputIds, attentionMask } = tokenizer.encode('hello world');
+    const modes: IntPackMode[] = ['i64_dataview', 'i64_bigint', 'i32'];
+    const errors: string[] = [];
+
+    for (const mode of modes) {
+      try {
+        // Skip i32 packing when tensors are int64-sized — wrong byte length.
+        const anyI64 = model.inputs.some((t) =>
+          (t.dataType || '').toLowerCase().includes('64'),
+        );
+        if (mode === 'i32' && anyI64) continue;
+
+        const buffers = model.inputs.map((tensor) => {
+          const values = valuesForTensor(tensor, inputIds, attentionMask);
+          return packTensorValues(values, tensor.dataType, mode);
+        });
+        const outputs = await this.runModel(model, buffers);
+        if (!outputs?.[0]) throw new Error('empty output');
+        const vec = parseOutputVector(outputs[0], this.dimensions);
+        if (vec.length < 8) throw new Error(`short output ${vec.length}`);
+        console.log(`[TfliteEmbedder] Probe OK packMode=${mode}`);
+        return mode;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`${mode}: ${msg}`);
+      }
+    }
+    throw new Error(`probe failed (${errors.join(' | ')})`);
   }
 
   private async _load(modelPath?: string, tokenizerDir?: string): Promise<void> {
@@ -296,15 +420,16 @@ export class TfliteEmbedder implements Embedder {
         loadTensorflowModel: (
           source: number | string,
           delegates?: readonly string[],
-        ) => Promise<unknown>;
+        ) => Promise<TfliteModelHandle>;
       };
 
       type Candidate = { label: string; source: number | string };
+      // Prefer FP32 first — weight-only INT8 has failed invoke on some iOS builds.
       const candidates: Candidate[] = modelPath
         ? [{ label: 'custom', source: modelPath }]
         : [
-            { label: 'int8', source: leafIrInt8Asset() },
             { label: 'fp32', source: leafIrFp32Asset() },
+            { label: 'int8', source: leafIrInt8Asset() },
           ];
 
       const errors: string[] = [];
@@ -315,15 +440,19 @@ export class TfliteEmbedder implements Embedder {
             console.log(
               `[TfliteEmbedder] Trying ${cand.label} delegates=[${delLabel}]…`,
             );
-            this.interpreter = await loadTensorflowModel(cand.source, [
-              ...delegates,
-            ]);
+            const model = await loadTensorflowModel(cand.source, [...delegates]);
+            console.log('[TfliteEmbedder] Inputs:', model.inputs);
+            console.log('[TfliteEmbedder] Outputs:', model.outputs);
+
+            const mode = await this.probeRun(model, this.tokenizer);
+            this.interpreter = model;
+            this.packMode = mode;
+            this.modelLabel = `${cand.label}/${delLabel}`;
             this.loaded = true;
             console.log(
-              `[TfliteEmbedder] Loaded leaf-ir ${cand.label} (${delLabel}) ` +
-                `768-d in ${Date.now() - t0}ms`,
+              `[TfliteEmbedder] Ready leaf-ir ${this.modelLabel} ` +
+                `pack=${mode} 768-d in ${Date.now() - t0}ms`,
             );
-            this.logModelIO();
             return;
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -332,12 +461,14 @@ export class TfliteEmbedder implements Embedder {
               `[TfliteEmbedder] ${cand.label}/${delLabel} failed:`,
               msg,
             );
+            this.interpreter = null;
+            this.loaded = false;
           }
         }
       }
 
       throw new Error(
-        `All leaf-ir TFLite load attempts failed:\n${errors.join('\n')}`,
+        `All leaf-ir TFLite load+probe attempts failed:\n${errors.join('\n')}`,
       );
     } catch (err) {
       this.loaded = false;
@@ -347,6 +478,9 @@ export class TfliteEmbedder implements Embedder {
       throw err instanceof Error ? err : new Error(String(err));
     }
   }
+
+  /** Serialize native run() — concurrent invokes corrupt shared interpreter state. */
+  private runChain: Promise<unknown> = Promise.resolve();
 
   /**
    * Embed text into a 768-d vector.
@@ -359,68 +493,29 @@ export class TfliteEmbedder implements Embedder {
       throw new Error('TfliteEmbedder not loaded');
     }
 
-    const input = opts?.isQuery ? QUERY_PREFIX + text : text;
-    const { inputIds, attentionMask } = this.tokenizer.encode(input);
+    const run = async (): Promise<number[]> => {
+      const input = opts?.isQuery ? QUERY_PREFIX + text : text;
+      const { inputIds, attentionMask } = this.tokenizer!.encode(input);
+      const model = this.interpreter!;
 
-    const model = this.interpreter as {
-      inputs: Array<{ name: string; dataType: string; shape: number[] }>;
-      outputs: Array<{ name: string; dataType: string; shape: number[] }>;
-      run: (input: ArrayBuffer[]) => Promise<ArrayBuffer[]>;
-    };
+      const buffers = model.inputs.map((tensor) => {
+        const values = valuesForTensor(tensor, inputIds, attentionMask);
+        return packTensorValues(values, tensor.dataType, this.packMode);
+      });
 
-    // Leaf-ir expects int64 input_ids + attention_mask shaped [1, 512].
-    const seqLen = Math.max(
-      inputIds.length,
-      ...model.inputs.map((t) => {
-        const last = t.shape?.[t.shape.length - 1];
-        return typeof last === 'number' && last > 0 ? last : 0;
-      }),
-      1,
-    );
-
-    const padTo = (arr: number[], len: number, pad: number) => {
-      const out = arr.slice(0, len);
-      while (out.length < len) out.push(pad);
-      return out;
-    };
-    const idsPadded = padTo(inputIds, seqLen, 0);
-    const maskPadded = padTo(attentionMask, seqLen, 0);
-
-    const toTensorBuffer = (values: number[], dataType: string): ArrayBuffer => {
-      const dtype = (dataType || 'int64').toLowerCase();
-      const n = values.length;
-      if (dtype.includes('32') && !dtype.includes('64')) {
-        const a = new Int32Array(values);
-        return a.buffer.slice(a.byteOffset, a.byteOffset + a.byteLength);
+      const outputs = await this.runModel(model, buffers);
+      if (!outputs?.[0]) {
+        throw new Error('TfliteEmbedder: empty model output');
       }
-      // Device log: leaf-ir input_ids / attention_mask are int64
-      const buf = new ArrayBuffer(n * 8);
-      const view = new BigInt64Array(buf);
-      for (let i = 0; i < n; i++) view[i] = BigInt(values[i] | 0);
-      return buf;
+      return parseOutputVector(outputs[0], this.dimensions);
     };
 
-    const buffers: ArrayBuffer[] = model.inputs.map((tensor) => {
-      const n = tensor.name.toLowerCase();
-      const values = n.includes('mask') ? maskPadded : idsPadded;
-      return toTensorBuffer(values, tensor.dataType);
-    });
-
-    const outputs = await model.run(buffers);
-    if (!outputs?.[0]) {
-      throw new Error('TfliteEmbedder: empty model output');
-    }
-    const rawOutput = new Float32Array(outputs[0]);
-    // sentence_embedding may be [1, 768] — take first 768 floats
-    const dim = this.dimensions;
-    const vector =
-      rawOutput.length >= dim
-        ? Array.from(rawOutput.slice(0, dim))
-        : Array.from(rawOutput);
-
-    const norm = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
-    if (norm === 0) return vector;
-    return vector.map((v) => v / norm);
+    const next = this.runChain.then(run, run);
+    this.runChain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }
 
   /**

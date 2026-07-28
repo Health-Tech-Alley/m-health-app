@@ -15,6 +15,7 @@ import {
   type ChatGenerationDecision,
   type RetrievedCitation,
 } from '@/clinical-evidence';
+import { fetchOnDemandMedToOverlay } from '@/clinical-evidence/pack';
 import { CONCIERGE_GENERATION_DEEP } from '@/constants/concierge';
 import type { GenerateOptions } from '@/inference/inference-provider';
 import {
@@ -46,6 +47,36 @@ const MED_SAFETY_TIMEOUT_MS = 4000;
 
 const CITE_INSTRUCTION =
   'Ground your answer in the clinical knowledge above where relevant. After claims drawn from a chunk, append that chunk\'s exact tag (e.g. [PubMed #1], [Drug Label #2], [Care Plan #3]) — include the # number.';
+
+/**
+ * NLU-mentioned meds that are NOT on the patient's chart — the global pack
+ * only carries chart meds, so ad-hoc drugs are pinned on demand. Exported
+ * for tests.
+ */
+export function selectOnDemandMedCandidates(
+  mentionedMeds: string[],
+  chartMeds: string[],
+  max = 2,
+): string[] {
+  const chartKeys = chartMeds.map((m) => m.trim().toLowerCase()).filter(Boolean);
+  // Chart coverage on token boundaries: 'baclofen' is covered by chart entry
+  // 'baclofen 10mg', but 'insulin lispro' is NOT covered by 'insulin glargine'.
+  const onChart = (key: string) =>
+    chartKeys.some(
+      (c) => c === key || c.startsWith(`${key} `) || key.startsWith(`${c} `),
+    );
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const m of mentionedMeds) {
+    const name = m.trim();
+    const key = name.toLowerCase();
+    if (!key || onChart(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+    if (out.length >= max) break;
+  }
+  return out;
+}
 
 export type PrepareSlmTurnOptions = {
   userText: string;
@@ -274,8 +305,49 @@ export async function prepareSlmTurn(
     console.warn(`[${tag}] Med safety context skipped:`, medErr);
   }
 
+  // Ad-hoc (non-chart) meds mentioned this turn: pin a DailyMed label into the
+  // patient overlay on demand so this turn — and future turns — can cite it.
+  // The global pack intentionally carries chart meds only.
+  let onDemandChunks: RetrievedCitation[] = [];
+  const onDemandPatientId = snapshot?.patient?.patientId;
+  const onDemandMeds = selectOnDemandMedCandidates(mentionedMeds, medNames);
+  if (onDemandPatientId && onDemandMeds.length > 0) {
+    const pinned = await Promise.all(
+      onDemandMeds.map(async (name) => {
+        try {
+          const chunks = await Promise.race([
+            fetchOnDemandMedToOverlay(onDemandPatientId, name),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 6_000)),
+          ]);
+          return chunks ?? [];
+        } catch {
+          return [];
+        }
+      }),
+    );
+    onDemandChunks = pinned
+      .flat()
+      .map((c) =>
+        chunkToCitation({
+          docId: c.chunkId,
+          source: String(c.source),
+          text: c.text,
+          patientId: onDemandPatientId,
+        }),
+      );
+    if (onDemandChunks.length > 0) {
+      console.log(
+        `[${tag}] On-demand med labels pinned for ${onDemandMeds.join(', ')} ` +
+          `(${onDemandChunks.length} chunk(s))`,
+      );
+    }
+  }
+
   let userContent = trimmed;
-  let citationChunks: RetrievedCitation[] = [...(options.extraCitations ?? [])];
+  let citationChunks: RetrievedCitation[] = [
+    ...(options.extraCitations ?? []),
+    ...onDemandChunks,
+  ];
 
   if (nluPacket && nluPacket.chunks.length > 0) {
     const entityHint = formatEntityHint(nluPacket.entities);

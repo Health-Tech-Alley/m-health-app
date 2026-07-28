@@ -32,7 +32,6 @@ import { normalizeDrugName } from './rxnorm-client';
 import { fetchDrugLabel } from './dailymed-client';
 import { fetchAdverseEvents, fetchDrugRecalls } from './openfda-client';
 import { searchOrphanet, orphanetToChunks } from './orphanet-client';
-import { lookupUmls, umlsToChunks } from './umls-client';
 import { fetchCdcPlaces, cdcToChunks } from './cdc-places-client';
 import { RateLimiter } from './rate-limiter';
 import { sectionChunkKnowledgeBatch } from './section-chunk-helper';
@@ -126,7 +125,7 @@ function logEnrichment(
   patientId: string,
   field: 'condition' | 'medication' | 'goal' | 'threshold',
   resourceId: string,
-  source: 'pubmed' | 'medlineplus' | 'rxnorm' | 'dailymed' | 'openfda' | 'orphanet' | 'umls' | 'cdc-places' | 'hedis',
+  source: 'pubmed' | 'medlineplus' | 'rxnorm' | 'dailymed' | 'openfda' | 'orphanet' | 'cdc-places',
   action: 'bundled' | 'suggested' | 'supplemented_live',
   deidentifiedQuery: string,
   resultCount: number,
@@ -167,17 +166,16 @@ function selectConditionsForBundling(patientId: string): PatientCondition[] {
   return [...selected.values()];
 }
 
-/**
- * Bundle condition packs for a patient: PubMed abstracts + MedlinePlus topics
- * for each confirmed condition. Fire-and-forget — caller does not await.
- *
- * Per planning/32 §10.2, this also calls UMLS (ICD-10 → MeSH). UMLS runs first
- * so the returned MeSH term can expand the PubMed query; remaining sources for
- * a condition run in parallel.
- *
- * When `manageLifecycle` is false (unified runner), status is left to the caller
- * so medication packs can keep "in_flight" until everything finishes.
- */
+  /**
+   * Bundle condition packs for a patient: PubMed abstracts + MedlinePlus topics
+   * for each confirmed condition. Fire-and-forget — caller does not await.
+   *
+   * PubMed queries use condition name (caregiver-focused). UMLS/MeSH expansion
+   * and HEDIS measure packs were removed from the product path.
+   *
+   * When `manageLifecycle` is false (unified runner), status is left to the caller
+   * so medication packs can keep "in_flight" until everything finishes.
+   */
 export async function bundleConditionPack(
   patientId: string,
   options: BundlePackOptions = {},
@@ -227,38 +225,13 @@ export async function bundleConditionPack(
       const icdCode = condition.icd10;
       report(`Conditions · ${conditionName}`);
 
-      // --- UMLS first (feeds MeSH into PubMed) ----------------------------
-      let meshTerm: string | undefined;
-      if (icdCode) {
-        try {
-          const t0 = Date.now();
-          const mapping = await lookupUmls({ code: icdCode, vocabulary: 'ICD10' });
-          if (mapping) {
-            const tagged = umlsToChunks(mapping).map((c) => ({
-              ...c,
-              conditions: conditionName,
-            }));
-            totalChunks += insertWithSectionChunking(patientId, tagged);
-            logEnrichment(
-              patientId, 'condition', condition.conditionId, 'umls', 'bundled',
-              `ICD10:${icdCode}`, tagged.length, Date.now() - t0,
-              tagged.map((c) => c.chunkId),
-            );
-            meshTerm = mapping.related.find((r) => r.vocabulary === 'MeSH')?.term;
-          }
-        } catch (err) {
-          console.error(`[condition-bundler] UMLS failed for ${icdCode}:`, err);
-        }
-      }
-
       // PubMed + MedlinePlus + Orphanet in parallel (separate hosts / fixtures).
       const parallel: Promise<void>[] = [];
 
       parallel.push((async () => {
         try {
           const baseQuery = buildPubMedQuery(conditionName, { caregiverFocus: true });
-          const expandedQuery = meshTerm ? `${baseQuery} (${meshTerm}[MeSH Terms])` : baseQuery;
-          const deidQuery = deidentifyQuery(expandedQuery, pii);
+          const deidQuery = deidentifyQuery(baseQuery, pii);
           const t0 = Date.now();
           await pubmedLimiter.throttle();
           const searchResult = await searchPubMed({ query: deidQuery, retmax: 5 });
@@ -425,18 +398,6 @@ export async function bundleSdohPack(
     chunksAdded: chunks,
   });
   return chunks;
-}
-
-/**
- * HEDIS measure pack — intentionally a no-op.
- *
- * Auto-inserting ambulatory HEDIS goals/evidence polluted Care UI, SLM
- * explain prompts, and BM25. Disability-first care gaps are handled by the
- * `detect-care-gaps` skill. Kept as an exported stub so call sites can be
- * removed gradually without import breaks.
- */
-export async function bundleMeasurePack(_patientId: string): Promise<void> {
-  // no-op
 }
 
 /**

@@ -1,6 +1,5 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,13 +7,17 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
+import { SlmDownloadCard } from '@/components/models/SlmDownloadCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useSettings } from '@/contexts/settings-context';
 import { useTheme } from '@/hooks/use-theme';
-import type { ModelItem, ModelsState } from './types';
+import { useModelDownloadQueue } from '@/hooks/useModelDownloadQueue';
+import { MODEL_CATALOG } from '@/inference/model-catalog';
+import type { ModelsState } from './types';
 
 type ModelsViewProps = {
   state: ModelsState;
@@ -22,137 +25,30 @@ type ModelsViewProps = {
   controller: ReturnType<typeof import('./models-controller').createModelsController>;
 };
 
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
-}
-
-function ModelRow({
-  item,
-  onDownload,
-  onDelete,
-  onCancel,
-}: {
-  item: ModelItem;
-  onDownload: () => void;
-  onDelete: () => void;
-  onCancel: () => void;
-}) {
-  const theme = useTheme();
-  const progress =
-    item.downloadTotal > 0
-      ? Math.round((item.downloadProgress / item.downloadTotal) * 100)
-      : 0;
-
-  return (
-    <ThemedView type="backgroundElement" style={styles.modelRow}>
-      <View style={styles.modelInfo}>
-        <ThemedText type="smallBold">{item.displayName}</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          {item.file}
-        </ThemedText>
-        {item.status === 'error' && item.error && (
-          <ThemedText type="small" style={{ color: '#d9534f' }}>
-            {item.error}
-          </ThemedText>
-        )}
-      </View>
-
-      <View style={styles.modelActions}>
-        {item.status === 'not-installed' && (
-          <Pressable
-            onPress={onDownload}
-            style={[styles.actionButton, { backgroundColor: '#3c87f7' }]}>
-            <ThemedText style={{ color: '#ffffff', fontWeight: '600' }}>Download</ThemedText>
-          </Pressable>
-        )}
-
-        {item.status === 'downloading' && (
-          <View style={styles.progressContainer}>
-            <View style={styles.progressBarOuter}>
-              <View
-                style={[
-                  styles.progressBarInner,
-                  {
-                    width: `${progress}%`,
-                    backgroundColor: '#3c87f7',
-                  },
-                ]}
-              />
-            </View>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.progressText}>
-              {progress}% ({formatBytes(item.downloadProgress)} / {formatBytes(item.downloadTotal)})
-            </ThemedText>
-            <Pressable
-              onPress={onCancel}
-              style={[styles.actionButton, { backgroundColor: '#d9534f' }]}>
-              <ThemedText style={{ color: '#ffffff', fontWeight: '600' }}>Cancel</ThemedText>
-            </Pressable>
-          </View>
-        )}
-
-        {item.status === 'installed' && (
-          <Pressable
-            onPress={() => {
-              Alert.alert('Delete Model', `Delete ${item.displayName}?`, [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Delete', style: 'destructive', onPress: onDelete },
-              ]);
-            }}
-            style={[styles.actionButton, { backgroundColor: theme.backgroundSelected }]}>
-            <ThemedText type="small">Delete</ThemedText>
-          </Pressable>
-        )}
-
-        {item.status === 'error' && (
-          <Pressable
-            onPress={onDownload}
-            style={[styles.actionButton, { backgroundColor: '#3c87f7' }]}>
-            <ThemedText style={{ color: '#ffffff', fontWeight: '600' }}>Retry</ThemedText>
-          </Pressable>
-        )}
-      </View>
-    </ThemedView>
-  );
-}
-
 export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
   const theme = useTheme();
   const { settings, setDemoDefaultModelId } = useSettings();
-  const defaultModelId = settings.demoDefaultModelId ?? 'healthgpt-pro-4b';
+  const defaultModelId = settings.demoDefaultModelId ?? 'gemma-4-e2b';
   const [tokenInput, setTokenInput] = useState('');
   const [tokenSectionOpen, setTokenSectionOpen] = useState(false);
+  const queue = useModelDownloadQueue();
+
+  useEffect(() => {
+    const tag = 'models-screen-download';
+    if (queue.anyDownloading) {
+      void activateKeepAwakeAsync(tag).catch(() => undefined);
+    } else {
+      void deactivateKeepAwake(tag).catch(() => undefined);
+    }
+    return () => {
+      void deactivateKeepAwake(tag).catch(() => undefined);
+    };
+  }, [queue.anyDownloading]);
 
   const handleSaveToken = useCallback(async () => {
     const action = await controller.saveHfToken(tokenInput);
     dispatch(action);
   }, [controller, tokenInput, dispatch]);
-
-  const handleDownload = useCallback(
-    (modelId: string) => {
-      const action = controller.startDownload(modelId, state.hfToken || null);
-      dispatch(action);
-    },
-    [controller, state.hfToken, dispatch],
-  );
-
-  const handleDelete = useCallback(
-    (modelId: string) => {
-      const action = controller.removeModel(modelId);
-      dispatch(action);
-    },
-    [controller, dispatch],
-  );
-
-  const handleCancel = useCallback(
-    (modelId: string) => {
-      const action = controller.cancelDownload(modelId);
-      dispatch(action);
-    },
-    [controller, dispatch],
-  );
 
   return (
     <ThemedView style={styles.container}>
@@ -212,74 +108,37 @@ export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
             </ThemedView>
           )}
 
-          <View style={styles.modelsList}>
-            {state.items.map((item) => (
-              <ModelRow
-                key={item.id}
-                item={item}
-                onDownload={() => handleDownload(item.id)}
-                onDelete={() => handleDelete(item.id)}
-                onCancel={() => handleCancel(item.id)}
-              />
-            ))}
-          </View>
+          <SlmDownloadCard showDelete />
 
           <ThemedView type="backgroundElement" style={styles.defaultSection}>
-            <ThemedText type="smallBold">Default SLM Model</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.defaultHint}>
-              Auto-loaded when an assistant task (safety-note explain, custom-med
-              check) runs in Demo mode. Current: {defaultModelId}. Only installed
-              models are selectable.
+            <ThemedText type="smallBold">Default Concierge model</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Used when Demo mode auto-loads a model.
             </ThemedText>
-            <View style={styles.defaultActions}>
-              {state.items.map((item) => {
-                const isDefault = defaultModelId === item.id;
-                const selectable = item.status === 'installed';
-                const active = isDefault && selectable;
+            <View style={styles.defaultRow}>
+              {MODEL_CATALOG.map((m) => {
+                const active = defaultModelId === m.id;
                 return (
                   <Pressable
-                    key={item.id}
+                    key={m.id}
+                    onPress={() => setDemoDefaultModelId(m.id)}
                     style={[
                       styles.actionButton,
-                      styles.defaultButton,
-                      active && styles.defaultActiveButton,
-                      !selectable && styles.defaultDisabledButton,
-                    ]}
-                    disabled={!selectable}
-                    onPress={() => setDemoDefaultModelId(item.id)}>
+                      {
+                        backgroundColor: active ? '#3c87f7' : theme.backgroundSelected,
+                      },
+                    ]}>
                     <ThemedText
                       type="small"
-                      style={{
-                        color: active ? '#ffffff' : theme.text,
-                        fontWeight: '600',
-                      }}>
-                      {isDefault ? '✓ ' : ''}
-                      {item.displayName}
+                      style={active ? { color: '#fff', fontWeight: '600' } : undefined}>
+                      {active ? '✓ ' : ''}
+                      {m.displayName}
                     </ThemedText>
                   </Pressable>
                 );
               })}
             </View>
           </ThemedView>
-
-          <Pressable
-            onPress={() => {
-              Alert.alert(
-                'Clear All Models',
-                'Delete all downloaded models and partial downloads? This cannot be undone.',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Clear All',
-                    style: 'destructive',
-                    onPress: () => dispatch(controller.clearAllModels()),
-                  },
-                ],
-              );
-            }}
-            style={[styles.actionButton, styles.clearAllButton, { borderColor: '#d9534f' }]}>
-            <ThemedText style={{ color: '#d9534f', fontWeight: '600' }}>Clear All Models</ThemedText>
-          </Pressable>
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -287,26 +146,17 @@ export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-    maxWidth: MaxContentWidth,
-    alignSelf: 'center',
-    width: '100%',
-  },
-  scrollView: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  safeArea: { flex: 1 },
+  scrollView: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
+    padding: Spacing.three,
     gap: Spacing.three,
+    maxWidth: MaxContentWidth,
+    width: '100%',
+    alignSelf: 'center',
   },
-  title: {
-    marginBottom: Spacing.two,
-  },
+  title: { marginBottom: Spacing.two },
   tokenToggle: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -315,91 +165,30 @@ const styles = StyleSheet.create({
   },
   tokenSection: {
     padding: Spacing.three,
-    borderRadius: Spacing.two,
+    borderRadius: 12,
     gap: Spacing.two,
   },
-  tokenHint: {
-    marginBottom: Spacing.one,
-  },
-  tokenRow: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-    alignItems: 'center',
-  },
+  tokenHint: { marginBottom: Spacing.one },
+  tokenRow: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
   tokenInput: {
     flex: 1,
-    height: 40,
-    borderRadius: Spacing.two,
-    paddingHorizontal: Spacing.three,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     fontSize: 14,
-    borderWidth: StyleSheet.hairlineWidth,
   },
-  modelsList: {
-    gap: Spacing.two,
+  actionButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   defaultSection: {
     padding: Spacing.three,
-    borderRadius: Spacing.two,
+    borderRadius: 12,
     gap: Spacing.two,
   },
-  defaultHint: {
-    marginBottom: Spacing.one,
-  },
-  defaultActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  defaultButton: {
-    minWidth: 100,
-  },
-  defaultActiveButton: {
-    backgroundColor: '#3c87f7',
-  },
-  defaultDisabledButton: {
-    opacity: 0.45,
-  },
-  modelRow: {
-    padding: Spacing.three,
-    borderRadius: Spacing.two,
-    gap: Spacing.two,
-  },
-  modelInfo: {
-    gap: Spacing.half,
-  },
-  modelActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  actionButton: {
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.two,
-    minWidth: 80,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  clearAllButton: {
-    borderWidth: StyleSheet.hairlineWidth,
-    marginTop: Spacing.two,
-    alignSelf: 'center',
-  },
-  progressContainer: {
-    flex: 1,
-    gap: Spacing.one,
-  },
-  progressBarOuter: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#88888830',
-    overflow: 'hidden',
-  },
-  progressBarInner: {
-    height: '100%',
-    borderRadius: 4,
-  },
-  progressText: {
-    textAlign: 'center',
-  },
+  defaultRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
 });

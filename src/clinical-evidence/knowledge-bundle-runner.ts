@@ -1,31 +1,24 @@
 /**
  * Unified clinical knowledge bundle runner.
  *
- * Coordinates condition + medication + SDOH packs under a single lifecycle so
- * the UI does not flip to "complete" while DailyMed/OpenFDA are still running.
- * Owns bundle status + throttled snapshot refresh for progress bars.
- *
- * Skips network re-pull when the patient's clinical fingerprint is unchanged
- * and literature was bundled successfully within the last 24 hours (unless
- * `force: true`).
+ * Always the global on-device pack path: installs/updates the device-wide
+ * knowledge pack (union of ALL stored patient records) and seeds the
+ * per-patient curated overlay. The legacy multi-host live bundler is retired;
+ * switching profiles only swaps the overlay and checks for deltas.
  */
 
 import {
-  getActiveMedications,
+  getAllActiveMedications,
+  getAllConditions,
   getConditionsForPatient,
   getDatabase,
   getKnowledgeCacheStats,
   getBundleStatus,
   setBundlePending,
   setBundleStatus,
-  type BundleStatus,
 } from '@/data';
-import {
-  bundleConditionPack,
-  bundleMedicationPack,
-  bundleSdohPack,
-  type BundleProgressUpdate,
-} from './condition-bundler';
+import { type BundleProgressUpdate } from './condition-bundler';
+import { seedCuratedKnowledgePacks } from './curated-knowledge-packs';
 
 /** Fresh literature is reusable for one day when patient clinical inputs match. */
 export const KNOWLEDGE_BUNDLE_FRESHNESS_MS = 24 * 60 * 60 * 1000;
@@ -64,19 +57,26 @@ export type RunKnowledgeBundleOptions = {
   location?: string;
   /** Bypass freshness/fingerprint skip (developer re-download). */
   force?: boolean;
+  /**
+   * profile_switch — overlay swap only when pack is ready (never full reinstall).
+   * Other reasons may refresh med layers on a true union fingerprint delta.
+   */
+  reason?: 'profile_switch' | 'import' | 'med_change' | 'manual' | 'retry';
   /** Extra progress sink (e.g. developer settings local state). */
   onProgress?: (update: BundleProgressUpdate & { progress: number }) => void;
 };
 
 /**
  * Stable hash of the clinical inputs that drive condition/med/SDOH packs.
+ * Covers ALL stored patient records (union) to match pack inputs.
  * Exported for tests.
  */
 export function buildKnowledgeBundleFingerprint(
   patientId: string,
   location?: string,
 ): string {
-  const conditions = getConditionsForPatient(patientId)
+  void patientId; // Kept for API compatibility; fingerprint is record-union scoped.
+  const conditions = getAllConditions()
     .filter((c) => !c.needsReview)
     .map((c) =>
       [
@@ -87,7 +87,7 @@ export function buildKnowledgeBundleFingerprint(
     )
     .sort();
 
-  const meds = getActiveMedications(patientId)
+  const meds = getAllActiveMedications()
     .map((m) =>
       [
         m.name.trim().toLowerCase(),
@@ -128,17 +128,6 @@ function readBundleMeta(patientId: string): BundleMeta | null {
   } catch {
     return null;
   }
-}
-
-function writeBundleMeta(patientId: string, meta: BundleMeta): void {
-  const db = getDatabase();
-  const now = new Date().toISOString();
-  db.runSync(
-    `INSERT OR REPLACE INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?);`,
-    metaKey(patientId),
-    JSON.stringify(meta),
-    now,
-  );
 }
 
 /** Literature / remote evidence only (excludes care-plan narrative rows). */
@@ -200,202 +189,233 @@ export function shouldSkipKnowledgeBundle(
   return { skip: true, reason: 'fresh_unchanged', fingerprint };
 }
 
-function selectConditionCount(patientId: string): number {
-  const conditions = getConditionsForPatient(patientId).filter((c) => !c.needsReview);
-  const hasRoles = conditions.some((c) => Boolean(c.conditionRole));
-  if (!hasRoles) return Math.max(conditions.length, 0);
-  let n = 0;
-  if (conditions.some((c) => c.conditionRole === 'primary_diagnosis')) n += 1;
-  n += conditions.filter((c) => c.conditionRole === 'active_comorbidity').length;
-  return n;
+function markPatientPackReady(patientId: string, totalChunks: number): void {
+  setBundlePending(patientId, false);
+  const current = getBundleStatus(patientId);
+  if (
+    current.state === 'complete' &&
+    current.chunksAdded === totalChunks &&
+    current.progress === 1
+  ) {
+    return;
+  }
+  setBundleStatus(patientId, {
+    state: 'complete',
+    chunksAdded: totalChunks,
+    progress: 1,
+    phase: 'Clinical knowledge pack ready',
+  });
+  refreshUi(patientId);
 }
 
-function estimateTotalSteps(patientId: string): number {
-  const conditionSteps = selectConditionCount(patientId) + 1; // + curated
-  const medSteps = Math.max(getActiveMedications(patientId).length, 1);
-  const sdohSteps = 1;
-  return conditionSteps + medSteps + sdohSteps;
+/** Primary path: global pack (union of all stored records) + patient overlay. */
+async function runPackAsBundle(
+  patientId: string,
+  options: RunKnowledgeBundleOptions,
+): Promise<KnowledgeBundleResult> {
+  const overlayConditions = getConditionsForPatient(patientId)
+    .filter((c) => !c.needsReview)
+    .map((c) => c.name)
+    .filter(Boolean);
+
+  // Pack content inputs cover EVERY stored patient record so switching
+  // profiles never re-downloads shared content — only true deltas install.
+  const conditions = [
+    ...new Set(
+      getAllConditions()
+        .filter((c) => !c.needsReview)
+        .map((c) => c.name)
+        .filter(Boolean),
+    ),
+  ];
+  const medications = getAllActiveMedications()
+    .map((m) => m.name)
+    .filter(Boolean);
+
+  const {
+    runKnowledgePackInstall,
+    isPackReady,
+    countPackChunks,
+    getPackState,
+    updatePackState,
+    MED_SCOPED_PACK_LAYER_IDS,
+  } = await import('@/clinical-evidence/pack');
+  const { buildMedicationSeedsFingerprint } = await import(
+    '@/clinical-evidence/pack/pack-seeds'
+  );
+
+  const medFp = buildMedicationSeedsFingerprint(medications);
+  const packState = getPackState();
+  const priorFp = packState.medicationsFingerprint ?? null;
+  const medsUntracked = priorFp == null;
+  const medsChanged = priorFp != null && priorFp !== medFp;
+  const packReady = isPackReady();
+  const isProfileSwitch = options.reason === 'profile_switch';
+  const medLayerChunks = packState.layers.meds_base?.chunkCount ?? 0;
+  // Med-layer delta: union fingerprint changed, or first track with chart meds
+  // but an empty meds_base (install ran before any patient meds were present).
+  const needsMedLayerDelta =
+    packReady &&
+    !options.force &&
+    (medsChanged || (medsUntracked && medications.length > 0 && medLayerChunks === 0));
+
+  // Patient overlay: curated CPG/gaps for the current patient only.
+  try {
+    seedCuratedKnowledgePacks(patientId, overlayConditions);
+  } catch {
+    /* non-fatal */
+  }
+
+  // Healthy pack shortcuts — never a full graph/vector reinstall.
+  if (packReady && !options.force) {
+    const total = countPackChunks();
+
+    // Profile switch: overlay swap only. Stamp fingerprint bookkeeping if
+    // missing so the next switch stays silent (do not re-download).
+    if (isProfileSwitch) {
+      if (medsUntracked) {
+        updatePackState({ medicationsFingerprint: medFp });
+      }
+      markPatientPackReady(patientId, total);
+      return { chunksAdded: total, errors: [], skipped: true };
+    }
+
+    // Known fingerprint, unchanged union → silent.
+    if (!medsChanged && !medsUntracked) {
+      markPatientPackReady(patientId, total);
+      return { chunksAdded: total, errors: [], skipped: true };
+    }
+
+    // First fingerprint after an install that already has med content (or no
+    // chart meds at all): stamp only. If chart meds exist but meds_base is
+    // empty, fall through so the med layer actually downloads once.
+    if (medsUntracked && (medications.length === 0 || medLayerChunks > 0)) {
+      updatePackState({ medicationsFingerprint: medFp });
+      markPatientPackReady(patientId, total);
+      return { chunksAdded: total, errors: [], skipped: true };
+    }
+    // else: needsMedLayerDelta → med-layer refresh below.
+  }
+
+  // Real install / med-layer delta below — show visible progress.
+  const medLayerOnly = needsMedLayerDelta;
+  setBundlePending(patientId, true);
+  setBundleStatus(patientId, {
+    state: 'in_flight',
+    chunksAdded: medLayerOnly ? countPackChunks() : 0,
+    progress: medLayerOnly ? 0.15 : 0,
+    phase: medLayerOnly
+      ? 'Updating medication clinical knowledge…'
+      : 'Installing on-device clinical knowledge pack…',
+  });
+  refreshUi(patientId);
+
+  try {
+    const result = await runKnowledgePackInstall({
+      conditions,
+      medications,
+      location: options.location,
+      // Full force only for explicit re-download. Med deltas force only the
+      // listed content layers; embeds stay incremental (missing vectors only).
+      force: options.force === true,
+      forceContentLayers: medLayerOnly,
+      layerIds: medLayerOnly ? [...MED_SCOPED_PACK_LAYER_IDS] : undefined,
+      partialUpdate: medLayerOnly,
+      onProgress: (ui) => {
+        setBundleStatus(patientId, {
+          state: 'in_flight',
+          chunksAdded: ui.chunksInstalled,
+          progress: medLayerOnly ? Math.max(0.15, ui.overall) : ui.overall,
+          phase:
+            ui.sections.find((s) => s.state === 'running')?.label ??
+            (medLayerOnly
+              ? 'Updating medication clinical knowledge…'
+              : 'Installing clinical knowledge…'),
+          completedSteps: ui.sections.filter((s) => s.state === 'done').length,
+          totalSteps: ui.sections.length,
+        });
+        options.onProgress?.({
+          phase:
+            ui.sections.find((s) => s.state === 'running')?.label ??
+            'Installing clinical knowledge…',
+          completedSteps: ui.sections.filter((s) => s.state === 'done').length,
+          totalSteps: ui.sections.length,
+          chunksAdded: ui.chunksInstalled,
+          progress: ui.overall,
+        });
+        refreshUi(patientId);
+      },
+    });
+
+    updatePackState({ medicationsFingerprint: medFp });
+
+    setBundleStatus(patientId, {
+      state: result.ready ? 'complete' : 'failed',
+      chunksAdded: result.chunksInstalled,
+      progress: result.ready ? 1 : 0.5,
+      phase: result.ready
+        ? medLayerOnly
+          ? 'Medication clinical knowledge updated'
+          : 'Clinical knowledge pack ready'
+        : result.errors.join('; ') || 'Pack install incomplete',
+      error: result.ready ? undefined : result.errors.join('; '),
+    });
+    setBundlePending(patientId, false);
+    refreshUi(patientId);
+    return {
+      chunksAdded: result.chunksInstalled,
+      errors: result.errors,
+      skipped: false,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    setBundleStatus(patientId, {
+      state: 'failed',
+      chunksAdded: 0,
+      progress: 0,
+      phase: 'Clinical knowledge pack failed',
+      error: msg,
+    });
+    setBundlePending(patientId, false);
+    refreshUi(patientId);
+    return { chunksAdded: 0, errors: [msg], skipped: false };
+  }
+}
+
+const medSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Debounced refresh after med add/edit/remove (or FHIR med list change).
+ * Safe to fire-and-forget from UI / orchestrator tools.
+ */
+export function scheduleMedicationKnowledgeSync(patientId: string): void {
+  const id = patientId.trim();
+  if (!id) return;
+  const prev = medSyncTimers.get(id);
+  if (prev) clearTimeout(prev);
+  medSyncTimers.set(
+    id,
+    setTimeout(() => {
+      medSyncTimers.delete(id);
+      void runKnowledgeBundle(id, { reason: 'med_change' }).catch((err) => {
+        console.warn(
+          '[knowledge-bundle] Medication knowledge sync failed:',
+          err instanceof Error ? err.message : err,
+        );
+      });
+    }, 750),
+  );
 }
 
 /**
- * Run the full knowledge download for a patient with unified progress.
- * Safe to fire-and-forget; always clears in_flight in finally (unless skipped).
+ * Run the knowledge flow for a patient with unified progress.
+ * Always the global pack path: installs/updates the device-wide pack (union
+ * of all stored records) and seeds the per-patient curated overlay.
+ * Profile switches on a healthy pack are silent skips. Safe to fire-and-forget.
  */
 export async function runKnowledgeBundle(
   patientId: string,
   options: RunKnowledgeBundleOptions = {},
 ): Promise<KnowledgeBundleResult> {
-  const decision = shouldSkipKnowledgeBundle(patientId, {
-    location: options.location,
-    force: options.force,
-  });
-
-  if (decision.skip) {
-    const liveTotal = getKnowledgeCacheStats(patientId).total;
-    const meta = readBundleMeta(patientId);
-    const status: BundleStatus = {
-      state: 'complete',
-      chunksAdded: meta?.chunksAdded ?? liveTotal,
-      progress: 1,
-      phase:
-        decision.reason === 'already_in_flight'
-          ? 'Download already in progress'
-          : 'Using cached clinical knowledge',
-    };
-    setBundlePending(patientId, false);
-    // Don't clobber an in-flight status from a concurrent run.
-    if (decision.reason !== 'already_in_flight') {
-      setBundleStatus(patientId, status);
-      refreshUi(patientId);
-    }
-    console.log(
-      `[knowledge-bundle] Skipped for ${patientId}: ${decision.reason} ` +
-        `(${liveTotal} chunks, fp=${decision.fingerprint.slice(0, 8)})`,
-    );
-    return { chunksAdded: liveTotal, errors: [], skipped: true };
-  }
-
-  const fingerprint = decision.fingerprint;
-  const totalSteps = estimateTotalSteps(patientId);
-  const errors: string[] = [];
-  let chunksAdded = 0;
-  let lastRefreshAt = 0;
-  let lastStatusWriteAt = 0;
-
-  const writeStatus = (partial: Omit<BundleStatus, 'updatedAt'>, forceWrite = false) => {
-    const now = Date.now();
-    if (!forceWrite && now - lastStatusWriteAt < 250) return;
-    lastStatusWriteAt = now;
-    setBundleStatus(patientId, partial);
-    if (forceWrite || now - lastRefreshAt >= 400) {
-      lastRefreshAt = now;
-      refreshUi(patientId);
-    }
-  };
-
-  const publishProgress = (update: BundleProgressUpdate) => {
-    const progress =
-      totalSteps > 0
-        ? Math.min(0.99, update.completedSteps / totalSteps)
-        : 0;
-    chunksAdded = Math.max(chunksAdded, update.chunksAdded);
-    const liveTotal = getKnowledgeCacheStats(patientId).total;
-    writeStatus({
-      state: 'in_flight',
-      chunksAdded: Math.max(chunksAdded, liveTotal),
-      progress,
-      phase: update.phase,
-      completedSteps: update.completedSteps,
-      totalSteps: update.totalSteps,
-    });
-    options.onProgress?.({ ...update, progress, chunksAdded: Math.max(chunksAdded, liveTotal) });
-  };
-
-  setBundlePending(patientId, true);
-  writeStatus(
-    {
-      state: 'in_flight',
-      chunksAdded: countLiteratureChunks(patientId),
-      progress: 0,
-      phase: 'Starting clinical knowledge download',
-      completedSteps: 0,
-      totalSteps,
-    },
-    true,
-  );
-
-  const conditionSteps = selectConditionCount(patientId) + 1;
-  const medSteps = Math.max(getActiveMedications(patientId).length, 1);
-
-  try {
-    // Conditions first (highest value for Concierge), then meds + SDOH.
-    try {
-      const n = await bundleConditionPack(patientId, {
-        manageLifecycle: false,
-        stepOffset: 0,
-        totalSteps,
-        onProgress: publishProgress,
-      });
-      chunksAdded += n;
-    } catch (e) {
-      errors.push(`condition: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    try {
-      const n = await bundleMedicationPack(patientId, {
-        manageLifecycle: false,
-        stepOffset: conditionSteps,
-        totalSteps,
-        onProgress: publishProgress,
-      });
-      chunksAdded += n;
-    } catch (e) {
-      errors.push(`medication: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    try {
-      const n = await bundleSdohPack(patientId, options.location, {
-        manageLifecycle: false,
-        stepOffset: conditionSteps + medSteps,
-        totalSteps,
-        onProgress: publishProgress,
-      });
-      chunksAdded += n;
-    } catch (e) {
-      errors.push(`sdoh: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  } finally {
-    const liveTotal = getKnowledgeCacheStats(patientId).total;
-    const literature = countLiteratureChunks(patientId);
-    const finalChunks = Math.max(chunksAdded, liveTotal);
-
-    const status: BundleStatus =
-      literature > 0
-        ? {
-            state: 'complete',
-            chunksAdded: finalChunks,
-            progress: 1,
-            phase: 'Complete',
-            error: errors.length > 0 ? errors.join('; ') : undefined,
-            completedSteps: totalSteps,
-            totalSteps,
-          }
-        : errors.length > 0
-          ? {
-              state: 'failed',
-              chunksAdded: 0,
-              progress: 1,
-              phase: 'Failed',
-              error: errors.join('; '),
-              completedSteps: totalSteps,
-              totalSteps,
-            }
-          : {
-              state: 'complete',
-              chunksAdded: 0,
-              progress: 1,
-              phase: 'Complete',
-              completedSteps: totalSteps,
-              totalSteps,
-            };
-
-    if (status.state === 'complete' && literature > 0) {
-      writeBundleMeta(patientId, {
-        fingerprint,
-        bundledAt: new Date().toISOString(),
-        chunksAdded: finalChunks,
-      });
-    }
-
-    setBundlePending(patientId, false);
-    setBundleStatus(patientId, status);
-    refreshUi(patientId);
-    console.log(
-      `[knowledge-bundle] Finished for ${patientId}: ${status.state} (${finalChunks} chunks` +
-        (errors.length ? `, ${errors.length} errors` : '') +
-        `, fp=${fingerprint.slice(0, 8)})`,
-    );
-  }
-
-  return { chunksAdded: Math.max(chunksAdded, getKnowledgeCacheStats(patientId).total), errors };
+  return runPackAsBundle(patientId, options);
 }

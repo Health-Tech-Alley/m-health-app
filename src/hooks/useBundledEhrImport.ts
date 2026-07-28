@@ -46,7 +46,9 @@ function startBundledEhrKnowledgeBundle(params: {
   const { patientId, location } = params;
 
   void import("@/clinical-evidence/knowledge-bundle-runner")
-    .then(({ runKnowledgeBundle }) => runKnowledgeBundle(patientId, { location }))
+    .then(({ runKnowledgeBundle }) =>
+      runKnowledgeBundle(patientId, { location, reason: "import" }),
+    )
     .catch((error) => {
       console.error("[useBundledEhrImport] knowledge bundle failed:", error);
     })

@@ -339,6 +339,10 @@ export function createCoordinatorAgent(): RegisteredTool[] {
           patientId,
           payload: { name: String(args.name), source: 'custom' },
         });
+        void import('@/clinical-evidence/knowledge-bundle-runner').then(
+          ({ scheduleMedicationKnowledgeSync }) =>
+            scheduleMedicationKnowledgeSync(patientId),
+        );
         return { ok: true, data: { medicationId: medId }, requiresConfirmation: true };
       },
     },
@@ -369,6 +373,10 @@ export function createCoordinatorAgent(): RegisteredTool[] {
           resourceId: updated.medicationId,
           patientId: String(args.patientId),
         });
+        void import('@/clinical-evidence/knowledge-bundle-runner').then(
+          ({ scheduleMedicationKnowledgeSync }) =>
+            scheduleMedicationKnowledgeSync(String(args.patientId)),
+        );
         return { ok: true, requiresConfirmation: true };
       },
     },
@@ -393,6 +401,10 @@ export function createCoordinatorAgent(): RegisteredTool[] {
           patientId,
           payload: { name: existing.name },
         });
+        void import('@/clinical-evidence/knowledge-bundle-runner').then(
+          ({ scheduleMedicationKnowledgeSync }) =>
+            scheduleMedicationKnowledgeSync(patientId),
+        );
         return { ok: true, requiresConfirmation: true };
       },
     },

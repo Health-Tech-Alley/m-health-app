@@ -127,10 +127,13 @@ fallback in one place.
 
 First-run intake that populates `OnboardingProfile` via `onboardingService`.
 Flow: **Welcome** + five form steps (Caregiver, Caregiving, Patient,
-Safety/Provider, Wearable). Optional **demo presets** (Mike `mike-ehr-v62`,
-Elena, James, Sofia) and **FHIR import**. Seeding via
-`seedDatabaseFromProfile` also starts the **knowledge-bundle runner**
-(condition + medication + SDOH packs). Seeded data drives Home, Concierge
+Safety/Provider, Wearable) + final **Device setup** slide. Optional **demo
+presets** (Mike `mike-ehr-v62`, Elena, James, Sofia) and **FHIR import**.
+After profile seed, Device setup shows two shared cards: **Concierge model**
+(HF catalog, one download at a time) and **Clinical knowledge** (on-device pack
+with section progress). **Continue to Home** stays disabled until the knowledge
+pack is ready; leaving without a Concierge model shows a confirm dialog.
+Keep-awake is active while downloads run. Seeded data drives Home, Concierge
 system context, Health Monitor thresholds, and the Care plan spine.
 
 ### Home (`(tabs)/dashboard.tsx`)
@@ -243,16 +246,26 @@ mode (doc 34), the model unloads **immediately** when the last lease ends
 (`autoUnloadMs = 0`). The default model is configurable in **Settings →
 Developer → Default SLM Model** (`demoDefaultModelId` in `app_settings`).
 
-### Clinical-evidence bundle status
+### Clinical knowledge pack (on-device)
 
-`knowledge-bundle-runner.ts` coordinates **condition + medication + SDOH** packs
-(via `condition-bundler.ts`) under one lifecycle so UI status is not marked
-complete while DailyMed/OpenFDA still run. Bundle status
-(`in_flight` / `complete` / `failed`) lives in `app_settings`. Fresh bundles
-with an unchanged clinical fingerprint can **skip** for 24h unless forced.
-Track A defaults to fixtures; live fetch is gated. Patient Summary reflects
-progress / offline fallback. Developer settings hold NCBI / OpenFDA / UMLS keys
-where needed.
+Primary path is the **global knowledge pack** (`src/clinical-evidence/pack/`):
+condition layers (spine, CPG digests, MedlinePlus topics, Orphanet, public
+health, DME, lit_lite abstracts) install into
+`Documents/knowledge-pack/pack.sqlite` once per device. **Medication layers**
+(DailyMed labels, OpenFDA AE/recalls, live DDI, MedlinePlus drug pages) cover
+**active chart medications only** and re-sync when meds are added/removed
+(Meds tab, Concierge tools, FHIR import). Curated practical DDI pairs stay
+offline. Ad-hoc drugs use on-demand overlay fetch. After install the pack
+rebuilds an evidence graph and embeds **curated layers** (not PubMed
+abstracts) with on-device leaf-ir (**float16**). Retrieval unions **pack ∪ patient overlay** (`knowledge_cache`
+for CDA/ADCP/on-demand meds) with **BM25 → graph 1-hop → dense rerank**. Pack
+updates never wipe patient overlay. The pack path is the **only** clinical
+knowledge system (legacy multi-host bundling retired). Pack med/condition
+inputs cover the **union of all stored patient records**, so switching
+profiles only swaps the patient overlay and checks for deltas — never a full
+re-download. Settings → Clinical knowledge uses the same progress card as
+onboarding Device setup (install / update / reset pack vs clear patient
+overlay). Developer settings hold NCBI / OpenFDA keys for higher limits.
 
 ### Medications (`(tabs)/medications.tsx`)
 
@@ -398,7 +411,8 @@ control-token stripping, multiline input, Care Context card.
 - Download from Hugging Face with progress, cancel, delete; optional HF token
   in `expo-secure-store`.
 - Models live under the app documents `models/` directory (**git-ignored**).
-- MVC trio: `models-screen` / `models-controller` / `models-view`.
+- Shared **`SlmDownloadCard` + `useModelDownloadQueue`** power Models, Settings,
+  and onboarding Device setup (one SLM download app-wide).
 
 ### Care Management (`src/app/care-management/`)
 

@@ -144,9 +144,9 @@ The caregiver's calendar view of the care plan in motion.
 - **On-device Concierge:** llama.cpp via `llama.rn` — **Gemma-4-E2B-it Q4_K_M only** (`InferenceProvider`)
 - **Pre-SLM NLU:** TFLite leaf-ir embedder + chat/care intent heads (`src/nlu/`)
 - **Orchestration:** In-process MCP — 4 agents, CEP debounce, confidence router, prompt-budget guard
-- **Retrieval:** Hybrid RAG (BM25 + dense + RRF) + CachedFusedRetriever
-- **Clinical evidence:** PubMed, MedlinePlus, RxNorm, DailyMed, OpenFDA, ClinicalTrials.gov, UMLS, Orphanet, CDC PLACES + knowledge-bundle runner
-- **Local storage:** `expo-sqlite`, **34 repositories**, ADCP care-plan store (SQLCipher-ready)
+- **Retrieval:** CachedFusedRetriever — BM25 → graph 1-hop → dense rerank over global pack ∪ patient overlay
+- **Clinical evidence:** On-device knowledge pack runner (`src/clinical-evidence/pack/`) + NLM clients (MedlinePlus, DailyMed, RxNorm, PubMed lit_lite, Orphanet, …); legacy live bundle behind flag
+- **Local storage:** `expo-sqlite` patient DB (**34 repositories**, ADCP) + global `Documents/knowledge-pack/pack.sqlite`
 - **Health Monitor / UC2–4:** TFLite autoencoder + decision / rehab-trajectory / micro-priorities engines
 - **Wearables:** Apple Health bridge (iOS) + mock; Health Connect still scaffold
 - **Notifications:** `expo-notifications` + in-app banner; deterministic reminder engine
@@ -393,7 +393,7 @@ end-to-end rather than being built one layer at a time.
 | L3 | Event Bus — CEP + context aggregator | Care (anomaly CEP), Schedule |
 | L4 | MCP orchestration — 4 agents, fused tool-RAG + knowledge-RAG, FHIR adapter | All three pillars |
 | L5 | Decision Engine — Concierge (Gemma 4 E2B), Pre-SLM NLU, Health Monitor / UC2–4 | All three pillars |
-| L6 | Knowledge — hybrid RAG, clinical-evidence clients, knowledge-bundle runner | Meds + Care |
+| L6 | Knowledge — on-device pack + hybrid RAG, clinical-evidence clients | Meds + Care |
 | L7 | Local Data — SQLite (34 repos), ADCP, Apple Health / mock sensors, FHIR fixtures | All three pillars |
 
 The **canonical event ordering** all three pillars share:
@@ -436,8 +436,8 @@ m-health-app/
 │   ├── ml-models/               # UC2 / UC3 / UC4 + alert autoencoder
 │   ├── services/                # carePlan/, slm/, ml/, uc3/, uc4/, messaging/, …
 │   ├── orchestration/           # MCP, CEP bus, agents, next-steps
-│   ├── knowledge/               # BM25 + dense + RRF, embedder (TFLite / hash)
-│   ├── clinical-evidence/       # API clients + knowledge-bundle-runner
+│   ├── knowledge/               # BM25, CachedFusedRetriever, embedder (TFLite / hash)
+│   ├── clinical-evidence/       # API clients + pack/ runner + knowledge-bundle-runner
 │   ├── data/                    # migrations, 34 repos, adcp/, fhir/, sensors/
 │   ├── locator/                 # Geofence scaffold (deferred)
 │   └── utils/

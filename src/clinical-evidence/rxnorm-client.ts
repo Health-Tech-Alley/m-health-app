@@ -10,7 +10,10 @@
 import { withRetry } from './rate-limiter';
 
 const RXNORM_BASE = 'https://rxnav.nlm.nih.gov/REST';
-const TIMEOUT_MS = 8_000;
+const TIMEOUT_MS = 10_000;
+
+/** Cap CUIs per interaction list call — URL length + server timeouts. */
+const INTERACTION_BATCH_SIZE = 12;
 
 export interface DrugNormalizationResult {
   rxCui: string;
@@ -41,9 +44,7 @@ export async function normalizeDrugName(name: string): Promise<DrugNormalization
   };
 }
 
-export async function getDrugInteractions(rxCuis: string[]): Promise<DrugInteraction[]> {
-  if (rxCuis.length < 2) return [];
-
+async function getDrugInteractionsBatch(rxCuis: string[]): Promise<DrugInteraction[]> {
   const url = new URL(`${RXNORM_BASE}/interaction/list.json`);
   url.searchParams.set('rxcuis', rxCuis.join('+'));
 
@@ -69,6 +70,35 @@ export async function getDrugInteractions(rxCuis: string[]): Promise<DrugInterac
   }
 
   return interactions;
+}
+
+export async function getDrugInteractions(rxCuis: string[]): Promise<DrugInteraction[]> {
+  if (rxCuis.length < 2) return [];
+
+  const seen = new Set<string>();
+  const all: DrugInteraction[] = [];
+
+  // Batch CUIs so one huge URL doesn't time out.
+  for (let i = 0; i < rxCuis.length; i += INTERACTION_BATCH_SIZE) {
+    const batch = rxCuis.slice(i, i + INTERACTION_BATCH_SIZE);
+    try {
+      const interactions = await getDrugInteractionsBatch(batch);
+      for (const ix of interactions) {
+        const key = `${ix.rxCui1}::${ix.rxCui2}::${ix.description}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        all.push(ix);
+      }
+    } catch (err) {
+      console.warn(`[rxnorm] interaction batch ${i}-${i + batch.length} failed:`, err);
+    }
+    // Yield between batches to avoid rate-limit.
+    if (i + INTERACTION_BATCH_SIZE < rxCuis.length) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+
+  return all;
 }
 
 export async function getTherapeuticCategory(rxCui: string): Promise<string[]> {

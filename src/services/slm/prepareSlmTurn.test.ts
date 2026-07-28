@@ -1,4 +1,35 @@
-import { prepareSlmTurn } from './prepareSlmTurn';
+import { fetchOnDemandMedToOverlay } from '@/clinical-evidence/pack';
+import { prepareSlmTurn, selectOnDemandMedCandidates } from './prepareSlmTurn';
+
+jest.mock('@/clinical-evidence/pack', () => ({
+  fetchOnDemandMedToOverlay: jest.fn(async () => []),
+}));
+
+const mockFetchOnDemand = fetchOnDemandMedToOverlay as jest.Mock;
+
+describe('selectOnDemandMedCandidates', () => {
+  it('picks mentioned meds that are not on the chart', () => {
+    expect(
+      selectOnDemandMedCandidates(['Ibuprofen', 'Baclofen'], ['baclofen 10mg']),
+    ).toEqual(['Ibuprofen']);
+  });
+
+  it('returns empty when all mentioned meds are chart meds', () => {
+    expect(selectOnDemandMedCandidates(['Baclofen'], ['Baclofen'])).toEqual([]);
+  });
+
+  it('does not treat a different drug as charted via shared first token', () => {
+    expect(
+      selectOnDemandMedCandidates(['insulin lispro'], ['insulin glargine 100 units/ml']),
+    ).toEqual(['insulin lispro']);
+  });
+
+  it('dedupes and caps at two', () => {
+    expect(
+      selectOnDemandMedCandidates(['Aspirin', 'aspirin', 'Melatonin', 'Zolpidem'], []),
+    ).toEqual(['Aspirin', 'Melatonin']);
+  });
+});
 
 describe('prepareSlmTurn', () => {
   it('returns system + user content without throwing when NLU is unavailable', async () => {
@@ -34,6 +65,20 @@ describe('prepareSlmTurn', () => {
     expect(prepared.systemContext).toContain('Sit-to-stand practice');
     expect(prepared.nluPacket).toBeNull();
     expect(prepared.userContent).toBe('What exercise is most important?');
+  });
+
+  it('does not fetch on-demand med labels without NLU med entities', async () => {
+    mockFetchOnDemand.mockClear();
+    await prepareSlmTurn({
+      userText: 'What exercise is most important?',
+      snapshot: null,
+      retriever: null,
+      forceDeep: true,
+      skipNlu: true,
+      toolsOverride: [],
+      logTag: 'test-on-demand-skip',
+    });
+    expect(mockFetchOnDemand).not.toHaveBeenCalled();
   });
 });
 

@@ -24,15 +24,7 @@ export { fetchDrugLabel } from './dailymed-client';
 
 export { fetchAdverseEvents, fetchDrugRecalls } from './openfda-client';
 
-// New clients (per planning/26_clinical-data-sources-research.md).
-// Each ships with realistic fixtures on Track A; live fetch is gated
-// behind `setLiveClinicalFetch(true)` and used in Track B.
-export { searchClinicalTrials, trialsToChunks } from './clinicaltrials-client';
-export type { ClinicalTrialRecord, ClinicalTrialSearchParams } from './clinicaltrials-client';
-
-export { lookupUmls, umlsToChunks } from './umls-client';
-export type { UmlsConceptMapping, UmlsSearchParams } from './umls-client';
-
+// Fixture-first clients (Orphanet always fixtures; CDC PLACES live when enabled).
 export { searchOrphanet, orphanetToChunks } from './orphanet-client';
 export type { OrphanetRecord, OrphanetSearchParams } from './orphanet-client';
 
@@ -45,7 +37,6 @@ export {
   bundleConditionPack,
   bundleMedicationPack,
   bundleSdohPack,
-  bundleMeasurePack,
   bundleSystematicReviewPack,
   bundleFullSplPack,
   bundleCuratedKnowledgePacks,
@@ -54,14 +45,13 @@ export {
 export { seedCuratedKnowledgePacks } from './curated-knowledge-packs';
 export { buildMedSafetyContext, shouldRunMedSafetyContext } from './med-safety-context';
 export type { MedSafetyContextResult } from './med-safety-context';
-export { HEDIS_MEASURES, measuresForPatient } from './hedis-measures';
-export type { HedisMeasure } from './hedis-measures';
 export { redownloadForChunk, redownloadAllForPatient } from './re-download';
 export {
   runKnowledgeBundle,
   buildKnowledgeBundleFingerprint,
   shouldSkipKnowledgeBundle,
   countLiteratureChunks,
+  scheduleMedicationKnowledgeSync,
   KNOWLEDGE_BUNDLE_FRESHNESS_MS,
 } from './knowledge-bundle-runner';
 export type { KnowledgeBundleResult, RunKnowledgeBundleOptions } from './knowledge-bundle-runner';
@@ -88,3 +78,25 @@ export {
   formatAnswerWithCollapsedSources,
 } from './citation-display';
 export type { FootnoteFormatResult, CollapsedSourcesResult } from './citation-display';
+
+// On-device knowledge pack (doc 42)
+export {
+  runKnowledgePackInstall,
+  checkForPackUpdates,
+  resetKnowledgePack,
+  cancelKnowledgePackInstall,
+  isKnowledgePackRunnerEnabled,
+  isPackReady,
+  getPackState,
+  getKnowledgePackInstallState,
+  subscribeKnowledgePackInstall,
+  fetchOnDemandMedToOverlay,
+  countPackChunks,
+  getAllPackChunks,
+} from './pack';
+export type {
+  PackInstallUiState,
+  PackLayerId,
+  PackRunnerOptions,
+  PackRunnerResult,
+} from './pack';

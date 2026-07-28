@@ -1,6 +1,9 @@
 import type { NormalizedFhirClinicalImportPackage } from '@/data/fhir';
 import { getDatabase } from '@/data/db';
-import { getActivePatientId } from '@/data/repositories/appSettingsRepository';
+import {
+  clearActivePatientId,
+  getActivePatientId,
+} from '@/data/repositories/appSettingsRepository';
 import { ensureDefaultNotificationPreferences } from '@/data/repositories/notificationRepository';
 import {
   getPatient,
@@ -825,7 +828,9 @@ export function getMockEhrPatientRecord(): MockEhrPatientRecord {
 }
 
 export function hasCompletedOnboarding(): boolean {
-  if (savedOnboardingProfile !== null) return true;
+  // In-memory draft (no completedAt) must not skip the wizard — used by
+  // developer "Re-run onboarding" which clears completion then opens /onboarding.
+  if (savedOnboardingProfile?.completedAt) return true;
   try {
     return getActivePatientId() !== null;
   } catch {
@@ -835,6 +840,38 @@ export function hasCompletedOnboarding(): boolean {
 
 export function clearOnboardingProfile(): void {
   savedOnboardingProfile = null;
+}
+
+/**
+ * Pending demo preset selected when developer tools restart the wizard.
+ * Consumed once by the onboarding screen on mount.
+ */
+let pendingOnboardingDemoProfileId: string | null = null;
+
+/**
+ * Clear completion gates and optionally queue a demo preset so `/onboarding`
+ * shows again (developer re-run). Does not seed the DB — user finishes wizard.
+ */
+export function beginOnboardingRerun(options?: {
+  demoProfileId?: string | null;
+}): void {
+  clearOnboardingProfile();
+  try {
+    clearActivePatientId();
+  } catch {
+    /* DB may be unavailable in tests */
+  }
+  pendingOnboardingDemoProfileId = options?.demoProfileId?.trim() || null;
+}
+
+export function consumePendingOnboardingDemoProfileId(): string | null {
+  const id = pendingOnboardingDemoProfileId;
+  pendingOnboardingDemoProfileId = null;
+  return id;
+}
+
+export function peekPendingOnboardingDemoProfileId(): string | null {
+  return pendingOnboardingDemoProfileId;
 }
 
 export function getPatientConditionSummary(patient: PatientProfile): string {

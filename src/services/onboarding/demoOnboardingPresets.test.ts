@@ -1,6 +1,5 @@
 import { buildCaregiverAssistantContextFromSnapshot } from '@/services/slm/slmService';
 
-import { shouldBundleHedisMeasures } from '@/data/seed/seedFromProfile';
 import type { PatientRecordSnapshot } from '@/data/types';
 import { normalizeActivePatient } from '@/hooks/useActivePatientView';
 import type { OnboardingProfile } from './onboardingService';
@@ -247,24 +246,6 @@ describe('demo onboarding presets', () => {
       expect(next.patient.symptoms).toEqual([]);
       expect(next.clinicalImport).toBeUndefined();
     }
-  });
-
-  it('never requests HEDIS care-plan auto-goals (disabled)', () => {
-    const next = applyDemoOnboardingPreset(blankProfile(), 'sofia-reyes');
-    const imported = {
-      ...blankProfile(),
-      clinicalImport: {
-        source: {
-          bundleType: 'collection',
-        },
-        conditions: [],
-        activeMedicationRequests: [],
-        observations: [],
-      },
-    } as OnboardingProfile;
-
-    expect(shouldBundleHedisMeasures(next)).toBe(false);
-    expect(shouldBundleHedisMeasures(imported)).toBe(false);
   });
 
   it('keeps safety notes distinct by demo case', () => {

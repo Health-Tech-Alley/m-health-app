@@ -23,10 +23,8 @@ import { getActiveMedications, getConditionsForPatient } from '@/data/repositori
 import { searchPubMed, fetchAbstracts } from './pubmed-client';
 import { fetchHealthTopic } from './medlineplus-client';
 import { searchOrphanet, orphanetToChunks } from './orphanet-client';
-import { searchClinicalTrials, trialsToChunks } from './clinicaltrials-client';
 import { fetchDrugLabel } from './dailymed-client';
 import { fetchAdverseEvents, fetchDrugRecalls } from './openfda-client';
-import { lookupUmls, umlsToChunks } from './umls-client';
 import { fetchCdcPlaces, cdcToChunks } from './cdc-places-client';
 import { setLiveClinicalFetch } from './fixture-mode';
 import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
@@ -120,15 +118,6 @@ export async function redownloadForChunk(
         logSupplemented(patientId, 'orphanet', conditionName, newChunks.length);
         break;
       }
-      case 'clinicaltrials': {
-        if (!conditionName) throw new Error('No condition tag on chunk');
-        const trials = await searchClinicalTrials({ condition: conditionName, pageSize: 5 });
-        for (const c of trialsToChunks(trials)) {
-          newChunks.push({ ...c, conditions: conditionName });
-        }
-        logSupplemented(patientId, 'clinicaltrials', conditionName, newChunks.length);
-        break;
-      }
       case 'dailymed': {
         // Re-fetch by drug name (parsed from the metadata or conditions tag).
         const drugName = conditionName;
@@ -143,19 +132,6 @@ export async function redownloadForChunk(
         const recalls = await fetchDrugRecalls(drugName);
         newChunks.push(...events, ...recalls);
         logSupplemented(patientId, 'openfda', drugName, newChunks.length);
-        break;
-      }
-      case 'umls': {
-        // Existing chunks are tagged with the ICD-10 code in conditions or
-        // embedded in the chunkId (UMLS-CXXXXX). Re-fetch the ICD code.
-        const code = conditionName || existing.chunkId.replace(/^UMLS-/, '');
-        const mapping = await lookupUmls({ code, vocabulary: 'ICD10' });
-        if (mapping) {
-          for (const c of umlsToChunks(mapping)) {
-            newChunks.push({ ...c, conditions: conditionName || code });
-          }
-        }
-        logSupplemented(patientId, 'umls', code, newChunks.length);
         break;
       }
       case 'cdc-places': {

@@ -12,11 +12,15 @@
  * caregiver actions + the current non-emergency decision.
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useStore } from 'react-redux';
 
 import { useSLM } from '@/contexts/slm-context';
 import { usePatientRecord, getCurrentPatientSnapshot } from '@/contexts/patient-record-context';
+import {
+  getKnowledgePackInstallState,
+  subscribeKnowledgePackInstall,
+} from '@/clinical-evidence/pack';
 import type { FusedRetriever } from '@/knowledge';
 import { CachedFusedRetriever } from '@/knowledge';
 import { Orchestrator, TOOL_SCHEMAS } from '@/orchestration';
@@ -56,12 +60,32 @@ export function OrchestratorProvider({ children }: { children: ReactNode }) {
     [store],
   );
 
+  // Rebuild the retriever only when knowledge-relevant inputs change —
+  // patient identity, condition/med lists, overlay size, or pack content.
+  // (Rebuilding on every snapshot refresh would reindex ~7k pack chunks on
+  // each vitals/log update.)
+  const packUi = useSyncExternalStore(
+    subscribeKnowledgePackInstall,
+    getKnowledgePackInstallState,
+    getKnowledgePackInstallState,
+  );
+  const conditionKey = (snapshot?.conditions ?? [])
+    .filter((c) => !c.needsReview)
+    .map((c) => c.name)
+    .join('|');
+  const medKey = (snapshot?.medications ?? []).map((m) => m.name).join('|');
+  const overlayTotal = snapshot?.knowledgeStats.total ?? 0;
+  const packChunksInstalled = packUi.chunksInstalled;
+
   const retriever = useMemo<FusedRetriever | null>(() => {
-    if (!snapshot || !patientId) return null;
-    const conditionNames = snapshot.conditions
-      .filter((c) => !c.needsReview)
-      .map((c) => c.name);
-    const activeMeds = snapshot.medications.map((m) => m.name);
+    // Rebuild triggers: overlayTotal / packChunksInstalled flip when knowledge
+    // content changes (overlay writes, pack install, med-layer refresh).
+    void overlayTotal;
+    void packChunksInstalled;
+    const snap = getCurrentPatientSnapshot();
+    if (!snap || !patientId) return null;
+    const conditionNames = conditionKey ? conditionKey.split('|') : [];
+    const activeMeds = medKey ? medKey.split('|') : [];
     return new CachedFusedRetriever({
       tools: TOOL_SCHEMAS.map((t) => ({
         name: t.name,
@@ -70,13 +94,13 @@ export function OrchestratorProvider({ children }: { children: ReactNode }) {
           Object.entries(t.params).map(([name, p]) => [name, { type: p.type, required: p.required ?? false }]),
         ),
       })),
-      patientName: snapshot.patient?.name ?? 'Unknown',
+      patientName: snap.patient?.name ?? 'Unknown',
       patientConditions: conditionNames,
       activeMeds,
-      spo2Cutoff: snapshot.patient?.spo2Cutoff,
+      spo2Cutoff: snap.patient?.spo2Cutoff,
       patientId,
     });
-  }, [snapshot, patientId]);
+  }, [patientId, conditionKey, medKey, overlayTotal, packChunksInstalled]);
 
   // Prefer real TFLite AE when loadable (dev build); mock fallback for Expo Go.
   const [alertMlModel, setAlertMlModel] = useState<AlertMlModel>(() => new MockAlertAutoencoder());

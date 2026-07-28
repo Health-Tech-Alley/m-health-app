@@ -18,10 +18,15 @@ import { sleep, withRetry } from './rate-limiter';
 
 const DAILYMED_BASE = 'https://dailymed.nlm.nih.gov/dailymed/services/v2';
 /** Keep short — DailyMed is flaky; fail fast and soft-skip rather than hang the bundle. */
-const TIMEOUT_MS = 6_000;
-const FETCH_DELAY_MS = 200;
-/** One label is enough for med safety context; second SPL doubled hang time. */
-const MAX_SETIDS = 1;
+/** Fail fast — pack install has many sequential drugs. */
+const TIMEOUT_MS = 8_000;
+const FETCH_DELAY_MS = 80;
+/** Default single setid for hot-path med checks; pack install passes higher. */
+const DEFAULT_MAX_SETIDS = 1;
+/** Per-section text cap for full SPL pack density (was 6000). */
+const SECTION_TEXT_CAP = 24_000;
+/** Combined-label path cap when fullSpl=false. */
+const COMBINED_TEXT_CAP = 16_000;
 
 /**
  * Reduce free-text medication labels to a DailyMed-friendly query.
@@ -62,14 +67,31 @@ export function normalizeDailyMedDrugQuery(drugName: string): string {
   return parts.slice(0, Math.min(2, parts.length)).join(' ');
 }
 
-export async function fetchDrugLabel(drugName: string, fullSpl = false): Promise<KnowledgeChunk[]> {
+export type FetchDrugLabelOptions = {
+  fullSpl?: boolean;
+  /** How many SPL setids to pull (pack install uses 2–3). */
+  maxSetids?: number;
+  /** Search page size. */
+  pageSize?: number;
+};
+
+export async function fetchDrugLabel(
+  drugName: string,
+  fullSplOrOpts: boolean | FetchDrugLabelOptions = false,
+): Promise<KnowledgeChunk[]> {
+  const opts: FetchDrugLabelOptions =
+    typeof fullSplOrOpts === 'boolean' ? { fullSpl: fullSplOrOpts } : fullSplOrOpts ?? {};
+  const fullSpl = opts.fullSpl === true;
+  const maxSetids = Math.max(1, opts.maxSetids ?? DEFAULT_MAX_SETIDS);
+  const pageSize = Math.max(maxSetids, opts.pageSize ?? Math.max(3, maxSetids));
+
   const query = normalizeDailyMedDrugQuery(drugName);
   if (!query) return [];
 
   // Step 1: Search for setids (soft-fail on upstream 5xx / empty / HTML).
   const searchUrl = new URL(`${DAILYMED_BASE}/spls.json`);
   searchUrl.searchParams.set('drug_name', query);
-  searchUrl.searchParams.set('pagesize', '3');
+  searchUrl.searchParams.set('pagesize', String(pageSize));
 
   const searchResponse = await fetchDailyMed(searchUrl.toString(), 'search');
   if (!searchResponse) return [];
@@ -87,7 +109,7 @@ export async function fetchDrugLabel(drugName: string, fullSpl = false): Promise
     // Retry once with the first token only when the normalized query was multi-word.
     const first = query.split(/\s+/)[0];
     if (first && first.toLowerCase() !== query.toLowerCase()) {
-      return fetchDrugLabel(first, fullSpl);
+      return fetchDrugLabel(first, opts);
     }
     return [];
   }
@@ -95,7 +117,7 @@ export async function fetchDrugLabel(drugName: string, fullSpl = false): Promise
   const now = new Date().toISOString();
   const chunks: KnowledgeChunk[] = [];
   const setidsToFetch = spls
-    .slice(0, MAX_SETIDS)
+    .slice(0, maxSetids)
     .map((s) => s.setid)
     .filter((id): id is string => Boolean(id));
 
@@ -125,10 +147,11 @@ export async function fetchDrugLabel(drugName: string, fullSpl = false): Promise
 
       if (fullSpl) {
         for (const [code, section] of sections) {
+          const body = `${section.heading}\n\n${section.text}`.slice(0, SECTION_TEXT_CAP);
           chunks.push({
             chunkId: `DAILYMED-${setId}-${code}`,
             source: 'dailymed',
-            text: `${section.heading}\n\n${section.text}`.slice(0, 6000),
+            text: body,
             retrievedAt: now,
             useCount: 0,
             documentType: 'spl_full',
@@ -140,6 +163,7 @@ export async function fetchDrugLabel(drugName: string, fullSpl = false): Promise
               setId,
               title,
               section: section.heading,
+              loinc: code,
             }),
           });
         }
@@ -150,9 +174,11 @@ export async function fetchDrugLabel(drugName: string, fullSpl = false): Promise
         chunks.push({
           chunkId: `DAILYMED-${setId}`,
           source: 'dailymed',
-          text: combinedText.slice(0, 8000),
+          text: combinedText.slice(0, COMBINED_TEXT_CAP),
           retrievedAt: now,
           useCount: 0,
+          documentType: 'spl_full',
+          lengthTier: 'long',
           metadataJson: JSON.stringify({ drugName, query, setId, title, fullSpl }),
         });
       }

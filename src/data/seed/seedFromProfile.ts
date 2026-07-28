@@ -389,18 +389,16 @@ export function seedDatabaseFromProfile(
   // (See planning/22_clinical-data-gathering.md §9a)
   void import('@/clinical-evidence/knowledge-bundle-runner')
     .then(({ runKnowledgeBundle }) =>
-      runKnowledgeBundle(patientId, { location: profile.patient.location }),
+      runKnowledgeBundle(patientId, {
+        location: profile.patient.location,
+        reason: 'import',
+      }),
     )
     .catch((err) => {
       console.error('[seedFromProfile] knowledge bundle failed:', err);
     });
 
   return patientId;
-}
-
-/** @deprecated HEDIS auto-goals disabled — always false. */
-export function shouldBundleHedisMeasures(_profile: OnboardingProfile): boolean {
-  return false;
 }
 
 /**

@@ -280,6 +280,18 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
   const selectPatient = useCallback((nextPatientId: string) => {
     setPatientId(nextPatientId);
     setInitState({ patientId: nextPatientId, error: null, initialized: true });
+    // Profile switch: patient overlay only when pack is ready — never a full
+    // pack/graph/vector reinstall (that was flashing Home "Updating… 0%").
+    void import('@/clinical-evidence/knowledge-bundle-runner')
+      .then(({ runKnowledgeBundle }) =>
+        runKnowledgeBundle(nextPatientId, { reason: 'profile_switch' }),
+      )
+      .catch((err) => {
+        console.warn(
+          '[PatientRecordProvider] Profile-switch knowledge check failed:',
+          err instanceof Error ? err.message : err,
+        );
+      });
   }, []);
 
   const importFHIRBundle = useCallback((bundle: any) => {
@@ -303,7 +315,9 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
     if (snapshot?.bundleStatus?.state !== 'failed') return;
     retryAttemptedRef.current = true;
     void import('@/clinical-evidence/knowledge-bundle-runner')
-      .then(({ runKnowledgeBundle }) => runKnowledgeBundle(patientId))
+      .then(({ runKnowledgeBundle }) =>
+        runKnowledgeBundle(patientId, { reason: 'retry' }),
+      )
       .catch((err) => {
         console.error('[PatientRecordProvider] Bundle retry failed:', err);
       });

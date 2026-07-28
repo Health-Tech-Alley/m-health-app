@@ -36,6 +36,7 @@ import {
 } from '@/clinical-evidence';
 import { MainTabHeader } from '@/components/MainTabHeader';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
+import { CitationList, citationsToSources } from '@/components/common/CitationList';
 import {
   ThinkingIndicator,
   shouldOfferTellMeMore,
@@ -264,6 +265,8 @@ interface ChatMessage {
   pendingScheduleFollowUp?: PendingScheduleFollowUp | null;
   /** User message that triggered this assistant turn (for turn-2 grounding). */
   sourceUserText?: string;
+  /** Sources for assistant messages (for display) */
+  sources?: { label: string; count?: number }[];
 }
 
 interface ChatState {
@@ -283,6 +286,8 @@ type ChatAction =
         pendingCaregiverReview?: PendingCaregiverReview | null;
         pendingScheduleFollowUp?: PendingScheduleFollowUp | null;
         sourceUserText?: string;
+        /** Sources for display (not embedded in text) */
+        sources?: { label: string; count?: number }[];
       };
     }
   | { type: 'send-stopped'; payload: { assistantId: string } }
@@ -332,7 +337,7 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
       };
 
     case 'send-success': {
-      const { finalText, reasoningContent, pendingHealthMonitor, sourceUserText } = action.payload;
+      const { finalText, reasoningContent, pendingHealthMonitor, sourceUserText, sources } = action.payload;
       const parsed = stripControlTokens(finalText);
       const thinking = reasoningContent || parsed.thinking;
       // If the answer channel came back empty (model was cut off mid-thought,
@@ -369,8 +374,10 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
                   action.payload.pendingScheduleFollowUp !== undefined
                     ? action.payload.pendingScheduleFollowUp
                     : null,
-                sourceUserText: sourceUserText ?? m.sourceUserText,
+                sourceUserText,
+                sources,
               }
+
             : m,
         ),
       };
@@ -982,10 +989,7 @@ export default function SLMScreen({
         { collapsedSources: true },
       );
       finalText = withFootnotes.displayText;
-      if (withFootnotes.sources.length > 0) {
-        const labels = withFootnotes.sources.map((s) => s.label);
-        finalText = `${finalText}\n\n**Sources**\n${labels.map((l) => `- ${l}`).join('\n')}`;
-      }
+      const sources = citationsToSources(prepared.citationChunks);
 
       dispatch({
         type: 'send-success',
@@ -995,6 +999,7 @@ export default function SLMScreen({
           reasoningContent: finalReasoning,
           pendingHealthMonitor: null,
           sourceUserText: trimmed,
+          sources,
         },
       });
 
@@ -1902,6 +1907,16 @@ export default function SLMScreen({
             ) : (
               <Text style={[styles.answerText, { color: theme.text }]}>{item.text}</Text>
             )}
+
+            {item.sources && item.sources.length > 0 && item.status === 'done' ? (
+              <CitationList
+                sources={item.sources}
+                collapsible
+                defaultExpanded={false}
+                compact
+                maxItems={6}
+              />
+            ) : null}
 
             {item.pendingCaregiverReview && item.status === 'done' ? (
               <View style={styles.healthMonitorConfirmCard}>

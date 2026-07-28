@@ -228,7 +228,6 @@ const SOURCE_LABELS: Record<string, string> = {
   'cdc-places': 'SDOH',
   semmeddb: 'SemMedDB',
   hedis: 'HEDIS',
-  synthetic: 'Development Fixture',
   'patient-plan': 'Care Plan',
   'patient-record': 'Patient Record',
   rxnorm: 'RxNorm',
@@ -236,6 +235,9 @@ const SOURCE_LABELS: Record<string, string> = {
   // so the citation tag is distinguishable from the legacy `patient-plan`
   // chunks written by older paths.
   adcp_plan: 'Care Plan',
+  // Curated pack layers (spine / cpg / public_health / dme) — caregiver-safe
+  // label; never "Development Fixture" in SLM-visible citation tags.
+  synthetic: 'Care Guide',
 };
 
 type CitationMetadata = {
