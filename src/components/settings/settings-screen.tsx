@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -33,6 +34,7 @@ import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG, resolveActiveModelId } from '@/inf
 import { KnowledgePackProgressCard } from '@/components/models/KnowledgePackProgressCard';
 import { SlmModelCarousel } from '@/components/models/SlmModelCarousel';
 import { useModelDownloadQueue } from '@/hooks/useModelDownloadQueue';
+import { useTheme } from '@/hooks/use-theme';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import {
   clearKnowledgeCache,
@@ -172,6 +174,8 @@ export function SettingsScreen() {
 export function PreferencesScreen() {
   const router = useRouter();
   const { settings, setTheme, setHealthKitIntegrationEnabled } = useSettings();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const patientId = useOrchestratorPatientId();
   const { refresh: refreshPatientRecord } = usePatientRecord();
   const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
@@ -434,9 +438,21 @@ export function PreferencesScreen() {
   }, [patientId]);
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <ScreenHeader eyebrow="Caregiver Concierge" title="Preferences" />
+    <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={['top', 'bottom']}>
+      <ScrollView style={themedStyles.safeArea} contentContainerStyle={[styles.content, themedStyles.content]}>
+        <View style={styles.header}>
+          <View style={styles.logoCircle}>
+            <Image
+              source={require('@/assets/images/hta-logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+          </View>
+          <View style={styles.headerTextBlock}>
+            <Text style={styles.headerEyebrow}>Caregiver Concierge</Text>
+            <Text style={[styles.headerTitle, themedStyles.headerText]}>Preferences</Text>
+          </View>
+        </View>
 
         <Section title="🔔 Notifications">
           <CompactActionRow
@@ -466,16 +482,20 @@ export function PreferencesScreen() {
             explanation="Choose whether the app uses light, dark, or system display preference."
             onToggleExpand={toggleExpanded}
           >
-            <View style={styles.segmented}>
+            <View style={[styles.segmented, themedStyles.segmented]}>
               {(['light', 'dark', 'system'] as const).map((t) => (
                 <Pressable
                   key={t}
-                  style={[styles.segButton, settings.theme === t && styles.segButtonActive]}
+                  style={[
+                    styles.segButton,
+                    themedStyles.segment,
+                    settings.theme === t && styles.segButtonActive,
+                  ]}
                   onPress={() => setTheme(t)}
                   accessibilityRole="button"
                   accessibilityLabel={`Use ${t} theme`}
                   accessibilityState={{ selected: settings.theme === t }}>
-                  <Text style={[styles.segText, settings.theme === t && styles.segTextActive]}>
+                  <Text style={[styles.segText, themedStyles.secondaryText, settings.theme === t && styles.segTextActive]}>
                     {t.charAt(0).toUpperCase() + t.slice(1)}
                   </Text>
                 </Pressable>
@@ -520,7 +540,7 @@ export function PreferencesScreen() {
             onToggleExpand={toggleExpanded}
           >
             <View style={styles.subsection}>
-              <Text style={styles.subsectionTitle}>Record sharing</Text>
+              <Text style={[styles.subsectionTitle, themedStyles.primaryText]}>Record sharing</Text>
               {RECORD_CONSENT_OPTIONS.map((option) => (
                 <View key={option.scope}>
                   <CompactToggleRow
@@ -594,7 +614,7 @@ export function PreferencesScreen() {
             </View>
 
             <View style={styles.subsection}>
-              <Text style={styles.subsectionTitle}>Consent tokens</Text>
+              <Text style={[styles.subsectionTitle, themedStyles.primaryText]}>Consent tokens</Text>
               <ConsentManagement patientId={patientId} />
             </View>
           </CompactActionRow>
@@ -608,6 +628,10 @@ export function PreferencesScreen() {
 
 export function AdvancedDeveloperSettingsScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const developerPlaceholderColor =
+    theme.appBackground === '#000000' ? theme.appTextMuted : mutedText;
   const {
     settings,
     isDeveloper,
@@ -986,8 +1010,11 @@ export function AdvancedDeveloperSettingsScreen() {
   }, [slm, modelQueue, setDemoDefaultModelId]);
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
+    <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={['top', 'bottom']}>
+      <ScrollView
+        style={themedStyles.safeArea}
+        contentContainerStyle={[styles.content, themedStyles.content]}
+      >
         <ScreenHeader eyebrow="Caregiver Concierge" title="Advanced Developer Settings" />
 
         <Section title="Existing demo controls">
@@ -1005,14 +1032,14 @@ export function AdvancedDeveloperSettingsScreen() {
 
           {isDeveloper ? (
             <View style={styles.devSection}>
-              <Text style={styles.devLabel}>Concierge Management</Text>
-              <Text style={styles.devInfo}>
+              <Text style={[styles.devLabel, themedStyles.devLabel]}>Concierge Management</Text>
+              <Text style={[styles.devInfo, themedStyles.devInfo]}>
                 Policy: {slm.policy} - Status: {slm.loadStatus}
                 {slm.currentModelId ? ` - Model: ${slm.currentModelId}` : ''}
                 {slm.modelSizeGB != null ? ` - Size: ${slm.modelSizeGB.toFixed(2)} GB` : ''}
               </Text>
               {slm.loadError ? (
-                <Text style={styles.devInfo}>Load error: {slm.loadError}</Text>
+                <Text style={[styles.devInfo, themedStyles.devInfo]}>Load error: {slm.loadError}</Text>
               ) : null}
               <SlmModelCarousel showDelete />
               <View style={styles.modelActions}>
@@ -1034,8 +1061,8 @@ export function AdvancedDeveloperSettingsScreen() {
                 </Pressable>
               </View>
 
-              <Text style={[styles.devLabel, { marginTop: 8 }]}>Default Concierge model (Demo auto-load)</Text>
-              <Text style={styles.devInfo}>
+              <Text style={[styles.devLabel, themedStyles.devLabel, { marginTop: 8 }]}>Default Concierge model (Demo auto-load)</Text>
+              <Text style={[styles.devInfo, themedStyles.devInfo]}>
                 The model auto-loaded when a transient task acquires a lease in Demo
                 mode. A single installed model is always the default. Currently:{' '}
                 {effectiveDefaultModelId}
@@ -1056,7 +1083,7 @@ export function AdvancedDeveloperSettingsScreen() {
                 })}
               </View>
 
-              <Text style={[styles.devLabel, { marginTop: 12 }]}>Runtime gates</Text>
+              <Text style={[styles.devLabel, themedStyles.devLabel, { marginTop: 12 }]}>Runtime gates</Text>
               <CompactToggleRow
                 id="dynamic-slm-loading"
                 emoji=""
@@ -1136,7 +1163,7 @@ export function AdvancedDeveloperSettingsScreen() {
               />
 
               <Pressable
-                style={[styles.actionButton, styles.unloadButton, !slm.currentModelId && styles.disabledActionButton]}
+                style={[styles.actionButton, styles.unloadButton, !slm.currentModelId && styles.disabledActionButton, !slm.currentModelId && themedStyles.disabledActionButton]}
                 disabled={!slm.currentModelId}
                 onPress={() => slm.unloadModel()}>
                 <Text style={styles.actionButtonText}>Unload Model</Text>
@@ -1149,10 +1176,10 @@ export function AdvancedDeveloperSettingsScreen() {
               </Pressable>
 
               <View style={styles.ramBlock}>
-                <Text style={styles.devLabel}>Device RAM</Text>
+                <Text style={[styles.devLabel, themedStyles.devLabel]}>Device RAM</Text>
                 {hasNativeMemory && memoryInfo ? (
                   <>
-                    <Text style={styles.devInfo}>
+                    <Text style={[styles.devInfo, themedStyles.devInfo]}>
                       {memoryInfo.usedMB.toFixed(0)} / {memoryInfo.totalMB.toFixed(0)} MB used
                       {' · '}Free: {memoryInfo.freeMB.toFixed(0)} MB
                       {' · '}App: {memoryInfo.appMB.toFixed(0)} MB
@@ -1160,7 +1187,7 @@ export function AdvancedDeveloperSettingsScreen() {
                         ? ` · Model: ${slm.modelSizeGB.toFixed(2)} GB`
                         : ''}
                     </Text>
-                    <View style={styles.progressBar}>
+                    <View style={[styles.progressBar, themedStyles.progressBar]}>
                       <View
                         style={[
                           styles.progressFill,
@@ -1173,7 +1200,7 @@ export function AdvancedDeveloperSettingsScreen() {
                     </View>
                   </>
                 ) : (
-                  <Text style={styles.devInfo}>
+                  <Text style={[styles.devInfo, themedStyles.devInfo]}>
                     RAM measurement unavailable in this build. Concierge loads on demand with
                     conservative cleanup.
                   </Text>
@@ -1211,26 +1238,26 @@ export function AdvancedDeveloperSettingsScreen() {
                 <Text style={styles.actionButtonText}>Raw Concierge Chat</Text>
               </Pressable>
 
-              <Text style={[styles.devLabel, { marginTop: 16 }]}>Clinical Evidence API Keys</Text>
-              <Text style={styles.devInfo}>
+              <Text style={[styles.devLabel, themedStyles.devLabel, { marginTop: 16 }]}>Clinical Evidence API Keys</Text>
+              <Text style={[styles.devInfo, themedStyles.devInfo]}>
                 Optional. PubMed uses an NCBI key for higher rate limits. OpenFDA
                 uses a key for higher rate limits.
               </Text>
 
               <View style={styles.keyLabelRow}>
-                <Text style={[styles.devLabel, { marginTop: 8 }]}>NCBI API Key (PubMed)</Text>
-                <Text style={[styles.keyStatusBadge, ncbiKeyStored ? styles.keyStatusStored : styles.keyStatusEmpty]}>
+                <Text style={[styles.devLabel, themedStyles.devLabel, { marginTop: 8 }]}>NCBI API Key (PubMed)</Text>
+                <Text style={[styles.keyStatusBadge, ncbiKeyStored ? styles.keyStatusStored : styles.keyStatusEmpty, ncbiKeyStored ? themedStyles.keyStatusStored : themedStyles.keyStatusEmpty]}>
                   {ncbiKeyStored ? 'stored' : 'empty'}
                 </Text>
               </View>
               <View style={styles.modelRow}>
-                <View style={styles.modelItem}>
+                <View style={[styles.modelItem, themedStyles.modelItem]}>
                   <TextInput
-                    style={styles.ncbiInput}
+                    style={[styles.ncbiInput, themedStyles.ncbiInput]}
                     value={ncbiKeyInput}
                     onChangeText={setNcbiKeyInput}
                     placeholder="Enter NCBI API key..."
-                    placeholderTextColor={mutedText}
+                    placeholderTextColor={developerPlaceholderColor}
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
@@ -1260,19 +1287,19 @@ export function AdvancedDeveloperSettingsScreen() {
               </View>
 
               <View style={styles.keyLabelRow}>
-                <Text style={[styles.devLabel, { marginTop: 8 }]}>OpenFDA API Key</Text>
-                <Text style={[styles.keyStatusBadge, openfdaKeyStored ? styles.keyStatusStored : styles.keyStatusEmpty]}>
+                <Text style={[styles.devLabel, themedStyles.devLabel, { marginTop: 8 }]}>OpenFDA API Key</Text>
+                <Text style={[styles.keyStatusBadge, openfdaKeyStored ? styles.keyStatusStored : styles.keyStatusEmpty, openfdaKeyStored ? themedStyles.keyStatusStored : themedStyles.keyStatusEmpty]}>
                   {openfdaKeyStored ? 'stored' : 'empty'}
                 </Text>
               </View>
               <View style={styles.modelRow}>
-                <View style={styles.modelItem}>
+                <View style={[styles.modelItem, themedStyles.modelItem]}>
                   <TextInput
-                    style={styles.ncbiInput}
+                    style={[styles.ncbiInput, themedStyles.ncbiInput]}
                     value={openfdaKeyInput}
                     onChangeText={setOpenfdaKeyInput}
                     placeholder="Enter OpenFDA API key..."
-                    placeholderTextColor={mutedText}
+                    placeholderTextColor={developerPlaceholderColor}
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
@@ -1301,8 +1328,8 @@ export function AdvancedDeveloperSettingsScreen() {
                 </View>
               </View>
 
-              <Text style={[styles.devLabel, { marginTop: 16 }]}>Clinical knowledge</Text>
-              <Text style={styles.devInfo}>
+              <Text style={[styles.devLabel, themedStyles.devLabel, { marginTop: 16 }]}>Clinical knowledge</Text>
+              <Text style={[styles.devInfo, themedStyles.devInfo]}>
                 Device pack is global (one copy). Patient overlay holds CDA/ADCP/on-demand
                 meds only and is never wiped by pack reset.
               </Text>
@@ -1318,7 +1345,7 @@ export function AdvancedDeveloperSettingsScreen() {
                   location: snapshot?.patient?.location,
                 }}
               />
-              <Text style={styles.devInfo}>
+              <Text style={[styles.devInfo, themedStyles.devInfo]}>
                 Patient overlay chunks: {snapshot?.knowledgeStats.total ?? 0}
                 {snapshot && snapshot.knowledgeStats.total > 0
                   ? Object.entries(snapshot.knowledgeStats.bySource)
@@ -1371,23 +1398,23 @@ export function AdvancedDeveloperSettingsScreen() {
 
               <KnowledgeCacheViewer patientId={patientId} />
 
-              <View style={styles.thresholdBlock}>
-                <Text style={styles.thresholdTitle}>
+              <View style={[styles.thresholdBlock, themedStyles.thresholdBlock]}>
+                <Text style={[styles.thresholdTitle, themedStyles.thresholdTitle]}>
                   Threshold personalization
                 </Text>
-                <Text style={styles.thresholdMuted}>
+                <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
                   Queued anomaly-threshold suggestions. Apply or dismiss;
                   applying audits the change.
                 </Text>
                 {thresholdRecs.length === 0 ? (
-                  <Text style={styles.thresholdMuted}>
+                  <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
                     No pending recommendations.
                   </Text>
                 ) : (
                   thresholdRecs.map((rec) => (
                     <View key={rec.recommendationId} style={styles.thresholdRow}>
                       <View style={styles.thresholdTextBlock}>
-                        <Text style={styles.thresholdValue}>
+                        <Text style={[styles.thresholdValue, themedStyles.thresholdValue]}>
                           Recommended threshold:{' '}
                           {rec.recommendedThreshold.toFixed(3)}
                           {rec.adjustmentPct !== undefined
@@ -1395,7 +1422,7 @@ export function AdvancedDeveloperSettingsScreen() {
                             : ''}
                         </Text>
                         {rec.reason ? (
-                          <Text style={styles.thresholdMuted}>{rec.reason}</Text>
+                          <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>{rec.reason}</Text>
                         ) : null}
                       </View>
                       <Pressable
@@ -1405,7 +1432,7 @@ export function AdvancedDeveloperSettingsScreen() {
                         <Text style={styles.thresholdBtnText}>Apply</Text>
                       </Pressable>
                       <Pressable
-                        style={[styles.thresholdBtn, styles.thresholdDismissBtn]}
+                        style={[styles.thresholdBtn, styles.thresholdDismissBtn, themedStyles.thresholdDismissBtn]}
                         onPress={() => handleDismissThresholdRec(rec.recommendationId)}
                       >
                         <Text style={styles.thresholdBtnText}>Dismiss</Text>
@@ -1415,8 +1442,8 @@ export function AdvancedDeveloperSettingsScreen() {
                 )}
               </View>
 
-              <Text style={[styles.devLabel, { marginTop: 16 }]}>Import Record</Text>
-              <Text style={styles.devInfo}>
+              <Text style={[styles.devLabel, themedStyles.devLabel, { marginTop: 16 }]}>Import Record</Text>
+              <Text style={[styles.devInfo, themedStyles.devInfo]}>
                 Import a zip of standardized CDA JSON files (the
                 Sahlin longitudinal EHR dataset), a single CDA JSON, or a
                 FHIR JSON bundle. Conditions are SNOMED-coded and
@@ -1425,7 +1452,7 @@ export function AdvancedDeveloperSettingsScreen() {
                 full pipeline.
               </Text>
               <Pressable
-                style={[styles.actionButton, importingEhr && styles.disabledActionButton]}
+                style={[styles.actionButton, importingEhr && styles.disabledActionButton, importingEhr && themedStyles.disabledActionButton]}
                 disabled={importingEhr}
                 onPress={handleImportEhrZip}>
                 <Text style={styles.actionButtonText}>
@@ -1435,7 +1462,7 @@ export function AdvancedDeveloperSettingsScreen() {
                 </Text>
               </Pressable>
               <Pressable
-                style={[styles.actionButton, importingEhr && styles.disabledActionButton]}
+                style={[styles.actionButton, importingEhr && styles.disabledActionButton, importingEhr && themedStyles.disabledActionButton]}
                 disabled={importingEhr}
                 onPress={handleImportEhrSingleFile}>
                 <Text style={styles.actionButtonText}>
@@ -1443,14 +1470,14 @@ export function AdvancedDeveloperSettingsScreen() {
                 </Text>
               </Pressable>
 
-              <Text style={[styles.devLabel, { marginTop: 16 }]}>Demo Data</Text>
-              <Text style={styles.devInfo}>
+              <Text style={[styles.devLabel, themedStyles.devLabel, { marginTop: 16 }]}>Demo Data</Text>
+              <Text style={[styles.devInfo, themedStyles.devInfo]}>
                 Re-open the onboarding wizard with Elena (ST-03: COPD + TBI)
                 pre-selected. Clears the completed-onboarding gate so the
                 wizard shows again; finish Device setup to seed Home.
               </Text>
               <Pressable
-                style={[styles.actionButton, rerunningDemo && styles.disabledActionButton]}
+                style={[styles.actionButton, rerunningDemo && styles.disabledActionButton, rerunningDemo && themedStyles.disabledActionButton]}
                 disabled={rerunningDemo}
                 onPress={handleRerunElenaDemo}
               >
@@ -1490,29 +1517,29 @@ export function AdvancedDeveloperSettingsScreen() {
           <Section title="UC3 exercise assignment">
             <View style={styles.devSection}>
               {!patientRecordPatientId || !snapshot?.patient ? (
-                <Text style={styles.thresholdMuted}>No active patient selected.</Text>
+                <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>No active patient selected.</Text>
               ) : !activeCarePlan ? (
-                <Text style={styles.thresholdMuted}>No active CarePlan available.</Text>
+                <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>No active CarePlan available.</Text>
               ) : !uc3ExerciseAssignmentEligible ? (
-                <Text style={styles.thresholdMuted}>
+                <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
                   Active patient is not eligible for UC3 stroke rehabilitation exercise assignment.
                 </Text>
               ) : (
                 <>
-                  <Text style={styles.devInfo}>
+                  <Text style={[styles.devInfo, themedStyles.devInfo]}>
                     Development-only assignments for the active patient and active CarePlan.
                   </Text>
                   {DEVELOPMENT_UC3_REHAB_EXERCISES.map((exercise) => (
                     <View key={exercise.key} style={styles.inlineControlRow}>
-                      <Text style={styles.inlineControlLabel}>{exercise.label}</Text>
+                      <Text style={[styles.inlineControlLabel, themedStyles.inlineControlLabel]}>{exercise.label}</Text>
                       <Switch
                         value={assignedExerciseKeySet.has(exercise.key)}
                         onValueChange={() => handleUc3ExerciseAssignmentToggle(exercise.key)}
-                        trackColor={{ false: AppTheme.colors.border, true: AppTheme.colors.brandSoft }}
+                        trackColor={{ false: theme.appBorder, true: AppTheme.colors.brandSoft }}
                         thumbColor={
                           assignedExerciseKeySet.has(exercise.key)
                             ? AppTheme.colors.brand
-                            : AppTheme.colors.white
+                            : theme.appSurface
                         }
                         accessibilityRole="switch"
                         accessibilityLabel={exercise.label}
@@ -1526,6 +1553,7 @@ export function AdvancedDeveloperSettingsScreen() {
                 style={[
                   styles.actionButton,
                   runningUc3Evaluation && styles.disabledActionButton,
+                  runningUc3Evaluation && themedStyles.disabledActionButton,
                 ]}
                 onPress={handleRunUc3Evaluation}
                 disabled={runningUc3Evaluation}
@@ -1535,12 +1563,12 @@ export function AdvancedDeveloperSettingsScreen() {
                 <Text style={styles.actionButtonText}>Run UC3 evaluation</Text>
               </Pressable>
               {uc3EvaluationStatus ? (
-                <View style={styles.uc3EvaluationStatusCard}>
-                  <Text style={styles.uc3EvaluationStatusTitle}>
+                <View style={[styles.uc3EvaluationStatusCard, themedStyles.uc3EvaluationStatusCard]}>
+                  <Text style={[styles.uc3EvaluationStatusTitle, themedStyles.uc3EvaluationStatusTitle]}>
                     {uc3EvaluationStatus.title}
                   </Text>
                   {uc3EvaluationStatus.lines.map((line) => (
-                    <Text key={line} style={styles.uc3EvaluationStatusLine}>
+                    <Text key={line} style={[styles.uc3EvaluationStatusLine, themedStyles.uc3EvaluationStatusLine]}>
                       {line}
                     </Text>
                   ))}
@@ -1553,13 +1581,14 @@ export function AdvancedDeveloperSettingsScreen() {
         {__DEV__ && isDeveloper ? (
           <Section title="UC4 priority evaluation">
             <View style={styles.devSection}>
-              <Text style={styles.devInfo}>
+              <Text style={[styles.devInfo, themedStyles.devInfo]}>
                 Development-only manual run for the active patient. UC4 cards stay separate from emergency alerts.
               </Text>
               <Pressable
                 style={[
                   styles.actionButton,
                   runningUc4Evaluation && styles.disabledActionButton,
+                  runningUc4Evaluation && themedStyles.disabledActionButton,
                 ]}
                 onPress={handleRunUc4Evaluation}
                 disabled={runningUc4Evaluation}
@@ -1569,12 +1598,12 @@ export function AdvancedDeveloperSettingsScreen() {
                 <Text style={styles.actionButtonText}>Run UC4 evaluation</Text>
               </Pressable>
               {uc4EvaluationStatus ? (
-                <View style={styles.uc3EvaluationStatusCard}>
-                  <Text style={styles.uc3EvaluationStatusTitle}>
+                <View style={[styles.uc3EvaluationStatusCard, themedStyles.uc3EvaluationStatusCard]}>
+                  <Text style={[styles.uc3EvaluationStatusTitle, themedStyles.uc3EvaluationStatusTitle]}>
                     {uc4EvaluationStatus.title}
                   </Text>
                   {uc4EvaluationStatus.lines.map((line) => (
-                    <Text key={line} style={styles.uc3EvaluationStatusLine}>
+                    <Text key={line} style={[styles.uc3EvaluationStatusLine, themedStyles.uc3EvaluationStatusLine]}>
                       {line}
                     </Text>
                   ))}
@@ -1618,6 +1647,8 @@ function DiagnosisCurationSettings({
   mutatePatientRecord: ReturnType<typeof usePatientRecord>['mutatePatientRecord'];
 }) {
   const conditions = snapshot?.conditions ?? EMPTY_CONDITIONS;
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [primaryConditionId, setPrimaryConditionId] = useState<string | null>(null);
   const [activeConditionIds, setActiveConditionIds] = useState<string[]>([]);
 
@@ -1641,7 +1672,7 @@ function DiagnosisCurationSettings({
   if (!patientId || !snapshot?.patient) {
     return (
       <View style={styles.devSection}>
-        <Text style={styles.thresholdMuted}>No active patient selected.</Text>
+        <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>No active patient selected.</Text>
       </View>
     );
   }
@@ -1711,12 +1742,12 @@ function DiagnosisCurationSettings({
 
   return (
     <View style={styles.devSection}>
-      <Text style={styles.thresholdMuted}>
+      <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
         Choose the app-level primary diagnosis and active comorbidities. Unselected conditions are saved as history context.
       </Text>
 
       {conditions.length === 0 ? (
-        <Text style={styles.thresholdMuted}>No conditions available.</Text>
+        <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>No conditions available.</Text>
       ) : (
         <>
           <View style={styles.modelActions}>
@@ -1734,32 +1765,33 @@ function DiagnosisCurationSettings({
             const isActive = activeConditionIds.includes(condition.conditionId);
 
             return (
-              <View key={condition.conditionId} style={styles.conditionRoleRow}>
+              <View key={condition.conditionId} style={[styles.conditionRoleRow, themedStyles.conditionRoleRow]}>
                 <View style={styles.thresholdTextBlock}>
-                  <Text style={styles.thresholdValue}>{condition.name}</Text>
-                  <Text style={styles.thresholdMuted}>
+                  <Text style={[styles.thresholdValue, themedStyles.thresholdValue]}>{condition.name}</Text>
+                  <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
                     {sourceSummary || 'Source timing unavailable'}
                   </Text>
                 </View>
                 <View style={styles.conditionRoleActions}>
                   <Pressable
-                    style={[styles.roleButton, isPrimary && styles.roleButtonActive]}
+                    style={[styles.roleButton, themedStyles.roleButton, isPrimary && styles.roleButtonActive]}
                     onPress={() => handlePrimaryChange(condition.conditionId)}
                   >
-                    <Text style={[styles.roleButtonText, isPrimary && styles.roleButtonTextActive]}>
+                    <Text style={[styles.roleButtonText, themedStyles.roleButtonText, isPrimary && styles.roleButtonTextActive]}>
                       Primary
                     </Text>
                   </Pressable>
                   <Pressable
                     style={[
                       styles.roleButton,
+                      themedStyles.roleButton,
                       isActive && styles.roleButtonActive,
                       isPrimary && styles.disabledButton,
                     ]}
                     disabled={isPrimary}
                     onPress={() => toggleActiveCondition(condition.conditionId)}
                   >
-                    <Text style={[styles.roleButtonText, isActive && styles.roleButtonTextActive]}>
+                    <Text style={[styles.roleButtonText, themedStyles.roleButtonText, isActive && styles.roleButtonTextActive]}>
                       Active
                     </Text>
                   </Pressable>
@@ -1873,13 +1905,16 @@ function DemoMedicationConfirmationSettings({
   snapshot: ReturnType<typeof usePatientRecord>['snapshot'];
   mutatePatientRecord: ReturnType<typeof usePatientRecord>['mutatePatientRecord'];
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   if (!patientId || !snapshot?.patient) {
     return (
       <View style={styles.devSection}>
-        <Text style={styles.thresholdMuted}>
+        <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
           For demonstration only. Select medications that should behave as if confirmation was required by the patient&apos;s care team.
         </Text>
-        <Text style={styles.thresholdMuted}>No active patient selected</Text>
+        <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>No active patient selected</Text>
       </View>
     );
   }
@@ -1888,10 +1923,10 @@ function DemoMedicationConfirmationSettings({
   if (!requirements) {
     return (
       <View style={styles.devSection}>
-        <Text style={styles.thresholdMuted}>
+        <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
           For demonstration only. Select medications that should behave as if confirmation was required by the patient&apos;s care team.
         </Text>
-        <Text style={styles.thresholdMuted}>Medication confirmation requirements unavailable</Text>
+        <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>Medication confirmation requirements unavailable</Text>
       </View>
     );
   }
@@ -1912,11 +1947,11 @@ function DemoMedicationConfirmationSettings({
 
   return (
     <View style={styles.devSection}>
-      <Text style={styles.thresholdMuted}>
+      <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
         For demonstration only. Select medications that should behave as if confirmation was required by the patient&apos;s care team.
       </Text>
       {importedMedications.length === 0 ? (
-        <Text style={styles.thresholdMuted}>No medications provided</Text>
+        <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>No medications provided</Text>
       ) : (
         importedMedications.map((medication) => {
           const requirement = requirements[medication.medicationId];
@@ -1928,8 +1963,8 @@ function DemoMedicationConfirmationSettings({
           return (
             <View key={medication.medicationId} style={styles.medRequirementRow}>
               <View style={styles.thresholdTextBlock}>
-                <Text style={styles.thresholdValue}>{medication.name}</Text>
-                <Text style={styles.thresholdMuted}>
+                <Text style={[styles.thresholdValue, themedStyles.thresholdValue]}>{medication.name}</Text>
+                <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
                   {detail || 'Medication details not provided'}
                 </Text>
               </View>
@@ -1937,8 +1972,8 @@ function DemoMedicationConfirmationSettings({
                 value={isRequired}
                 disabled={lockedByNonDemoSource}
                 onValueChange={(enabled) => handleToggle(medication.medicationId, enabled)}
-                trackColor={{ false: AppTheme.colors.border, true: AppTheme.colors.brandSoft }}
-                thumbColor={isRequired ? AppTheme.colors.brand : AppTheme.colors.white}
+                trackColor={{ false: theme.appBorder, true: AppTheme.colors.brandSoft }}
+                thumbColor={isRequired ? AppTheme.colors.brand : theme.appSurface}
                 accessibilityRole="switch"
                 accessibilityLabel={`Simulate care-team-required confirmation for ${medication.name}`}
                 accessibilityState={{ checked: isRequired, disabled: lockedByNonDemoSource }}
@@ -1987,6 +2022,7 @@ function ConsentManagement({ patientId }: { patientId: string }) {
 }
 
 function YourDecisionsSection({ patientId }: { patientId: string }) {
+  const themedStyles = createThemedStyles(useTheme());
   const [decisions, setDecisions] = useState<AuditLogEntry[]>(() => {
     if (!patientId) return [];
     try {
@@ -2015,15 +2051,15 @@ function YourDecisionsSection({ patientId }: { patientId: string }) {
     <Section title="Your Decisions">
       <View style={styles.subsection}>
         {decisions.map((d, i) => (
-          <View key={`${d.resourceId ?? d.auditId}-${i}`} style={styles.decisionRow}>
-            <Text style={styles.decisionAction}>
+          <View key={`${d.resourceId ?? d.auditId}-${i}`} style={[styles.decisionRow, themedStyles.divider]}>
+            <Text style={[styles.decisionAction, themedStyles.primaryText]}>
               {d.action === 'override'
                 ? 'You overrode'
                 : d.action === 'confirm'
                   ? 'You confirmed'
                   : `You ${d.action}`}
             </Text>
-            <Text style={styles.decisionTime}>
+            <Text style={[styles.decisionTime, themedStyles.secondaryText]}>
               {d.createdAt
                 ? new Date(d.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                 : ''}
@@ -2036,6 +2072,8 @@ function YourDecisionsSection({ patientId }: { patientId: string }) {
 }
 
 function AuditViewer({ patientId }: { patientId: string }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [expanded, setExpanded] = useState(false);
   const [entries, setEntries] = useState<{ auditId: string; actor: string; action: string; resourceType: string; createdAt: string; hashChain: string }[]>([]);
   const [chainOk, setChainOk] = useState<boolean | null>(null);
@@ -2073,15 +2111,15 @@ function AuditViewer({ patientId }: { patientId: string }) {
         </Pressable>
       )}
       {chainOk !== null ? (
-        <Text style={[styles.chainStatus, chainOk ? styles.chainOk : styles.chainBroken]}>
+        <Text style={[styles.chainStatus, chainOk ? styles.chainOk : styles.chainBroken, chainOk && themedStyles.chainOk]}>
           Hash chain: {chainOk ? 'Intact' : 'Broken'}
         </Text>
       ) : null}
       {expanded && entries.length > 0 ? (
         <View style={styles.auditList}>
           {entries.map((e) => (
-            <View key={e.auditId} style={styles.auditEntry}>
-              <Text style={styles.auditText}>
+            <View key={e.auditId} style={[styles.auditEntry, themedStyles.auditEntry]}>
+              <Text style={[styles.auditText, themedStyles.auditText]}>
                 {e.createdAt.slice(11, 19)} - {e.actor} - {e.action} - {e.resourceType}
               </Text>
             </View>
@@ -2089,7 +2127,7 @@ function AuditViewer({ patientId }: { patientId: string }) {
         </View>
       ) : null}
       {expanded && entries.length === 0 ? (
-        <Text style={styles.devInfo}>No audit entries found.</Text>
+        <Text style={[styles.devInfo, themedStyles.devInfo]}>No audit entries found.</Text>
       ) : null}
     </View>
   );
@@ -2097,6 +2135,8 @@ function AuditViewer({ patientId }: { patientId: string }) {
 
 function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
   const { refresh: refreshSnapshot } = usePatientRecord();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [loaded, setLoaded] = useState(false);
   const [chunks, setChunks] = useState<KnowledgeChunk[]>([]);
   const [showAllPatients, setShowAllPatients] = useState(false);
@@ -2468,7 +2508,7 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
           </Text>
         </Pressable>
         <Pressable
-          style={[styles.actionButton, busyId === '__all__' && styles.disabledActionButton]}
+          style={[styles.actionButton, busyId === '__all__' && styles.disabledActionButton, busyId === '__all__' && themedStyles.disabledActionButton]}
           onPress={handleRedownloadAll}
           disabled={busyId === '__all__'}
         >
@@ -2477,11 +2517,11 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
           </Text>
         </Pressable>
         {redownloadProgress ? (
-          <View style={styles.knowledgeProgressWrap}>
-            <Text style={styles.devInfo} numberOfLines={2}>
+          <View style={[styles.knowledgeProgressWrap, themedStyles.knowledgeProgressWrap]}>
+            <Text style={[styles.devInfo, themedStyles.devInfo]} numberOfLines={2}>
               {redownloadProgress.phase}
             </Text>
-            <View style={styles.knowledgeProgressTrack}>
+            <View style={[styles.knowledgeProgressTrack, themedStyles.knowledgeProgressTrack]}>
               <View
                 style={[
                   styles.knowledgeProgressFill,
@@ -2493,7 +2533,7 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
                 ]}
               />
             </View>
-            <Text style={styles.devInfo}>
+            <Text style={[styles.devInfo, themedStyles.devInfo]}>
               {redownloadProgress.completedSteps}/{redownloadProgress.totalSteps || 1} steps
               {redownloadProgress.chunksAdded > 0
                 ? ` · ${redownloadProgress.chunksAdded} chunks`
@@ -2502,7 +2542,7 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
           </View>
         ) : null}
         <Pressable
-          style={[styles.actionButton, (exportingZip || chunks.length === 0) && styles.disabledActionButton]}
+          style={[styles.actionButton, (exportingZip || chunks.length === 0) && styles.disabledActionButton, (exportingZip || chunks.length === 0) && themedStyles.disabledActionButton]}
           onPress={() => void handleExportZip()}
           disabled={exportingZip || chunks.length === 0}
         >
@@ -2513,7 +2553,7 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
       </View>
 
       {chunks.length === 0 ? (
-        <Text style={styles.devInfo}>
+        <Text style={[styles.devInfo, themedStyles.devInfo]}>
           {showAllPatients
             ? 'No knowledge chunks in the database.'
             : 'No knowledge chunks for this patient yet. They populate after onboarding / re-download for this profile only.'}
@@ -2528,10 +2568,10 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
                 style={styles.cacheSourceToggle}
                 onPress={() => toggleSource(src)}
             >
-                <Text style={styles.cacheSourceCaret}>
+                <Text style={[styles.cacheSourceCaret, themedStyles.cacheSourceCaret]}>
                   {isSourceExpanded ? '▾' : '▸'}
                 </Text>
-                <Text style={styles.cacheSourceLabel}>
+                <Text style={[styles.cacheSourceLabel, themedStyles.cacheSourceLabel]}>
                   {src} ({bySource[src].length})
                 </Text>
               </Pressable>
@@ -2556,18 +2596,18 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
               const isOpen = expandedChunkId === chunk.chunkId;
               const isBusy = busyId === chunk.chunkId;
               return (
-                <View key={chunk.chunkId} style={styles.cacheChunkRow}>
+                <View key={chunk.chunkId} style={[styles.cacheChunkRow, themedStyles.cacheChunkRow]}>
                   <Pressable onPress={() => setExpandedChunkId(isOpen ? null : chunk.chunkId)}>
-                    <Text style={styles.cacheChunkId}>{chunk.chunkId}</Text>
-                    <Text style={styles.cacheChunkMeta}>
+                    <Text style={[styles.cacheChunkId, themedStyles.cacheChunkId]}>{chunk.chunkId}</Text>
+                    <Text style={[styles.cacheChunkMeta, themedStyles.cacheChunkMeta]}>
                       {chunk.conditions ? `conditions: ${chunk.conditions}` : 'no conditions'}
                       {' · '}uses: {chunk.useCount}
                       {chunk.documentType ? ` · ${chunk.documentType}` : ''}
                     </Text>
                     {isOpen ? (
-                      <Text style={styles.cacheChunkText}>{chunk.text}</Text>
+                      <Text style={[styles.cacheChunkText, themedStyles.cacheChunkText]}>{chunk.text}</Text>
                     ) : (
-                      <Text style={styles.cacheChunkPreview} numberOfLines={2}>
+                      <Text style={[styles.cacheChunkPreview, themedStyles.cacheChunkPreview]} numberOfLines={2}>
                         {chunk.text}
                       </Text>
                     )}
@@ -2604,28 +2644,28 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
       )}
 
       {/* Enrichment log viewer (planning/32 §13.4) */}
-      <View style={styles.enrichmentLogBlock}>
+      <View style={[styles.enrichmentLogBlock, themedStyles.enrichmentLogBlock]}>
         <Pressable
           style={styles.enrichmentLogHeader}
           onPress={() => setEnrichmentLogOpen((v) => !v)}
         >
-          <Text style={styles.devLabel}>
+          <Text style={[styles.devLabel, themedStyles.devLabel]}>
             {enrichmentLogOpen ? '▾' : '▸'} Enrichment log ({enrichmentLog.length} entries)
           </Text>
         </Pressable>
         {enrichmentLogOpen ? (
           enrichmentLog.length === 0 ? (
-            <Text style={styles.devInfo}>No enrichment entries yet.</Text>
+            <Text style={[styles.devInfo, themedStyles.devInfo]}>No enrichment entries yet.</Text>
           ) : (
             enrichmentLog.map((entry) => (
               <View key={entry.logId} style={styles.enrichmentLogRow}>
-                <Text style={styles.enrichmentLogMeta}>
+                <Text style={[styles.enrichmentLogMeta, themedStyles.enrichmentLogMeta]}>
                   {entry.createdAt.slice(0, 19).replace('T', ' ')} · {entry.source} · {entry.action}
                   {entry.resultCount !== undefined ? ` · ${entry.resultCount} chunks` : ''}
                   {entry.latencyMs !== undefined ? ` · ${entry.latencyMs}ms` : ''}
                 </Text>
                 {entry.deidentifiedQuery ? (
-                  <Text style={styles.enrichmentLogQuery}>{entry.deidentifiedQuery}</Text>
+                  <Text style={[styles.enrichmentLogQuery, themedStyles.enrichmentLogQuery]}>{entry.deidentifiedQuery}</Text>
                 ) : null}
               </View>
             ))
@@ -2637,10 +2677,12 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const themedStyles = createThemedStyles(useTheme());
+
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={styles.card}>{children}</View>
+      <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{title}</Text>
+      <View style={[styles.card, themedStyles.card]}>{children}</View>
     </View>
   );
 }
@@ -2668,8 +2710,11 @@ function CompactToggleRow({
   accessibilityLabel?: string;
   accessibilityHint?: string;
 }) {
+  const theme = useTheme();
+  const themedStyles = createThemedStyles(theme);
+
   return (
-    <View style={styles.compactWrap}>
+    <View style={[styles.compactWrap, themedStyles.divider]}>
       <View style={styles.compactRow}>
         <Pressable
           style={styles.compactPressArea}
@@ -2680,17 +2725,17 @@ function CompactToggleRow({
           accessibilityState={{ expanded }}
         >
           {emoji ? (
-            <Text style={styles.rowEmoji} accessibilityElementsHidden importantForAccessibility="no">
+            <Text style={[styles.rowEmoji, themedStyles.primaryText]} accessibilityElementsHidden importantForAccessibility="no">
               {emoji}
             </Text>
           ) : null}
-          <Text style={styles.rowLabel}>{label}</Text>
+          <Text style={[styles.rowLabel, themedStyles.primaryText]}>{label}</Text>
         </Pressable>
         <Switch
           value={value}
           onValueChange={onValueChange}
-          trackColor={{ false: AppTheme.colors.border, true: AppTheme.colors.brandSoft }}
-          thumbColor={value ? AppTheme.colors.brand : AppTheme.colors.white}
+          trackColor={{ false: theme.appBorder, true: AppTheme.colors.brandSoft }}
+          thumbColor={value ? AppTheme.colors.brand : theme.appSurface}
           accessibilityRole="switch"
           accessibilityLabel={accessibilityLabel ?? label}
           accessibilityHint={accessibilityHint}
@@ -2699,14 +2744,14 @@ function CompactToggleRow({
       </View>
       {expanded && explanation ? (
         <View style={styles.explanation}>
-          <Text style={styles.explanationText}>{explanation}</Text>
+          <Text style={[styles.explanationText, themedStyles.secondaryText]}>{explanation}</Text>
           <Pressable
-            style={styles.closeExplanation}
+            style={[styles.closeExplanation, themedStyles.softSurface]}
             onPress={() => onToggleExpand(id)}
             accessibilityRole="button"
             accessibilityLabel={`Close ${label} explanation`}
           >
-            <Text style={styles.closeExplanationText}>Close</Text>
+            <Text style={[styles.closeExplanationText, themedStyles.secondaryText]}>Close</Text>
           </Pressable>
         </View>
       ) : null}
@@ -2731,8 +2776,10 @@ function CompactActionRow({
   onToggleExpand: (id: ExpandableId) => void;
   children?: React.ReactNode;
 }) {
+  const themedStyles = createThemedStyles(useTheme());
+
   return (
-    <View style={styles.compactWrap}>
+    <View style={[styles.compactWrap, themedStyles.divider]}>
       <Pressable
         style={styles.actionCompactRow}
         onPress={() => onToggleExpand(id)}
@@ -2741,22 +2788,22 @@ function CompactActionRow({
         accessibilityHint={expanded ? 'Collapse details' : 'Expand details'}
         accessibilityState={{ expanded }}
       >
-        <Text style={styles.rowEmoji} accessibilityElementsHidden importantForAccessibility="no">
+        <Text style={[styles.rowEmoji, themedStyles.primaryText]} accessibilityElementsHidden importantForAccessibility="no">
           {emoji}
         </Text>
-        <Text style={styles.rowLabel}>{label}</Text>
+        <Text style={[styles.rowLabel, themedStyles.primaryText]}>{label}</Text>
       </Pressable>
       {expanded ? (
         <View style={styles.explanation}>
-          {explanation ? <Text style={styles.explanationText}>{explanation}</Text> : null}
+          {explanation ? <Text style={[styles.explanationText, themedStyles.secondaryText]}>{explanation}</Text> : null}
           {children}
           <Pressable
-            style={styles.closeExplanation}
+            style={[styles.closeExplanation, themedStyles.softSurface]}
             onPress={() => onToggleExpand(id)}
             accessibilityRole="button"
             accessibilityLabel={`Close ${label} details`}
           >
-            <Text style={styles.closeExplanationText}>Close</Text>
+            <Text style={[styles.closeExplanationText, themedStyles.secondaryText]}>Close</Text>
           </Pressable>
         </View>
       ) : null}
@@ -2777,6 +2824,8 @@ function PlainActionRow({
   onPress: () => void;
   accessibilityLabel?: string;
 }) {
+  const themedStyles = createThemedStyles(useTheme());
+
   return (
     <Pressable
       style={styles.actionCompactRow}
@@ -2785,20 +2834,113 @@ function PlainActionRow({
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityHint={description}
     >
-      <Text style={styles.rowEmoji} accessibilityElementsHidden importantForAccessibility="no">
+      <Text style={[styles.rowEmoji, themedStyles.primaryText]} accessibilityElementsHidden importantForAccessibility="no">
         {emoji}
       </Text>
       <View style={styles.rowTextBlock}>
-        <Text style={styles.rowLabel}>{label}</Text>
-        <Text style={styles.rowDescription}>{description}</Text>
+        <Text style={[styles.rowLabel, themedStyles.primaryText]}>{label}</Text>
+        <Text style={[styles.rowDescription, themedStyles.secondaryText]}>{description}</Text>
       </View>
     </Pressable>
   );
 }
 
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  const accent = isDark ? AppTheme.colors.brand : teal;
+
+  return StyleSheet.create({
+    safeArea: { backgroundColor: theme.appBackground },
+    content: { backgroundColor: theme.appBackground },
+    sectionTitle: { color: theme.appSectionText },
+    card: { backgroundColor: theme.appSurface, borderColor: theme.appBorder },
+    divider: { borderBottomColor: theme.appBorder },
+    primaryText: { color: theme.appText },
+    secondaryText: { color: theme.appTextSupporting },
+    headerText: { color: theme.appHeaderText },
+    softSurface: { backgroundColor: theme.appControlSurface },
+    segmented: { borderColor: theme.appBorder },
+    segment: { backgroundColor: theme.appSurface },
+    devLabel: { color: isDark ? theme.appText : darkText },
+    devInfo: { color: isDark ? theme.appTextSupporting : mutedText },
+    inlineControlLabel: { color: theme.appText },
+    disabledActionButton: { backgroundColor: isDark ? '#4B5563' : '#D1D5DB' },
+    progressBar: { backgroundColor: isDark ? theme.appBorder : borderColor },
+    modelItem: {
+      backgroundColor: isDark ? theme.appSurface : 'transparent',
+      borderColor: isDark ? theme.appBorder : borderColor,
+    },
+    ncbiInput: {
+      backgroundColor: isDark ? theme.appInputBackground : 'transparent',
+      borderColor: isDark ? theme.appBorder : borderColor,
+      color: isDark ? theme.appText : darkText,
+    },
+    keyStatusStored: {
+      backgroundColor: isDark ? theme.appBrandSoftSurface : '#DCFCE7',
+      color: isDark ? AppTheme.colors.brand : '#0F7A4A',
+    },
+    keyStatusEmpty: {
+      backgroundColor: isDark ? theme.appControlSurface : '#F3F4F6',
+      color: isDark ? theme.appTextMuted : '#9CA3AF',
+    },
+    thresholdBlock: {
+      backgroundColor: isDark ? theme.appControlSurface : AppTheme.colors.softSurface,
+      borderColor: theme.appBorder,
+    },
+    thresholdTitle: { color: theme.appText },
+    thresholdMuted: { color: isDark ? theme.appTextSupporting : AppTheme.colors.textSoft },
+    thresholdValue: { color: theme.appText },
+    thresholdDismissBtn: {
+      backgroundColor: isDark ? theme.appControlSurface : AppTheme.colors.chip,
+      borderColor: theme.appBorder,
+    },
+    conditionRoleRow: { borderTopColor: theme.appBorder },
+    roleButton: {
+      backgroundColor: isDark ? theme.appControlSurface : AppTheme.colors.softSurface,
+      borderColor: theme.appBorder,
+    },
+    roleButtonText: { color: isDark ? theme.appTextSupporting : AppTheme.colors.textSoft },
+    uc3EvaluationStatusCard: {
+      backgroundColor: isDark ? theme.appControlSurface : AppTheme.colors.softSurface,
+      borderColor: isDark ? theme.appBorder : borderColor,
+    },
+    uc3EvaluationStatusTitle: { color: isDark ? theme.appText : darkText },
+    uc3EvaluationStatusLine: { color: isDark ? theme.appTextSupporting : mutedText },
+    auditEntry: { borderLeftColor: isDark ? theme.appBorder : borderColor },
+    auditText: { color: isDark ? theme.appTextMuted : mutedText },
+    chainOk: { color: accent },
+    knowledgeProgressWrap: {
+      backgroundColor: isDark ? theme.appControlSurface : AppTheme.colors.softSurface,
+      borderColor: theme.appBorder,
+    },
+    knowledgeProgressTrack: {
+      backgroundColor: isDark ? theme.appBorder : AppTheme.colors.chip,
+    },
+    cacheSourceCaret: { color: accent },
+    cacheSourceLabel: { color: accent },
+    cacheChunkRow: {
+      backgroundColor: isDark ? theme.appControlSurface : 'transparent',
+      borderColor: isDark ? theme.appBorder : borderColor,
+    },
+    cacheChunkId: { color: isDark ? theme.appText : darkText },
+    cacheChunkMeta: { color: isDark ? theme.appTextMuted : mutedText },
+    cacheChunkPreview: { color: isDark ? theme.appTextMuted : mutedText },
+    cacheChunkText: { color: isDark ? theme.appText : darkText },
+    enrichmentLogBlock: { borderTopColor: isDark ? theme.appBorder : borderColor },
+    enrichmentLogMeta: { color: isDark ? theme.appTextMuted : mutedText },
+    enrichmentLogQuery: { color: isDark ? theme.appText : darkText },
+  });
+}
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: AppTheme.colors.screen },
   content: { padding: 24, paddingBottom: 40, gap: 18 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 4 },
+  logoCircle: { width: 48, height: 48, borderRadius: 14, backgroundColor: teal, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  logoImage: { width: 36, height: 36 },
+  headerTextBlock: { flex: 1 },
+  headerEyebrow: { color: teal, fontSize: 11, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase' },
+  headerTitle: { fontSize: 28, fontWeight: '900', color: darkText, marginTop: 2 },
   section: { gap: 8 },
   sectionTitle: {
     fontSize: 15,

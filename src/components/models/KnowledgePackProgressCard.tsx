@@ -2,10 +2,12 @@
  * Shared clinical knowledge pack progress card (Device setup + Settings).
  */
 
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { useKnowledgePackInstall } from '@/hooks/useKnowledgePackInstall';
+import { useTheme } from '@/hooks/use-theme';
 import type { PackRunnerOptions } from '@/clinical-evidence/pack';
 
 function formatBytes(bytes: number): string {
@@ -32,6 +34,8 @@ export function KnowledgePackProgressCard({
   autoStart = false,
 }: KnowledgePackProgressCardProps) {
   const pack = useKnowledgePackInstall();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createStyles(theme), [theme]);
 
   // Auto-start is driven by parent via pack.autoStartOnce to control Wi-Fi alert timing.
   void autoStart;
@@ -46,15 +50,15 @@ export function KnowledgePackProgressCard({
   }
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>{title}</Text>
-      <Text style={styles.subtitle}>{subtitle}</Text>
+    <View style={[styles.card, themedStyles.card]}>
+      <Text style={[styles.title, themedStyles.title]}>{title}</Text>
+      <Text style={[styles.subtitle, themedStyles.subtitle]}>{subtitle}</Text>
 
-      <View style={styles.barTrack}>
+      <View style={[styles.barTrack, themedStyles.barTrack]}>
         <View style={[styles.barFill, { width: `${overallPct}%` }]} />
       </View>
       <Text
-        style={styles.overall}
+        style={[styles.overall, themedStyles.overall]}
         accessibilityLabel={
           sizeLabel
             ? `Clinical knowledge overall ${overallPct} percent, ${sizeLabel}, ${pack.state.chunksInstalled} chunks`
@@ -72,7 +76,7 @@ export function KnowledgePackProgressCard({
             : null;
         return (
           <View key={s.id} style={styles.section}>
-            <Text style={styles.sectionLabel}>
+            <Text style={[styles.sectionLabel, themedStyles.sectionLabel]}>
               {s.label}
               {s.state === 'done' ? '  ✓' : ''}
               {s.state === 'failed' ? '  ✕' : ''}
@@ -81,11 +85,11 @@ export function KnowledgePackProgressCard({
               {s.state === 'queued' ? '  queued' : ''}
             </Text>
             {s.state === 'running' && pct != null ? (
-              <View style={styles.miniTrack}>
+              <View style={[styles.miniTrack, themedStyles.miniTrack]}>
                 <View style={[styles.miniFill, { width: `${pct}%` }]} />
               </View>
             ) : null}
-            {s.detail ? <Text style={styles.detail}>{s.detail}</Text> : null}
+            {s.detail ? <Text style={[styles.detail, themedStyles.detail]}>{s.detail}</Text> : null}
             {s.error ? <Text style={styles.error}>{s.error}</Text> : null}
           </View>
         );
@@ -115,6 +119,7 @@ export function KnowledgePackProgressCard({
             style={[
               styles.btn,
               pack.state.status === 'ready' ? styles.btnPrimary : styles.btnMuted,
+              pack.state.status !== 'ready' && themedStyles.btnMuted,
             ]}
             onPress={() => {
               void pack.retry(runnerOptions);
@@ -124,7 +129,9 @@ export function KnowledgePackProgressCard({
           >
             <Text
               style={
-                pack.state.status === 'ready' ? styles.btnText : styles.btnTextDark
+                pack.state.status === 'ready'
+                  ? styles.btnText
+                  : [styles.btnTextDark, themedStyles.btnTextDark]
               }
             >
               Redownload
@@ -144,30 +151,66 @@ export function KnowledgePackProgressCard({
         {showUpdateReset && !pack.inFlight ? (
           <>
             <Pressable
-              style={[styles.btn, styles.btnMuted]}
+              style={[styles.btn, styles.btnMuted, themedStyles.btnMuted]}
               onPress={() => {
                 void pack.checkUpdates(runnerOptions);
               }}
               accessibilityRole="button"
               accessibilityLabel="Check for clinical knowledge updates"
             >
-              <Text style={styles.btnTextDark}>Check for updates</Text>
+              <Text style={[styles.btnTextDark, themedStyles.btnTextDark]}>Check for updates</Text>
             </Pressable>
             <Pressable
-              style={[styles.btn, styles.btnMuted]}
+              style={[styles.btn, styles.btnMuted, themedStyles.btnMuted]}
               onPress={() => {
                 void pack.resetPack(runnerOptions);
               }}
               accessibilityRole="button"
               accessibilityLabel="Reset device clinical pack"
             >
-              <Text style={styles.btnTextDark}>Reset pack</Text>
+              <Text style={[styles.btnTextDark, themedStyles.btnTextDark]}>Reset pack</Text>
             </Pressable>
           </>
         ) : null}
       </View>
     </View>
   );
+}
+
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    title: {
+      color: theme.appText,
+    },
+    subtitle: {
+      color: theme.appTextMuted,
+    },
+    barTrack: {
+      backgroundColor: theme.appBorder,
+    },
+    overall: {
+      color: theme.appText,
+    },
+    sectionLabel: {
+      color: theme.appText,
+    },
+    detail: {
+      color: theme.appTextMuted,
+    },
+    miniTrack: {
+      backgroundColor: theme.appBorder,
+    },
+    btnMuted: {
+      backgroundColor: theme.appBorder,
+    },
+    btnTextDark: {
+      color: theme.appText,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

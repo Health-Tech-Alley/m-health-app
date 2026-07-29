@@ -4,10 +4,11 @@
  * the normal (non-dev) mode per planning/29_hitl-promotion-plan.md.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import {
   decisionDisplayLine,
   listCaregiverDecisions,
@@ -45,11 +46,13 @@ export function YourDecisionsSection({
   limit = 20,
   initiallyExpanded = false,
 }: Props) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [rows] = useState<CaregiverDecisionRow[]>(() => listCaregiverDecisions(limit));
   const [open, setOpen] = useState(initiallyExpanded);
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, themedStyles.card]}>
       <Pressable
         style={styles.header}
         onPress={() => setOpen((v) => !v)}
@@ -58,26 +61,26 @@ export function YourDecisionsSection({
       >
         <View style={styles.headerText}>
           <Text style={styles.eyebrow}>Your decisions</Text>
-          <Text style={styles.subtitle}>
+          <Text style={[styles.subtitle, themedStyles.secondaryText]}>
             Recent overrides, observations, and confirmations.
           </Text>
         </View>
-        <Text style={styles.chevron}>{open ? '\u25BE' : '\u25B8'}</Text>
+        <Text style={[styles.chevron, themedStyles.secondaryText]}>{open ? '\u25BE' : '\u25B8'}</Text>
       </Pressable>
 
       {open ? (
         rows.length === 0 ? (
-          <Text style={styles.emptyText}>
+          <Text style={[styles.emptyText, themedStyles.secondaryText]}>
             No decisions yet. When you act on alerts, your choices will show up here so you can see your pattern over time.
           </Text>
         ) : (
-          <View style={styles.list}>
+          <View style={[styles.list, themedStyles.list]}>
             {rows.map((row) => (
-              <View key={row.actionId} style={styles.row}>
-                <Text style={styles.line}>
+              <View key={row.actionId} style={[styles.row, themedStyles.row]}>
+                <Text style={[styles.line, themedStyles.primaryText]}>
                   {decisionDisplayLine(row, patientFirstName)}
                 </Text>
-                <Text style={styles.meta}>{formatRelativeDate(row.createdAt)}</Text>
+                <Text style={[styles.meta, themedStyles.secondaryText]}>{formatRelativeDate(row.createdAt)}</Text>
               </View>
             ))}
           </View>
@@ -87,12 +90,23 @@ export function YourDecisionsSection({
   );
 }
 
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appDecisionBorder,
+    },
+    list: { borderTopColor: theme.appDecisionBorder },
+    row: { borderBottomColor: theme.appDecisionDivider },
+    primaryText: { color: theme.appText },
+    secondaryText: { color: theme.appTextSupporting },
+  });
+}
+
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#E4E7EC',
     overflow: 'hidden',
   },
   header: {
@@ -109,34 +123,28 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   subtitle: {
-    color: AppTheme.colors.textSoft,
     fontSize: 13,
   },
   chevron: {
-    color: AppTheme.colors.textSoft,
     fontSize: 18,
     fontWeight: '700',
   },
   emptyText: {
     padding: 16,
-    color: AppTheme.colors.textSoft,
     fontSize: 13,
     lineHeight: 19,
   },
-  list: { borderTopWidth: 1, borderTopColor: '#E4E7EC' },
+  list: { borderTopWidth: 1 },
   row: {
     padding: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F4F4',
     gap: 4,
   },
   line: {
-    color: AppTheme.colors.text,
     fontSize: 14,
     lineHeight: 20,
   },
   meta: {
-    color: AppTheme.colors.textSoft,
     fontSize: 12,
   },
 });

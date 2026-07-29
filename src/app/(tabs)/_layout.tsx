@@ -18,6 +18,7 @@ import { Animated, StyleSheet, Text, View } from "react-native";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
 
 const TAB_CONFIG: {
   name: string;
@@ -32,14 +33,22 @@ const TAB_CONFIG: {
 ];
 
 export default function TabsLayout() {
+  const theme = useTheme();
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarShowLabel: true,
         tabBarActiveTintColor: AppTheme.colors.brand,
-        tabBarInactiveTintColor: AppTheme.colors.navMuted,
-        tabBarStyle: styles.tabBar,
+        tabBarInactiveTintColor: theme.appSectionText,
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            backgroundColor: theme.appTabBarBackground,
+            borderTopColor: theme.appBorder,
+          },
+        ],
         tabBarItemStyle: styles.tabItem,
       }}
     >
@@ -59,9 +68,7 @@ export default function TabsLayout() {
                 {tab.label}
               </Text>
             ),
-            tabBarIcon: ({ focused }) => (
-              <AnimatedTabIcon name={tab.icon} focused={focused} />
-            ),
+            tabBarIcon: ({ focused }) => <AnimatedTabIcon name={tab.icon} focused={focused} inactiveColor={theme.appSectionText} />,
           }}
         />
       ))}
@@ -77,9 +84,11 @@ export default function TabsLayout() {
 function AnimatedTabIcon({
   name,
   focused,
+  inactiveColor,
 }: {
   name: AppIconName;
   focused: boolean;
+  inactiveColor: string;
 }) {
   const [scale] = useState(() => new Animated.Value(focused ? 1.1 : 1));
   const [bgOpacity] = useState(() => new Animated.Value(focused ? 1 : 0));
@@ -112,7 +121,7 @@ function AnimatedTabIcon({
         <AppIcon
           name={name}
           size={28}
-          color={focused ? AppTheme.colors.white : AppTheme.colors.navMuted}
+          color={focused ? AppTheme.colors.white : inactiveColor}
         />
       </Animated.View>
     </View>

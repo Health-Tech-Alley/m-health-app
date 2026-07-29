@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MainTabHeader } from '@/components/MainTabHeader';
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
+import { useTheme } from '@/hooks/use-theme';
 import {
   getActiveMedicationSchedules,
   getMedicationConfirmationPreference,
@@ -34,6 +35,8 @@ function loadNotificationPreferences(): NotificationPreferences {
 }
 
 export default function NotificationsRemindersScreen() {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const { patientId, snapshot, refresh } = usePatientRecord();
   const [expandedId, setExpandedId] = useState<SectionId | null>('medications');
   const [preference, setPreference] = useState<MedicationConfirmationPreference | null>(null);
@@ -200,15 +203,19 @@ export default function NotificationsRemindersScreen() {
   const mode = preference?.confirmationMode ?? 'all';
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={['top', 'bottom']}>
+      <ScrollView
+        style={themedStyles.safeArea}
+        contentContainerStyle={[styles.content, themedStyles.content]}
+        showsVerticalScrollIndicator={false}
+      >
         <MainTabHeader title="Notifications & reminders" eyebrow="Caregiver Concierge" icon="bell" />
 
         <ExpandableSection
           title="Health alerts"
           expanded={expandedId === 'health'}
           onPress={() => toggleExpanded('health')}>
-          <Text style={styles.mutedText}>Additional preferences not available yet.</Text>
+          <Text style={[styles.mutedText, themedStyles.mutedText]}>Additional preferences not available yet.</Text>
         </ExpandableSection>
 
         <ExpandableSection
@@ -216,17 +223,17 @@ export default function NotificationsRemindersScreen() {
           expanded={expandedId === 'medications'}
           onPress={() => toggleExpanded('medications')}>
           {!patientId ? (
-            <Text style={styles.mutedText}>No active patient selected</Text>
+            <Text style={[styles.mutedText, themedStyles.mutedText]}>No active patient selected</Text>
           ) : !snapshot ? (
-            <Text style={styles.mutedText}>Medication confirmation preferences unavailable</Text>
+            <Text style={[styles.mutedText, themedStyles.mutedText]}>Medication confirmation preferences unavailable</Text>
           ) : (
             <>
-              <Text style={styles.helperText}>
+              <Text style={[styles.helperText, themedStyles.helperText]}>
                 Choose which medication doses you want to confirm. Care-team-required medications cannot be turned off.
               </Text>
 
               {preferenceUnavailable ? (
-                <Text style={styles.mutedText}>Medication confirmation preferences unavailable</Text>
+                <Text style={[styles.mutedText, themedStyles.mutedText]}>Medication confirmation preferences unavailable</Text>
               ) : (
                 <>
               <View style={styles.modeGroup}>
@@ -275,15 +282,15 @@ export default function NotificationsRemindersScreen() {
                   }}
                 />
               ) : (
-                <Text style={styles.mutedText}>Medication confirmation preferences unavailable</Text>
+                <Text style={[styles.mutedText, themedStyles.mutedText]}>Medication confirmation preferences unavailable</Text>
               )}
                 </>
               )}
 
-              <View style={styles.divider} />
-              <Text style={styles.subsectionTitle}>Reminder delivery</Text>
+              <View style={[styles.divider, themedStyles.divider]} />
+              <Text style={[styles.subsectionTitle, themedStyles.subsectionTitle]}>Reminder delivery</Text>
               {notificationUnavailable ? (
-                <Text style={styles.mutedText}>Reminder delivery preferences unavailable</Text>
+                <Text style={[styles.mutedText, themedStyles.mutedText]}>Reminder delivery preferences unavailable</Text>
               ) : (
                 <>
                   <PreferenceSwitch
@@ -306,8 +313,8 @@ export default function NotificationsRemindersScreen() {
               )}
               {permissionMessage ? <Text style={styles.warningText}>{permissionMessage}</Text> : null}
               <View style={styles.staticRow}>
-                <Text style={styles.rowTitle}>Add medication reminders to calendar</Text>
-                <Text style={styles.mutedText}>Not available yet</Text>
+                <Text style={[styles.rowTitle, themedStyles.rowTitle]}>Add medication reminders to calendar</Text>
+                <Text style={[styles.mutedText, themedStyles.mutedText]}>Not available yet</Text>
               </View>
             </>
           )}
@@ -318,7 +325,7 @@ export default function NotificationsRemindersScreen() {
           expanded={expandedId === 'appointments'}
           onPress={() => toggleExpanded('appointments')}>
           {notificationUnavailable ? (
-            <Text style={styles.mutedText}>Reminder delivery preferences unavailable</Text>
+            <Text style={[styles.mutedText, themedStyles.mutedText]}>Reminder delivery preferences unavailable</Text>
           ) : (
             <>
           <PreferenceSwitch
@@ -338,9 +345,9 @@ export default function NotificationsRemindersScreen() {
             onValueChange={handleAppointmentDeviceToggle}
           />
           <View style={styles.inlineControlRow}>
-            <Text style={styles.rowTitle}>Reminder lead time</Text>
+            <Text style={[styles.rowTitle, themedStyles.rowTitle]}>Reminder lead time</Text>
             <TextInput
-              style={styles.numInput}
+              style={[styles.numInput, themedStyles.numInput]}
               value={String(notificationPrefs.appointmentLeadTimeMin)}
               keyboardType="numeric"
               onChangeText={setAppointmentLeadTime}
@@ -355,7 +362,7 @@ export default function NotificationsRemindersScreen() {
           title="Care tasks"
           expanded={expandedId === 'careTasks'}
           onPress={() => toggleExpanded('careTasks')}>
-          <Text style={styles.mutedText}>Additional preferences not available yet.</Text>
+          <Text style={[styles.mutedText, themedStyles.mutedText]}>Additional preferences not available yet.</Text>
         </ExpandableSection>
       </ScrollView>
     </SafeAreaView>
@@ -373,17 +380,19 @@ function ExpandableSection({
   onPress: () => void;
   children: ReactNode;
 }) {
+  const themedStyles = createThemedStyles(useTheme());
+
   return (
-    <View style={styles.sectionCard}>
+    <View style={[styles.sectionCard, themedStyles.sectionCard]}>
       <Pressable
         style={styles.sectionHeader}
         onPress={onPress}
         accessibilityRole="button"
         accessibilityState={{ expanded }}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-        <Text style={styles.chevron}>{expanded ? 'v' : '>'}</Text>
+        <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{title}</Text>
+        <Text style={[styles.chevron, themedStyles.chevron]}>{expanded ? 'v' : '>'}</Text>
       </Pressable>
-      {expanded ? <View style={styles.sectionBody}>{children}</View> : null}
+      {expanded ? <View style={[styles.sectionBody, themedStyles.sectionBody]}>{children}</View> : null}
     </View>
   );
 }
@@ -397,16 +406,32 @@ function ModeButton({
   selected: boolean;
   onPress: () => void;
 }) {
+  const themedStyles = createThemedStyles(useTheme());
+
   return (
     <Pressable
-      style={[styles.modeButton, selected && styles.modeButtonActive]}
+      style={[
+        styles.modeButton,
+        themedStyles.modeButton,
+        selected && styles.modeButtonActive,
+        selected && themedStyles.modeButtonActive,
+      ]}
       onPress={onPress}
       accessibilityRole="radio"
       accessibilityState={{ selected }}>
-      <View style={[styles.radioOuter, selected && styles.radioOuterActive]}>
+      <View style={[styles.radioOuter, themedStyles.radioOuter, selected && styles.radioOuterActive]}>
         {selected ? <View style={styles.radioInner} /> : null}
       </View>
-      <Text style={[styles.modeButtonText, selected && styles.modeButtonTextActive]}>{label}</Text>
+      <Text
+        style={[
+          styles.modeButtonText,
+          themedStyles.modeButtonText,
+          selected && styles.modeButtonTextActive,
+          selected && themedStyles.modeButtonTextActive,
+        ]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -426,8 +451,11 @@ function MedicationPreferenceList({
   schedules: ReturnType<typeof getActiveMedicationSchedules>;
   onToggleMedication: (medicationId: string, enabled: boolean) => void;
 }) {
+  const theme = useTheme();
+  const themedStyles = createThemedStyles(theme);
+
   if (medications.length === 0) {
-    return <Text style={styles.mutedText}>No medications provided</Text>;
+    return <Text style={[styles.mutedText, themedStyles.mutedText]}>No medications provided</Text>;
   }
 
   return (
@@ -447,18 +475,18 @@ function MedicationPreferenceList({
         const details = [medication.dosage, medication.frequency].filter(Boolean).join(' - ');
 
         return (
-          <View key={medication.medicationId} style={styles.medicationRow}>
+          <View key={medication.medicationId} style={[styles.medicationRow, themedStyles.medicationRow]}>
             <View style={styles.rowTextBlock}>
               <View style={styles.medicationNameRow}>
-                <Text style={styles.rowTitle}>{medication.name}</Text>
+                <Text style={[styles.rowTitle, themedStyles.rowTitle]}>{medication.name}</Text>
                 {required ? (
-                  <View style={styles.requiredBadge}>
-                    <Text style={styles.requiredBadgeText}>Required by care team</Text>
+                  <View style={[styles.requiredBadge, themedStyles.requiredBadge]}>
+                    <Text style={[styles.requiredBadgeText, themedStyles.requiredBadgeText]}>Required by care team</Text>
                   </View>
                 ) : null}
               </View>
-              <Text style={styles.mutedText}>{details || 'Medication details not provided'}</Text>
-              <Text style={styles.mutedText}>
+              <Text style={[styles.mutedText, themedStyles.mutedText]}>{details || 'Medication details not provided'}</Text>
+              <Text style={[styles.mutedText, themedStyles.mutedText]}>
                 {schedule?.timeOfDay ? schedule.timeOfDay : 'Schedule not provided'}
               </Text>
             </View>
@@ -466,8 +494,8 @@ function MedicationPreferenceList({
               value={selected}
               disabled={locked}
               onValueChange={(enabled) => onToggleMedication(medication.medicationId, enabled)}
-              trackColor={{ false: AppTheme.colors.border, true: AppTheme.colors.brandSoft }}
-              thumbColor={selected ? AppTheme.colors.brand : AppTheme.colors.white}
+              trackColor={{ false: theme.appBorder, true: theme.appBrandSoftSurface }}
+              thumbColor={selected ? AppTheme.colors.brand : theme.appSurface}
               accessibilityLabel={`Confirm doses for ${medication.name}`}
               accessibilityState={{ checked: selected, disabled: locked }}
             />
@@ -487,19 +515,73 @@ function PreferenceSwitch({
   value: boolean;
   onValueChange: (value: boolean) => void;
 }) {
+  const theme = useTheme();
+  const themedStyles = createThemedStyles(theme);
+
   return (
     <View style={styles.preferenceRow}>
-      <Text style={styles.rowTitle}>{label}</Text>
+      <Text style={[styles.rowTitle, themedStyles.rowTitle]}>{label}</Text>
       <Switch
         value={value}
         onValueChange={onValueChange}
-        trackColor={{ false: AppTheme.colors.border, true: AppTheme.colors.brandSoft }}
-        thumbColor={value ? AppTheme.colors.brand : AppTheme.colors.white}
+        trackColor={{ false: theme.appBorder, true: theme.appBrandSoftSurface }}
+        thumbColor={value ? AppTheme.colors.brand : theme.appSurface}
         accessibilityLabel={label}
         accessibilityState={{ checked: value }}
       />
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+
+  return StyleSheet.create({
+    safeArea: { backgroundColor: theme.appBackground },
+    content: { backgroundColor: theme.appBackground },
+    sectionCard: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    sectionTitle: { color: theme.appText },
+    chevron: { color: theme.appTextMuted },
+    sectionBody: { borderTopColor: theme.appBorder },
+    helperText: { color: theme.appTextSupporting },
+    mutedText: { color: theme.appTextSupporting },
+    modeButton: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    modeButtonActive: {
+      backgroundColor: theme.appBrandSoftSurface,
+      borderColor: AppTheme.colors.brand,
+    },
+    modeButtonText: { color: theme.appTextSupporting },
+    modeButtonTextActive: {
+      color: isDark ? theme.appText : AppTheme.colors.brand,
+    },
+    radioOuter: { borderColor: theme.appBorder },
+    medicationRow: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    rowTitle: { color: theme.appText },
+    requiredBadge: {
+      backgroundColor: theme.appBrandSoftSurface,
+      borderColor: isDark ? AppTheme.colors.brand : 'transparent',
+      borderWidth: isDark ? 1 : 0,
+    },
+    requiredBadgeText: {
+      color: isDark ? theme.appText : AppTheme.colors.brand,
+    },
+    divider: { backgroundColor: theme.appBorder },
+    subsectionTitle: { color: theme.appSectionText },
+    numInput: {
+      backgroundColor: theme.appInputBackground,
+      borderColor: theme.appBorder,
+      color: theme.appText,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

@@ -2,6 +2,7 @@
  * Shared Concierge model download card (Device setup + Settings).
  */
 
+import { useMemo } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
@@ -9,6 +10,7 @@ import {
   useModelDownloadQueue,
   type ModelDownloadRow,
 } from '@/hooks/useModelDownloadQueue';
+import { useTheme } from '@/hooks/use-theme';
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '0 B';
@@ -24,6 +26,7 @@ function Row({
   onDownload,
   onCancel,
   onDelete,
+  themedStyles,
 }: {
   row: ModelDownloadRow;
   disableStart: boolean;
@@ -31,20 +34,21 @@ function Row({
   onDownload: () => void;
   onCancel: () => void;
   onDelete: () => void;
+  themedStyles: ReturnType<typeof createStyles>;
 }) {
   const progress =
     row.totalBytes > 0 ? Math.round((row.bytesWritten / row.totalBytes) * 100) : 0;
 
   return (
-    <View style={styles.row} accessibilityRole="summary">
-      <Text style={styles.rowTitle}>{row.displayName}</Text>
-      <Text style={styles.rowMeta}>~{formatBytes(row.sizeBytes)}</Text>
+    <View style={[styles.row, themedStyles.row]} accessibilityRole="summary">
+      <Text style={[styles.rowTitle, themedStyles.rowTitle]}>{row.displayName}</Text>
+      <Text style={[styles.rowMeta, themedStyles.rowMeta]}>~{formatBytes(row.sizeBytes)}</Text>
       {row.status === 'downloading' ? (
         <>
-          <View style={styles.barTrack}>
+          <View style={[styles.barTrack, themedStyles.barTrack]}>
             <View style={[styles.barFill, { width: `${progress}%` }]} />
           </View>
-          <Text style={styles.rowMeta}>
+          <Text style={[styles.rowMeta, themedStyles.rowMeta]}>
             {progress}% · {formatBytes(row.bytesWritten)} / {formatBytes(row.totalBytes)}
           </Text>
           <Pressable
@@ -59,15 +63,15 @@ function Row({
       ) : null}
       {row.status === 'installed' ? (
         <View style={styles.actions}>
-          <Text style={styles.done}>✓ Installed</Text>
+          <Text style={[styles.done, themedStyles.done]}>✓ Installed</Text>
           {showDelete ? (
             <Pressable
-              style={[styles.btn, styles.btnMuted]}
+              style={[styles.btn, styles.btnMuted, themedStyles.btnMuted]}
               onPress={onDelete}
               accessibilityRole="button"
               accessibilityLabel={`Delete ${row.displayName}`}
             >
-              <Text style={styles.btnTextDark}>Delete</Text>
+              <Text style={[styles.btnTextDark, themedStyles.btnTextDark]}>Delete</Text>
             </Pressable>
           ) : null}
         </View>
@@ -111,14 +115,16 @@ export function SlmDownloadCard({
   onModelDeleted,
 }: SlmDownloadCardProps) {
   const queue = useModelDownloadQueue();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createStyles(theme), [theme]);
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>{title}</Text>
-      <Text style={styles.subtitle}>{subtitle}</Text>
+    <View style={[styles.card, themedStyles.card]}>
+      <Text style={[styles.title, themedStyles.title]}>{title}</Text>
+      <Text style={[styles.subtitle, themedStyles.subtitle]}>{subtitle}</Text>
       {hfTokenHint ? (
         <Pressable onPress={onNeedHfToken} accessibilityRole="link">
-          <Text style={styles.link}>Add Hugging Face token in Settings if download fails (401)</Text>
+          <Text style={[styles.link, themedStyles.link]}>Add Hugging Face token in Settings if download fails (401)</Text>
         </Pressable>
       ) : null}
       {queue.rows.map((row) => (
@@ -139,10 +145,50 @@ export function SlmDownloadCard({
               onModelDeleted?.(row.id);
             }
           }}
+          themedStyles={themedStyles}
         />
       ))}
     </View>
   );
+}
+
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    title: {
+      color: theme.appText,
+    },
+    subtitle: {
+      color: theme.appTextMuted,
+    },
+    link: {
+      color: AppTheme.colors.brand,
+    },
+    row: {
+      borderTopColor: theme.appBorder,
+    },
+    rowTitle: {
+      color: theme.appText,
+    },
+    rowMeta: {
+      color: theme.appTextMuted,
+    },
+    barTrack: {
+      backgroundColor: theme.appBorder,
+    },
+    done: {
+      color: AppTheme.colors.brand,
+    },
+    btnMuted: {
+      backgroundColor: theme.appBorder,
+    },
+    btnTextDark: {
+      color: theme.appText,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

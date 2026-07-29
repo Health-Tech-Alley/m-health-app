@@ -6,7 +6,15 @@
  * drives SLM auto-management policy and mode-gated navigation.
  */
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
+import { useColorScheme, type ColorSchemeName } from 'react-native';
 
 import {
   getAppSettings,
@@ -33,10 +41,13 @@ import type {
   NotificationPreferences,
 } from '@/data/types';
 
+export type EffectiveColorScheme = 'light' | 'dark';
+
 interface SettingsContextValue {
   settings: AppSettings;
   mode: AppMode;
   isDeveloper: boolean;
+  effectiveColorScheme: EffectiveColorScheme;
   setMode: (mode: AppMode) => void;
   toggleMode: () => void;
   setTheme: (theme: ThemePreference) => void;
@@ -55,8 +66,21 @@ interface SettingsContextValue {
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
+function resolveEffectiveColorScheme(
+  preference: ThemePreference,
+  systemScheme: ColorSchemeName,
+): EffectiveColorScheme {
+  if (preference === 'light' || preference === 'dark') return preference;
+  return systemScheme === 'dark' ? 'dark' : 'light';
+}
+
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(() => getAppSettings());
+  const systemColorScheme = useColorScheme();
+  const effectiveColorScheme = resolveEffectiveColorScheme(
+    settings.theme,
+    systemColorScheme,
+  );
 
   const setMode = useCallback((mode: AppMode) => {
     const updated = updateAppMode(mode);
@@ -133,6 +157,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       settings,
       mode: settings.mode,
       isDeveloper: settings.mode === 'developer',
+      effectiveColorScheme,
       setMode,
       toggleMode,
       setTheme,
@@ -150,6 +175,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }),
     [
       settings,
+      effectiveColorScheme,
       setMode,
       toggleMode,
       setTheme,

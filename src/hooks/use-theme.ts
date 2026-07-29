@@ -4,7 +4,9 @@
  */
 
 import { Colors } from '@/constants/theme';
+import { useSettings } from '@/contexts/settings-context';
 
 export function useTheme() {
-  return Colors.light;
+  const { effectiveColorScheme } = useSettings();
+  return Colors[effectiveColorScheme];
 }

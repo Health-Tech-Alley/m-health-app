@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
 import type { SecureConversation } from "@/components/messaging/types";
 
 export function ConversationList({
@@ -14,11 +16,14 @@ export function ConversationList({
   onConversationSelected: (conversationId: string) => void;
   onNewMessagePressed: () => void;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createStyles(theme), [theme]);
+
   if (conversations.length === 0) {
     return (
-      <View style={styles.emptyState}>
-        <Text style={styles.emptyTitle}>No conversations available</Text>
-        <Text style={styles.emptyText}>
+      <View style={[styles.emptyState, themedStyles.emptyState]}>
+        <Text style={[styles.emptyTitle, themedStyles.emptyTitle]}>No conversations available</Text>
+        <Text style={[styles.emptyText, themedStyles.emptyText]}>
           Connect conversation retrieval to show care-team threads here.
         </Text>
         <Pressable
@@ -40,32 +45,38 @@ export function ConversationList({
         return (
           <Pressable
             key={conversation.conversationId}
-            style={[styles.row, selected && styles.rowSelected]}
+            style={[styles.row, themedStyles.row, selected && styles.rowSelected, selected && themedStyles.rowSelected]}
             accessibilityRole="button"
             accessibilityLabel={`Open conversation with ${conversation.participant.displayName}`}
             onPress={() => onConversationSelected(conversation.conversationId)}
           >
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{getInitials(conversation.participant.displayName)}</Text>
+            <View style={[styles.avatar, themedStyles.avatar]}>
+              <Text style={[styles.avatarText, themedStyles.avatarText]}>{getInitials(conversation.participant.displayName)}</Text>
             </View>
 
             <View style={styles.content}>
               <View style={styles.titleRow}>
-                <Text style={styles.name} numberOfLines={1}>
+                <Text style={[styles.name, themedStyles.name]} numberOfLines={1}>
                   {conversation.participant.displayName}
                 </Text>
                 {conversation.latestMessageAt ? (
-                  <Text style={styles.timestamp}>{formatShortTime(conversation.latestMessageAt)}</Text>
+                  <Text style={[styles.timestamp, themedStyles.timestamp]}>{formatShortTime(conversation.latestMessageAt)}</Text>
                 ) : null}
               </View>
-              <Text style={styles.role}>{conversation.participant.role}</Text>
+              <Text style={[styles.role, themedStyles.role, selected && themedStyles.roleSelected]}>{conversation.participant.role}</Text>
               {conversation.latestMessagePreview ? (
-                <Text style={styles.preview} numberOfLines={2}>
+                <Text style={[styles.preview, themedStyles.preview]} numberOfLines={2}>
                   {conversation.latestMessagePreview}
                 </Text>
               ) : null}
               {conversation.deliveryState ? (
-                <Text style={[styles.delivery, conversation.deliveryState === "failed" && styles.deliveryFailed]}>
+                <Text
+                  style={[
+                    styles.delivery,
+                    themedStyles.delivery,
+                    conversation.deliveryState === "failed" && styles.deliveryFailed,
+                  ]}
+                >
                   {formatDeliveryState(conversation.deliveryState)}
                 </Text>
               ) : null}
@@ -101,6 +112,39 @@ function formatShortTime(value: string) {
 
 function formatDeliveryState(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === "#000000";
+
+  return StyleSheet.create({
+    row: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    rowSelected: {
+      backgroundColor: theme.appBrandSoftSurface,
+      borderColor: AppTheme.colors.brand,
+    },
+    avatar: {
+      backgroundColor: theme.appControlSurface,
+    },
+    avatarText: {
+      color: isDark ? theme.appText : AppTheme.colors.brand,
+    },
+    name: { color: theme.appText },
+    timestamp: { color: theme.appTextMuted },
+    role: { color: isDark ? theme.appTextSupporting : AppTheme.colors.brand },
+    roleSelected: { color: isDark ? theme.appText : AppTheme.colors.brand },
+    preview: { color: theme.appTextSupporting },
+    delivery: { color: theme.appTextMuted },
+    emptyState: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    emptyTitle: { color: theme.appText },
+    emptyText: { color: theme.appTextSupporting },
+  });
 }
 
 const styles = StyleSheet.create({

@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
 
 export function MessageComposer({
   value,
@@ -13,22 +15,24 @@ export function MessageComposer({
   onComposeTextChanged: (text: string) => void;
   onSendPressed: () => void;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createStyles(theme), [theme]);
   const sendDisabled = disabled || value.trim().length === 0;
 
   return (
-    <View style={styles.composer}>
+    <View style={[styles.composer, themedStyles.composer]}>
       <TextInput
-        style={styles.input}
+        style={[styles.input, themedStyles.input]}
         value={value}
         onChangeText={onComposeTextChanged}
         placeholder="Type a message"
-        placeholderTextColor={AppTheme.colors.textMuted}
+        placeholderTextColor={theme.appTextMuted}
         multiline
         accessibilityLabel="Message text"
         editable={!disabled}
       />
       <Pressable
-        style={[styles.sendButton, sendDisabled && styles.sendButtonDisabled]}
+        style={[styles.sendButton, sendDisabled && styles.sendButtonDisabled, sendDisabled && themedStyles.sendButtonDisabled]}
         disabled={sendDisabled}
         accessibilityRole="button"
         accessibilityLabel="Send message"
@@ -38,6 +42,21 @@ export function MessageComposer({
       </Pressable>
     </View>
   );
+}
+
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    composer: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    input: {
+      color: theme.appText,
+    },
+    sendButtonDisabled: {
+      backgroundColor: theme.appBorder,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

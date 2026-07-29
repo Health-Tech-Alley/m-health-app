@@ -3,15 +3,22 @@
  * screen title. Used by the active tab screens and settings.
  */
 
+import { useMemo } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
+
+import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
 const TEAL = '#0E6F68';
 const DARK = '#123433';
 
 export function ScreenHeader({ eyebrow, title }: { eyebrow: string; title: string }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createStyles(theme), [theme]);
+
   return (
-    <View style={styles.header}>
-      <View style={styles.logoCircle}>
+    <View style={[styles.header, themedStyles.header]}>
+      <View style={[styles.logoCircle, themedStyles.logoCircle]}>
         <Image
           source={require('@/assets/images/hta-logo.png')}
           style={styles.logoImage}
@@ -19,11 +26,30 @@ export function ScreenHeader({ eyebrow, title }: { eyebrow: string; title: strin
         />
       </View>
       <View style={styles.textBlock}>
-        <Text style={styles.eyebrow}>{eyebrow}</Text>
-        <Text style={styles.title}>{title}</Text>
+        <Text style={[styles.eyebrow, themedStyles.eyebrow]}>{eyebrow}</Text>
+        <Text style={[styles.title, themedStyles.title]}>{title}</Text>
       </View>
     </View>
   );
+}
+
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+
+  return StyleSheet.create({
+    header: {
+      backgroundColor: theme.appBackground,
+    },
+    logoCircle: {
+      backgroundColor: isDark ? AppTheme.colors.brand : TEAL,
+    },
+    eyebrow: {
+      color: isDark ? AppTheme.colors.brand : TEAL,
+    },
+    title: {
+      color: theme.appHeaderText,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

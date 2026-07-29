@@ -9,9 +9,18 @@
  * the SLM system prompt both consume.
  */
 
-import { DefaultTheme, router, Stack, ThemeProvider, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from 'react';
-import { AppState, StyleSheet, Text, View } from 'react-native';
+import {
+  DarkTheme,
+  DefaultTheme,
+  router,
+  Stack,
+  ThemeProvider,
+  useRouter,
+} from "expo-router";
+import { StatusBar } from 'expo-status-bar';
+import * as SystemUI from 'expo-system-ui';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { AppState, NativeModules, StyleSheet, Text, View } from 'react-native';
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { CriticalAlertDialog } from "@/components/critical-alert-dialog";
@@ -22,9 +31,14 @@ import { CriticalAlertProvider } from "@/contexts/critical-alert-context";
 import { OrchestratorProvider } from "@/contexts/orchestrator-context";
 import { PatientRecordProvider } from "@/contexts/patient-record-context";
 import { SensorProvider } from "@/contexts/sensor-context";
-import { SettingsProvider, useSettings } from "@/contexts/settings-context";
+import {
+  SettingsProvider,
+  useSettings,
+  type EffectiveColorScheme,
+} from "@/contexts/settings-context";
 import { SLMProvider, useSLM } from "@/contexts/slm-context";
 import { UC2RuntimeProvider } from "@/contexts/uc2-runtime-context";
+import { Colors } from '@/constants/theme';
 import { initializeDatabase } from '@/data';
 import { store } from '@/store';
 import { Provider } from 'react-redux';
@@ -34,9 +48,22 @@ import { AndroidNotificationPriority } from 'expo-notifications';
 
 import { dispatchImmediate } from "@/services/notifications/notificationService";
 import { simplePrompt } from '@sbaiahmed1/react-native-biometrics';
-import { NativeModules } from "react-native";
 import { installConsoleCapture } from "./logging/consoleCapture";
 import { isSensorAvailable } from '@sbaiahmed1/react-native-biometrics';
+
+const NAVIGATION_THEMES = {
+  light: DefaultTheme,
+  dark: {
+    ...DarkTheme,
+    colors: {
+      ...DarkTheme.colors,
+      background: Colors.dark.appBackground,
+      card: Colors.dark.appBackground,
+      text: Colors.dark.appText,
+      border: Colors.dark.appBorder,
+    },
+  },
+} satisfies Record<EffectiveColorScheme, typeof DefaultTheme>;
 
 // Add this OUTSIDE any component, at the module level
 Notifications.setNotificationHandler({
@@ -187,8 +214,24 @@ async function authenticateUsingBioMetrics(): Promise<boolean> {
   }
 }
 
-export default function RootLayout() {
+function ThemedNavigationProvider({ children }: { children: ReactNode }) {
+  const { effectiveColorScheme } = useSettings();
+  const navigationTheme = NAVIGATION_THEMES[effectiveColorScheme];
+  const rootBackground = navigationTheme.colors.background;
 
+  useEffect(() => {
+    void SystemUI.setBackgroundColorAsync(rootBackground).catch(() => undefined);
+  }, [rootBackground]);
+
+  return (
+    <ThemeProvider value={navigationTheme}>
+      <StatusBar style={effectiveColorScheme === 'dark' ? 'light' : 'dark'} />
+      {children}
+    </ThemeProvider>
+  );
+}
+
+export default function RootLayout() {
   const appState = useRef(AppState.currentState);
 
   // for authentication on app launch
@@ -196,9 +239,8 @@ export default function RootLayout() {
   const hasAuthenticatedThisLaunch = useRef(false);
 
   const authenticate = async () => {
-
     if (authenticating.current) return;
-    
+
     authenticating.current = true;
     try {
       await authenticateUsingBioMetrics();
@@ -216,23 +258,23 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-      installConsoleCapture();
+    installConsoleCapture();
   }, []);
 
   useEffect(() => {
-  const subscription = AppState.addEventListener("change", async (nextState) => {
-    const previous = appState.current;
-    appState.current = nextState;
-    console.log(previous, "->", nextState);
-    if (
-      (previous === "background") && nextState === "active"
-    ) {
-      await authenticateUsingBioMetrics();
-    }
-  });
+    const subscription = AppState.addEventListener("change", async (nextState) => {
+      const previous = appState.current;
+      appState.current = nextState;
+      console.log(previous, "->", nextState);
+      if (
+        (previous === "background") && nextState === "active"
+      ) {
+        await authenticateUsingBioMetrics();
+      }
+    });
 
-  return () => subscription.remove();
-}, []);
+    return () => subscription.remove();
+  }, []);
 
   const [databaseInit] = useState<{ ready: boolean; error: Error | null }>(() => {
     try {
@@ -270,26 +312,28 @@ export default function RootLayout() {
       <ThemeProvider value={DefaultTheme}>
         <DeprecatedModelsGate>
           <SettingsProvider>
-            <PatientRecordProvider>
-              <SLMProvider>
-                <SlmPolicySync />
-                <NotificationInit />
-                <NotificationResponseInit />
-                <SensorProvider>
-                  <UC2RuntimeProvider>
-                    <OrchestratorProvider>
-                      <CriticalAlertProvider>
-                        <AnimatedSplashOverlay />
-                        <InAppBanner />
-                        <HypotheticalCriticalBanner />
-                        <CriticalAlertDialog />
-                        <Stack screenOptions={{ headerShown: false }} />
-                      </CriticalAlertProvider>
-                    </OrchestratorProvider>
-                  </UC2RuntimeProvider>
-                </SensorProvider>
-              </SLMProvider>
-            </PatientRecordProvider>
+            <ThemedNavigationProvider>
+              <PatientRecordProvider>
+                <SLMProvider>
+                  <SlmPolicySync />
+                  <NotificationInit />
+                  <NotificationResponseInit />
+                  <SensorProvider>
+                    <UC2RuntimeProvider>
+                      <OrchestratorProvider>
+                        <CriticalAlertProvider>
+                          <AnimatedSplashOverlay />
+                          <InAppBanner />
+                          <HypotheticalCriticalBanner />
+                          <CriticalAlertDialog />
+                          <Stack screenOptions={{ headerShown: false }} />
+                        </CriticalAlertProvider>
+                      </OrchestratorProvider>
+                    </UC2RuntimeProvider>
+                  </SensorProvider>
+                </SLMProvider>
+              </PatientRecordProvider>
+            </ThemedNavigationProvider>
           </SettingsProvider>
         </DeprecatedModelsGate>
       </ThemeProvider>

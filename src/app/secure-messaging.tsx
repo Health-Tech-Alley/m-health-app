@@ -16,6 +16,7 @@ import { AppTheme } from "@/constants/theme";
 import { ConversationList } from "@/components/messaging/ConversationList";
 import { MessageComposer } from "@/components/messaging/MessageComposer";
 import { MessageThread } from "@/components/messaging/MessageThread";
+import { useTheme } from "@/hooks/use-theme";
 import type { SecureConversation, SecureMessage } from "@/components/messaging/types";
 
 const CONVERSATIONS: SecureConversation[] = [];
@@ -23,6 +24,8 @@ const MESSAGES_BY_CONVERSATION_ID: Record<string, SecureMessage[]> = {};
 
 export default function SecureMessagingScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createStyles(theme), [theme]);
   const [selectedConversationId, setSelectedConversationId] = useState("");
   const [composeText, setComposeText] = useState("");
 
@@ -63,23 +66,24 @@ export default function SecureMessagingScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+    <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={["top", "bottom"]}>
       <KeyboardAvoidingView
-        style={styles.keyboardRoot}
+        style={[styles.keyboardRoot, themedStyles.safeArea]}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.content}
+          style={themedStyles.safeArea}
+          contentContainerStyle={[styles.content, themedStyles.content]}
         >
           <Pressable
-            style={styles.backButton}
+            style={[styles.backButton, themedStyles.backButton]}
             accessibilityRole="button"
             accessibilityLabel="Back to More"
             onPress={() => router.back()}
           >
-            <Text style={styles.backText}>Back</Text>
+            <Text style={[styles.backText, themedStyles.backText]}>Back</Text>
           </Pressable>
 
           <MainTabHeader
@@ -125,12 +129,33 @@ export default function SecureMessagingScreen() {
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const themedStyles = createStyles(useTheme());
+
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={styles.sectionCard}>{children}</View>
+      <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{title}</Text>
+      <View style={[styles.sectionCard, themedStyles.sectionCard]}>{children}</View>
     </View>
   );
+}
+
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    safeArea: { backgroundColor: theme.appBackground },
+    content: { backgroundColor: theme.appBackground },
+    backButton: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    backText: {
+      color: theme.appBackground === "#000000" ? theme.appText : AppTheme.colors.brand,
+    },
+    sectionTitle: { color: theme.appSectionText },
+    sectionCard: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

@@ -10,6 +10,7 @@ import { usePatientRecord } from "@/contexts/patient-record-context";
 import { upsertCaregiver } from "@/data";
 import type { Caregiver, Medication } from "@/data/types";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
+import { useTheme } from "@/hooks/use-theme";
 import {
   displayClinical,
   displayEntered,
@@ -36,6 +37,8 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState(() => getOnboardingProfile());
   const { snapshot, refresh } = usePatientRecord();
   const activePatient = useActivePatientView();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   const caregiver = useMemo(() => {
     const base = profile.caregiver;
@@ -124,30 +127,31 @@ export default function ProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <View style={styles.root}>
+    <SafeAreaView style={[styles.safeArea, themedStyles.screen]} edges={["top", "bottom"]}>
+      <View style={[styles.root, themedStyles.screen]}>
         <View style={styles.topBar}>
           <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backButton}>
             <Text style={styles.backText}>← Back</Text>
           </Pressable>
-          <Text style={styles.topTitle}>Profile</Text>
+          <Text style={[styles.topTitle, themedStyles.primaryText]}>Profile</Text>
         </View>
 
         <ScrollView
+          style={themedStyles.screen}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
         >
-          <View style={styles.profileHeader}>
-            <View style={styles.avatar}>
+          <View style={[styles.profileHeader, themedStyles.divider]}>
+            <View style={[styles.avatar, themedStyles.softSurface]}>
               <Text style={styles.avatarText}>{getInitials(caregiverName)}</Text>
             </View>
 
             <View style={styles.headerTextBlock}>
-              <Text style={styles.caregiverName}>
+              <Text style={[styles.caregiverName, themedStyles.primaryText]}>
                 {formatDetailValue(caregiverName)}
               </Text>
 
-              <Text style={styles.roleText}>
+              <Text style={[styles.roleText, themedStyles.secondaryText]}>
                 Caregiver · {formatDetailValue(caregiverRole)}
               </Text>
 
@@ -221,24 +225,24 @@ export default function ProfileScreen() {
           onRequestClose={() => setEditing(null)}
         >
           <Pressable style={styles.editOverlay} onPress={() => setEditing(null)}>
-            <Pressable style={styles.editSheet} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.editTitle}>
+            <Pressable style={[styles.editSheet, themedStyles.card]} onPress={(e) => e.stopPropagation()}>
+              <Text style={[styles.editTitle, themedStyles.primaryText]}>
                 Edit {editing?.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}
               </Text>
               <TextInput
-                style={styles.editInput}
+                style={[styles.editInput, themedStyles.input]}
                 value={draft}
                 onChangeText={setDraft}
                 autoFocus
                 placeholder="Enter value…"
-                placeholderTextColor={AppTheme.colors.textMuted}
+                placeholderTextColor={theme.appTextMuted}
               />
               <View style={styles.editActions}>
                 <Pressable
-                  style={[styles.editButton, styles.editCancel]}
+                  style={[styles.editButton, styles.editCancel, themedStyles.controlSurface]}
                   onPress={() => setEditing(null)}
                 >
-                  <Text style={styles.editCancelText}>Cancel</Text>
+                  <Text style={[styles.editCancelText, themedStyles.secondaryText]}>Cancel</Text>
                 </Pressable>
                 <Pressable style={styles.editButton} onPress={saveEdit}>
                   <Text style={styles.editSaveText}>Save</Text>
@@ -261,14 +265,16 @@ function ProfileCard({
   icon: AppIconName;
   children: ReactNode;
 }) {
+  const themedStyles = createThemedStyles(useTheme());
+
   return (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={styles.cardIconCircle}>
+    <View style={[styles.card, themedStyles.card]}>
+      <View style={[styles.cardHeader, themedStyles.divider]}>
+        <View style={[styles.cardIconCircle, themedStyles.softSurface]}>
           <AppIcon name={icon} size={18} color={AppTheme.colors.brand} />
         </View>
 
-        <Text style={styles.cardTitle}>{title}</Text>
+        <Text style={[styles.cardTitle, themedStyles.primaryText]}>{title}</Text>
       </View>
 
       {children}
@@ -285,11 +291,13 @@ function DetailRow({
   value: DetailValue;
   multiline?: boolean;
 }) {
+  const themedStyles = createThemedStyles(useTheme());
+
   return (
-    <View style={[styles.detailRow, multiline && styles.detailRowMultiline]}>
-      <Text style={styles.detailLabel}>{label}</Text>
+    <View style={[styles.detailRow, themedStyles.divider, multiline && styles.detailRowMultiline]}>
+      <Text style={[styles.detailLabel, themedStyles.secondaryText]}>{label}</Text>
       <Text
-        style={[styles.detailValue, multiline && styles.detailValueMultiline]}
+        style={[styles.detailValue, themedStyles.primaryText, multiline && styles.detailValueMultiline]}
       >
         {formatDetailValue(value)}
       </Text>
@@ -306,10 +314,12 @@ function EditableDetailRow({
   value: DetailValue;
   onPress: () => void;
 }) {
+  const themedStyles = createThemedStyles(useTheme());
+
   return (
-    <Pressable style={styles.detailRow} onPress={onPress}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{formatDetailValue(value)}</Text>
+    <Pressable style={[styles.detailRow, themedStyles.divider]} onPress={onPress}>
+      <Text style={[styles.detailLabel, themedStyles.secondaryText]}>{label}</Text>
+      <Text style={[styles.detailValue, themedStyles.primaryText]}>{formatDetailValue(value)}</Text>
       <Text style={styles.editChevron}>›</Text>
     </Pressable>
   );
@@ -360,6 +370,29 @@ function formatDetailValue(value: DetailValue): string {
 
   const text = String(value).trim();
   return text.length > 0 ? text : "Not provided";
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    screen: { backgroundColor: theme.appBackground },
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    divider: { borderBottomColor: theme.appBorder },
+    softSurface: {
+      backgroundColor: theme.appBrandSoftSurface,
+      borderColor: theme.appProfileAvatarBorder,
+    },
+    controlSurface: { backgroundColor: theme.appControlSurface },
+    input: {
+      color: theme.appText,
+      backgroundColor: theme.appInputBackground,
+      borderColor: theme.appBorder,
+    },
+    primaryText: { color: theme.appText },
+    secondaryText: { color: theme.appTextSupporting },
+  });
 }
 
 const styles = StyleSheet.create({

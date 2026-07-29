@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -7,6 +7,7 @@ import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { YourDecisionsSection } from "@/components/concierge/YourDecisionsSection";
 import { AppTheme } from "@/constants/theme";
 import { useSettings } from "@/contexts/settings-context";
+import { useTheme } from "@/hooks/use-theme";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 import { useActivePatientView } from '@/hooks/useActivePatientView';
@@ -30,6 +31,8 @@ export default function MoreScreen() {
   const ehrImportYRef = useRef(0);
   const [importing] = useState(false);
   const { settings, setCarePlanMode } = useSettings();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   useEffect(() => {
     if (params.focus !== "ehr-import") return;
@@ -52,9 +55,9 @@ export default function MoreScreen() {
 
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <View style={styles.root}>
-        <View style={styles.topBar}>
+    <SafeAreaView style={[styles.safeArea, themedStyles.screen]} edges={["top", "bottom"]}>
+      <View style={[styles.root, themedStyles.screen]}>
+        <View style={[styles.topBar, themedStyles.topBar]}>
           <Pressable
             onPress={() => {
               if (router.canGoBack()) router.back();
@@ -67,29 +70,30 @@ export default function MoreScreen() {
           >
             <Text style={styles.backText}>← Back</Text>
           </Pressable>
-          <Text style={styles.topTitle}>Settings</Text>
+          <Text style={[styles.topTitle, themedStyles.primaryText]}>Settings</Text>
           <View style={styles.topBarSpacer} />
         </View>
 
         <ScrollView
+          style={themedStyles.screen}
           ref={scrollRef}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
         >
-          <Text style={styles.screenSubtitle}>
+          <Text style={[styles.screenSubtitle, themedStyles.secondaryText]}>
             Profile, preferences, and data-source settings.
           </Text>
 
-          <View style={styles.profileCard}>
-            <View style={styles.avatar}>
+          <View style={[styles.profileCard, themedStyles.card]}>
+            <View style={[styles.avatar, themedStyles.softSurface]}>
               <Text style={styles.avatarText}>
                 {getInitials(caregiverName)}
               </Text>
             </View>
 
             <View style={styles.profileTextBlock}>
-              <Text style={styles.profileName}>{caregiverName}</Text>
-              <Text style={styles.profileRole}>
+              <Text style={[styles.profileName, themedStyles.primaryText]}>{caregiverName}</Text>
+              <Text style={[styles.profileRole, themedStyles.secondaryText]}>
                 Caregiver {"\u2022"} {caregiverRole}
               </Text>
               <Text style={styles.profilePatient}>
@@ -179,21 +183,21 @@ export default function MoreScreen() {
 
           <SettingsSection title="About">
             <View style={styles.aboutContent}>
-              <Text style={styles.aboutText}>Caregiver Concierge: ACCESS-DP</Text>
+              <Text style={[styles.aboutText, themedStyles.primaryText]}>Caregiver Concierge: ACCESS-DP</Text>
               <Pressable
                 onLongPress={() => router.push("/advanced-developer-settings" as never)}
                 delayLongPress={3000}
                 accessibilityRole="button"
                 accessibilityLabel="Hold to open developer tools"
               >
-                <Text style={styles.aboutText}>
+                <Text style={[styles.aboutText, themedStyles.primaryText]}>
                   Health Tech Alley {"\u2022"} v1.0.0
                 </Text>
-                <Text style={styles.aboutMuted}>
+                <Text style={[styles.aboutMuted, themedStyles.secondaryText]}>
                   Press and hold the version number for 3 seconds to open developer tools.
                 </Text>
               </Pressable>
-              <Text style={styles.aboutMuted}>
+              <Text style={[styles.aboutMuted, themedStyles.secondaryText]}>
                 This app is a caregiver support prototype and does not replace
                 emergency care or professional medical advice.
               </Text>
@@ -214,10 +218,12 @@ function SettingsSection({
   children: React.ReactNode;
   onLayout?: React.ComponentProps<typeof View>["onLayout"];
 }) {
+  const themedStyles = createThemedStyles(useTheme());
+
   return (
     <View style={styles.section} onLayout={onLayout}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={styles.sectionCard}>{children}</View>
+      <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{title}</Text>
+      <View style={[styles.sectionCard, themedStyles.card]}>{children}</View>
     </View>
   );
 }
@@ -239,9 +245,11 @@ function SettingsRow({
   disabled?: boolean;
   accessibilityLabel?: string;
 }) {
+  const themedStyles = createThemedStyles(useTheme());
+
   return (
     <Pressable
-      style={[styles.settingsRow, disabled && styles.settingsRowDisabled]}
+      style={[styles.settingsRow, themedStyles.divider, disabled && styles.settingsRowDisabled]}
       onPress={onPress}
       disabled={disabled}
       accessibilityRole={onPress ? "button" : undefined}
@@ -249,20 +257,20 @@ function SettingsRow({
       accessibilityHint={onPress ? subtitle : undefined}
       accessibilityState={{ disabled: Boolean(disabled) }}
     >
-      <View style={styles.settingsIconCircle}>
+      <View style={[styles.settingsIconCircle, themedStyles.softSurface]}>
         {emoji ? (
-          <Text style={styles.settingsEmojiIcon}>{emoji}</Text>
+          <Text style={[styles.settingsEmojiIcon, themedStyles.primaryText]}>{emoji}</Text>
         ) : icon ? (
           <AppIcon name={icon} size={22} color={AppTheme.colors.brand} />
         ) : null}
       </View>
 
       <View style={styles.settingsTextBlock}>
-        <Text style={styles.settingsTitle}>{title}</Text>
-        <Text style={styles.settingsSubtitle}>{subtitle}</Text>
+        <Text style={[styles.settingsTitle, themedStyles.primaryText]}>{title}</Text>
+        <Text style={[styles.settingsSubtitle, themedStyles.secondaryText]}>{subtitle}</Text>
       </View>
 
-      <Text style={styles.chevron}>{disabled ? "Soon" : ">"}</Text>
+      <Text style={[styles.chevron, themedStyles.secondaryText]}>{disabled ? "Soon" : ">"}</Text>
     </Pressable>
   );
 }
@@ -285,6 +293,9 @@ function CarePlanModeToggle({
   onChange: (next: 'full' | 'read_only') => void;
 }) {
   const isFull = mode === 'full';
+  const theme = useTheme();
+  const themedStyles = createThemedStyles(theme);
+
   return (
     <View
       style={styles.carePlanModeRow}
@@ -294,8 +305,8 @@ function CarePlanModeToggle({
       accessibilityState={{ checked: isFull }}
     >
       <View style={styles.carePlanModeText}>
-        <Text style={styles.carePlanModeTitle}>Living care plan updates</Text>
-        <Text style={styles.carePlanModeSubtitle}>
+        <Text style={[styles.carePlanModeTitle, themedStyles.primaryText]}>Living care plan updates</Text>
+        <Text style={[styles.carePlanModeSubtitle, themedStyles.secondaryText]}>
           {isFull
             ? "Concierge can suggest plan changes for your review."
             : "Care plan stays as imported or last saved. Concierge can still explain using your plan."}
@@ -304,12 +315,31 @@ function CarePlanModeToggle({
       <Switch
         value={isFull}
         onValueChange={(next) => onChange(next ? 'full' : 'read_only')}
-        trackColor={{ false: AppTheme.colors.border, true: AppTheme.colors.brand }}
-        thumbColor={AppTheme.colors.white}
+        trackColor={{ false: theme.appBorder, true: AppTheme.colors.brand }}
+        thumbColor={isFull ? AppTheme.colors.white : theme.appSurface}
         accessibilityLabel="Toggle living care plan updates"
       />
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    screen: { backgroundColor: theme.appBackground },
+    topBar: {
+      backgroundColor: theme.appBackground,
+      borderBottomColor: theme.appBorder,
+    },
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    softSurface: { backgroundColor: theme.appBrandSoftSurface },
+    divider: { borderBottomColor: theme.appBorder },
+    primaryText: { color: theme.appText },
+    secondaryText: { color: theme.appTextSupporting },
+    sectionTitle: { color: theme.appSectionText },
+  });
 }
 
 const styles = StyleSheet.create({
