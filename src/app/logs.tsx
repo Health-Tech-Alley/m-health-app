@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  NativeModules,
   Pressable,
   StyleSheet,
   Text,
@@ -27,17 +26,12 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function isFileLoggerNativeAvailable(): boolean {
-  const bridge = NativeModules.FileLogger as { configure?: unknown } | null | undefined;
-  return Boolean(bridge && typeof bridge.configure === "function");
-}
-
 async function loadFileLogger() {
-  if (!isFileLoggerNativeAvailable()) return null;
   try {
     const mod = await import("react-native-file-logger");
     return mod.FileLogger;
-  } catch {
+  } catch (err) {
+    console.error("Failed loading FileLogger", err);
     return null;
   }
 }
@@ -52,6 +46,7 @@ export default function LogsScreen() {
     setLoading(true);
     try {
       const FileLogger = await loadFileLogger();
+      console.log("FileLogger loaded:", FileLogger);
       if (!FileLogger) {
         setUnavailable(true);
         setFiles([]);
@@ -59,6 +54,7 @@ export default function LogsScreen() {
       }
       setUnavailable(false);
       const paths = await FileLogger.getLogFilePaths();
+      console.log("Log file paths:", paths);
       const infos = paths.map((path) => {
         const file = new File(path);
         return {
@@ -68,6 +64,7 @@ export default function LogsScreen() {
           modificationTime: file.exists ? file.modificationTime : null,
         };
       });
+      console.log("Log file infos:", infos);
       infos.sort((a, b) => (b.modificationTime ?? 0) - (a.modificationTime ?? 0));
       setFiles(infos);
     } catch (err) {

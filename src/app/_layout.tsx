@@ -31,7 +31,6 @@ import { Provider } from 'react-redux';
 import * as Notifications from 'expo-notifications';
 import { AndroidNotificationPriority } from 'expo-notifications';
 
-import { Directory, Paths } from "expo-file-system";
 import { NativeModules } from "react-native";
 
 // Add this OUTSIDE any component, at the module level
@@ -61,30 +60,26 @@ function isFileLoggerNativeAvailable(): boolean {
 
 function LoggerInit() {
   useEffect(() => {
-    if (!isFileLoggerNativeAvailable()) {
-      console.log(
-        "[FileLogger] Native module unavailable — skipping file log setup",
-      );
-      return;
-    }
     void (async () => {
       try {
         const { FileLogger } = await import("react-native-file-logger");
-        const logsDir = new Directory(Paths.document, "logs");
-        if (!logsDir.exists) {
-          logsDir.create();
-        }
+
         await FileLogger.configure({
-          logsDirectory: logsDir.uri,
-          captureConsole: false,
+          captureConsole: true,
         });
-        console.log("FileLogger configured, dir:", logsDir.uri);
+
+        console.log("FileLogger configured with default dir");
+
         FileLogger.info("Logger test entry");
+
+        const paths = await FileLogger.getLogFilePaths();
+        console.log("Default dir paths:", paths);
       } catch (err) {
-        console.warn("[FileLogger] configure skipped:", err);
+        console.warn("[FileLogger] configure failed:", err);
       }
     })();
   }, []);
+
   return null;
 }
 
@@ -189,12 +184,12 @@ export default function RootLayout() {
 
   return (
     <Provider store={store}>
+      <LoggerInit />
       <ThemeProvider value={DefaultTheme}>
         <SettingsProvider>
           <PatientRecordProvider>
             <SLMProvider>
               <SlmPolicySync />
-              <LoggerInit />
               <NotificationInit />
               <NotificationResponseInit />
               <SensorProvider>
