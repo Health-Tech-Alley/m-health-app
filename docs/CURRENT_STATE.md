@@ -22,7 +22,7 @@
 
 - Expo SDK ~56.0.12, React Native 0.85.3, expo-router
 - Concierge: `llama.rn` / **Gemma-4-E2B-it Q4_K_M** only (`src/inference/model-catalog.ts`)
-- NLU: TFLite `mdbr-leaf-ir` + chat/care intent heads (`src/nlu/`, `assets/models/nlu/`)
+- NLU: TFLite `mdbr-leaf-ir` + chat/care intent heads (`src/nlu/`, `assets/models/nlu/`); `.tflite` models distributed via **Git LFS**
 - Knowledge pack: `src/clinical-evidence/pack/` — global pack DB, layer fetchers, float16 leaf-ir vectors, pack evidence graph
 - Retrieval: `CachedFusedRetriever` unions pack ∪ patient overlay; graph expand default ON; dense rerank over candidates
 - Redux Toolkit + React Context hybrid (SQLite repos → `PatientRecordSnapshot` → UI; Redux for workflow slices)

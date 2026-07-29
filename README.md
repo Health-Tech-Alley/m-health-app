@@ -187,6 +187,7 @@ The caregiver's calendar view of the care plan in motion.
 ### Prerequisites
 
 - **Node.js LTS** (includes npm) — no global Expo CLI needed; use `npx expo`
+- **Git LFS** — NLU embedder models (`.tflite`) are tracked via Git LFS. Run `git lfs install` before cloning, or `git lfs pull` after a fresh clone to download them.
 - The **Expo Go** app on a physical iOS/Android device (for Track A)
 - *(Track B only)* an **Expo account** for EAS cloud builds — no local Xcode / Android Studio required
 

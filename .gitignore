@@ -82,7 +82,7 @@ AGENTS.md
 
 # NLU model binaries (large)
 assets/models/nlu/*.onnx
-assets/models/nlu/*.tflite
+assets/models/nlu/mdbr-leaf-ir-fp32.tflite
 assets/models/nlu/_tf_saved_model/
 planning/model.safetensors
 planning/python-testing/.venv/

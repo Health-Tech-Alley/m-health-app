@@ -19,6 +19,10 @@ It is a living document — update it as the UI evolves.
 The app is an **Expo (managed) project, SDK 56** using **expo-router** for
 file-based routing. Source lives under `src/`.
 
+**Git LFS:** NLU embedder models (`mdbr-leaf-ir.tflite`, `mdbr-leaf-ir-int8.tflite`)
+are tracked via Git LFS. Run `git lfs install` before cloning, or `git lfs pull`
+after a fresh clone to download them.
+
 ### Two-track development
 
 | Track | How to run | What works |
