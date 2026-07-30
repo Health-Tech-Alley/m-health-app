@@ -7,16 +7,8 @@ import { upsertPatientCareContextItem } from '../repositories/patientCareContext
 import { upsertPatientLongitudinalObservation } from '../repositories/patientLongitudinalObservationRepository';
 import { upsertPatientTimelineEvent } from '../repositories/patientTimelineEventRepository';
 import { upsertRehabilitationMeasurement } from '../repositories/rehabilitationMeasurementRepository';
-import {
-  getRehabExerciseAssignments,
-  replaceRehabExerciseAssignments,
-} from '../repositories/rehabExerciseAssignmentRepository';
 import { seedAdcpV1FromSnapshot } from '../repositories/adcpRepository';
 import { getPatientRecordSnapshot } from '../repositories/patientRecordRepository';
-import {
-  DEVELOPMENT_UC3_REHAB_EXERCISES,
-  isUc3DevelopmentExerciseAssignmentEligible,
-} from '../uc3RehabExercises';
 import type {
   CarePlanRehabMetric,
   CarePlanRehabMetricKey,
@@ -129,46 +121,17 @@ export function saveFHIRBundleToDB(bundle: any): string | null {
   // the new patient, conditions, meds, thresholds, and CarePlan; we read that
   // snapshot once and seed a unified ADCP document so the Care and Dashboard
   // surfaces have something to show.
-  let postImportSnapshot: ReturnType<typeof getPatientRecordSnapshot> | null = null;
   try {
-    postImportSnapshot = getPatientRecordSnapshot(canonicalPatientId);
     seedAdcpV1FromSnapshot({
       patientId: canonicalPatientId,
-      snapshot: postImportSnapshot,
+      snapshot: getPatientRecordSnapshot(canonicalPatientId),
       source: 'seed:fhir_import',
     });
   } catch (err) {
     console.error('[FHIR Import] ADCP v1 seed failed:', err);
   }
 
-  try {
-    const snapshot = postImportSnapshot ?? getPatientRecordSnapshot(canonicalPatientId);
-    seedDefaultUc3ExerciseAssignments(canonicalPatientId, snapshot);
-  } catch (err) {
-    console.error('[FHIR Import] UC3 exercise assignment seed failed:', err);
-  }
-
   return canonicalPatientId;
-}
-
-/**
- * UC3-eligible stroke rehab patients get the development exercise checklist
- * assigned on import when none exist yet (Settings can still override).
- */
-function seedDefaultUc3ExerciseAssignments(
-  patientId: string,
-  snapshot: ReturnType<typeof getPatientRecordSnapshot>,
-): void {
-  const carePlan = snapshot.carePlan;
-  if (!carePlan?.planId) return;
-  if (!isUc3DevelopmentExerciseAssignmentEligible(snapshot.conditions, carePlan)) return;
-  if (getRehabExerciseAssignments(patientId, carePlan.planId).length > 0) return;
-
-  replaceRehabExerciseAssignments({
-    patientId,
-    carePlanId: carePlan.planId,
-    exerciseKeys: DEVELOPMENT_UC3_REHAB_EXERCISES.map((exercise) => exercise.key),
-  });
 }
 
 const FULL_BIRTH_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -1120,19 +1083,17 @@ function upsertFHIRCarePlan(
     .filter((s: string) => s.length > 0)
     .join('\n');
 
-  const rebasedPeriod = rebaseExpiredCarePlanPeriod(r.period, now.slice(0, 10));
-
   upsertCarePlan({
     planId: r.id,
     patientId,
     version: 1,
-    effectiveDate: rebasedPeriod.start ?? r.period?.start ?? now,
+    effectiveDate: r.period?.start ?? now,
     status: r.status ?? null,
     intent: r.intent ?? null,
     title: r.title ?? null,
     description: r.description ?? null,
-    periodStart: rebasedPeriod.start ?? undefined,
-    periodEnd: rebasedPeriod.end ?? undefined,
+    periodStart: r.period?.start ?? null,
+    periodEnd: r.period?.end ?? null,
     careTeamDisplayJson: JSON.stringify(careTeamDisplay),
     safetyNotes: safetyFromNotes || undefined,
     emergencyContact: undefined,
@@ -1332,38 +1293,6 @@ function getCarePlanDurationDays(period: any): number | null {
   const end = parseFhirDate(period?.end);
   if (!start || !end || end.getTime() < start.getTime()) return null;
   return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
-}
-
-/**
- * Fixture care plans often end months before demo day. Shift an expired
- * period forward so it ends today while preserving duration (and therefore
- * rehab metric durationDays / dayIndex alignment).
- */
-function rebaseExpiredCarePlanPeriod(
-  period: { start?: string; end?: string } | null | undefined,
-  todayIso: string,
-): { start: string | null; end: string | null } {
-  const start = period?.start?.slice(0, 10) ?? null;
-  const end = period?.end?.slice(0, 10) ?? null;
-  if (!start && !end) return { start: null, end: null };
-  if (!end || end >= todayIso) {
-    return { start: start ?? null, end: end ?? null };
-  }
-  const durationDays = getCarePlanDurationDays(period);
-  if (!durationDays || !start) {
-    return { start: start ?? null, end: todayIso };
-  }
-  const endDate = parseFhirDate(todayIso);
-  const startDate = parseFhirDate(start);
-  if (!endDate || !startDate) {
-    return { start, end: todayIso };
-  }
-  const rebasedStart = new Date(endDate);
-  rebasedStart.setUTCDate(rebasedStart.getUTCDate() - (durationDays - 1));
-  return {
-    start: rebasedStart.toISOString().slice(0, 10),
-    end: todayIso,
-  };
 }
 
 function parseFhirDate(value?: string): Date | null {

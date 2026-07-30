@@ -287,56 +287,6 @@ describe('adaptPatientRecordSnapshotToUC3Input', () => {
     expect(readyInput(snapshot({ rehabDailyEntries: [] }))?.status).toBe('ready');
   });
 
-  it('merges todayDailyCareEntry when longitudinal history is empty', () => {
-    const today = dailyEntry({
-      entryDate: '2026-07-16',
-      exerciseRepetitions: 12,
-      romDegrees: 50,
-      walkingMinutes: 10,
-      painScore: 3,
-      fatigue: 4,
-    });
-    const result = readyInput(
-      snapshot({
-        rehabDailyEntries: [],
-        todayDailyCareEntry: today,
-      }),
-    );
-    expect(result?.input.logs).toHaveLength(1);
-    expect(result?.input.logs[0]).toMatchObject({
-      date: '2026-07-16',
-      exerciseReps: 12,
-      romDegrees: 50,
-      walkingMinutes: 10,
-      painScore: 3,
-      fatigueScore: 4,
-    });
-  });
-
-  it('clamps dayIndex into plan duration for post-period logs', () => {
-    const result = readyInput(
-      snapshot({
-        carePlan: {
-          ...snapshot().carePlan!,
-          periodStart: '2026-06-01',
-          periodEnd: '2026-06-21',
-        },
-        rehabPlanMetrics: snapshot().rehabPlanMetrics.map((metric) => ({
-          ...metric,
-          durationDays: 21,
-        })),
-        rehabDailyEntries: [
-          dailyEntry({
-            entryDate: '2026-07-16',
-            therapyDay: undefined,
-          }),
-        ],
-      }),
-    );
-    expect(result?.input.logs[0].dayIndex).toBe(21);
-    expect(result?.input.plan.durationDays).toBe(21);
-  });
-
   it('returns not_ready only for structural blockers', () => {
     const cases: PatientRecordSnapshot[] = [
       snapshot({ patient: null }),

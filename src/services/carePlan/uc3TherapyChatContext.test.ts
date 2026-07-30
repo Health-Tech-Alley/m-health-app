@@ -2,7 +2,6 @@ import type { PatientRecordSnapshot } from '@/data/types';
 import {
   buildUc3TherapySeedSupplement,
   buildUc3TherapySystemContext,
-  snapshotHasTherapyGroundTruth,
 } from './uc3TherapyChatContext';
 
 function baseSnapshot(
@@ -33,6 +32,12 @@ function baseSnapshot(
         frequency: 'TID',
         active: true,
       },
+      {
+        medicationId: 'm2',
+        patientId: 'p1',
+        name: 'Old med',
+        active: false,
+      },
     ],
     medicationCandidates: [],
     medicationConfirmationRequirements: {},
@@ -44,15 +49,46 @@ function baseSnapshot(
       version: 1,
       effectiveDate: '2026-01-01',
       createdAt: '2026-01-01T00:00:00.000Z',
-      activities: [],
+      activities: [
+        {
+          activityId: 'a1',
+          planId: 'cp1',
+          description: 'Home PT twice weekly',
+          status: 'in-progress',
+          sequence: 1,
+        },
+      ],
     },
     carePlans: [],
-    rehabPlanMetrics: [],
+    rehabPlanMetrics: [
+      {
+        id: 'rm1',
+        patientId: 'p1',
+        carePlanId: 'cp1',
+        metricKey: 'romDegrees',
+        displayName: 'Shoulder ROM',
+        baselineValue: 40,
+        targetValue: 90,
+        unit: 'deg',
+        durationDays: 30,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
     rehabExerciseAssignments: [
       {
         patientId: 'p1',
         carePlanId: 'cp1',
         exerciseKey: 'sit_to_stand',
+        active: true,
+        source: 'developer_uc3_v2',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        patientId: 'p1',
+        carePlanId: 'cp1',
+        exerciseKey: 'assisted_walking',
         active: true,
         source: 'developer_uc3_v2',
         createdAt: '2026-01-01T00:00:00.000Z',
@@ -67,10 +103,7 @@ function baseSnapshot(
       setsCompleted: 2,
       recommendedSets: 3,
       exerciseRepetitions: 12,
-      romDegrees: 48,
-      walkingMinutes: 8,
-      painScore: 3,
-      fatigue: 4,
+      completedExerciseKeys: ['sit_to_stand'],
       caregiverConcern: false,
       createdAt: '2026-07-27T00:00:00.000Z',
       updatedAt: '2026-07-27T00:00:00.000Z',
@@ -88,7 +121,7 @@ function baseSnapshot(
       requiresHumanReview: false,
       emergencyThresholdBreach: false,
       reviewPriorityScore: 0,
-      reasonCodes: [],
+      reasonCodes: ['adherence_ok'],
       explanations: ['Progress looks steady.'],
       metricAnalyses: {},
       dataQuality: {
@@ -107,7 +140,13 @@ function baseSnapshot(
     recentUc4CaregiverResponses: [],
     careContextItems: [],
     timelineEvents: [],
-    carePlanGoals: [],
+    carePlanGoals: [
+      {
+        goalId: 'g1',
+        description: 'Improve sit-to-stand independence',
+        status: 'active',
+      },
+    ],
     knowledgeStats: { total: 0, bySource: {} },
     enrichmentStats: { total: 0, bySource: {} },
     bundlePending: false,
@@ -120,34 +159,78 @@ function baseSnapshot(
   } as PatientRecordSnapshot;
 }
 
-describe('uc3TherapyChatContext (locator-first)', () => {
-  it('points at tables/UI and does not dump session metric values', () => {
+describe('uc3TherapyChatContext', () => {
+  it('includes assigned exercises, metrics, activities, goals, UC3, and active meds', () => {
     const ctx = buildUc3TherapySystemContext(baseSnapshot());
-    expect(ctx).toContain('LOCAL DATA MAP');
-    expect(ctx).toContain('daily_care_entries');
-    expect(ctx).toContain('Care→Therapy');
     expect(ctx).toContain('Sit-to-stand practice');
+    expect(ctx).toContain('Assisted walking practice');
+    expect(ctx).toContain('Shoulder ROM');
+    expect(ctx).toContain('Home PT twice weekly');
+    expect(ctx).toContain('Improve sit-to-stand independence');
     expect(ctx).toContain('on_track');
-    // Mutable session numbers must not appear
-    expect(ctx).not.toContain('reps 12');
-    expect(ctx).not.toContain('ROM 48');
-    expect(ctx).not.toContain('pain 3');
+    expect(ctx).toContain('Baclofen');
+    expect(ctx).not.toContain('Old med');
+    expect(ctx.length).toBeLessThanOrEqual(1500);
   });
 
-  it('seed is a short pointer without metric dumps', () => {
+  it('seed supplement is a short one-liner for history budget', () => {
     const seed = buildUc3TherapySeedSupplement(baseSnapshot());
     expect(seed).toContain('Sit-to-stand practice');
-    expect(seed).toContain('daily_care_entries');
-    expect(seed).not.toContain('reps 12');
+    expect(seed).toContain('Baclofen');
     expect(seed.length).toBeLessThan(400);
   });
 
-  it('snapshotHasTherapyGroundTruth detects therapy presence', () => {
-    expect(snapshotHasTherapyGroundTruth(baseSnapshot())).toBe(true);
-    expect(snapshotHasTherapyGroundTruth(null)).toBe(false);
+  it('seed supplement carries today actual therapy values', () => {
+    const seed = buildUc3TherapySeedSupplement(baseSnapshot());
+    expect(seed).toContain('reps 12');
+    expect(seed).toContain('done=yes');
+    expect(seed).toContain('completed: Sit-to-stand practice');
   });
 
-  it('handles null snapshot', () => {
+  it('system context carries today actual therapy values for the SLM', () => {
+    const ctx = buildUc3TherapySystemContext(baseSnapshot());
+    expect(ctx).toContain('Today:');
+    expect(ctx).toContain('reps 12');
+    expect(ctx).toContain('done=yes');
+    expect(ctx).toContain('completed: Sit-to-stand practice');
+  });
+
+  it('omits today metric parts that are not logged (does not invent values)', () => {
+    const ctx = buildUc3TherapySystemContext(
+      baseSnapshot({
+        todayDailyCareEntry: {
+          entryId: 'd2',
+          patientId: 'p1',
+          entryDate: '2026-07-27',
+          therapyCompleted: false,
+          setsCompleted: 0,
+          recommendedSets: 0,
+          exerciseRepetitions: 8,
+          caregiverConcern: false,
+          createdAt: '2026-07-27T00:00:00.000Z',
+          updatedAt: '2026-07-27T00:00:00.000Z',
+        },
+      }),
+    );
+    expect(ctx).toContain('reps 8');
+    expect(ctx).toContain('done=no');
+    // The Today session line must not invent unlogged metric values.
+    const todayLine = ctx.split('\n').find((l) => l.startsWith('Today:')) ?? '';
+    expect(todayLine).not.toContain('ROM ');
+    expect(todayLine).not.toContain('walk ');
+    expect(todayLine).not.toMatch(/pain \d/);
+    expect(todayLine).not.toMatch(/fatigue \d/);
+  });
+
+  it('reports "Today: no log yet" when no daily entry exists', () => {
+    const ctx = buildUc3TherapySystemContext(
+      baseSnapshot({ todayDailyCareEntry: null }),
+    );
+    expect(ctx).toContain('Today: no log yet');
+    expect(ctx).not.toContain('reps ');
+  });
+
+  it('handles null snapshot without throwing', () => {
     expect(buildUc3TherapySystemContext(null)).toContain('No patient');
     expect(buildUc3TherapySeedSupplement(null)).toBe('');
   });

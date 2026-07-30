@@ -83,29 +83,10 @@ function enteredBy(role?: string | null): DailyRehabLog['enteredBy'] | undefined
     : undefined;
 }
 
-/**
- * Prefer longitudinal history, then ensure today's entry is present even when
- * the snapshot window was stale or the plan period has ended.
- */
-function collectDailyCareEntriesForUc3(snapshot: PatientRecordSnapshot): DailyCareEntry[] {
-  const byDate = new Map<string, DailyCareEntry>();
-  for (const entry of snapshot.rehabDailyEntries ?? []) {
-    const key = dateOnly(entry.entryDate);
-    if (key) byDate.set(key, entry);
-  }
-  const today = snapshot.todayDailyCareEntry;
-  if (today) {
-    const key = dateOnly(today.entryDate);
-    if (key) byDate.set(key, today);
-  }
-  return Array.from(byDate.values()).sort((a, b) => a.entryDate.localeCompare(b.entryDate));
-}
-
 function mapDailyLogs(
   entries: readonly DailyCareEntry[],
   planStart: string,
   planEnd: string | null,
-  planDurationDays: number,
   nowDate: string,
   warnings: UC3AdapterIssue[],
 ): DailyRehabLog[] {
@@ -119,16 +100,11 @@ function mapDailyLogs(
       return;
     }
 
-    const rawDayIndex =
-      isNumber(entry.therapyDay) && entry.therapyDay > 0
-        ? entry.therapyDay
-        : daysInclusive(planStart, entryDate);
-    // Clamp into the plan expected-value window so post-period demo logs still
-    // participate in trajectory analysis instead of being dropped.
-    const dayIndex = Math.min(Math.max(rawDayIndex, 1), Math.max(planDurationDays, 1));
-
     const log: DailyRehabLog = {
-      dayIndex,
+      dayIndex:
+        isNumber(entry.therapyDay) && entry.therapyDay > 0
+          ? entry.therapyDay
+          : daysInclusive(planStart, entryDate),
       date: entryDate,
       romDegrees: isNumber(entry.romDegrees) ? entry.romDegrees : undefined,
       exerciseReps: isNumber(entry.exerciseRepetitions) ? entry.exerciseRepetitions : undefined,
@@ -251,10 +227,8 @@ export function adaptPatientRecordSnapshotToUC3Input(
       .filter((metric) => usableMetrics.includes(metric.metricKey))
       .map((metric) => metric.durationDays),
   );
-  const durationFromPeriod = planEnd ? daysInclusive(readyPlanStart, planEnd) : 1;
-  const planDurationDays = Math.max(durationFromMetrics, durationFromPeriod, 1);
   const builtPlan = buildRehabPlan(patientContext, ehrContext, {
-    durationDays: planDurationDays,
+    durationDays: Math.max(durationFromMetrics, planEnd ? daysInclusive(readyPlanStart, planEnd) : 1),
     metricTargets,
     planSource: 'PatientRecordSnapshot',
     planNote: readyCarePlan.description ?? readyCarePlan.title,
@@ -270,10 +244,9 @@ export function adaptPatientRecordSnapshotToUC3Input(
     safetyBoundaries: safetyConsiderations.length ? safetyConsiderations : builtPlan.safetyBoundaries,
   };
   const logs = mapDailyLogs(
-    collectDailyCareEntriesForUc3(snapshot),
+    snapshot.rehabDailyEntries,
     readyPlanStart,
     planEnd,
-    planDurationDays,
     dateOnly(now.toISOString()) ?? now.toISOString().slice(0, 10),
     warnings,
   );

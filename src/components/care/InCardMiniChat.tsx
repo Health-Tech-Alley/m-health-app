@@ -256,8 +256,8 @@ export function InCardMiniChat({
       const allowDevNlu =
         __DEV__ && isDeveloper && settings.nluDevelopmentFallback === true;
       const useUc3Therapy = contextProfile === 'uc3_therapy';
-      // Prefer the latest store snapshot so metrics entered just before Explain
-      // are visible (hook snapshot can lag one render behind refresh()).
+      // Read the latest active-patient snapshot just before the turn so values
+      // entered on the therapy card moments ago are present in the prompt.
       const liveSnapshot = getCurrentPatientSnapshot() ?? snapshot;
       // UC3: snapshot already has exercises/meds — skip NLU (avoids TFLite
       // failures blocking the turn) and drop tools/plan-RAG to protect n_ctx.

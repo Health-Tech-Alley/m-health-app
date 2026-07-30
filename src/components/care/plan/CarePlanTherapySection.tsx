@@ -266,18 +266,61 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
     return () => clearTimeout(handle);
   }, [patientId, therapySessionDate, activeAssignmentListKey]);
 
-  const saveDailyCarePatch = (patch: Partial<DailyCareEntry>): DailyCareEntry | null => {
-    if (!patientId) return null;
-    upsertDailyCareEntry({
-      ...(dailyEntry ?? {}),
-      ...patch,
-      patientId,
-      carePlanId: dailyEntry?.carePlanId ?? carePlanId ?? null,
-      assignedExerciseKeys: activeAssignedExercises.map((e) => e.key),
-    });
-    refresh();
-    return null;
-  };
+  // State-first daily-care patch: read the latest active-patient entry from
+  // the store (not the `dailyEntry` prop, which can be stale during rapid
+  // consecutive edits), apply the patch, persist only the affected row, and
+  // roll back on failure. A full snapshot refresh is not required per field.
+  const saveDailyCarePatch = useCallback(
+    (patch: Partial<DailyCareEntry>): void => {
+      if (!patientId) return;
+      let nextEntry: DailyCareEntry | null = null;
+      void mutatePatientRecord(
+        (latestSnapshot: PatientRecordSnapshot) => {
+          if (latestSnapshot.patient?.patientId !== patientId) {
+            throw new Error(`Cannot save daily care for inactive patient: ${patientId}`);
+          }
+          const existing = latestSnapshot.todayDailyCareEntry;
+          const assignedExerciseKeys = activeAssignedExercises.map((e) => e.key);
+          const now = new Date().toISOString();
+          nextEntry = {
+            ...(existing ?? {
+              entryId: `dce-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`,
+              patientId,
+              entryDate: now.slice(0, 10),
+              therapyCompleted: false,
+              setsCompleted: 0,
+              recommendedSets: 0,
+              caregiverConcern: false,
+              createdAt: now,
+            }),
+            ...patch,
+            patientId,
+            carePlanId: existing?.carePlanId ?? carePlanId ?? null,
+            assignedExerciseKeys,
+            updatedAt: now,
+          };
+          const history = latestSnapshot.rehabDailyEntries ?? [];
+          const has = history.some((e) => e.entryDate === nextEntry!.entryDate);
+          const rehabDailyEntries = (has
+            ? history.map((e) => (e.entryDate === nextEntry!.entryDate ? nextEntry! : e))
+            : [...history, nextEntry!]
+          ).sort((a, b) => a.entryDate.localeCompare(b.entryDate));
+          return {
+            ...latestSnapshot,
+            todayDailyCareEntry: nextEntry,
+            rehabDailyEntries,
+          };
+        },
+        () => {
+          if (nextEntry) Object.assign(nextEntry, upsertDailyCareEntry(nextEntry));
+        },
+      ).catch((error) => {
+        console.error('[CarePlanTherapySection] daily care update failed:', error);
+        setUc3CompletionStatus('Care update could not be saved. Please try again.');
+      });
+    },
+    [activeAssignedExercises, carePlanId, mutatePatientRecord, patientId],
+  );
 
   const confirmTherapyCompleted = useCallback(async () => {
     if (uc3CompletionRunning) return;

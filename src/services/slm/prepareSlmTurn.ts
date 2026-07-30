@@ -40,7 +40,6 @@ import {
   type CaregiverAssistantContext,
 } from '@/services/slm/slmService';
 import { detectIdentityMismatches } from '@/services/slm/identity-guardrails';
-import { buildLocalDataLocatorContext } from '@/services/slm/localDataLocatorContext';
 
 /** Whole NLU stage budget (embedder may already be warm from preload). */
 const DEFAULT_NLU_TIMEOUT_MS = 12_000;
@@ -274,13 +273,6 @@ export async function prepareSlmTurn(
   const extraSystem = options.extraSystemContext?.trim();
   if (extraSystem) {
     systemContext = `${systemContext}\n\n${extraSystem}`;
-  } else if (snapshot?.patient?.patientId) {
-    // Locations only — no mutable daily/vitals dumps (n_ctx + privacy).
-    // In-card paths pass their own extraSystemContext and skip this branch.
-    const locator = buildLocalDataLocatorContext(snapshot).trim();
-    if (locator) {
-      systemContext = `${systemContext}\n\n${locator}`;
-    }
   }
 
   const mentionedMeds = (nluPacket?.entities ?? [])
