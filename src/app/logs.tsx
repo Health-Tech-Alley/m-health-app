@@ -1,7 +1,7 @@
 // src/app/logs.tsx
 import { Directory, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,9 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { AppTheme } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
 
 type LogFile = {
   path: string;
@@ -28,6 +31,8 @@ function formatBytes(bytes: number) {
 
 export default function LogsScreen() {
   const insets = useSafeAreaInsets();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [files, setFiles] = useState<LogFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
@@ -124,13 +129,14 @@ export default function LogsScreen() {
     <View
       style={[
         styles.container,
+        themedStyles.container,
         { paddingTop: insets.top, paddingBottom: insets.bottom },
       ]}
     >
-      <View style={styles.header}>
+      <View style={[styles.header, themedStyles.header]}>
         <View>
-          <Text style={styles.title}>Log Files</Text>
-          <Text style={styles.subtitle}>
+          <Text style={[styles.title, themedStyles.title]}>Log Files</Text>
+          <Text style={[styles.subtitle, themedStyles.subtitle]}>
             {files.length} file{files.length === 1 ? "" : "s"}
           </Text>
         </View>
@@ -140,17 +146,18 @@ export default function LogsScreen() {
             hitSlop={8}
             style={({ pressed }) => [
               styles.deleteAllButton,
+              themedStyles.deleteAllButton,
               pressed && styles.pressed,
             ]}
           >
-            <Text style={styles.deleteAllText}>Delete all</Text>
+            <Text style={[styles.deleteAllText, themedStyles.deleteAllText]}>Delete all</Text>
           </Pressable>
         )}
       </View>
 
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator />
+        <View style={[styles.center, themedStyles.container]}>
+          <ActivityIndicator color={theme.appBackground === "#000000" ? theme.appTextMuted : undefined} />
         </View>
       ) : (
         <View style={{ flex: 1 }}>
@@ -164,10 +171,10 @@ export default function LogsScreen() {
             }
             ListEmptyComponent={
               <View style={styles.emptyState}>
-                <Text style={styles.emptyTitle}>
+                <Text style={[styles.emptyTitle, themedStyles.emptyTitle]}>
                   {unavailable ? "Logging unavailable" : "No log files yet"}
                 </Text>
-                <Text style={styles.emptySubtitle}>
+                <Text style={[styles.emptySubtitle, themedStyles.emptySubtitle]}>
                   {unavailable
                     ? "File logging unavailable in this build (native module not linked)."
                     : "Log files will appear here once the app writes some."}
@@ -176,21 +183,21 @@ export default function LogsScreen() {
             }
             renderItem={({ item }) => (
               <Pressable
-                style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.row, themedStyles.row, pressed && styles.pressed]}
                 onPress={() => handleShare(item.path)}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.fileName} numberOfLines={1}>
+                  <Text style={[styles.fileName, themedStyles.fileName]} numberOfLines={1}>
                     {item.name}
                   </Text>
-                  <Text style={styles.fileMeta}>
+                  <Text style={[styles.fileMeta, themedStyles.fileMeta]}>
                     {formatBytes(item.size)}
                     {item.modificationTime
                       ? ` · ${new Date(item.modificationTime).toLocaleString()}`
                       : ""}
                   </Text>
                 </View>
-                <Text style={styles.shareLabel}>Share</Text>
+                <Text style={[styles.shareLabel, themedStyles.shareLabel]}>Share</Text>
               </Pressable>
             )}
           />
@@ -201,6 +208,7 @@ export default function LogsScreen() {
             hitSlop={5}
             style={({ pressed }) => [
               styles.sendLogsButton,
+              themedStyles.sendLogsButton,
               pressed && styles.pressed,
             ]}
           >
@@ -210,6 +218,56 @@ export default function LogsScreen() {
       )}
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === "#000000";
+
+  return StyleSheet.create({
+    container: {
+      backgroundColor: isDark ? theme.appBackground : "#F7F7F8",
+    },
+    header: {
+      backgroundColor: isDark ? theme.appBackground : "#F7F7F8",
+    },
+    title: {
+      color: isDark ? theme.appText : "#111",
+    },
+    subtitle: {
+      color: isDark ? theme.appTextMuted : "#888",
+    },
+    deleteAllButton: {
+      backgroundColor: isDark ? theme.appControlSurface : "#FDECEC",
+      borderColor: isDark ? AppTheme.colors.danger : "transparent",
+      borderWidth: isDark ? 1 : 0,
+    },
+    deleteAllText: {
+      color: isDark ? AppTheme.colors.dangerLight : "#D9534F",
+    },
+    emptyTitle: {
+      color: isDark ? theme.appText : "#333",
+    },
+    emptySubtitle: {
+      color: isDark ? theme.appTextSupporting : "#999",
+    },
+    row: {
+      backgroundColor: isDark ? theme.appSurface : "#fff",
+      borderColor: isDark ? theme.appBorder : "transparent",
+      borderWidth: isDark ? 1 : 0,
+    },
+    fileName: {
+      color: isDark ? theme.appText : "#111",
+    },
+    fileMeta: {
+      color: isDark ? theme.appTextMuted : "#888",
+    },
+    shareLabel: {
+      color: isDark ? AppTheme.colors.heroAccentSoft : "#007AFF",
+    },
+    sendLogsButton: {
+      backgroundColor: isDark ? AppTheme.colors.brand : "#0E6F68",
+    },
+  });
 }
 
 const styles = StyleSheet.create({

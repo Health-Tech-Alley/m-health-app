@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
 import {
   upsertCaregiver,
   upsertPatient,
@@ -49,6 +50,9 @@ function attachClinicalImportForGate(
 
 export default function SelectFhirProfileScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const isDark = theme.appBackground === "#000000";
   const { importBundledEhrProfile } = useBundledEhrImport();
   const [importingId, setImportingId] = useState<string | null>(null);
 
@@ -127,55 +131,109 @@ export default function SelectFhirProfileScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={["top", "bottom"]}>
+      <View style={[styles.header, themedStyles.header]}>
         <Pressable style={styles.backButton} onPress={() => router.back()} hitSlop={12}>
-            <Text style={styles.backLink}>← Back</Text>
+            <Text style={[styles.backLink, themedStyles.backLink]}>← Back</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>Select a patient profile</Text>
+        <Text style={[styles.headerTitle, themedStyles.headerTitle]}>Select a patient profile</Text>
         <View style={styles.headerSpacer} />
       </View>
 
       <FlatList
         data={profiles}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
+        style={themedStyles.safeArea}
+        contentContainerStyle={[styles.listContent, themedStyles.listContent]}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>
+          <Text style={[styles.emptyText, themedStyles.emptyText]}>
             No patient profiles found in src/data/fhir/patient-profiles.
           </Text>
         }
         renderItem={({ item }) => (
-          <View style={styles.row}>
+          <View style={[styles.row, themedStyles.row]}>
             <Pressable
               style={styles.rowMain}
               disabled={importingId !== null}
               onPress={() => handleSelectProfile(item)}
             >
-              <View style={styles.rowIconCircle}>
-                <AppIcon name="note" size={20} color={AppTheme.colors.brand} />
+              <View style={[styles.rowIconCircle, themedStyles.rowIconCircle]}>
+                <AppIcon
+                  name="note"
+                  size={20}
+                  color={isDark ? theme.appText : AppTheme.colors.brand}
+                />
               </View>
               <View style={styles.rowTextBlock}>
-                <Text style={styles.rowTitle}>{item.label}</Text>
-                <Text style={styles.rowSubtitle}>
+                <Text style={[styles.rowTitle, themedStyles.rowTitle]}>{item.label}</Text>
+                <Text style={[styles.rowSubtitle, themedStyles.rowSubtitle]}>
                   {importingId === item.id ? "Importing..." : "Import EHR only"}
                 </Text>
               </View>
-              <Text style={styles.chevron}>›</Text>
+              <Text style={[styles.chevron, themedStyles.chevron]}>›</Text>
             </Pressable>
             <Pressable
-              style={styles.demoButton}
+              style={[styles.demoButton, themedStyles.demoButton]}
               disabled={importingId !== null}
               onPress={() => handleSelectProfile(item, { includeDemoOnboarding: true })}
             >
-              <Text style={styles.demoButtonText}>Demo data</Text>
+              <Text style={[styles.demoButtonText, themedStyles.demoButtonText]}>Demo data</Text>
             </Pressable>
           </View>
         )}
       />
     </SafeAreaView>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === "#000000";
+
+  return StyleSheet.create({
+    safeArea: {
+      backgroundColor: isDark ? theme.appBackground : AppTheme.colors.screen,
+    },
+    header: {
+      backgroundColor: isDark ? theme.appBackground : AppTheme.colors.screen,
+      borderBottomColor: isDark ? theme.appBorder : AppTheme.colors.border,
+    },
+    backLink: {
+      color: isDark ? AppTheme.colors.brand : "#0E6F68",
+    },
+    headerTitle: {
+      color: isDark ? theme.appText : AppTheme.colors.text,
+    },
+    listContent: {
+      backgroundColor: isDark ? theme.appBackground : AppTheme.colors.screen,
+    },
+    row: {
+      backgroundColor: isDark ? theme.appSurface : AppTheme.colors.surface,
+      borderColor: isDark ? theme.appBorder : AppTheme.colors.border,
+    },
+    rowIconCircle: {
+      backgroundColor: isDark ? theme.appBrandSoftSurface : AppTheme.colors.brandSoft,
+    },
+    rowTitle: {
+      color: isDark ? theme.appText : AppTheme.colors.text,
+    },
+    rowSubtitle: {
+      color: isDark ? theme.appTextSupporting : AppTheme.colors.textSoft,
+    },
+    chevron: {
+      color: isDark ? theme.appTextMuted : AppTheme.colors.textMuted,
+    },
+    demoButton: {
+      backgroundColor: isDark ? theme.appControlSurface : "transparent",
+      borderColor: isDark ? AppTheme.colors.brand : AppTheme.colors.border,
+    },
+    demoButtonText: {
+      color: isDark ? theme.appText : AppTheme.colors.brand,
+    },
+    emptyText: {
+      color: isDark ? theme.appTextSupporting : AppTheme.colors.textSoft,
+    },
+  });
 }
 
 const styles = StyleSheet.create({
