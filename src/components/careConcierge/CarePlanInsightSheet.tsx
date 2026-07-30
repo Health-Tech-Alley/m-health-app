@@ -32,6 +32,7 @@ import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { OptionalFeaturePrompt } from '@/components/optional-feature-prompt';
 import { AppTheme } from '@/constants/theme';
 import { CitationList } from '@/components/common/CitationList';
+import { useTheme } from '@/hooks/use-theme';
 import { useSLM } from '@/contexts/slm-context';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
@@ -74,6 +75,8 @@ export function CarePlanInsightSheet({
   onProposalResolved,
   intentArgs,
 }: CarePlanInsightSheetProps) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const slm = useSLM();
   const optionalGate = useOptionalFeatureGate('both');
   const {
@@ -429,7 +432,7 @@ export function CarePlanInsightSheet({
   );
 
   const statusLabel = deriveStatusLabel(phase, currentModelId, error);
-  const statusTone = deriveStatusTone(phase);
+  const statusTone = deriveStatusTone(phase, theme);
   const inProgress = phase === 'loading' || phase === 'thinking' || phase === 'streaming';
 
   if (!optionalGate.ready) {
@@ -459,15 +462,15 @@ export function CarePlanInsightSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
-      <View style={styles.overlay}>
+      <View style={[styles.overlay, themedStyles.overlay]}>
         <Pressable style={styles.backdrop} onPress={handleClose} />
-        <Animated.View style={[styles.sheet, { transform: [{ translateY: panY }] }]}>
+        <Animated.View style={[styles.sheet, themedStyles.sheet, { transform: [{ translateY: panY }] }]}>
           <View {...panResponder.panHandlers}>
-            <View style={styles.handle} />
+            <View style={[styles.handle, themedStyles.handle]} />
             <View style={styles.header}>
-              <Text style={styles.title}>{intent?.caregiverLabel ?? 'Care Concierge'}</Text>
-              <Pressable style={styles.closeButton} onPress={handleClose} hitSlop={12}>
-                <Text style={styles.closeText}>×</Text>
+              <Text style={[styles.title, themedStyles.title]}>{intent?.caregiverLabel ?? 'Care Concierge'}</Text>
+              <Pressable style={[styles.closeButton, themedStyles.closeButton]} onPress={handleClose} hitSlop={12}>
+                <Text style={[styles.closeText, themedStyles.closeText]}>×</Text>
               </Pressable>
             </View>
           </View>
@@ -492,7 +495,7 @@ export function CarePlanInsightSheet({
           >
             {phase === 'error' ? (
               <View>
-                <Text style={styles.errorText}>
+                <Text style={[styles.errorText, themedStyles.errorText]}>
                   Couldn&apos;t run this intent: {error}
                 </Text>
                 <Pressable
@@ -509,11 +512,11 @@ export function CarePlanInsightSheet({
             ) : null}
 
             {(phase === 'loading' || phase === 'thinking') ? (
-              <Text style={styles.thinkingText}>Thinking…</Text>
+              <Text style={[styles.thinkingText, themedStyles.mutedText]}>Thinking…</Text>
             ) : null}
 
             {phase === 'streaming' ? (
-              <Text style={styles.streamingText}>{answer || '…'}</Text>
+              <Text style={[styles.streamingText, themedStyles.supportingText]}>{answer || '…'}</Text>
             ) : null}
 
             {phase === 'done' && finalText ? (
@@ -530,21 +533,21 @@ export function CarePlanInsightSheet({
 
             {phase === 'done' || phase === 'error' ? (
               <Pressable
-                style={styles.regenerateButton}
+                style={[styles.regenerateButton, themedStyles.regenerateButton]}
                 onPress={() => {
                   void runExplain();
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Regenerate"
               >
-                <Text style={styles.regenerateButtonText}>Regenerate</Text>
+                <Text style={[styles.regenerateButtonText, themedStyles.regenerateButtonText]}>Regenerate</Text>
               </Pressable>
             ) : null}
 
             {result && result.enqueuedProposalIds.length > 0 ? (
-              <View style={styles.proposalBlock}>
-                <Text style={styles.proposalKicker}>Plan proposal queued</Text>
-                <Text style={styles.proposalMeta}>
+              <View style={[styles.proposalBlock, themedStyles.proposalBlock]}>
+                <Text style={[styles.proposalKicker, themedStyles.proposalKicker]}>Plan proposal queued</Text>
+                <Text style={[styles.proposalMeta, themedStyles.supportingText]}>
                   Concierge drafted a plan update. Confirm below to send to ML vetting.
                 </Text>
                 <View style={styles.proposalActions}>
@@ -562,20 +565,20 @@ export function CarePlanInsightSheet({
                   </Pressable>
                 </View>
                 {proposalResolvedAt ? (
-                  <Text style={styles.proposalResolved}>Sent — refresh to see updated plan.</Text>
+                  <Text style={[styles.proposalResolved, themedStyles.proposalResolved]}>Sent — refresh to see updated plan.</Text>
                 ) : null}
               </View>
             ) : null}
 
             {result?.enqueuedProposalIds?.length === 0 && phase === 'done' ? (
-              <Text style={styles.explanationOnlyNote}>
+              <Text style={[styles.explanationOnlyNote, themedStyles.mutedText]}>
                 No plan change suggested — explanation only.
               </Text>
             ) : null}
           </ScrollView>
 
           {phase === 'done' && finalText ? (
-            <Text style={styles.footnote}>
+            <Text style={[styles.footnote, themedStyles.mutedText]}>
               Concierge guidance — not a diagnosis. Confirm any plan change with the care team.
             </Text>
           ) : null}
@@ -605,19 +608,84 @@ function deriveStatusLabel(phase: Phase, modelId: string | null, error: string |
   }
 }
 
-function deriveStatusTone(phase: Phase): { fg: string; bg: string } {
+function deriveStatusTone(
+  phase: Phase,
+  theme: ReturnType<typeof useTheme>,
+): { fg: string; bg: string } {
+  const isDark = theme.appBackground === '#000000';
+
   switch (phase) {
     case 'error':
-      return { fg: AppTheme.colors.danger, bg: AppTheme.colors.dangerLight };
+      return {
+        fg: isDark ? AppTheme.colors.dangerLight : AppTheme.colors.danger,
+        bg: isDark ? 'rgba(240, 6, 22, 0.16)' : AppTheme.colors.dangerLight,
+      };
     case 'done':
-      return { fg: AppTheme.colors.brandDark, bg: AppTheme.colors.brandSoft };
+      return {
+        fg: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brandDark,
+        bg: isDark ? theme.appControlSurface : AppTheme.colors.brandSoft,
+      };
     case 'idle':
     case 'loading':
     case 'thinking':
     case 'streaming':
     default:
-      return { fg: AppTheme.colors.brand, bg: AppTheme.colors.brandSoft };
+      return {
+        fg: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand,
+        bg: isDark ? theme.appControlSurface : AppTheme.colors.brandSoft,
+      };
   }
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+
+  return StyleSheet.create({
+    overlay: {
+      backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.5)',
+    },
+    sheet: {
+      backgroundColor: theme.appSurface,
+    },
+    handle: {
+      backgroundColor: theme.appBorder,
+    },
+    title: {
+      color: theme.appText,
+    },
+    closeButton: {
+      backgroundColor: theme.appControlSurface,
+    },
+    closeText: {
+      color: theme.appTextSupporting,
+    },
+    supportingText: {
+      color: theme.appTextSupporting,
+    },
+    mutedText: {
+      color: theme.appTextMuted,
+    },
+    errorText: {
+      color: isDark ? AppTheme.colors.dangerLight : AppTheme.colors.danger,
+    },
+    regenerateButton: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    regenerateButtonText: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brandDark,
+    },
+    proposalBlock: {
+      backgroundColor: isDark ? theme.appControlSurface : AppTheme.colors.brandSoft,
+      borderColor: theme.appBorder,
+    },
+    proposalKicker: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brandDark,
+    },
+    proposalResolved: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brandDark,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

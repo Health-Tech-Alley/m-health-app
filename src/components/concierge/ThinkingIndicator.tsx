@@ -17,8 +17,11 @@
  * callers that pass text get the old "Concierge is thinking…" line.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+
+import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
 const PHASES = ['Understanding', 'Thinking', 'Checking', 'Drafting'] as const;
 type PhaseIndex = 0 | 1 | 2 | 3;
@@ -70,6 +73,9 @@ export function ThinkingIndicator({
    */
   reasoning?: string | null;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   // Legacy 3-dots indicator (kept for callers that haven't migrated).
   const [dots] = useState(() => [
     new Animated.Value(0),
@@ -157,7 +163,7 @@ export function ThinkingIndicator({
   if (text !== undefined && text.trim().length > 0) {
     return (
       <View style={styles.thinkingWrap}>
-        <Text style={styles.thinkingText}>{text}</Text>
+        <Text style={[styles.thinkingText, themedStyles.thinkingText]}>{text}</Text>
       </View>
     );
   }
@@ -189,20 +195,23 @@ export function ThinkingIndicator({
               return (
                 <Animated.View
                   key={i}
-                  style={[styles.progressChunk, styles.progressChunkActive, { opacity: pulseValue }]}
+                  style={[styles.progressChunk, themedStyles.progressChunkActive, { opacity: pulseValue }]}
                 />
               );
             }
             return (
               <View
                 key={i}
-                style={[styles.progressChunk, isFilled ? styles.progressChunkFilled : styles.progressChunkEmpty]}
+                style={[
+                  styles.progressChunk,
+                  isFilled ? themedStyles.progressChunkFilled : themedStyles.progressChunkEmpty,
+                ]}
               />
             );
           })}
         </View>
-        <Text style={styles.phaseLabel}>{label}</Text>
-        <Animated.Text style={[styles.ellipsis, { opacity: ellipsisOpacity }]}>…</Animated.Text>
+        <Text style={[styles.phaseLabel, themedStyles.accentText]}>{label}</Text>
+        <Animated.Text style={[styles.ellipsis, themedStyles.accentText, { opacity: ellipsisOpacity }]}>…</Animated.Text>
       </View>
     </View>
   );
@@ -214,13 +223,16 @@ export function ThinkingIndicator({
  * look like a tech debug output.
  */
 export function ThinkingReasoning({ reasoning }: { reasoning: string | null }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   if (!reasoning || !reasoning.trim()) return null;
   const firstLine = reasoning.split('\n')[0].trim();
   if (!firstLine) return null;
   const truncated = firstLine.length > 80 ? firstLine.slice(0, 77) + '…' : firstLine;
   return (
     <View style={styles.reasoningWrap}>
-      <Text style={styles.reasoningText} numberOfLines={1}>{truncated}</Text>
+      <Text style={[styles.reasoningText, themedStyles.reasoningText]} numberOfLines={1}>{truncated}</Text>
     </View>
   );
 }
@@ -249,6 +261,32 @@ export function shouldOfferTellMeMore(text: string): boolean {
   if (text.length <= QUICK_ANSWER_MAX_CHARS) return false;
   const lines = text.split(/\n+/);
   return lines.length > QUICK_ANSWER_MAX_LINES;
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  const accent = isDark ? AppTheme.colors.brandPale : '#0E6F68';
+
+  return StyleSheet.create({
+    progressChunkFilled: {
+      backgroundColor: accent,
+    },
+    progressChunkActive: {
+      backgroundColor: accent,
+    },
+    progressChunkEmpty: {
+      backgroundColor: isDark ? 'rgba(221,251,244,0.20)' : '#0E6F6820',
+    },
+    accentText: {
+      color: accent,
+    },
+    thinkingText: {
+      color: isDark ? theme.appTextSupporting : '#526866',
+    },
+    reasoningText: {
+      color: isDark ? theme.appTextMuted : '#8B9AB6',
+    },
+  });
 }
 
 const styles = StyleSheet.create({

@@ -5,10 +5,11 @@
  * (no underscores). Categories are collapsed by default. Used by Care
  * Management, alert detail, Concierge chat, and in-card rehab explain HITL.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { CAREGIVER_OBSERVATION_CODES } from '@/ml-models/uc2-decision-layer';
 
 export type ObservationPickerProps = {
@@ -73,6 +74,8 @@ function labelForCode(code: string): string {
 }
 
 export function ObservationPicker({ selected, onChange, enabled = true }: ObservationPickerProps) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const selectedSet = new Set(selected);
   const known = new Set(OBSERVATION_CATEGORIES.flatMap((c) => [...c.codes]));
   const extras = CAREGIVER_OBSERVATION_CODES.filter((code) => !known.has(code));
@@ -107,6 +110,7 @@ export function ObservationPicker({ selected, onChange, enabled = true }: Observ
         style={[
           styles.chip,
           active ? styles.chipActive : styles.chipIdle,
+          !active && themedStyles.chipIdle,
           !enabled && styles.chipDisabled,
         ]}
         accessibilityRole="button"
@@ -117,6 +121,7 @@ export function ObservationPicker({ selected, onChange, enabled = true }: Observ
           style={[
             styles.chipText,
             active ? styles.chipTextActive : styles.chipTextIdle,
+            !active && themedStyles.chipTextIdle,
           ]}
         >
           {labelForCode(code)}
@@ -137,8 +142,8 @@ export function ObservationPicker({ selected, onChange, enabled = true }: Observ
           accessibilityState={{ expanded }}
           accessibilityLabel={`${label}${expanded ? ' — collapse' : ' — expand'}`}
         >
-          <Text style={styles.categoryLabel}>{label}</Text>
-          <Text style={styles.categoryMeta}>
+          <Text style={[styles.categoryLabel, themedStyles.categoryLabel]}>{label}</Text>
+          <Text style={[styles.categoryMeta, themedStyles.categoryMeta]}>
             {selectedCount > 0 ? `${selectedCount} selected · ` : ''}
             {expanded ? '▾' : '▸'}
           </Text>
@@ -156,6 +161,24 @@ export function ObservationPicker({ selected, onChange, enabled = true }: Observ
       {extras.length > 0 ? renderCategory('other', 'Other', extras) : null}
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    categoryLabel: {
+      color: theme.appText,
+    },
+    categoryMeta: {
+      color: theme.appTextMuted,
+    },
+    chipIdle: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    chipTextIdle: {
+      color: theme.appTextSupporting,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

@@ -545,6 +545,8 @@ export default function SLMScreen({
   const slm = useSLM();
   const optionalGate = useOptionalFeatureGate('slm');
   const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const isDarkTheme = theme.appBackground === '#000000';
   const { settings, isDeveloper } = useSettings();
   const { snapshot, ready, error: patientRecordError } = usePatientRecord();
   const retriever = useOrchestratorRetriever();
@@ -1854,8 +1856,8 @@ export default function SLMScreen({
     if (item.role === 'user') {
       return (
         <View style={styles.userBubbleWrapper}>
-          <View style={[styles.userBubble, { backgroundColor: theme.backgroundElement }]}>
-            <Text style={[styles.userBubbleText, { color: theme.text }]}>{item.text}</Text>
+          <View style={[styles.userBubble, themedStyles.userBubble]}>
+            <Text style={[styles.userBubbleText, themedStyles.userBubbleText]}>{item.text}</Text>
           </View>
         </View>
       );
@@ -1869,7 +1871,7 @@ export default function SLMScreen({
       ? item.finalText ?? item.text
       : truncateForQuickAnswer(item.finalText ?? item.text);
     return (
-      <View style={styles.assistantBubble}>
+      <View style={[styles.assistantBubble, themedStyles.assistantBubble]}>
         {item.status === 'streaming' && !item.answerStarted && (
           // Never render the raw reasoning stream in the bubble. While the
           // model is thinking (before the first answer token), show only the
@@ -1898,19 +1900,19 @@ export default function SLMScreen({
                 <MarkdownRenderer size="large">{displayText}</MarkdownRenderer>
                 {!isExpanded && shouldOfferTellMeMore(item.finalText) ? (
                   <Pressable
-                    style={styles.tellMeMoreButton}
+                    style={[styles.tellMeMoreButton, themedStyles.outlineAction]}
                     onPress={() => {
                       setExpandedMessageIds((prev) => new Set(prev).add(item.id));
                       void handleTellMeMore(item);
                     }}
                     disabled={state.runStatus === 'streaming'}
                   >
-                    <Text style={styles.tellMeMoreText}>Tell me more</Text>
+                    <Text style={[styles.tellMeMoreText, themedStyles.accentText]}>Tell me more</Text>
                   </Pressable>
                 ) : null}
               </View>
             ) : (
-              <Text style={[styles.answerText, { color: theme.text }]}>{item.text}</Text>
+              <Text style={[styles.answerText, themedStyles.primaryText]}>{item.text}</Text>
             )}
 
             {item.sources && item.sources.length > 0 && item.status === 'done' ? (
@@ -1924,11 +1926,11 @@ export default function SLMScreen({
             ) : null}
 
             {item.pendingCaregiverReview && item.status === 'done' ? (
-              <View style={styles.healthMonitorConfirmCard}>
-                <Text style={styles.healthMonitorConfirmTitle}>
+              <View style={[styles.healthMonitorConfirmCard, themedStyles.healthMonitorConfirmCard]}>
+                <Text style={[styles.healthMonitorConfirmTitle, themedStyles.primaryText]}>
                   Caregiver review (severity {item.pendingCaregiverReview.severity})
                 </Text>
-                <Text style={styles.healthMonitorConfirmBody}>
+                <Text style={[styles.healthMonitorConfirmBody, themedStyles.supportingText]}>
                   {item.pendingCaregiverReview.summaryLine}. Select anything you
                   observed, then continue. Severity 3 emergencies skip this step.
                 </Text>
@@ -1950,11 +1952,11 @@ export default function SLMScreen({
                     </Text>
                   </Pressable>
                   <Pressable
-                    style={[styles.healthMonitorButton, styles.healthMonitorButtonSecondary]}
+                    style={[styles.healthMonitorButton, styles.healthMonitorButtonSecondary, themedStyles.secondaryAction]}
                     onPress={() => void handleSkipCaregiverReview(item)}
                     disabled={state.runStatus === 'streaming'}
                   >
-                    <Text style={styles.healthMonitorButtonSecondaryText}>
+                    <Text style={[styles.healthMonitorButtonSecondaryText, themedStyles.accentText]}>
                       Skip review
                     </Text>
                   </Pressable>
@@ -1971,17 +1973,17 @@ export default function SLMScreen({
               />
             ) : null}
             {item.pendingScheduleFollowUp && item.status === 'done' && !patientId ? (
-              <View style={styles.healthMonitorConfirmCard}>
-                <Text style={styles.healthMonitorConfirmBody}>
+              <View style={[styles.healthMonitorConfirmCard, themedStyles.healthMonitorConfirmCard]}>
+                <Text style={[styles.healthMonitorConfirmBody, themedStyles.supportingText]}>
                   No active patient — open a profile, then ask again to schedule.
                 </Text>
                 <Pressable
-                  style={[styles.healthMonitorButton, styles.healthMonitorButtonSecondary]}
+                  style={[styles.healthMonitorButton, styles.healthMonitorButtonSecondary, themedStyles.secondaryAction]}
                   onPress={() =>
                     void handleScheduleFollowUpComplete(item, { action: 'dismissed' })
                   }
                 >
-                  <Text style={styles.healthMonitorButtonSecondaryText}>Continue without scheduling</Text>
+                  <Text style={[styles.healthMonitorButtonSecondaryText, themedStyles.accentText]}>Continue without scheduling</Text>
                 </Pressable>
               </View>
             ) : null}
@@ -1989,13 +1991,13 @@ export default function SLMScreen({
             {showReasoningToggle ? (
               <View style={styles.reasoningSection}>
                 <Pressable onPress={() => toggleReasoning(item.id)}>
-                  <Text style={[styles.reasoningToggle, { color: theme.textSecondary }]}>
+                  <Text style={[styles.reasoningToggle, themedStyles.supportingText]}>
                     {reasoningOpen ? '▾' : '▸'} Show reasoning
                   </Text>
                 </Pressable>
                 {reasoningOpen ? (
-                  <View style={[styles.reasoningBox, { borderColor: theme.textSecondary + '40' }]}>
-                    <Text style={[styles.reasoningText, { color: theme.textSecondary }]}>
+                  <View style={[styles.reasoningBox, themedStyles.reasoningBox]}>
+                    <Text style={[styles.reasoningText, themedStyles.supportingText]}>
                       {reasoning}
                     </Text>
                   </View>
@@ -2004,10 +2006,10 @@ export default function SLMScreen({
             ) : null}
 
             {item.status === 'error' ? (
-              <Text style={styles.errorText}>Error: {item.finalText ?? 'Unknown error'}</Text>
+              <Text style={[styles.errorText, themedStyles.errorText]}>Error: {item.finalText ?? 'Unknown error'}</Text>
             ) : null}
             {item.status === 'stopped' ? (
-              <Text style={[styles.stoppedHint, { color: theme.textSecondary }]}>· stopped</Text>
+              <Text style={[styles.stoppedHint, themedStyles.mutedText]}>· stopped</Text>
             ) : null}
           </>
         )}
@@ -2044,22 +2046,22 @@ export default function SLMScreen({
 
   return (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: AppTheme.colors.screen }]}
+      style={[styles.container, themedStyles.container]}
       edges={showBackButton ? ['top', 'bottom'] : ['top']}
     >
       <KeyboardAvoidingView
-        style={styles.keyboardView}
+        style={[styles.keyboardView, themedStyles.container]}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}>
         {showBackButton ? (
           <View style={styles.headerRow}>
             <Pressable onPress={() => router.back()} style={styles.backButton}>
-              <Text style={styles.backText}>← Back</Text>
+              <Text style={[styles.backText, themedStyles.accentText]}>← Back</Text>
             </Pressable>
           </View>
         ) : null}
 
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        <ScrollView style={[styles.scrollView, themedStyles.container]} contentContainerStyle={styles.scrollContent}>
           <MainTabHeader
             title="Concierge Support"
             eyebrow="Caregiver Concierge"
@@ -2068,16 +2070,16 @@ export default function SLMScreen({
             rightContent={
               <Pressable
                 onPress={handleNewConversation}
-                style={styles.newConvButton}
+                style={[styles.newConvButton, themedStyles.outlineAction]}
                 accessibilityRole="button"
                 accessibilityLabel="New conversation"
               >
-                <Text style={styles.newConvButtonText} numberOfLines={1}>New</Text>
+                <Text style={[styles.newConvButtonText, themedStyles.accentText]} numberOfLines={1}>New</Text>
               </Pressable>
             }
           />
 
-          <View style={styles.contextCard}>
+          <View style={[styles.contextCard, themedStyles.card]}>
             <Pressable
               style={styles.collapsibleCardHeader}
               onPress={() => setCareContextExpanded((v) => !v)}
@@ -2086,28 +2088,28 @@ export default function SLMScreen({
               accessibilityLabel={`Care Context${careContextExpanded ? ' — collapse' : ' — expand'}`}
             >
               <View style={styles.collapsibleCardHeaderText}>
-                <Text style={styles.cardTitle}>Care Context</Text>
+                <Text style={[styles.cardTitle, themedStyles.primaryText]}>Care Context</Text>
                 {!careContextExpanded ? (
-                  <Text style={styles.collapsibleCardSummary} numberOfLines={1}>
+                  <Text style={[styles.collapsibleCardSummary, themedStyles.supportingText]} numberOfLines={1}>
                     {snapshot?.patient
                       ? `${snapshot.patient.preferredName?.trim() || snapshot.patient.name} · tap to expand`
                       : 'Tap to expand patient and care details'}
                   </Text>
                 ) : null}
               </View>
-              <Text style={styles.collapsibleChevron}>{careContextExpanded ? '▾' : '▸'}</Text>
+              <Text style={[styles.collapsibleChevron, themedStyles.supportingText]}>{careContextExpanded ? '▾' : '▸'}</Text>
             </Pressable>
 
             {careContextExpanded ? (
               <>
                 {patientRecordLoading ? (
-                  <Text style={styles.contextText}>Loading patient record...</Text>
+                  <Text style={[styles.contextText, themedStyles.supportingText]}>Loading patient record...</Text>
                 ) : patientRecordError ? (
-                  <Text style={styles.errorText}>
+                  <Text style={[styles.errorText, themedStyles.errorText]}>
                     Patient record unavailable: {patientRecordError.message}
                   </Text>
                 ) : !snapshot?.patient ? (
-                  <Text style={styles.contextText}>
+                  <Text style={[styles.contextText, themedStyles.supportingText]}>
                     No persisted patient record is available. Import or create a patient record before asking the Concierge.
                   </Text>
                 ) : (
@@ -2119,16 +2121,16 @@ export default function SLMScreen({
                       expanded={expandedCareSections.has('patient')}
                       onToggle={toggleCareSection}
                     >
-                      <Text style={styles.contextText}>
+                      <Text style={[styles.contextText, themedStyles.supportingText]}>
                         Conditions: {snapshot.conditions.map((condition: PatientCondition) => condition.name).filter(Boolean).join(', ') || 'No conditions provided'}
                       </Text>
-                      <Text style={styles.contextText}>
+                      <Text style={[styles.contextText, themedStyles.supportingText]}>
                         Medications: {medicationNames.join(', ') || 'No medications provided'}
                       </Text>
-                      <Text style={styles.contextText}>
+                      <Text style={[styles.contextText, themedStyles.supportingText]}>
                         Baseline routine: {snapshot.patient.baselineDailyRoutine ?? 'Not provided'}
                       </Text>
-                      <Text style={styles.contextText}>
+                      <Text style={[styles.contextText, themedStyles.supportingText]}>
                         SpO2 cutoff: {snapshot.patient.spo2Cutoff ?? 'Not provided'} · Baseline HR: {snapshot.patient.baselineHeartRate ?? 'Not provided'}
                       </Text>
                     </CollapsibleCareSection>
@@ -2146,21 +2148,21 @@ export default function SLMScreen({
                     >
                       {snapshot.caregiver ? (
                         <>
-                          <Text style={styles.contextText}>
+                          <Text style={[styles.contextText, themedStyles.supportingText]}>
                             {snapshot.caregiver.name} ({snapshot.caregiver.relationship ?? 'relationship not provided'}) · {snapshot.caregiver.experience ?? 'experience not provided'} · {snapshot.caregiver.availability ?? 'availability not provided'}
                           </Text>
-                          <Text style={styles.contextText}>
+                          <Text style={[styles.contextText, themedStyles.supportingText]}>
                             Language: {snapshot.caregiver.languagePreference ?? 'Not provided'} · Comfort: {snapshot.caregiver.medicalComfortLevel ?? 'Not provided'}
                           </Text>
-                          <Text style={styles.contextText}>
+                          <Text style={[styles.contextText, themedStyles.supportingText]}>
                             Active concern: {snapshot.caregiver.mainConcern ?? 'Not provided'}
                           </Text>
-                          <Text style={styles.contextText}>
+                          <Text style={[styles.contextText, themedStyles.supportingText]}>
                             Backup: {snapshot.caregiver.backupCaregiver ?? 'Not provided'}
                           </Text>
                         </>
                       ) : (
-                        <Text style={styles.contextText}>No caregiver information was provided.</Text>
+                        <Text style={[styles.contextText, themedStyles.supportingText]}>No caregiver information was provided.</Text>
                       )}
                     </CollapsibleCareSection>
 
@@ -2171,12 +2173,12 @@ export default function SLMScreen({
                       expanded={expandedCareSections.has('care-team')}
                       onToggle={toggleCareSection}
                     >
-                      <Text style={styles.contextText}>
+                      <Text style={[styles.contextText, themedStyles.supportingText]}>
                         PCP: {caregiverContext?.primaryCareProviderName ?? 'Not provided'}
                         {caregiverContext?.primaryCareProviderPhone ? ` · ${caregiverContext.primaryCareProviderPhone}` : ''}
                       </Text>
                       {caregiverContext?.primaryCareProviderEmail ? (
-                        <Text style={styles.contextText}>
+                        <Text style={[styles.contextText, themedStyles.supportingText]}>
                           Email: {caregiverContext.primaryCareProviderEmail}
                         </Text>
                       ) : null}
@@ -2189,10 +2191,10 @@ export default function SLMScreen({
                       expanded={expandedCareSections.has('safety')}
                       onToggle={toggleCareSection}
                     >
-                      <Text style={styles.contextText}>
+                      <Text style={[styles.contextText, themedStyles.supportingText]}>
                         Emergency contact: {caregiverContext?.emergencyContact ?? 'Not provided'}
                       </Text>
-                      <Text style={styles.contextText}>
+                      <Text style={[styles.contextText, themedStyles.supportingText]}>
                         Safety notes: {caregiverContext?.safetyNotes ?? 'Not provided'}
                       </Text>
                     </CollapsibleCareSection>
@@ -2204,24 +2206,24 @@ export default function SLMScreen({
                       expanded={expandedCareSections.has('clinical')}
                       onToggle={toggleCareSection}
                     >
-                      <Text style={styles.contextText}>
+                      <Text style={[styles.contextText, themedStyles.supportingText]}>
                         Symptoms: {dedupedSymptoms.join(', ') || 'No symptoms provided'}
                       </Text>
-                      <Text style={styles.contextText}>
+                      <Text style={[styles.contextText, themedStyles.supportingText]}>
                         Active thresholds: {snapshot.thresholds.length}
                       </Text>
                     </CollapsibleCareSection>
                   </>
                 )}
                 <Pressable
-                  style={styles.editProfilesButton}
+                  style={[styles.editProfilesButton, themedStyles.softAction]}
                   onPress={() => router.push('/profile' as never)}
                   accessibilityRole="button"
                   accessibilityLabel="Open edit profiles"
                 >
-                  <Text style={styles.editProfilesButtonText}>Edit profiles</Text>
+                  <Text style={[styles.editProfilesButtonText, themedStyles.accentText]}>Edit profiles</Text>
                 </Pressable>
-                <Text style={styles.tagline}>The Concierge suggests. You decide.</Text>
+                <Text style={[styles.tagline, themedStyles.mutedText]}>The Concierge suggests. You decide.</Text>
               </>
             ) : null}
           </View>
@@ -2236,7 +2238,7 @@ export default function SLMScreen({
                 }}
                 disabled={state.runStatus === 'streaming'}
               />
-              <View style={styles.howToCard}>
+              <View style={[styles.howToCard, themedStyles.softCard]}>
                 <Pressable
                   style={styles.collapsibleCardHeader}
                   onPress={() => setHowMonitorExpanded((v) => !v)}
@@ -2244,24 +2246,24 @@ export default function SLMScreen({
                   accessibilityState={{ expanded: howMonitorExpanded }}
                   accessibilityLabel={`How Health Monitor works${howMonitorExpanded ? ' — collapse' : ' — expand'}`}
                 >
-                  <Text style={styles.howToTitle}>How Health Monitor works in chat</Text>
-                  <Text style={styles.collapsibleChevron}>{howMonitorExpanded ? '▾' : '▸'}</Text>
+                  <Text style={[styles.howToTitle, themedStyles.primaryText]}>How Health Monitor works in chat</Text>
+                  <Text style={[styles.collapsibleChevron, themedStyles.supportingText]}>{howMonitorExpanded ? '▾' : '▸'}</Text>
                 </Pressable>
                 {howMonitorExpanded ? (
                   <>
-                    <Text style={styles.howToBody}>
+                    <Text style={[styles.howToBody, themedStyles.supportingText]}>
                       1. Ask a vitals or what-if question (e.g. “What if SpO2 is 86% and heart rate is 118?”).
                     </Text>
-                    <Text style={styles.howToBody}>
+                    <Text style={[styles.howToBody, themedStyles.supportingText]}>
                       2. When vitals are detected, you’ll see “activating Health Monitor” and it runs right away.
                     </Text>
-                    <Text style={styles.howToBody}>
+                    <Text style={[styles.howToBody, themedStyles.supportingText]}>
                       3. Severity 1-2 may ask for observations. In developer mode, it may also offer a local demo follow-up appointment.
                     </Text>
-                    <Text style={styles.howToBody}>
+                    <Text style={[styles.howToBody, themedStyles.supportingText]}>
                       4. After you finish, Concierge explains with that context. Severity 3 skips review/scheduling and may show a critical banner — never auto-calls 911.
                     </Text>
-                    <Text style={styles.howToFootnote}>
+                    <Text style={[styles.howToFootnote, themedStyles.accentText]}>
                       SpO2 is percent (86, not 0.86). Pure med/schedule questions skip Health Monitor.
                     </Text>
                   </>
@@ -2269,7 +2271,7 @@ export default function SLMScreen({
               </View>
             </>
           ) : (
-            <View style={styles.card}>
+            <View style={[styles.card, themedStyles.card]}>
               <FlatList
                 ref={flatListRef}
                 data={state.messages}
@@ -2281,30 +2283,27 @@ export default function SLMScreen({
             </View>
           )}
 
-          <View style={styles.safetyCard}>
-            <Text style={styles.safetyNote}>
+          <View style={[styles.safetyCard, themedStyles.safetyCard]}>
+            <Text style={[styles.safetyNote, themedStyles.safetyNote]}>
               Concierge is a caregiver support prototype and does not replace emergency care
               or professional medical advice.
             </Text>
           </View>
         </ScrollView>
 
-        <View style={[styles.inputRow, { borderTopColor: theme.textSecondary + '30' }]}>
+        <View style={[styles.inputRow, themedStyles.inputRow]}>
           <TextInput
             value={inputText}
             onChangeText={handleInputChange}
             placeholder="Ask the Concierge..."
-            placeholderTextColor="#8A9A9A"
+            placeholderTextColor={isDarkTheme ? theme.appTextMuted : '#8A9A9A'}
             multiline
             maxLength={4000}
             editable={!isInputDisabled}
             style={[
               styles.textInput,
-              {
-                color: theme.text,
-                backgroundColor: theme.backgroundElement,
-                height: inputHeight,
-              },
+              themedStyles.textInput,
+              { height: inputHeight },
             ]}
             textAlignVertical="top"
             scrollEnabled={inputHeight >= PROMPT_INPUT_MAX_HEIGHT - 1}
@@ -2321,12 +2320,16 @@ export default function SLMScreen({
                 styles.sendButton,
                 {
                   backgroundColor:
-                    inputText.trim() && !isInputDisabled ? '#0E6F68' : theme.backgroundElement,
+                    inputText.trim() && !isInputDisabled
+                      ? '#0E6F68'
+                      : isDarkTheme
+                        ? theme.appControlSurface
+                        : theme.backgroundElement,
                 },
               ]}>
               <Text
                 style={{
-                  color: inputText.trim() && !isInputDisabled ? '#FFFFFF' : theme.textSecondary,
+                  color: inputText.trim() && !isInputDisabled ? '#FFFFFF' : theme.appTextMuted,
                   fontWeight: '600',
                 }}>
                 Ask
@@ -2369,6 +2372,9 @@ function CollapsibleCareSection({
   onToggle: (id: string) => void;
   children: ReactNode;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <View style={styles.careSectionWrap}>
       <Pressable
@@ -2378,16 +2384,92 @@ function CollapsibleCareSection({
         accessibilityState={{ expanded }}
         accessibilityLabel={`${title}${expanded ? ' — collapse' : ' — expand'}`}
       >
-        <Text style={styles.contextSection}>{title}</Text>
-        <Text style={styles.careSectionChevron}>{expanded ? '▾' : '▸'}</Text>
+        <Text style={[styles.contextSection, themedStyles.accentText]}>{title}</Text>
+        <Text style={[styles.careSectionChevron, themedStyles.accentText]}>{expanded ? '▾' : '▸'}</Text>
       </Pressable>
       {expanded ? (
         <View style={styles.careSectionBody}>{children}</View>
       ) : (
-        <Text style={styles.careSectionSummary} numberOfLines={2}>{summary}</Text>
+        <Text style={[styles.careSectionSummary, themedStyles.mutedText]} numberOfLines={2}>{summary}</Text>
       )}
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  const accentText = isDark ? AppTheme.colors.brandPale : '#0E6F68';
+
+  return StyleSheet.create({
+    container: {
+      backgroundColor: theme.appBackground,
+    },
+    card: {
+      backgroundColor: theme.appSurface,
+    },
+    softCard: {
+      backgroundColor: isDark ? theme.appControlSurface : '#F0F7F6',
+      borderColor: isDark ? theme.appBorder : '#C5DDD9',
+    },
+    primaryText: {
+      color: isDark ? theme.appText : '#123433',
+    },
+    supportingText: {
+      color: isDark ? theme.appTextSupporting : '#526866',
+    },
+    mutedText: {
+      color: isDark ? theme.appTextMuted : '#8B9AB6',
+    },
+    accentText: {
+      color: accentText,
+    },
+    outlineAction: {
+      borderColor: accentText,
+    },
+    softAction: {
+      backgroundColor: isDark ? theme.appControlSurface : '#E8F5F3',
+      borderColor: accentText,
+    },
+    healthMonitorConfirmCard: {
+      backgroundColor: isDark ? theme.appControlSurface : '#F0F7F6',
+      borderColor: accentText,
+    },
+    secondaryAction: {
+      backgroundColor: isDark ? theme.appInputBackground : '#FFFFFF',
+      borderColor: accentText,
+    },
+    assistantBubble: {
+      borderTopColor: isDark ? theme.appBorder : '#88888830',
+    },
+    userBubble: {
+      backgroundColor: isDark ? theme.appControlSurface : theme.backgroundElement,
+    },
+    userBubbleText: {
+      color: theme.text,
+    },
+    reasoningBox: {
+      backgroundColor: isDark ? theme.appInputBackground : '#F7FAF9',
+      borderColor: isDark ? theme.appBorder : theme.textSecondary + '40',
+    },
+    errorText: {
+      color: isDark ? AppTheme.colors.dangerLight : '#B42318',
+    },
+    safetyCard: {
+      backgroundColor: isDark ? theme.appControlSurface : '#FFFFFF',
+    },
+    safetyNote: {
+      color: isDark ? AppTheme.colors.warningSoft : '#7A4A00',
+    },
+    inputRow: {
+      backgroundColor: theme.appSurface,
+      borderTopColor: isDark ? theme.appBorder : theme.textSecondary + '30',
+    },
+    textInput: {
+      color: theme.text,
+      backgroundColor: isDark ? theme.appInputBackground : theme.backgroundElement,
+      borderColor: isDark ? theme.appBorder : '#D9E7E5',
+    },
+  });
 }
 
 const styles = StyleSheet.create({

@@ -14,6 +14,7 @@ import {
 
 import { AppTheme } from '@/constants/theme';
 import { insertAppointment } from '@/data';
+import { useTheme } from '@/hooks/use-theme';
 import { audit } from '@/services/audit/auditService';
 import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
 
@@ -62,6 +63,8 @@ export function InChatScheduleAppointmentCard({
   enabled = true,
   onComplete,
 }: Props) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const profile = useMemo(() => getOnboardingProfile(), []);
   const [appointmentType, setAppointmentType] = useState<string>('Primary care');
   const [providerName, setProviderName] = useState(
@@ -131,14 +134,14 @@ export function InChatScheduleAppointmentCard({
   };
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>Local demo appointment</Text>
-      <Text style={styles.body}>
+    <View style={[styles.card, themedStyles.card]}>
+      <Text style={[styles.title, themedStyles.title]}>Local demo appointment</Text>
+      <Text style={[styles.body, themedStyles.supportingText]}>
         Health Monitor suggests professional follow-up (not an emergency). Save
         a local demo follow-up, or dismiss to continue without saving one.
       </Text>
 
-      <Text style={styles.label}>Appointment type</Text>
+      <Text style={[styles.label, themedStyles.supportingText]}>Appointment type</Text>
       <View style={styles.chipRow}>
         {APPOINTMENT_TYPES.map((type) => {
           const selected = appointmentType === type;
@@ -147,9 +150,9 @@ export function InChatScheduleAppointmentCard({
               key={type}
               disabled={!enabled || busy}
               onPress={() => setAppointmentType(type)}
-              style={[styles.chip, selected && styles.chipSelected]}
+              style={[styles.chip, themedStyles.chip, selected && styles.chipSelected]}
             >
-              <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+              <Text style={[styles.chipText, themedStyles.chipText, selected && styles.chipTextSelected]}>
                 {type}
               </Text>
             </Pressable>
@@ -198,7 +201,7 @@ export function InChatScheduleAppointmentCard({
         multiline
       />
 
-      <Text style={styles.label}>Reminder</Text>
+      <Text style={[styles.label, themedStyles.supportingText]}>Reminder</Text>
       <View style={styles.chipRow}>
         {REMINDER_OPTIONS.map((option) => {
           const selected = reminder === option;
@@ -207,9 +210,9 @@ export function InChatScheduleAppointmentCard({
               key={option}
               disabled={!enabled || busy}
               onPress={() => setReminder(option)}
-              style={[styles.chip, selected && styles.chipSelected]}
+              style={[styles.chip, themedStyles.chip, selected && styles.chipSelected]}
             >
-              <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+              <Text style={[styles.chipText, themedStyles.chipText, selected && styles.chipTextSelected]}>
                 {option}
               </Text>
             </Pressable>
@@ -217,7 +220,7 @@ export function InChatScheduleAppointmentCard({
         })}
       </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, themedStyles.errorText]}>{error}</Text> : null}
 
       <View style={styles.actions}>
         <Pressable
@@ -232,11 +235,11 @@ export function InChatScheduleAppointmentCard({
           )}
         </Pressable>
         <Pressable
-          style={[styles.button, styles.buttonSecondary]}
+          style={[styles.button, styles.buttonSecondary, themedStyles.buttonSecondary]}
           onPress={() => onComplete({ action: 'dismissed' })}
           disabled={!enabled || busy}
         >
-          <Text style={styles.buttonSecondaryText}>Not now</Text>
+          <Text style={[styles.buttonSecondaryText, themedStyles.buttonSecondaryText]}>Not now</Text>
         </Pressable>
       </View>
     </View>
@@ -260,20 +263,60 @@ function Field({
   multiline?: boolean;
   style?: object;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <View style={[styles.field, style]}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.label, themedStyles.supportingText]}>{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#8A9A9A"
+        placeholderTextColor={theme.appBackground === '#000000' ? theme.appTextMuted : '#8A9A9A'}
         editable={editable}
         multiline={multiline}
-        style={[styles.input, multiline && styles.inputMultiline]}
+        style={[styles.input, themedStyles.input, multiline && styles.inputMultiline]}
       />
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+
+  return StyleSheet.create({
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: isDark ? 'rgba(221,251,244,0.30)' : AppTheme.colors.brand + '40',
+    },
+    title: {
+      color: theme.appText,
+    },
+    supportingText: {
+      color: theme.appTextSupporting,
+    },
+    input: {
+      color: theme.appText,
+      backgroundColor: theme.appInputBackground,
+      borderColor: isDark ? theme.appBorder : AppTheme.colors.chip,
+    },
+    chip: {
+      backgroundColor: theme.appControlSurface,
+    },
+    chipText: {
+      color: theme.appText,
+    },
+    buttonSecondary: {
+      backgroundColor: theme.appControlSurface,
+    },
+    buttonSecondaryText: {
+      color: theme.appText,
+    },
+    errorText: {
+      color: isDark ? AppTheme.colors.dangerLight : (AppTheme.colors.danger ?? '#B00020'),
+    },
+  });
 }
 
 const styles = StyleSheet.create({

@@ -12,11 +12,12 @@
  * Categories are collapsed by default; tap a group header to expand sample prompts.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
+import { useTheme } from '@/hooks/use-theme';
 
 export interface ConciergeSuggestion {
   id: string;
@@ -128,6 +129,8 @@ export function ConciergeSuggestionBox({
   onLaunchIntent,
   disabled = false,
 }: ConciergeSuggestionBoxProps) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [cardExpanded, setCardExpanded] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
@@ -141,7 +144,7 @@ export function ConciergeSuggestionBox({
   };
 
   return (
-    <View style={styles.card} accessible accessibilityLabel="Suggestions">
+    <View style={[styles.card, themedStyles.card]} accessible accessibilityLabel="Suggestions">
       <Pressable
         style={styles.cardHeader}
         onPress={() => setCardExpanded((v) => !v)}
@@ -150,25 +153,25 @@ export function ConciergeSuggestionBox({
         accessibilityLabel={`Try asking${cardExpanded ? ' — collapse' : ' — expand'}`}
       >
         <View style={styles.cardHeaderText}>
-          <Text style={styles.title}>Try asking</Text>
+          <Text style={[styles.title, themedStyles.primaryText]}>Try asking</Text>
           {!cardExpanded ? (
-            <Text style={styles.subtitleCollapsed}>
+            <Text style={[styles.subtitleCollapsed, themedStyles.mutedText]}>
               Sample prompts by category — tap to expand
             </Text>
           ) : null}
         </View>
-        <Text style={styles.chevron}>{cardExpanded ? '▾' : '▸'}</Text>
+        <Text style={[styles.chevron, themedStyles.mutedText]}>{cardExpanded ? '▾' : '▸'}</Text>
       </Pressable>
 
       {cardExpanded ? (
         <>
-          <Text style={styles.subtitle}>
+          <Text style={[styles.subtitle, themedStyles.mutedText]}>
             A few starting points, grouped so they are easier to scan.
           </Text>
           {SUGGESTION_GROUPS.map((group) => {
             const expanded = Boolean(expandedGroups[group.key]);
             return (
-              <View key={group.key} style={styles.group}>
+              <View key={group.key} style={[styles.group, themedStyles.group]}>
                 <Pressable
                   style={styles.groupHeader}
                   onPress={() =>
@@ -181,8 +184,8 @@ export function ConciergeSuggestionBox({
                   accessibilityState={{ expanded }}
                   accessibilityLabel={`${group.label}${expanded ? ' — collapse' : ' — expand'}`}
                 >
-                  <Text style={styles.groupLabel}>{group.label}</Text>
-                  <Text style={styles.groupMeta}>
+                  <Text style={[styles.groupLabel, themedStyles.primaryText]}>{group.label}</Text>
+                  <Text style={[styles.groupMeta, themedStyles.mutedText]}>
                     {group.suggestions.length} · {expanded ? '▾' : '▸'}
                   </Text>
                 </Pressable>
@@ -191,13 +194,13 @@ export function ConciergeSuggestionBox({
                     {group.suggestions.map((suggestion) => (
                       <Pressable
                         key={suggestion.id}
-                        style={[styles.chip, disabled && styles.chipDisabled]}
+                        style={[styles.chip, themedStyles.chip, disabled && styles.chipDisabled]}
                         onPress={() => handlePress(suggestion)}
                         disabled={disabled}
                         accessibilityRole="button"
                         accessibilityLabel={suggestion.label}
                       >
-                        <Text style={styles.chipText}>{suggestion.label}</Text>
+                        <Text style={[styles.chipText, themedStyles.chipText]}>{suggestion.label}</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -209,6 +212,32 @@ export function ConciergeSuggestionBox({
       ) : null}
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+
+  return StyleSheet.create({
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    primaryText: {
+      color: theme.appText,
+    },
+    mutedText: {
+      color: theme.appTextMuted,
+    },
+    group: {
+      borderTopColor: theme.appBorder,
+    },
+    chip: {
+      backgroundColor: theme.appBrandSoftSurface,
+    },
+    chipText: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand,
+    },
+  });
 }
 
 const styles = StyleSheet.create({
