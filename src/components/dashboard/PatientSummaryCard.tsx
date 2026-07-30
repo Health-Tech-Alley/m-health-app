@@ -1,4 +1,4 @@
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTheme } from '@/constants/theme';
@@ -19,8 +19,11 @@ import {
   getPrimaryDiagnosisDisplay,
   NOT_AVAILABLE,
 } from '@/utils/patientDisplay';
+import { useTheme } from '@/hooks/use-theme';
 
 export function PatientSummaryCard() {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const router = useRouter();
   const { snapshot, ready, error, refresh } = usePatientRecord();
   const [expanded, setExpanded] = useState(false);
@@ -40,17 +43,17 @@ export function PatientSummaryCard() {
 
   if (!ready) {
     return (
-      <View style={styles.card}>
-        <Text style={styles.loadingText}>Loading patient record…</Text>
+      <View style={[styles.card, themedStyles.card]}>
+        <Text style={[styles.loadingText, themedStyles.secondaryText]}>Loading patient record…</Text>
       </View>
     );
   }
 
   if (!snapshot) {
     return (
-      <View style={styles.card}>
-        <Text style={styles.unavailableTitle}>Patient record unavailable</Text>
-        <Text style={styles.unavailableText}>
+      <View style={[styles.card, themedStyles.card]}>
+        <Text style={[styles.unavailableTitle, themedStyles.primaryText]}>Patient record unavailable</Text>
+        <Text style={[styles.unavailableText, themedStyles.secondaryText]}>
           {error
             ? 'The patient record could not be loaded. Try again or return to onboarding.'
             : 'No patient record is available yet. Complete onboarding to create one.'}
@@ -90,18 +93,18 @@ export function PatientSummaryCard() {
   const needsClinicalImport = primaryDisplay === NOT_AVAILABLE;
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, themedStyles.card]}>
       <View style={styles.headerRow}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{getInitials(patientName)}</Text>
+        <View style={[styles.avatar, themedStyles.brandSoftSurface]}>
+          <Text style={[styles.avatarText, themedStyles.accentText]}>{getInitials(patientName)}</Text>
         </View>
 
         <View style={styles.patientTextBlock}>
           <View style={styles.nameRow}>
-            <Text style={styles.patientName}>{patientName}</Text>
+            <Text style={[styles.patientName, themedStyles.primaryText]}>{patientName}</Text>
 
             {comorbidities.length > 0 ? (
-              <View style={styles.comorbidityBadge}>
+              <View style={[styles.comorbidityBadge, themedStyles.warningSurface]}>
                 <Text style={styles.comorbidityBadgeText}>
                   {comorbidities.length} Comorbidit{comorbidities.length === 1 ? 'y' : 'ies'}
                 </Text>
@@ -109,27 +112,27 @@ export function PatientSummaryCard() {
             ) : null}
           </View>
 
-          <Text style={styles.patientMeta}>
+          <Text style={[styles.patientMeta, themedStyles.secondaryText]}>
             Age {patientAge} · {caregiverName}
           </Text>
         </View>
       </View>
 
-      <View style={styles.diagnosisBox}>
-        <Text style={styles.diagnosisLabel}>Primary diagnosis</Text>
-        <Text style={styles.diagnosisText}>{primaryDisplay}</Text>
+      <View style={[styles.diagnosisBox, themedStyles.controlSurface]}>
+        <Text style={[styles.diagnosisLabel, themedStyles.sectionText]}>Primary diagnosis</Text>
+        <Text style={[styles.diagnosisText, themedStyles.primaryText]}>{primaryDisplay}</Text>
         {primaryCondition?.category ? (
-          <Text style={styles.categoryText}>{primaryCondition.category}</Text>
+          <Text style={[styles.categoryText, themedStyles.secondaryText]}>{primaryCondition.category}</Text>
         ) : null}
       </View>
 
       {needsClinicalImport ? (
         <Pressable
-          style={styles.importBanner}
+          style={[styles.importBanner, themedStyles.importBanner]}
           onPress={() => router.push({ pathname: '/more', params: { focus: 'ehr-import' } } as never)}
         >
-          <Text style={styles.importBannerTitle}>Latest clinical details not available</Text>
-          <Text style={styles.importBannerText}>
+          <Text style={[styles.importBannerTitle, themedStyles.importBannerTitle]}>Latest clinical details not available</Text>
+          <Text style={[styles.importBannerText, themedStyles.secondaryText]}>
             Import the latest EHR from Settings to refresh diagnoses and visit data.
           </Text>
         </Pressable>
@@ -140,7 +143,7 @@ export function PatientSummaryCard() {
           style={styles.comorbidityExpand}
           onPress={() => setExpanded((e) => !e)}
         >
-          <Text style={styles.comorbidityToggle}>
+          <Text style={[styles.comorbidityToggle, themedStyles.accentText]}>
             {expanded ? '▼' : '▶'} Comorbidities ({comorbidities.length})
           </Text>
           {expanded ? (
@@ -159,14 +162,14 @@ export function PatientSummaryCard() {
       </View>
 
       {snapshot.bundleStatus.state === 'in_flight' ? (
-        <View style={styles.bundlePendingPill}>
+        <View style={[styles.bundlePendingPill, themedStyles.bundlePendingPill]}>
           <Text style={styles.bundlePendingText}>Updating clinical knowledge</Text>
           {snapshot.bundleStatus.phase ? (
-            <Text style={styles.bundlePendingDetail} numberOfLines={2}>
+            <Text style={[styles.bundlePendingDetail, themedStyles.secondaryText]} numberOfLines={2}>
               {snapshot.bundleStatus.phase}
             </Text>
           ) : null}
-          <View style={styles.bundleProgressTrack}>
+          <View style={[styles.bundleProgressTrack, themedStyles.progressTrack]}>
             <View
               style={[
                 styles.bundleProgressFill,
@@ -178,7 +181,7 @@ export function PatientSummaryCard() {
               ]}
             />
           </View>
-          <Text style={styles.bundlePendingDetail}>
+          <Text style={[styles.bundlePendingDetail, themedStyles.secondaryText]}>
             {typeof snapshot.bundleStatus.completedSteps === 'number' &&
             typeof snapshot.bundleStatus.totalSteps === 'number' &&
             snapshot.bundleStatus.totalSteps > 0
@@ -190,25 +193,25 @@ export function PatientSummaryCard() {
           </Text>
         </View>
       ) : snapshot.bundleStatus.state === 'failed' ? (
-        <View style={styles.bundleFailedPill}>
-          <Text style={styles.bundleFailedText}>Clinical knowledge update incomplete — using offline knowledge</Text>
+        <View style={[styles.bundleFailedPill, themedStyles.bundleFailedPill]}>
+          <Text style={[styles.bundleFailedText, themedStyles.bundleFailedText]}>Clinical knowledge update incomplete — using offline knowledge</Text>
           {cacheSummary ? (
-            <Text style={styles.bundleFailedDetail}>{cacheSummary}</Text>
+            <Text style={[styles.bundleFailedDetail, themedStyles.secondaryText]}>{cacheSummary}</Text>
           ) : null}
         </View>
       ) : packSummary != null || snapshot.knowledgeStats.total > 0 ? (
         <Pressable
-          style={styles.knowledgeStatsPill}
+          style={[styles.knowledgeStatsPill, themedStyles.knowledgeStatsPill]}
           onPress={() => setReferencesOpen((v) => !v)}
           accessibilityRole="button"
           accessibilityState={{ expanded: referencesOpen }}
           accessibilityLabel={`${(packSummary ?? cacheSummary) ?? 'Clinical knowledge'}. ${referencesOpen ? 'Hide' : 'Show'} sources.`}
         >
-          <Text style={styles.knowledgeStatsText}>{packSummary ?? cacheSummary}</Text>
+          <Text style={[styles.knowledgeStatsText, themedStyles.knowledgeStatsText]}>{packSummary ?? cacheSummary}</Text>
           {sourceBreakdown && !referencesOpen ? (
-            <Text style={styles.knowledgeStatsDetail}>{sourceBreakdown}</Text>
+            <Text style={[styles.knowledgeStatsDetail, themedStyles.secondaryText]}>{sourceBreakdown}</Text>
           ) : null}
-          <Text style={styles.knowledgeStatsHint}>
+          <Text style={[styles.knowledgeStatsHint, themedStyles.knowledgeStatsHint]}>
             {referencesOpen ? 'Hide sources ▴' : 'Tap to view sources ▾'}
           </Text>
           {referencesOpen ? (
@@ -232,15 +235,18 @@ export function PatientSummaryCard() {
 }
 
 function ComorbidityRow({ condition }: { condition: PatientCondition }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <View style={styles.comorbidityItem}>
-      <Text style={styles.comorbidityBullet}>•</Text>
+      <Text style={[styles.comorbidityBullet, themedStyles.secondaryText]}>•</Text>
       <View style={styles.comorbidityContent}>
-        <Text style={styles.comorbidityName}>
+        <Text style={[styles.comorbidityName, themedStyles.primaryText]}>
           {condition.icd10 ? `${condition.icd10} · ` : ''}{condition.name}
         </Text>
         {condition.category ? (
-          <Text style={styles.comorbidityCategory}>{condition.category}</Text>
+          <Text style={[styles.comorbidityCategory, themedStyles.secondaryText]}>{condition.category}</Text>
         ) : null}
       </View>
     </View>
@@ -248,10 +254,13 @@ function ComorbidityRow({ condition }: { condition: PatientCondition }) {
 }
 
 function InfoBox({ label, value }: { label: string; value: string }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
-    <View style={styles.infoBox}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue}>{value}</Text>
+    <View style={[styles.infoBox, themedStyles.brandSoftSurface]}>
+      <Text style={[styles.infoLabel, themedStyles.secondaryText]}>{label}</Text>
+      <Text style={[styles.infoValue, themedStyles.primaryText]}>{value}</Text>
     </View>
   );
 }
@@ -307,6 +316,66 @@ function getInitials(name: string): string {
     .join('')
     .slice(0, 2)
     .toUpperCase();
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+
+  return StyleSheet.create({
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    primaryText: {
+      color: theme.appText,
+    },
+    secondaryText: {
+      color: theme.appTextSupporting,
+    },
+    sectionText: {
+      color: theme.appSectionText,
+    },
+    accentText: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand,
+    },
+    brandSoftSurface: {
+      backgroundColor: theme.appBrandSoftSurface,
+    },
+    controlSurface: {
+      backgroundColor: theme.appControlSurface,
+    },
+    warningSurface: {
+      backgroundColor: isDark ? 'rgba(249, 115, 22, 0.16)' : AppTheme.colors.warningSoft,
+    },
+    importBanner: {
+      backgroundColor: theme.appBrandSoftSurface,
+      borderColor: theme.appProfileAvatarBorder,
+    },
+    importBannerTitle: {
+      color: isDark ? theme.appText : AppTheme.colors.brand,
+    },
+    bundlePendingPill: {
+      backgroundColor: isDark ? 'rgba(249, 115, 22, 0.16)' : AppTheme.colors.warningSoft,
+    },
+    progressTrack: {
+      backgroundColor: theme.appControlSurface,
+    },
+    bundleFailedPill: {
+      backgroundColor: isDark ? 'rgba(240, 6, 22, 0.16)' : AppTheme.colors.dangerLight,
+    },
+    bundleFailedText: {
+      color: isDark ? AppTheme.colors.dangerLight : AppTheme.colors.danger,
+    },
+    knowledgeStatsPill: {
+      backgroundColor: isDark ? theme.appControlSurface : AppTheme.colors.brandSoft,
+    },
+    knowledgeStatsText: {
+      color: isDark ? theme.appText : AppTheme.colors.brand,
+    },
+    knowledgeStatsHint: {
+      color: isDark ? theme.appTextSupporting : AppTheme.colors.brandDark,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

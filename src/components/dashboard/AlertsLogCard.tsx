@@ -17,7 +17,7 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -30,6 +30,7 @@ import { AppIcon } from '@/components/AppIcon';
 import { AppTheme } from '@/constants/theme';
 import { severityColor } from '@/constants/user-terms';
 import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
+import { useTheme } from '@/hooks/use-theme';
 import { getEventBus } from '@/orchestration/event-bus';
 import { audit } from '@/services/audit/auditService';
 import {
@@ -61,6 +62,8 @@ function formatRelativeTime(iso: string): string {
 }
 
 export function AlertsLogCard() {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const router = useRouter();
   const patientId = useOrchestratorPatientId();
   const [alerts, setAlerts] = useState<CareAlert[]>([]);
@@ -128,12 +131,12 @@ export function AlertsLogCard() {
 
   if (alerts.length === 0) {
     return (
-      <View style={styles.card}>
+      <View style={[styles.card, themedStyles.card]}>
         <View style={styles.headerRow}>
-          <AppIcon name="bell" size={18} color={AppTheme.colors.textMuted} />
-          <Text style={styles.title}>Alerts Log</Text>
+          <AppIcon name="bell" size={18} color={theme.appTextMuted} />
+          <Text style={[styles.title, themedStyles.title]}>Alerts Log</Text>
         </View>
-        <Text style={styles.emptyText}>
+        <Text style={[styles.emptyText, themedStyles.mutedText]}>
           No alerts recorded yet. Alerts from the ML care analysis demo will
           appear here, grouped by active and inactive.
         </Text>
@@ -142,16 +145,16 @@ export function AlertsLogCard() {
   }
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, themedStyles.card]}>
       <View style={styles.headerRow}>
-        <AppIcon name="bell" size={18} color={AppTheme.colors.textMuted} />
-        <Text style={styles.title}>Alerts Log</Text>
-        <Text style={styles.count}>{alerts.length}</Text>
+        <AppIcon name="bell" size={18} color={theme.appTextMuted} />
+        <Text style={[styles.title, themedStyles.title]}>Alerts Log</Text>
+        <Text style={[styles.count, themedStyles.count]}>{alerts.length}</Text>
       </View>
 
       {active.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Active · {active.length}</Text>
+          <Text style={[styles.sectionLabel, themedStyles.sectionLabel]}>Active · {active.length}</Text>
           {active.map((a) => (
             <AlertRow
               key={a.alertId}
@@ -167,7 +170,7 @@ export function AlertsLogCard() {
 
       {inactive.length > 0 && (
         <View style={styles.section}>
-          <Text style={[styles.sectionLabel, styles.sectionLabelInactive]}>
+          <Text style={[styles.sectionLabel, themedStyles.sectionLabel, styles.sectionLabelInactive]}>
             Inactive · {inactive.length}
           </Text>
           {inactive.map((a) => (
@@ -198,18 +201,20 @@ function AlertRow({
   onOpen: () => void;
   onRemove: () => void;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const color = severityColor(alert.severity);
   return (
     <Pressable
-      style={[styles.row, inactive && styles.rowInactive]}
+      style={[styles.row, themedStyles.row, inactive && styles.rowInactive]}
       onPress={onOpen}
     >
       <View style={[styles.dot, { backgroundColor: color }]} />
       <View style={styles.rowBody}>
-        <Text style={styles.rowTitle} numberOfLines={1}>
+        <Text style={[styles.rowTitle, themedStyles.title]} numberOfLines={1}>
           {alert.title}
         </Text>
-        <Text style={styles.rowSub} numberOfLines={1}>
+        <Text style={[styles.rowSub, themedStyles.mutedText]} numberOfLines={1}>
           {STATUS_LABEL[alert.status]} · Severity {alert.severity} · {formatRelativeTime(alert.createdAt)}
         </Text>
       </View>
@@ -220,10 +225,35 @@ function AlertRow({
         accessibilityRole="button"
         accessibilityLabel="Remove alert from log"
       >
-        <Text style={styles.removeText}>×</Text>
+        <Text style={[styles.removeText, themedStyles.mutedText]}>×</Text>
       </Pressable>
     </Pressable>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    title: {
+      color: theme.appText,
+    },
+    mutedText: {
+      color: theme.appTextMuted,
+    },
+    count: {
+      color: theme.appTextMuted,
+      backgroundColor: theme.appControlSurface,
+    },
+    sectionLabel: {
+      color: theme.appSectionText,
+    },
+    row: {
+      borderTopColor: theme.appBorder,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

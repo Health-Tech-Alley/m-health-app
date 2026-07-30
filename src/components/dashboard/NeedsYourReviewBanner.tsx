@@ -11,12 +11,14 @@
  */
 
 import { useRouter } from 'expo-router';
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon } from '@/components/AppIcon';
 import { AppTheme } from '@/constants/theme';
 import { severityColor, severityLabel } from '@/constants/user-terms';
 import type { PendingReview } from '@/hooks/usePendingReviews';
+import { useTheme } from '@/hooks/use-theme';
 
 type ReviewAlert = PendingReview['openNonEmergencyAlertItems'][number];
 
@@ -32,6 +34,8 @@ export function NeedsYourReviewBanner({
   variant = 'alerts',
 }: Props) {
   const router = useRouter();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   if (variant === 'alerts') {
     if (reviews.openNonEmergencyAlertItems.length === 0) {
@@ -40,7 +44,7 @@ export function NeedsYourReviewBanner({
 
     return (
       <View style={styles.reviewSection}>
-        <Text style={styles.sectionTitle}>Needs your review</Text>
+        <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Needs your review</Text>
         <View style={styles.alertList}>
           {reviews.openNonEmergencyAlertItems.map((alert) => (
             <AlertReviewCard
@@ -81,13 +85,13 @@ export function NeedsYourReviewBanner({
   const handleReviewPress = onReviewPress ?? (() => router.push('/settings'));
 
   return (
-    <View style={styles.banner}>
+    <View style={[styles.banner, themedStyles.banner]}>
       <View style={styles.body}>
-        <Text style={styles.eyebrow}>Needs your review</Text>
-        <Text style={styles.line}>
+        <Text style={[styles.eyebrow, themedStyles.eyebrow]}>Needs your review</Text>
+        <Text style={[styles.line, themedStyles.line]}>
           {breakdown} need{reviews.total === 1 ? 's' : ''} your review.
         </Text>
-        <Text style={styles.subline}>
+        <Text style={[styles.subline, themedStyles.subline]}>
           The Concierge suggests. You decide.
         </Text>
       </View>
@@ -107,7 +111,7 @@ export function NeedsYourReviewBanner({
             accessibilityRole="link"
             accessibilityLabel="Open Care tab to review plan proposals"
           >
-            <Text style={styles.linkButtonText}>Open Care plan</Text>
+            <Text style={[styles.linkButtonText, themedStyles.linkButtonText]}>Open Care plan</Text>
           </Pressable>
         ) : null}
         {reviews.thresholdRecommendations > 0 ? (
@@ -117,7 +121,7 @@ export function NeedsYourReviewBanner({
             accessibilityRole="link"
             accessibilityLabel="Open threshold suggestions"
           >
-            <Text style={styles.linkButtonText}>Open thresholds</Text>
+            <Text style={[styles.linkButtonText, themedStyles.linkButtonText]}>Open thresholds</Text>
           </Pressable>
         ) : null}
       </View>
@@ -132,41 +136,51 @@ function AlertReviewCard({
   alert: ReviewAlert;
   onPress: () => void;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const accent = severityColor(alert.severity);
+  const textAccent =
+    theme.appBackground === '#000000' && alert.severity !== 2
+      ? AppTheme.colors.brandPale
+      : accent;
   const body = alert.body.trim() || 'Open this alert to review the saved details.';
 
   return (
     <Pressable
-      style={[styles.alertCard, { borderColor: accent }]}
+      style={[styles.alertCard, themedStyles.alertCard, { borderColor: accent }]}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Review alert, ${severityLabel(alert.severity)}: ${alert.title}`}
     >
-      <View style={[styles.alertIcon, { backgroundColor: alertIconBackground(alert) }]}>
-        <AppIcon name="alert" size={22} color={accent} />
+      <View style={[styles.alertIcon, { backgroundColor: alertIconBackground(alert, theme) }]}>
+        <AppIcon name="alert" size={22} color={textAccent} />
       </View>
       <View style={styles.alertBody}>
         <View style={styles.alertMetaRow}>
-          <Text style={[styles.alertSeverity, { color: accent }]}>
+          <Text style={[styles.alertSeverity, { color: textAccent }]}>
             {severityLabel(alert.severity)}
           </Text>
-          <Text style={styles.alertTime}>{formatRelativeTime(alert.createdAt)}</Text>
+          <Text style={[styles.alertTime, themedStyles.eyebrow]}>{formatRelativeTime(alert.createdAt)}</Text>
         </View>
-        <Text style={styles.alertTitle} numberOfLines={2}>
+        <Text style={[styles.alertTitle, themedStyles.line]} numberOfLines={2}>
           {alert.title}
         </Text>
-        <Text style={styles.alertText} numberOfLines={2}>
+        <Text style={[styles.alertText, themedStyles.subline]} numberOfLines={2}>
           {body}
         </Text>
-        <Text style={[styles.alertAction, { color: accent }]}>Review alert</Text>
+        <Text style={[styles.alertAction, { color: textAccent }]}>Review alert</Text>
       </View>
-      <AppIcon name="chevronRight" size={24} color={AppTheme.colors.textMuted} />
+      <AppIcon name="chevronRight" size={24} color={theme.appTextMuted} />
     </Pressable>
   );
 }
 
-function alertIconBackground(alert: ReviewAlert): string {
-  return alert.severity === 2 ? AppTheme.colors.warningSoft : AppTheme.colors.brandSoft;
+function alertIconBackground(alert: ReviewAlert, theme: ReturnType<typeof useTheme>): string {
+  const isDark = theme.appBackground === '#000000';
+  if (alert.severity === 2) {
+    return isDark ? 'rgba(249, 115, 22, 0.16)' : AppTheme.colors.warningSoft;
+  }
+  return theme.appBrandSoftSurface;
 }
 
 function formatRelativeTime(iso: string): string {
@@ -178,6 +192,35 @@ function formatRelativeTime(iso: string): string {
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+
+  return StyleSheet.create({
+    sectionTitle: {
+      color: theme.appSectionText,
+    },
+    alertCard: {
+      backgroundColor: theme.appSurface,
+    },
+    banner: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    eyebrow: {
+      color: theme.appTextMuted,
+    },
+    line: {
+      color: theme.appText,
+    },
+    subline: {
+      color: theme.appTextSupporting,
+    },
+    linkButtonText: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

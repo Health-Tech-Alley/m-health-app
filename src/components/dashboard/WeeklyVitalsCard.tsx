@@ -14,6 +14,7 @@ import {
   selectLiveVitalsState,
   selectProductionWearableReadingsForPatient,
 } from "@/store/reducers/vitalsSlice";
+import { useTheme } from "@/hooks/use-theme";
 
 type MetricTone = "critical" | "warning" | "good";
 
@@ -249,6 +250,8 @@ const RECENT_WINDOW_MS = 100 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function WeeklyVitalsCard() {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [selectedKey, setSelectedKey] = useState<HealthSampleType>("spo2");
   const [selectedDayStart, setSelectedDayStart] = useState<number>(() =>
     startOfLocalDay(Date.now()),
@@ -313,14 +316,14 @@ export function WeeklyVitalsCard() {
   if (vitals.status === "loading") {
     return (
       <CardShell title="Recent monitoring">
-        <Text style={styles.stateText}>Loading recent monitoring readings...</Text>
+        <Text style={[styles.stateText, themedStyles.subtitle]}>Loading recent monitoring readings...</Text>
       </CardShell>
     );
   }
   if (vitals.status === "error" || vitals.status === "unavailable" || !activePatientId) {
     return (
       <CardShell title="Recent monitoring">
-        <Text style={styles.stateText}>Recent monitoring unavailable</Text>
+        <Text style={[styles.stateText, themedStyles.subtitle]}>Recent monitoring unavailable</Text>
       </CardShell>
     );
   }
@@ -328,17 +331,17 @@ export function WeeklyVitalsCard() {
   if (!selectedMetric) {
     return (
       <CardShell title="Recent monitoring">
-        <Text style={styles.stateText}>No recent monitoring readings</Text>
+        <Text style={[styles.stateText, themedStyles.subtitle]}>No recent monitoring readings</Text>
       </CardShell>
     );
   }
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, themedStyles.card]}>
       <View style={styles.headerRow}>
         <View style={styles.titleBlock}>
-          <Text style={styles.sectionTitle}>Recent monitoring</Text>
-          <Text style={styles.subtitle}>{selectedMetric.subtitle}</Text>
+          <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Recent monitoring</Text>
+          <Text style={[styles.subtitle, themedStyles.subtitle]}>{selectedMetric.subtitle}</Text>
         </View>
 
         <View style={styles.tabRow}>
@@ -348,12 +351,12 @@ export function WeeklyVitalsCard() {
             return (
               <Pressable
                 key={metric.key}
-                style={[styles.tab, active && styles.tabActive]}
+                style={[styles.tab, themedStyles.tab, active && styles.tabActive]}
                 accessibilityRole="button"
                 accessibilityLabel={metric.label}
                 onPress={() => setSelectedKey(metric.key)}
               >
-                <Text style={[styles.tabIcon, active && styles.tabIconActive]}>
+                <Text style={[styles.tabIcon, themedStyles.tabIcon, active && styles.tabIconActive]}>
                   {metric.tabIcon}
                 </Text>
               </Pressable>
@@ -361,15 +364,15 @@ export function WeeklyVitalsCard() {
           })}
         </View>
 
-        <Text style={styles.metricHelperText}>{selectedMetric.helperText}</Text>
+        <Text style={[styles.metricHelperText, themedStyles.subtitle]}>{selectedMetric.helperText}</Text>
       </View>
 
       <View style={styles.valueRow}>
-        <Text style={styles.mainValue}>
+        <Text style={[styles.mainValue, themedStyles.mainValue]}>
           {dayTotal !== null ? formatNumber(dayTotal) : selectedMetric.value}
         </Text>
-        <Text style={styles.unit}>{selectedMetric.unit}</Text>
-        <Text style={[styles.status, styles.statusGood]}>
+        <Text style={[styles.unit, themedStyles.subtitle]}>{selectedMetric.unit}</Text>
+        <Text style={[styles.status, styles.statusGood, themedStyles.statusGood]}>
           {dayTotal !== null ? formatDayLabel(selectedDayStart) : selectedMetric.status}
         </Text>
       </View>
@@ -390,7 +393,7 @@ export function WeeklyVitalsCard() {
 
       {summaryMetrics.length > 0 ? (
         <>
-          <View style={styles.divider} />
+          <View style={[styles.divider, themedStyles.divider]} />
 
           <View style={styles.bottomStats}>
             {summaryMetrics.map((metric) => (
@@ -416,9 +419,12 @@ function CardShell({
   title: string;
   children: React.ReactNode;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
-    <View style={styles.card}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+    <View style={[styles.card, themedStyles.card]}>
+      <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{title}</Text>
       {children}
     </View>
   );
@@ -524,6 +530,8 @@ function TrendChart({
   secondaryReadings?: LiveVitalReading[];
   bands?: ChartBand[];
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [chartWidth, setChartWidth] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const values = readings.map((reading) => reading.value);
@@ -596,8 +604,8 @@ function TrendChart({
   return (
     <View style={styles.chartWrap}>
       <View style={styles.yAxis}>
-        <Text style={styles.axisLabel}>{formatNumber(Math.max(...values, ...(secondaryValues ?? [])))}</Text>
-        <Text style={styles.axisLabel}>{formatNumber(Math.min(...values, ...(secondaryValues ?? [])))}</Text>
+        <Text style={[styles.axisLabel, themedStyles.axisLabel]}>{formatNumber(Math.max(...values, ...(secondaryValues ?? [])))}</Text>
+        <Text style={[styles.axisLabel, themedStyles.axisLabel]}>{formatNumber(Math.min(...values, ...(secondaryValues ?? [])))}</Text>
       </View>
 
       <View style={styles.chartArea}>
@@ -643,6 +651,7 @@ function TrendChart({
                     key={`segment-secondary-${index}`}
                     style={[
                       styles.lineSegmentSecondary,
+                      themedStyles.secondaryChart,
                       {
                         width: length,
                         left: point.x,
@@ -669,6 +678,7 @@ function TrendChart({
                 key={`segment-${readings[index].sampleId}`}
                 style={[
                   styles.lineSegment,
+                  themedStyles.chartAccent,
                   {
                     width: length,
                     left: point.x,
@@ -689,11 +699,13 @@ function TrendChart({
               }
               style={[
                 styles.point,
+                themedStyles.chartAccent,
                 {
                   left: point.x - POINT_SIZE / 2,
                   top: point.y - POINT_SIZE / 2,
                 },
                 selectedIndex === index && styles.pointSelected,
+                selectedIndex === index && themedStyles.pointSelected,
               ]}
             />
           ))}
@@ -704,6 +716,7 @@ function TrendChart({
                   key={`point-secondary-${index}`}
                   style={[
                     styles.pointSecondary,
+                    themedStyles.secondaryChart,
                     {
                       left: point.x - POINT_SIZE / 2,
                       top: point.y - POINT_SIZE / 2,
@@ -718,6 +731,7 @@ function TrendChart({
               pointerEvents="none"
               style={[
                 styles.valueBubble,
+                themedStyles.valueBubble,
                 {
                   left: Math.max(
                     0,
@@ -735,10 +749,10 @@ function TrendChart({
         </View>
 
         <View style={styles.dayRow}>
-          <Text style={styles.dayLabel}>
+          <Text style={[styles.dayLabel, themedStyles.axisLabel]}>
             {firstReading ? formatShortDate(firstReading.recordedAt) : ""}
           </Text>
-          <Text style={styles.dayLabel}>
+          <Text style={[styles.dayLabel, themedStyles.axisLabel]}>
             {lastReading ? formatShortDate(lastReading.recordedAt) : ""}
           </Text>
         </View>
@@ -756,6 +770,8 @@ function HourlyBarChart({
   dayStart: number;
   onDayChange: (dayStartMs: number) => void;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [chartWidth, setChartWidth] = useState(0);
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
 
@@ -783,25 +799,25 @@ function HourlyBarChart({
           accessibilityRole="button"
           accessibilityLabel="Previous day"
           onPress={() => onDayChange(dayStart - DAY_MS)}
-          style={styles.dayChevron}
+          style={[styles.dayChevron, themedStyles.dayChevron]}
         >
-          <Text style={styles.dayChevronText}>‹</Text>
+          <Text style={[styles.dayChevronText, themedStyles.dayChevronText]}>‹</Text>
         </Pressable>
-        <Text style={styles.dayTitle}>{formatDayLabel(dayStart)}</Text>
+        <Text style={[styles.dayTitle, themedStyles.subtitle]}>{formatDayLabel(dayStart)}</Text>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Next day"
           onPress={() => onDayChange(dayStart + DAY_MS)}
-          style={styles.dayChevron}
+          style={[styles.dayChevron, themedStyles.dayChevron]}
         >
-          <Text style={styles.dayChevronText}>›</Text>
+          <Text style={[styles.dayChevronText, themedStyles.dayChevronText]}>›</Text>
         </Pressable>
       </View>
 
       <View style={styles.chartWrap}>
         <View style={styles.yAxis}>
-          <Text style={styles.axisLabel}>{formatNumber(maxTotal)}</Text>
-          <Text style={styles.axisLabel}>0</Text>
+          <Text style={[styles.axisLabel, themedStyles.axisLabel]}>{formatNumber(maxTotal)}</Text>
+          <Text style={[styles.axisLabel, themedStyles.axisLabel]}>0</Text>
         </View>
 
         <View style={styles.chartArea}>
@@ -829,12 +845,14 @@ function HourlyBarChart({
                   }
                   style={[
                     styles.hourBar,
+                    themedStyles.chartAccent,
                     {
                       width: Math.max(barWidth - 2, 1),
                       left: bucket.hour * barWidth,
                       height,
                     },
                     selected && styles.hourBarSelected,
+                    selected && themedStyles.hourBarSelected,
                   ]}
                 />
               );
@@ -845,6 +863,7 @@ function HourlyBarChart({
                 pointerEvents="none"
                 style={[
                   styles.valueBubble,
+                  themedStyles.valueBubble,
                   {
                     left: Math.max(
                       0,
@@ -863,7 +882,7 @@ function HourlyBarChart({
 
           <View style={styles.hourAxis}>
             {[0, 6, 12, 18].map((hour) => (
-              <Text key={hour} style={styles.hourAxisLabel}>
+              <Text key={hour} style={[styles.hourAxisLabel, themedStyles.axisLabel]}>
                 {formatHourLabel(hour)}
               </Text>
             ))}
@@ -885,20 +904,24 @@ function SmallStat({
   unit: string;
   tone: MetricTone;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <View style={styles.smallStat}>
-      <Text style={styles.smallStatLabel}>{label}</Text>
+      <Text style={[styles.smallStatLabel, themedStyles.subtitle]}>{label}</Text>
       <Text style={styles.smallStatValueRow}>
         <Text
           style={[
             styles.smallStatValue,
+            themedStyles.smallStatValue,
             tone === "critical" && styles.smallStatCritical,
             tone === "warning" && styles.smallStatWarning,
           ]}
         >
           {value}
         </Text>
-        <Text style={styles.smallStatUnit}> {unit}</Text>
+        <Text style={[styles.smallStatUnit, themedStyles.subtitle]}> {unit}</Text>
       </Text>
     </View>
   );
@@ -1054,6 +1077,65 @@ function buildBandsForMetric(
     if (seen.has(band.value)) return false;
     seen.add(band.value);
     return true;
+  });
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === "#000000";
+
+  return StyleSheet.create({
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    sectionTitle: {
+      color: theme.appSectionText,
+    },
+    subtitle: {
+      color: theme.appTextSupporting,
+    },
+    tab: {
+      backgroundColor: theme.appControlSurface,
+    },
+    tabIcon: {
+      color: theme.appTextSupporting,
+    },
+    mainValue: {
+      color: isDark ? theme.appText : AppTheme.colors.brandDark,
+    },
+    statusGood: {
+      color: isDark ? theme.appTextSupporting : AppTheme.colors.brand,
+    },
+    axisLabel: {
+      color: theme.appTextMuted,
+    },
+    chartAccent: {
+      backgroundColor: AppTheme.colors.brand,
+    },
+    secondaryChart: {
+      backgroundColor: theme.appTextMuted,
+    },
+    divider: {
+      backgroundColor: theme.appBorder,
+    },
+    smallStatValue: {
+      color: isDark ? theme.appText : AppTheme.colors.brand,
+    },
+    pointSelected: {
+      borderColor: theme.appSurface,
+    },
+    valueBubble: {
+      backgroundColor: isDark ? theme.appControlSurface : AppTheme.colors.brandDark,
+    },
+    dayChevron: {
+      backgroundColor: theme.appControlSurface,
+    },
+    dayChevronText: {
+      color: isDark ? theme.appText : AppTheme.colors.brandDark,
+    },
+    hourBarSelected: {
+      backgroundColor: isDark ? theme.appText : AppTheme.colors.brandDark,
+    },
   });
 }
 

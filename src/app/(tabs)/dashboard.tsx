@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -21,6 +21,7 @@ import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { usePendingReviews } from "@/hooks/usePendingReviews";
+import { useTheme } from "@/hooks/use-theme";
 import {
   formatPossessive,
   getCaregiverDisplay,
@@ -29,6 +30,8 @@ import {
 } from "@/utils/patientDisplay";
 
 export default function DashboardRoute() {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const activePatient = useActivePatientView();
   const patientId = useOrchestratorPatientId();
   const { snapshot } = usePatientRecord();
@@ -70,12 +73,13 @@ export default function DashboardRoute() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <View style={styles.root}>
+    <SafeAreaView style={[styles.safeArea, themedStyles.screen]} edges={["top"]}>
+      <View style={[styles.root, themedStyles.screen]}>
         <ScrollView
           ref={scrollRef}
+          style={themedStyles.screen}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, themedStyles.content]}
         >
           <MainTabHeader
             title="Home"
@@ -85,7 +89,7 @@ export default function DashboardRoute() {
             rightContent={
               <>
                 <Pressable
-                  style={styles.bellButton}
+                  style={[styles.bellButton, themedStyles.iconButton]}
                   onPress={scrollToAlertsLog}
                   accessibilityRole="button"
                   accessibilityLabel="View alerts"
@@ -93,12 +97,12 @@ export default function DashboardRoute() {
                   <AppIcon
                     name="bell"
                     size={25}
-                    color={AppTheme.colors.textMuted}
+                    color={theme.appTextMuted}
                   />
                   <View style={styles.bellDot} />
                 </Pressable>
                 <Pressable
-                  style={styles.gearButton}
+                  style={[styles.gearButton, themedStyles.iconButton]}
                   onPress={() => router.push("/more" as never)}
                   accessibilityRole="button"
                   accessibilityLabel="Open More"
@@ -106,7 +110,7 @@ export default function DashboardRoute() {
                   <AppIcon
                     name="settings"
                     size={22}
-                    color={AppTheme.colors.textMuted}
+                    color={theme.appTextMuted}
                   />
                 </Pressable>
               </>
@@ -121,7 +125,7 @@ export default function DashboardRoute() {
           />
           {showTodayCare ? (
             <View style={styles.todayCareSection}>
-              <Text style={styles.sectionTitle}>{"Today\u2019s care"}</Text>
+              <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{"Today\u2019s care"}</Text>
               <View style={styles.todayCareList}>
                 {topUc4Priority ? (
                   <CareFocusCompactCard
@@ -152,7 +156,7 @@ export default function DashboardRoute() {
               setAlertsLogY(event.nativeEvent.layout.y);
             }}
           >
-            <Text style={styles.sectionTitle}>Alerts Log</Text>
+            <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Alerts Log</Text>
             <AlertsLogCard />
           </View>
         </ScrollView>
@@ -162,53 +166,69 @@ export default function DashboardRoute() {
 }
 
 function CareFocusCompactCard({ title, detail }: { title: string; detail: string }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <Pressable
-      style={styles.compactCard}
+      style={[styles.compactCard, themedStyles.compactCard]}
       onPress={() => router.push("/care")}
       accessibilityRole="button"
       accessibilityLabel="Open care focus checklist"
     >
-      <View style={styles.compactIcon}>
+      <View style={[styles.compactIcon, themedStyles.compactIcon]}>
         <AppIcon name="heart" size={24} color={AppTheme.colors.warning} />
       </View>
       <View style={styles.compactBody}>
-        <Text style={styles.compactKicker}>Care focus</Text>
-        <Text style={styles.compactTitle} numberOfLines={2}>{title}</Text>
-        <Text style={styles.compactMeta}>{detail}</Text>
+        <Text style={[styles.compactKicker, themedStyles.compactKicker]}>Care focus</Text>
+        <Text style={[styles.compactTitle, themedStyles.compactTitle]} numberOfLines={2}>{title}</Text>
+        <Text style={[styles.compactMeta, themedStyles.compactMeta]}>{detail}</Text>
       </View>
-      <AppIcon name="chevronRight" size={24} color={AppTheme.colors.textMuted} />
+      <AppIcon name="chevronRight" size={24} color={theme.appTextMuted} />
     </Pressable>
   );
 }
 
 function Uc3HomeStatusCard({ eventType, urgent }: { eventType: string; urgent: boolean }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const brandIconColor = theme.appBackground === "#000000" ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+
   return (
     <Pressable
-      style={[styles.compactCard, urgent && styles.compactCardUrgent]}
+      style={[
+        styles.compactCard,
+        themedStyles.compactCard,
+        urgent && styles.compactCardUrgent,
+        urgent && themedStyles.compactCardUrgent,
+      ]}
       onPress={() => router.push("/care")}
       accessibilityRole="button"
       accessibilityLabel="Open rehabilitation progress result"
     >
-      <View style={styles.compactIcon}>
-        <AppIcon name={urgent ? "alert" : "walking"} size={24} color={urgent ? AppTheme.colors.danger : AppTheme.colors.brand} />
+      <View style={[styles.compactIcon, themedStyles.compactIcon]}>
+        <AppIcon name={urgent ? "alert" : "walking"} size={24} color={urgent ? AppTheme.colors.danger : brandIconColor} />
       </View>
       <View style={styles.compactBody}>
-        <Text style={styles.compactKicker}>Rehabilitation progress</Text>
-        <Text style={styles.compactTitle} numberOfLines={2}>
+        <Text style={[styles.compactKicker, themedStyles.compactKicker]}>Rehabilitation progress</Text>
+        <Text style={[styles.compactTitle, themedStyles.compactTitle]} numberOfLines={2}>
           {urgent ? "Urgent safety concern" : "Progress review available"}
         </Text>
-        <Text style={styles.compactMeta}>{eventType.replace(/_/g, " ").toLowerCase()}</Text>
+        <Text style={[styles.compactMeta, themedStyles.compactMeta]}>{eventType.replace(/_/g, " ").toLowerCase()}</Text>
       </View>
-      <AppIcon name="chevronRight" size={24} color={AppTheme.colors.textMuted} />
+      <AppIcon name="chevronRight" size={24} color={theme.appTextMuted} />
     </Pressable>
   );
 }
 
 function RehabReminderCard() {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const brandIconColor = theme.appBackground === "#000000" ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+
   return (
     <Pressable
-      style={styles.compactCard}
+      style={[styles.compactCard, themedStyles.compactCard]}
       onPress={() =>
         router.push({
           pathname: "/care",
@@ -218,19 +238,58 @@ function RehabReminderCard() {
       accessibilityRole="button"
       accessibilityLabel="Open today's rehab check-in"
     >
-      <View style={styles.compactIcon}>
-        <AppIcon name="walking" size={24} color={AppTheme.colors.brand} />
+      <View style={[styles.compactIcon, themedStyles.compactIcon]}>
+        <AppIcon name="walking" size={24} color={brandIconColor} />
       </View>
       <View style={styles.compactBody}>
-        <Text style={styles.compactKicker}>{"Today\u2019s rehab check-in"}</Text>
-        <Text style={styles.compactTitle} numberOfLines={2}>
+        <Text style={[styles.compactKicker, themedStyles.compactKicker]}>{"Today\u2019s rehab check-in"}</Text>
+        <Text style={[styles.compactTitle, themedStyles.compactTitle]} numberOfLines={2}>
           Therapy has not been completed today.
         </Text>
-        <Text style={styles.compactMeta}>Open check-in</Text>
+        <Text style={[styles.compactMeta, themedStyles.compactMeta]}>Open check-in</Text>
       </View>
-      <AppIcon name="chevronRight" size={24} color={AppTheme.colors.textMuted} />
+      <AppIcon name="chevronRight" size={24} color={theme.appTextMuted} />
     </Pressable>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === "#000000";
+
+  return StyleSheet.create({
+    screen: {
+      backgroundColor: theme.appBackground,
+    },
+    content: {
+      backgroundColor: theme.appBackground,
+    },
+    iconButton: {
+      backgroundColor: theme.appControlSurface,
+    },
+    sectionTitle: {
+      color: theme.appSectionText,
+    },
+    compactCard: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    compactCardUrgent: {
+      backgroundColor: isDark ? "rgba(240, 6, 22, 0.16)" : "#FEF2F2",
+      borderColor: AppTheme.colors.danger,
+    },
+    compactIcon: {
+      backgroundColor: theme.appControlSurface,
+    },
+    compactKicker: {
+      color: theme.appTextMuted,
+    },
+    compactTitle: {
+      color: theme.appText,
+    },
+    compactMeta: {
+      color: theme.appTextSupporting,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

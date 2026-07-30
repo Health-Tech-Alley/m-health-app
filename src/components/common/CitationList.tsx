@@ -3,10 +3,11 @@
  * Pack-aware: shows source labels + optional chunk counts + expandable detail.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
 export type CitationSource = {
   label: string;
@@ -34,6 +35,8 @@ export function CitationList({
   maxItems = 8,
   compact = false,
 }: CitationListProps) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createStyles(theme), [theme]);
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [showAll, setShowAll] = useState(false);
 
@@ -47,32 +50,32 @@ export function CitationList({
     <>
       {visible.map((s, i) => (
         <View key={`${s.label}-${i}`} style={styles.row}>
-          <Text style={compact ? styles.bulletCompact : styles.bullet}>•</Text>
+          <Text style={[compact ? styles.bulletCompact : styles.bullet, themedStyles.bullet]}>•</Text>
           <View style={styles.rowContent}>
-            <Text style={compact ? styles.labelCompact : styles.label}>
+            <Text style={[compact ? styles.labelCompact : styles.label, themedStyles.label]}>
               {s.label}
               {hasCounts && s.count !== undefined ? ` (${s.count})` : ''}
             </Text>
             {s.detail ? (
-              <Text style={compact ? styles.detailCompact : styles.detail}>{s.detail}</Text>
+              <Text style={[compact ? styles.detailCompact : styles.detail, themedStyles.detail]}>{s.detail}</Text>
             ) : null}
           </View>
         </View>
       ))}
       {hiddenCount > 0 ? (
         <Pressable onPress={() => setShowAll(true)} accessibilityRole="button">
-          <Text style={styles.showMore}>Show {hiddenCount} more…</Text>
+          <Text style={[styles.showMore, themedStyles.showMore]}>Show {hiddenCount} more…</Text>
         </Pressable>
       ) : null}
     </>
   );
 
   if (!collapsible) {
-    return <View style={styles.block}>{content}</View>;
+    return <View style={[styles.block, themedStyles.block]}>{content}</View>;
   }
 
   return (
-    <View style={styles.block}>
+    <View style={[styles.block, themedStyles.block]}>
       <Pressable
         style={styles.toggle}
         onPress={() => setExpanded((v) => !v)}
@@ -80,14 +83,53 @@ export function CitationList({
         accessibilityState={{ expanded }}
         accessibilityLabel={`Sources, ${sources.length}`}
       >
-        <Text style={compact ? styles.toggleTextCompact : styles.toggleText}>
+        <Text style={[compact ? styles.toggleTextCompact : styles.toggleText, compact ? themedStyles.toggleTextCompact : themedStyles.toggleText]}>
           Sources ({sources.length})
         </Text>
-        <Text style={styles.chevron}>{expanded ? '▾' : '▸'}</Text>
+        <Text style={[styles.chevron, themedStyles.chevron]}>{expanded ? '▾' : '▸'}</Text>
       </Pressable>
       {expanded ? content : null}
     </View>
   );
+}
+
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+
+  return StyleSheet.create({
+    block: {
+      borderTopColor: theme.appBorder,
+      ...(isDark
+        ? {
+            backgroundColor: theme.appSurface,
+            borderRadius: 12,
+            paddingHorizontal: 8,
+            paddingBottom: 8,
+          }
+        : null),
+    },
+    toggleText: {
+      color: theme.appText,
+    },
+    toggleTextCompact: {
+      color: theme.appTextSupporting,
+    },
+    chevron: {
+      color: theme.appTextSupporting,
+    },
+    bullet: {
+      color: theme.appTextSupporting,
+    },
+    label: {
+      color: theme.appText,
+    },
+    detail: {
+      color: theme.appTextSupporting,
+    },
+    showMore: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand,
+    },
+  });
 }
 
 const styles = StyleSheet.create({
