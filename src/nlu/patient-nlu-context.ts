@@ -8,6 +8,7 @@
 
 import type { PatientNluContext } from './types';
 import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
+import { getAssignedDevelopmentRehabExercises } from '@/data/uc3RehabExercises';
 import { APP_SURFACE_LABELS } from './app-surfaces';
 
 const VITAL_LEXICON = [
@@ -83,11 +84,40 @@ export function buildPatientNluContext(
 
   const symptoms = snapshot.symptoms.map((s) => s.label);
 
+  // Therapy ground truth is NOT in the vector/knowledge graph. Surface labels
+  // and assigned exercise names here so intent/entity linking can route
+  // rehab questions; numeric daily logs are injected separately into SLM
+  // system context via uc3TherapyChatContext.
+  const assignedExercises = getAssignedDevelopmentRehabExercises(
+    snapshot.rehabExerciseAssignments ?? [],
+  );
+  const therapyKeywords: string[] = [];
+  if (
+    snapshot.therapyContractPresent ||
+    assignedExercises.length > 0 ||
+    (snapshot.rehabDailyEntries ?? []).length > 0 ||
+    snapshot.todayDailyCareEntry ||
+    snapshot.latestUc3TrajectoryResult
+  ) {
+    therapyKeywords.push(
+      'daily rehab log',
+      'therapy session',
+      'exercise repetitions',
+      'range of motion',
+      'walking minutes',
+      'pain score',
+      'fatigue score',
+      'rehab exercises',
+      ...assignedExercises.map((e) => e.label),
+    );
+  }
+
   const knowledgeKeywords = [
     ...new Set([
       ...conditionNames,
       ...medications,
       ...GENERIC_CLINICAL_KEYWORDS,
+      ...therapyKeywords,
     ]),
   ];
 

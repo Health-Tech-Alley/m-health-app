@@ -25,6 +25,7 @@ import { getAssignedDevelopmentRehabExercises } from '@/data/uc3RehabExercises';
 import { GraphProjector } from '@/knowledge/graph/graph-projector';
 import { buildPlanRootedSubgraph } from '@/knowledge/graph/context-subgraph';
 
+
 export interface PromptContext {
   patientName: string;
   patientAge?: string;
@@ -271,24 +272,26 @@ function describeUc2(snapshot: PatientRecordSnapshot): string {
 
 function describeUc3(snapshot: PatientRecordSnapshot): string {
   if (snapshot.therapyContractPresent === false) return 'UC3: not on this patient';
+  // Presence + where to look — not daily metric values.
   const parts: string[] = [];
   const assigned = getAssignedDevelopmentRehabExercises(
     snapshot.rehabExerciseAssignments ?? [],
   );
   if (assigned.length > 0) {
-    parts.push(`exercises ${assigned.map((e) => e.label).join(', ')}`);
+    parts.push(`${assigned.length} assigned exercises (Care→Therapy)`);
+  }
+  const dailyN = (snapshot.rehabDailyEntries ?? []).length;
+  if (snapshot.todayDailyCareEntry || dailyN > 0) {
+    parts.push(
+      `session rows in daily_care_entries (today=${snapshot.todayDailyCareEntry ? 'yes' : 'no'}, history=${dailyN})`,
+    );
   }
   if (snapshot.rehabPlanMetrics.length > 0) {
-    parts.push(
-      `metrics ${snapshot.rehabPlanMetrics
-        .slice(0, 4)
-        .map((m) => `${m.displayName} ${m.baselineValue ?? '—'}→${m.targetValue ?? '—'}`)
-        .join(', ')}`,
-    );
+    parts.push(`${snapshot.rehabPlanMetrics.length} plan metric targets`);
   }
   if (snapshot.latestUc3TrajectoryResult) {
     const r = snapshot.latestUc3TrajectoryResult;
-    parts.push(`latest ${r.eventType} sev=${r.severity}`);
+    parts.push(`eval ${r.eventType} sev=${r.severity}`);
   }
   return parts.length > 0 ? `UC3: ${parts.join(' · ')}` : 'UC3: present, no detail yet';
 }

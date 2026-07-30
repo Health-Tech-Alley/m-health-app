@@ -67,6 +67,137 @@ describe('prepareSlmTurn', () => {
     expect(prepared.userContent).toBe('What exercise is most important?');
   });
 
+  it('injects local data locator (locations only) into main-chat turns', async () => {
+    const snapshot = {
+      therapyContractPresent: true,
+      rehabExerciseAssignments: [],
+      rehabPlanMetrics: [],
+      rehabDailyEntries: [],
+      todayDailyCareEntry: {
+        entryId: 'd1',
+        patientId: 'p1',
+        entryDate: '2026-07-27',
+        therapyCompleted: true,
+        setsCompleted: 2,
+        recommendedSets: 2,
+        exerciseRepetitions: 15,
+        caregiverConcern: false,
+        createdAt: '2026-07-27T00:00:00.000Z',
+        updatedAt: '2026-07-27T00:00:00.000Z',
+      },
+      medications: [],
+      conditions: [],
+      comorbidities: [],
+      symptoms: [],
+      patient: {
+        patientId: 'p1',
+        name: 'James',
+        preferredName: 'James',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      caregiver: null,
+      primaryCondition: null,
+      pendingReviewConditions: [],
+      wearable: null,
+      medicationCandidates: [],
+      medicationConfirmationRequirements: {},
+      functionalObservations: [],
+      thresholds: [],
+      carePlan: null,
+      carePlans: [],
+      latestUc3TrajectoryResult: null,
+      latestUc4Run: null,
+      latestUc4PriorityCards: [],
+      recentUc4CaregiverResponses: [],
+      careContextItems: [],
+      timelineEvents: [],
+      carePlanGoals: [],
+      knowledgeStats: { total: 0, bySource: {} },
+      enrichmentStats: { total: 0, bySource: {} },
+      bundlePending: false,
+      bundleStatus: { state: 'complete', chunksAdded: 0 },
+      activeAdcpVersion: null,
+      pendingPlanProposals: [],
+      safetyNotes: '',
+      lastRefreshedAt: '2026-07-27T00:00:00.000Z',
+    } as never;
+
+    const prepared = await prepareSlmTurn({
+      userText: 'Where are my therapy logs?',
+      snapshot,
+      retriever: null,
+      forceDeep: true,
+      skipNlu: true,
+      toolsOverride: [],
+      logTag: 'test-main-locator',
+    });
+
+    expect(prepared.systemContext).toContain('LOCAL DATA MAP');
+    expect(prepared.systemContext).toContain('daily_care_entries');
+    expect(prepared.systemContext).toContain('health_samples');
+    expect(prepared.systemContext).not.toContain('reps 15');
+  });
+
+  it('does not inject locator when extraSystemContext is already set', async () => {
+    const snapshot = {
+      therapyContractPresent: true,
+      rehabExerciseAssignments: [],
+      rehabPlanMetrics: [],
+      rehabDailyEntries: [],
+      todayDailyCareEntry: null,
+      medications: [],
+      conditions: [],
+      comorbidities: [],
+      symptoms: [],
+      patient: {
+        patientId: 'p1',
+        name: 'James',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      caregiver: null,
+      primaryCondition: null,
+      pendingReviewConditions: [],
+      wearable: null,
+      medicationCandidates: [],
+      medicationConfirmationRequirements: {},
+      functionalObservations: [],
+      thresholds: [],
+      carePlan: null,
+      carePlans: [],
+      latestUc3TrajectoryResult: null,
+      latestUc4Run: null,
+      latestUc4PriorityCards: [],
+      recentUc4CaregiverResponses: [],
+      careContextItems: [],
+      timelineEvents: [],
+      carePlanGoals: [],
+      knowledgeStats: { total: 0, bySource: {} },
+      enrichmentStats: { total: 0, bySource: {} },
+      bundlePending: false,
+      bundleStatus: { state: 'complete', chunksAdded: 0 },
+      activeAdcpVersion: null,
+      pendingPlanProposals: [],
+      safetyNotes: '',
+      lastRefreshedAt: '2026-07-27T00:00:00.000Z',
+    } as never;
+
+    const prepared = await prepareSlmTurn({
+      userText: 'Explain',
+      snapshot,
+      retriever: null,
+      forceDeep: true,
+      skipNlu: true,
+      toolsOverride: [],
+      extraSystemContext: 'Custom in-card only',
+      logTag: 'test-no-double',
+    });
+
+    expect(prepared.systemContext).toContain('Custom in-card only');
+    expect(prepared.systemContext).not.toContain('LOCAL DATA MAP');
+  });
+
   it('does not fetch on-demand med labels without NLU med entities', async () => {
     mockFetchOnDemand.mockClear();
     await prepareSlmTurn({

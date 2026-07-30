@@ -270,6 +270,8 @@ export function getDailyCareEntries(
   const db = getDatabase();
   const limit = options.limit ?? 30;
   const until = options.until ?? todayIsoDate();
+  // Always take the most recent rows in-range (DESC + limit), then sort ASC
+  // for consumers. ASC+limit previously dropped today's logs on long windows.
   const rows = options.since
     ? db.getAllSync<DailyCareEntryRow>(
         `SELECT entry_id AS entryId, patient_id AS patientId, care_plan_id AS carePlanId,
@@ -291,7 +293,7 @@ export function getDailyCareEntries(
                 notes, created_at AS createdAt, updated_at AS updatedAt
          FROM daily_care_entries
          WHERE patient_id = ? AND entry_date >= ? AND entry_date <= ?
-         ORDER BY entry_date ASC
+         ORDER BY entry_date DESC
          LIMIT ?;`,
         patientId,
         options.since,

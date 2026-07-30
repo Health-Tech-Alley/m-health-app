@@ -100,10 +100,15 @@ function addDays(dateOnly: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-function minDateOnly(a: string, b: string): string {
-  return a <= b ? a : b;
+function maxDateOnly(a: string, b: string): string {
+  return a >= b ? a : b;
 }
 
+/**
+ * Recent daily-care window for UC3. Always includes today so a caregiver can
+ * log after a fixture plan end date, and prefers the last N days rather than
+ * freezing the window at a stale periodEnd.
+ */
 function getRehabDailyEntryWindow(carePlan: CarePlan | null): {
   since: string;
   until: string;
@@ -111,18 +116,11 @@ function getRehabDailyEntryWindow(carePlan: CarePlan | null): {
 } {
   const today = new Date().toISOString().slice(0, 10);
   const planStart = toDateOnly(carePlan?.periodStart ?? carePlan?.effectiveDate);
-  const planEnd = toDateOnly(carePlan?.periodEnd);
-
-  if (planStart) {
-    return {
-      since: planStart,
-      until: planEnd ? minDateOnly(planEnd, today) : today,
-      limit: UC3_REHAB_HISTORY_DAYS,
-    };
-  }
+  const rollingSince = addDays(today, -(UC3_REHAB_HISTORY_DAYS - 1));
+  const since = planStart ? maxDateOnly(planStart, rollingSince) : rollingSince;
 
   return {
-    since: addDays(today, -(UC3_REHAB_HISTORY_DAYS - 1)),
+    since,
     until: today,
     limit: UC3_REHAB_HISTORY_DAYS,
   };

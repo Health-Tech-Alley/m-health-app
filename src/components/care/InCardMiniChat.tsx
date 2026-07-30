@@ -26,7 +26,10 @@ import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { ObservationPicker } from '@/components/ObservationPicker';
 import { AppTheme } from '@/constants/theme';
 import { useOrchestratorRetriever } from '@/contexts/orchestrator-context';
-import { usePatientRecord } from '@/contexts/patient-record-context';
+import {
+  getCurrentPatientSnapshot,
+  usePatientRecord,
+} from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
@@ -253,18 +256,21 @@ export function InCardMiniChat({
       const allowDevNlu =
         __DEV__ && isDeveloper && settings.nluDevelopmentFallback === true;
       const useUc3Therapy = contextProfile === 'uc3_therapy';
+      // Prefer the latest store snapshot so metrics entered just before Explain
+      // are visible (hook snapshot can lag one render behind refresh()).
+      const liveSnapshot = getCurrentPatientSnapshot() ?? snapshot;
       // UC3: snapshot already has exercises/meds — skip NLU (avoids TFLite
       // failures blocking the turn) and drop tools/plan-RAG to protect n_ctx.
       const prepared = await prepareSlmTurn({
         userText: trimmed,
-        snapshot,
+        snapshot: liveSnapshot,
         retriever: useUc3Therapy ? null : retriever,
         forceDeep: true,
         allowDevelopmentNluFallback: allowDevNlu,
         skipNlu: useUc3Therapy,
         toolsOverride: useUc3Therapy ? [] : undefined,
         extraSystemContext: useUc3Therapy
-          ? buildUc3TherapySystemContext(snapshot)
+          ? buildUc3TherapySystemContext(liveSnapshot)
           : undefined,
         logTag: 'InCardMiniChat',
       });

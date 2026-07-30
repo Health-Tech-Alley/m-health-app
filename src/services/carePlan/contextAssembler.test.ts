@@ -97,4 +97,28 @@ describe('contextAssembler compact prompts', () => {
     expect(text).toContain('Aspirin');
     expect(text).toMatch(/UC4|Watch fatigue/);
   });
+
+  it('UC3 snippet is presence/locator only, not metric dumps', () => {
+    const ctx = buildPromptContext(
+      snap({
+        therapyContractPresent: true,
+        todayDailyCareEntry: {
+          entryId: 'e2',
+          patientId: 'p1',
+          entryDate: '2026-07-27',
+          therapyCompleted: true,
+          setsCompleted: 2,
+          recommendedSets: 2,
+          exerciseRepetitions: 14,
+          caregiverConcern: false,
+          createdAt: '2026-07-27T00:00:00.000Z',
+          updatedAt: '2026-07-27T00:00:00.000Z',
+        },
+        rehabDailyEntries: [],
+      }),
+      'explain_uc3_result',
+    );
+    expect(ctx.uc3Snippet).toContain('daily_care_entries');
+    expect(ctx.uc3Snippet).not.toContain('reps 14');
+  });
 });
