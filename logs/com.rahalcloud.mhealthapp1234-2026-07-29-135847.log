@@ -1,0 +1,686 @@
+2026-07-29T17:58:47.077Z [INFO]  FileLogger configured with default dir
+2026-07-29T17:58:47.077Z [INFO]  Logger test entry
+2026-07-29T17:58:47.078Z [INFO]  Default dir paths: [ '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135846.log' ]
+2026-07-29T17:58:58.099Z [INFO]  FileLogger configured with default dir
+2026-07-29T17:58:58.099Z [INFO]  Logger test entry
+2026-07-29T17:58:58.182Z [INFO]  Default dir paths: [ '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+  '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135846.log' ]
+2026-07-29T17:58:58.188Z [INFO]  [DEBUG] isRealHealth: true
+2026-07-29T17:58:58.189Z [INFO]  [DEBUG] latest respiratory_rate in SQLite: null
+2026-07-29T17:58:58.190Z [INFO]  [DEBUG] latest heart_rate in SQLite: null
+2026-07-29T17:58:58.194Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T17:58:58.194Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T17:58:58.209Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T17:58:58.209Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T17:58:58.218Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T17:58:58.221Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 1 samples
+2026-07-29T17:58:58.221Z [WARN]  InteractionManager has been deprecated and will be removed in a future release. Please refactor long tasks into smaller ones, and  use 'requestIdleCallback' instead.
+2026-07-29T17:58:58.224Z [INFO]  [AppleHealthSource] Persisting sample: {"sampleId":"apple-health-heart_rate-2026-07-29T17:49:37.824Z-SourceProxy","patientId":"default-patient","source":"apple-health","type":"heart_rate","value":77.00000000000001,"unit":"count/min","recordedAt":"2026-07-29T17:49:37.824Z","receivedAt":"2026-07-29T17:58:58.221Z","metadataJson":"{\"hkSource\":\"SourceProxy\",\"hkUuid\":\"407EE71B-EB8C-4DCC-82B7-EA3C678B9EBF\"}"}
+2026-07-29T17:58:58.228Z [INFO]  [Orchestrator] Received vitals sample { patient: '...atient',
+  type: 'heart_rate',
+  value: 77.00000000000001,
+  unit: 'count/min',
+  source: 'apple-health',
+  timestamp: '2026-07-29T17:49:37.824Z' }
+2026-07-29T17:58:58.235Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T17:58:58.236Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T17:58:58.237Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T17:58:58.238Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T17:58:58.239Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T17:58:58.240Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T17:58:58.241Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T17:58:58.242Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T17:58:58.243Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T17:58:58.244Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 1 samples
+2026-07-29T17:58:58.244Z [INFO]  [AppleHealthSource] Persisting sample: {"sampleId":"apple-health-flights_climbed-2026-07-29T17:42:02.414Z-SourceProxy","patientId":"default-patient","source":"apple-health","type":"flights_climbed","value":1,"unit":"count","recordedAt":"2026-07-29T17:42:02.414Z","receivedAt":"2026-07-29T17:58:58.244Z","metadataJson":"{\"hkSource\":\"SourceProxy\",\"hkUuid\":\"F81237A7-E765-4942-89A0-F84E42EB5A9F\"}"}
+2026-07-29T17:58:58.245Z [INFO]  [Orchestrator] Received vitals sample { patient: '...atient',
+  type: 'flights_climbed',
+  value: 1,
+  unit: 'count',
+  source: 'apple-health',
+  timestamp: '2026-07-29T17:42:02.414Z' }
+2026-07-29T17:58:58.752Z [INFO]  [Orchestrator] Flushing vitals batch { patient: '...atient', count: 2 }
+2026-07-29T17:58:58.809Z [INFO]  [DEBUG] Weekly vitals updated: 2 readings for patient default-patient
+2026-07-29T17:58:58.879Z [INFO]  [DEBUG] Weekly vitals updated: 2 readings for patient default-patient
+2026-07-29T17:58:58.896Z [INFO]  [AppleHealthSource] Publishing to bus instance: { handlers: {} }
+2026-07-29T17:58:58.897Z [INFO]  [Orchestrator] Received vitals sample { patient: '...atient',
+  type: 'heart_rate',
+  value: 77.00000000000001,
+  unit: 'count/min',
+  source: 'apple-health',
+  timestamp: '2026-07-29T17:49:37.824Z' }
+2026-07-29T17:58:58.901Z [INFO]  [AppleHealthSource] Publishing to bus instance: { handlers: {} }
+2026-07-29T17:58:58.901Z [INFO]  [Orchestrator] Received vitals sample { patient: '...atient',
+  type: 'flights_climbed',
+  value: 1,
+  unit: 'count',
+  source: 'apple-health',
+  timestamp: '2026-07-29T17:42:02.414Z' }
+2026-07-29T17:58:59.412Z [INFO]  [Orchestrator] Flushing vitals batch { patient: '...atient', count: 2 }
+2026-07-29T17:58:59.441Z [INFO]  [DEBUG] Weekly vitals updated: 2 readings for patient default-patient
+2026-07-29T17:59:00.034Z [INFO]  [BertTokenizer] Loaded vocab (30522 tokens) from tokenizer.json
+2026-07-29T17:59:00.037Z [INFO]  [TfliteEmbedder] Trying fp32 delegates=[cpu]…
+2026-07-29T17:59:00.037Z [INFO]  Loading Tensorflow Lite Model 8
+2026-07-29T17:59:00.037Z [INFO]  Resolved Model path: http://192.168.1.151:8081/assets/?unstable_path=.%2Fassets%2Fmodels%2Fnlu/mdbr-leaf-ir.tflite?platform=ios&hash=3c7f016bdbf1c406b5d723f113ca992c
+2026-07-29T17:59:01.925Z [INFO]  [ML] Evaluating vitals_sample for patientId= ...atient sampleType= flights_climbed
+2026-07-29T17:59:01.926Z [INFO]  [ML] Model loaded: true threshold: 1.1298478841781616
+2026-07-29T17:59:01.934Z [INFO]  [ML] Wearable readiness { patient: '...atient',
+  qualifyingTypes: [ 'heart_rate' ],
+  requiredMinimum: 2,
+  sources: [ 'apple-health' ],
+  reason: 'insufficient_sample_types' }
+2026-07-29T17:59:03.899Z [INFO]  [TfliteEmbedder] Inputs: [ { name: 'input_ids', dataType: 'int64', shape: [ 1, 512 ] },
+  { name: 'attention_mask', dataType: 'int64', shape: [ 1, 512 ] } ]
+2026-07-29T17:59:03.899Z [INFO]  [TfliteEmbedder] Outputs: [ { name: 'sentence_embedding',
+    dataType: 'float32',
+    shape: [ 1, 768 ] } ]
+2026-07-29T17:59:04.171Z [INFO]  [TfliteEmbedder] Probe OK packMode=i64_dataview
+2026-07-29T17:59:04.171Z [INFO]  [TfliteEmbedder] Ready leaf-ir fp32/cpu pack=i64_dataview 768-d in 4258ms
+2026-07-29T17:59:08.929Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:08.961Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:11.020Z [INFO]  [DEBUG] isRealHealth: false
+2026-07-29T17:59:11.021Z [INFO]  [DEBUG] latest respiratory_rate in SQLite: null
+2026-07-29T17:59:11.023Z [INFO]  [DEBUG] latest heart_rate in SQLite: { sampleId: 'obs-ea72f2ee5c88',
+  patientId: '68262',
+  source: 'fhir',
+  type: 'heart_rate',
+  value: 90.44,
+  valueJson: null,
+  unit: 'beats/min',
+  recordedAt: '2026-06-15T13:45:00+00:00',
+  receivedAt: '2026-07-29T17:59:08.925Z',
+  metadataJson: null,
+  sourceDocId: null }
+2026-07-29T17:59:11.024Z [INFO]  [DEBUG] Weekly vitals updated: 0 readings for patient 68262
+2026-07-29T17:59:11.027Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:11.087Z [INFO]  [DEBUG] isRealHealth: true
+2026-07-29T17:59:11.088Z [INFO]  [DEBUG] latest respiratory_rate in SQLite: null
+2026-07-29T17:59:11.090Z [INFO]  [DEBUG] latest heart_rate in SQLite: { sampleId: 'obs-ea72f2ee5c88',
+  patientId: '68262',
+  source: 'fhir',
+  type: 'heart_rate',
+  value: 90.44,
+  valueJson: null,
+  unit: 'beats/min',
+  recordedAt: '2026-06-15T13:45:00+00:00',
+  receivedAt: '2026-07-29T17:59:08.925Z',
+  metadataJson: null,
+  sourceDocId: null }
+2026-07-29T17:59:11.092Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T17:59:11.092Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T17:59:11.104Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T17:59:11.104Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T17:59:11.110Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T17:59:11.111Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-29T17:59:11.112Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T17:59:11.113Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T17:59:11.114Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T17:59:11.115Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T17:59:11.116Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T17:59:11.117Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T17:59:11.117Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T17:59:11.118Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T17:59:11.119Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T17:59:11.120Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T17:59:12.263Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:12.275Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:12.288Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:14.234Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:14.631Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:15.201Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:16.168Z [INFO]  [pack/meds_base] names=3 rawSections=306 rawChunks=306 chars≈230656 liveOk=3 liveFail=0 ms=4308 stoppedEarly=false fixtureMode=false
+2026-07-29T17:59:16.285Z [INFO]  [pack-runner] meds_base wrote 462 rows ≈242KB text
+2026-07-29T17:59:16.288Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:18.099Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:18.316Z [INFO]  [notificationService] dispatchImmediate { patientId: '68262',
+  scope: 'care_task',
+  triggerRef: 'uc4:68262:2026-07-29T17:59:18.295Z',
+  title: 'New care focus checklist available',
+  body: 'Track bowel/bladder routine with discomfort context',
+  severity: 1,
+  bypassDnd: false } id: notif-ms6e2t63-jgwsfe
+2026-07-29T17:59:18.319Z [INFO]  [notificationService] dispatchImmediate: scheduling via expo-notifications
+2026-07-29T17:59:18.324Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:18.425Z [INFO]  [notificationService] dispatchImmediate: scheduled, updating delivered timestamp notif-ms6e2t63-jgwsfe 2026-07-29T17:59:18.315Z
+2026-07-29T17:59:18.446Z [INFO]  [pack/ddi] normalized 1/3 meds in 2026ms
+2026-07-29T17:59:18.446Z [INFO]  [pack/ddi] chunks=15 live=true medSeeds=3
+2026-07-29T17:59:18.451Z [INFO]  [pack-runner] ddi wrote 15 rows ≈3KB text
+2026-07-29T17:59:18.592Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:19.561Z [INFO]  [pack/openfda] names=3 chunks=3 chars≈769 ok=0 fail=3 live=true
+2026-07-29T17:59:19.574Z [INFO]  [pack-runner] openfda wrote 3 rows ≈1KB text
+2026-07-29T17:59:25.069Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:25.150Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:26.306Z [WARN]  [pack/medlineplus] Empty live topic for R63.4 (Abnormal weight loss)
+2026-07-29T17:59:26.501Z [WARN]  [pack/medlineplus] Empty live topic for M79.3 (Panniculitis / soft tissue)
+2026-07-29T17:59:27.334Z [WARN]  [pack/medlineplus] Empty live topic for Z99.11 (Dependence on respirator)
+2026-07-29T17:59:27.591Z [INFO]  [pack/medlineplus] seeds=44 liveOk=41 liveFail=3 chunks=61 chars≈121951 fixtureMode=false
+2026-07-29T17:59:27.681Z [INFO]  [pack-runner] medlineplus wrote 186 rows ≈129KB text
+2026-07-29T17:59:27.795Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:28.079Z [INFO]  [pack-db] VACUUM complete
+2026-07-29T17:59:30.311Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:30.404Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:30.417Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:30.429Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:35.031Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:38.807Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:42.607Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:46.234Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:46.287Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:50.463Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:54.362Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T17:59:58.331Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:00:05.316Z [INFO]  FileLogger configured with default dir
+2026-07-29T18:00:05.316Z [INFO]  Logger test entry
+2026-07-29T18:00:05.397Z [INFO]  Default dir paths: [ '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+  '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135846.log' ]
+2026-07-29T18:00:05.404Z [INFO]  [DEBUG] isRealHealth: true
+2026-07-29T18:00:05.405Z [INFO]  [DEBUG] latest respiratory_rate in SQLite: null
+2026-07-29T18:00:05.406Z [INFO]  [DEBUG] latest heart_rate in SQLite: { sampleId: 'obs-ea72f2ee5c88',
+  patientId: '68262',
+  source: 'fhir',
+  type: 'heart_rate',
+  value: 90.44,
+  valueJson: null,
+  unit: 'beats/min',
+  recordedAt: '2026-06-15T13:45:00+00:00',
+  receivedAt: '2026-07-29T17:59:08.925Z',
+  metadataJson: null,
+  sourceDocId: null }
+2026-07-29T18:00:05.410Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:00:05.411Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:00:05.426Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:00:05.427Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:00:05.434Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:00:05.436Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:00:05.438Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 1 samples
+2026-07-29T18:00:05.438Z [WARN]  InteractionManager has been deprecated and will be removed in a future release. Please refactor long tasks into smaller ones, and  use 'requestIdleCallback' instead.
+2026-07-29T18:00:05.441Z [INFO]  [AppleHealthSource] Persisting sample: {"sampleId":"apple-health-heart_rate-2026-07-29T17:55:01.574Z-SourceProxy","patientId":"68262","source":"apple-health","type":"heart_rate","value":80,"unit":"count/min","recordedAt":"2026-07-29T17:55:01.574Z","receivedAt":"2026-07-29T18:00:05.438Z","metadataJson":"{\"hkSource\":\"SourceProxy\",\"hkUuid\":\"AC09B60D-B9EE-46C7-B9C9-11DD2C9F3C0D\"}"}
+2026-07-29T18:00:05.445Z [INFO]  [Orchestrator] Received vitals sample { patient: '68262',
+  type: 'heart_rate',
+  value: 80,
+  unit: 'count/min',
+  source: 'apple-health',
+  timestamp: '2026-07-29T17:55:01.574Z' }
+2026-07-29T18:00:05.452Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:00:05.453Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:00:05.454Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:00:05.455Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:00:05.456Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:00:05.457Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:00:05.458Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:00:05.459Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:00:05.460Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:00:05.715Z [INFO]  [DEBUG] Weekly vitals updated: 1 readings for patient 68262
+2026-07-29T18:00:05.734Z [INFO]  [AppleHealthSource] Publishing to bus instance: { handlers: {} }
+2026-07-29T18:00:05.735Z [INFO]  [Orchestrator] Received vitals sample { patient: '68262',
+  type: 'heart_rate',
+  value: 80,
+  unit: 'count/min',
+  source: 'apple-health',
+  timestamp: '2026-07-29T17:55:01.574Z' }
+2026-07-29T18:00:05.956Z [INFO]  [Orchestrator] Flushing vitals batch { patient: '68262', count: 2 }
+2026-07-29T18:00:05.983Z [INFO]  [DEBUG] Weekly vitals updated: 1 readings for patient 68262
+2026-07-29T18:00:07.034Z [INFO]  [BertTokenizer] Loaded vocab (30522 tokens) from tokenizer.json
+2026-07-29T18:00:07.037Z [INFO]  [TfliteEmbedder] Trying fp32 delegates=[cpu]…
+2026-07-29T18:00:07.037Z [INFO]  Loading Tensorflow Lite Model 8
+2026-07-29T18:00:07.037Z [INFO]  Resolved Model path: http://192.168.1.151:8081/assets/?unstable_path=.%2Fassets%2Fmodels%2Fnlu/mdbr-leaf-ir.tflite?platform=ios&hash=3c7f016bdbf1c406b5d723f113ca992c
+2026-07-29T18:00:08.764Z [INFO]  [ML] Evaluating vitals_sample for patientId= 68262 sampleType= heart_rate
+2026-07-29T18:00:08.765Z [INFO]  [ML] Model loaded: true threshold: 1.1298478841781616
+2026-07-29T18:00:08.773Z [INFO]  [ML] Wearable readiness { patient: '68262',
+  qualifyingTypes: [ 'heart_rate' ],
+  requiredMinimum: 2,
+  sources: [ 'apple-health' ],
+  reason: 'insufficient_sample_types' }
+2026-07-29T18:00:10.840Z [INFO]  [TfliteEmbedder] Inputs: [ { name: 'input_ids', dataType: 'int64', shape: [ 1, 512 ] },
+  { name: 'attention_mask', dataType: 'int64', shape: [ 1, 512 ] } ]
+2026-07-29T18:00:10.841Z [INFO]  [TfliteEmbedder] Outputs: [ { name: 'sentence_embedding',
+    dataType: 'float32',
+    shape: [ 1, 768 ] } ]
+2026-07-29T18:00:11.114Z [INFO]  [TfliteEmbedder] Probe OK packMode=i64_dataview
+2026-07-29T18:00:11.114Z [INFO]  [TfliteEmbedder] Ready leaf-ir fp32/cpu pack=i64_dataview 768-d in 4269ms
+2026-07-29T18:00:11.719Z [INFO]  FileLogger loaded: { _logLevel: 0,
+  _formatter: [Function: defaultFormatter],
+  _originalConsole: 
+   { debug: [Function],
+     log: [Function],
+     info: [Function],
+     warn: [Function],
+     error: [Function] } }
+2026-07-29T18:00:11.721Z [INFO]  Log file paths: [ '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+  '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135846.log' ]
+2026-07-29T18:00:11.724Z [INFO]  Log file infos: [ { path: '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+    name: 'com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+    size: 21526,
+    modificationTime: 1785348011720 },
+  { path: '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135846.log',
+    name: 'com.rahalcloud.mhealthapp1234-2026-07-29-135846.log',
+    size: 178,
+    modificationTime: 1785347926509 } ]
+2026-07-29T18:01:05.417Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute at 2:01:05 PM ===
+2026-07-29T18:01:05.427Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:01:05.428Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:01:05.444Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:01:05.446Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-29T18:01:05.448Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:01:05.450Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:01:05.451Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:01:05.453Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:01:05.455Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:01:05.456Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:01:05.458Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:01:05.459Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:01:05.461Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:01:05.462Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:01:55.988Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:01:56.021Z [INFO]  [DEBUG] Weekly vitals updated: 1 readings for patient 68262
+2026-07-29T18:02:05.424Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute at 2:02:05 PM ===
+2026-07-29T18:02:05.437Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:02:05.438Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:02:05.451Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:02:05.454Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-29T18:02:05.457Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:02:05.459Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:02:05.461Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:02:05.463Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:02:05.465Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:02:05.467Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:02:05.468Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:02:05.470Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:02:05.472Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:02:05.473Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:02:05.964Z [INFO]  [LlamaRnProvider] Loading model from: file:///var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Documents/models/gemma-4-E2B-it-Q4_K_M.gguf
+2026-07-29T18:02:07.558Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:02:07.607Z [INFO]  [DEBUG] Weekly vitals updated: 1 readings for patient 68262
+2026-07-29T18:02:09.980Z [INFO]  [LlamaRnProvider] Load already in progress; awaiting single-flight
+2026-07-29T18:02:54.835Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:02:54.886Z [INFO]  [DEBUG] Weekly vitals updated: 1 readings for patient 68262
+2026-07-29T18:02:59.324Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:02:59.374Z [INFO]  [DEBUG] Weekly vitals updated: 1 readings for patient 68262
+2026-07-29T18:03:02.342Z [INFO]  FileLogger loaded: { _logLevel: 0,
+  _formatter: [Function: defaultFormatter],
+  _originalConsole: 
+   { debug: [Function],
+     log: [Function],
+     info: [Function],
+     warn: [Function],
+     error: [Function] } }
+2026-07-29T18:03:02.344Z [INFO]  Log file paths: [ '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+  '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135846.log' ]
+2026-07-29T18:03:02.347Z [INFO]  Log file infos: [ { path: '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+    name: 'com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+    size: 27947,
+    modificationTime: 1785348182345 },
+  { path: '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135846.log',
+    name: 'com.rahalcloud.mhealthapp1234-2026-07-29-135846.log',
+    size: 178,
+    modificationTime: 1785347926509 } ]
+2026-07-29T18:03:05.425Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute at 2:03:05 PM ===
+2026-07-29T18:03:05.437Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:03:05.438Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:03:05.450Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:03:05.453Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-29T18:03:05.456Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:03:05.458Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:03:05.460Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:03:05.462Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:03:05.463Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:03:05.465Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:03:05.467Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:03:05.468Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:03:05.470Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:03:05.471Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:03:25.669Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:03:25.671Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:03:25.703Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:03:25.718Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:03:25.720Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:03:25.721Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:03:25.722Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:03:25.723Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-29T18:03:25.724Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:03:25.725Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:03:25.726Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:03:25.727Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:03:25.728Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:03:25.728Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:03:25.729Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:03:25.730Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:03:50.573Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:03:50.573Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:03:50.591Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:03:50.603Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:03:50.609Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-29T18:03:50.620Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:03:50.621Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:03:50.623Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:03:50.624Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:03:50.626Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:03:50.629Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:03:50.630Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:03:50.631Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:03:50.632Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:03:50.639Z [INFO]  [AppleHealthSource] incremental sync for steps returned 1 samples
+2026-07-29T18:03:50.640Z [INFO]  [AppleHealthSource] Persisting sample: {"sampleId":"apple-health-steps-2026-07-29T17:51:30.850Z-SourceProxy","patientId":"68262","source":"apple-health","type":"steps","value":11,"unit":"count","recordedAt":"2026-07-29T17:51:30.850Z","receivedAt":"2026-07-29T18:03:50.639Z","metadataJson":"{\"hkSource\":\"SourceProxy\",\"hkUuid\":\"795EAD62-1896-4BE9-A628-4B1DFAD366B9\"}"}
+2026-07-29T18:03:50.642Z [INFO]  [Orchestrator] Received vitals sample { patient: '68262',
+  type: 'steps',
+  value: 11,
+  unit: 'count',
+  source: 'apple-health',
+  timestamp: '2026-07-29T17:51:30.850Z' }
+2026-07-29T18:03:50.664Z [INFO]  [DEBUG] Weekly vitals updated: 2 readings for patient 68262
+2026-07-29T18:03:50.666Z [INFO]  [AppleHealthSource] incremental sync for distance returned 1 samples
+2026-07-29T18:03:50.667Z [INFO]  [AppleHealthSource] Persisting sample: {"sampleId":"apple-health-distance-2026-07-29T17:51:30.850Z-SourceProxy","patientId":"68262","source":"apple-health","type":"distance","value":0.005228250327921808,"unit":"mi","recordedAt":"2026-07-29T17:51:30.850Z","receivedAt":"2026-07-29T18:03:50.666Z","metadataJson":"{\"hkSource\":\"SourceProxy\",\"hkUuid\":\"B96AB4F5-87AE-4051-B430-00D57D1AD3F3\"}"}
+2026-07-29T18:03:50.668Z [INFO]  [Orchestrator] Received vitals sample { patient: '68262',
+  type: 'distance',
+  value: 0.005228250327921808,
+  unit: 'mi',
+  source: 'apple-health',
+  timestamp: '2026-07-29T17:51:30.850Z' }
+2026-07-29T18:03:50.676Z [INFO]  [DEBUG] Weekly vitals updated: 3 readings for patient 68262
+2026-07-29T18:03:50.677Z [INFO]  [AppleHealthSource] Publishing to bus instance: { handlers: {} }
+2026-07-29T18:03:50.677Z [INFO]  [Orchestrator] Received vitals sample { patient: '68262',
+  type: 'steps',
+  value: 11,
+  unit: 'count',
+  source: 'apple-health',
+  timestamp: '2026-07-29T17:51:30.850Z' }
+2026-07-29T18:03:50.680Z [INFO]  [AppleHealthSource] Publishing to bus instance: { handlers: {} }
+2026-07-29T18:03:50.680Z [INFO]  [Orchestrator] Received vitals sample { patient: '68262',
+  type: 'distance',
+  value: 0.005228250327921808,
+  unit: 'mi',
+  source: 'apple-health',
+  timestamp: '2026-07-29T17:51:30.850Z' }
+2026-07-29T18:03:51.160Z [INFO]  [Orchestrator] Flushing vitals batch { patient: '68262', count: 4 }
+2026-07-29T18:03:51.173Z [INFO]  [DEBUG] Weekly vitals updated: 3 readings for patient 68262
+2026-07-29T18:03:53.684Z [INFO]  [ML] Evaluating vitals_sample for patientId= 68262 sampleType= distance
+2026-07-29T18:03:53.685Z [INFO]  Loading Tensorflow Lite Model 6
+2026-07-29T18:03:53.685Z [INFO]  Resolved Model path: http://192.168.1.151:8081/assets/?unstable_path=.%2Fsrc%2Fml-models%2Falert-autoencoder/tiny_uc2_autoencoder.tflite?platform=ios&hash=e664d4bdb0f713f9921db88cef48e556
+2026-07-29T18:03:53.808Z [INFO]  [AlertAutoencoder] Model loaded successfully
+2026-07-29T18:03:53.809Z [INFO]  [AlertAutoencoder] Inputs: [ { name: 'serving_default_features:0',
+    dataType: 'float32',
+    shape: [ 1, 18 ] } ]
+2026-07-29T18:03:53.810Z [INFO]  [AlertAutoencoder] Outputs: [ { name: 'StatefulPartitionedCall_1:0',
+    dataType: 'float32',
+    shape: [ 1, 18 ] } ]
+2026-07-29T18:03:53.810Z [INFO]  [ML] Model loaded: true threshold: 1.1298478841781616
+2026-07-29T18:03:53.810Z [INFO]  [ML] Wearable readiness { patient: '68262',
+  qualifyingTypes: [ 'heart_rate' ],
+  requiredMinimum: 2,
+  sources: [ 'apple-health' ],
+  reason: 'insufficient_sample_types' }
+2026-07-29T18:04:01.047Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:04:01.106Z [INFO]  [DEBUG] Weekly vitals updated: 2 readings for patient 68262
+2026-07-29T18:04:13.984Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:04:14.034Z [INFO]  [DEBUG] Weekly vitals updated: 2 readings for patient 68262
+2026-07-29T18:04:22.731Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:04:22.744Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:04:22.842Z [INFO]  [DEBUG] Weekly vitals updated: 2 readings for patient 68262
+2026-07-29T18:04:22.848Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:04:22.907Z [INFO]  [DEBUG] Weekly vitals updated: 2 readings for patient 68262
+2026-07-29T18:04:23.425Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:04:23.554Z [INFO]  [DEBUG] Weekly vitals updated: 2 readings for patient 68262
+2026-07-29T18:04:23.622Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:04:23.667Z [INFO]  [DEBUG] Weekly vitals updated: 2 readings for patient 68262
+2026-07-29T18:04:28.128Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:04:28.187Z [INFO]  [DEBUG] Weekly vitals updated: 2 readings for patient 68262
+2026-07-29T18:04:46.492Z [INFO]  [notificationService] dispatchImmediate { patientId: '68262',
+  scope: 'anomaly',
+  title: 'Appointment Requested',
+  body: 'Appointment requested with athenahealth',
+  severity: 1 } id: notif-ms6e9ue4-nbqka1
+2026-07-29T18:04:46.506Z [INFO]  [notificationService] dispatchImmediate: scheduling via expo-notifications
+2026-07-29T18:04:46.576Z [INFO]  [notificationService] dispatchImmediate: scheduled, updating delivered timestamp notif-ms6e9ue4-nbqka1 2026-07-29T18:04:46.492Z
+2026-07-29T18:04:50.583Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute at 2:04:50 PM ===
+2026-07-29T18:04:50.596Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:04:50.597Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:04:50.612Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:04:50.614Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:04:50.617Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-29T18:04:50.619Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:04:50.621Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:04:50.623Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:04:50.624Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:04:50.626Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:04:50.628Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:04:50.629Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:04:50.631Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:04:50.633Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:05:50.592Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute at 2:05:50 PM ===
+2026-07-29T18:05:50.603Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:05:50.604Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:05:50.617Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:05:50.620Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-29T18:05:50.622Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:05:50.624Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:05:50.626Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:05:50.628Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:05:50.629Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:05:50.631Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:05:50.633Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:05:50.634Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:05:50.636Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:05:50.637Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:06:17.969Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:06:17.971Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:06:18.007Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:06:18.008Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:06:18.011Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:06:18.012Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-29T18:06:18.013Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:06:18.014Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:06:18.015Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:06:18.018Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:06:18.019Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:06:18.021Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:06:18.022Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:06:18.023Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:06:18.024Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:06:18.025Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:06:27.498Z [INFO]  [notificationService] dispatchImmediate { patientId: '68262',
+  scope: 'anomaly',
+  title: 'Appointment Requested',
+  body: 'Appointment requested with athenahealth',
+  severity: 1 } id: notif-ms6ec0bu-jnxhh2
+2026-07-29T18:06:27.510Z [INFO]  [notificationService] dispatchImmediate: scheduling via expo-notifications
+2026-07-29T18:06:27.554Z [INFO]  [notificationService] dispatchImmediate: scheduled, updating delivered timestamp notif-ms6ec0bu-jnxhh2 2026-07-29T18:06:27.498Z
+2026-07-29T18:07:07.215Z [INFO]  [notificationService] dispatchImmediate { patientId: '68262',
+  scope: 'anomaly',
+  title: 'Appointment Requested',
+  body: 'Appointment requested with athenahealth',
+  severity: 1 } id: notif-ms6ecuz3-yb4e3h
+2026-07-29T18:07:07.227Z [INFO]  [notificationService] dispatchImmediate: scheduling via expo-notifications
+2026-07-29T18:07:07.270Z [INFO]  [notificationService] dispatchImmediate: scheduled, updating delivered timestamp notif-ms6ecuz3-yb4e3h 2026-07-29T18:07:07.215Z
+2026-07-29T18:07:17.972Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute at 2:07:17 PM ===
+2026-07-29T18:07:17.985Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:07:17.986Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:07:17.999Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:07:18.002Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:07:18.004Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:07:18.006Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:07:18.008Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 1 samples
+2026-07-29T18:07:18.028Z [INFO]  [DEBUG] Weekly vitals updated: 3 readings for patient 68262
+2026-07-29T18:07:18.032Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:07:18.033Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:07:18.035Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:07:18.036Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:07:18.038Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:07:18.039Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:07:18.040Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:07:18.040Z [INFO]  [AppleHealthSource] Publishing to bus instance: { handlers: {} }
+2026-07-29T18:07:18.041Z [INFO]  [Orchestrator] Received vitals sample { patient: '68262',
+  type: 'heart_rate',
+  value: 80,
+  unit: 'count/min',
+  source: 'apple-health',
+  timestamp: '2026-07-29T18:02:58.324Z' }
+2026-07-29T18:07:18.556Z [INFO]  [Orchestrator] Flushing vitals batch { patient: '68262', count: 1 }
+2026-07-29T18:07:18.583Z [INFO]  [DEBUG] Weekly vitals updated: 3 readings for patient 68262
+2026-07-29T18:07:21.046Z [INFO]  [ML] Evaluating vitals_sample for patientId= 68262 sampleType= heart_rate
+2026-07-29T18:07:21.047Z [INFO]  [ML] Model loaded: true threshold: 1.1298478841781616
+2026-07-29T18:07:21.048Z [INFO]  [ML] Wearable readiness { patient: '68262',
+  qualifyingTypes: [ 'heart_rate' ],
+  requiredMinimum: 2,
+  sources: [ 'apple-health' ],
+  reason: 'insufficient_sample_types' }
+2026-07-29T18:08:17.976Z [INFO]  [DEBUG] == Polling Apple Health for incremental sync every minute at 2:08:17 PM ===
+2026-07-29T18:08:17.989Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:08:17.990Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:08:18.006Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:08:18.008Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:08:18.010Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-29T18:08:18.012Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:08:18.014Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:08:18.016Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:08:18.018Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:08:18.019Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:08:18.021Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:08:18.022Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:08:18.024Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:08:18.026Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:08:33.621Z [INFO]  [notificationService] dispatchImmediate { patientId: '68262',
+  scope: 'anomaly',
+  title: 'Appointment booked',
+  body: 'Appointment booked with athenahealth',
+  severity: 1 } id: notif-ms6eepn8-r3d6nv
+2026-07-29T18:08:33.632Z [INFO]  [notificationService] dispatchImmediate: scheduling via expo-notifications
+2026-07-29T18:08:33.685Z [INFO]  [notificationService] dispatchImmediate: scheduled, updating delivered timestamp notif-ms6eepn8-r3d6nv 2026-07-29T18:08:33.620Z
+2026-07-29T18:08:46.510Z [INFO]  [DB] Loading patient record snapshot for patientId=68262...
+2026-07-29T18:08:46.570Z [INFO]  [DEBUG] Weekly vitals updated: 2 readings for patient 68262
+2026-07-29T18:08:50.597Z [INFO]  FileLogger loaded: { _logLevel: 0,
+  _formatter: [Function: defaultFormatter],
+  _originalConsole: 
+   { debug: [Function],
+     log: [Function],
+     info: [Function],
+     warn: [Function],
+     error: [Function] } }
+2026-07-29T18:08:50.600Z [INFO]  Log file paths: [ '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+  '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135846.log' ]
+2026-07-29T18:08:50.603Z [INFO]  Log file infos: [ { path: '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+    name: 'com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+    size: 53116,
+    modificationTime: 1785348530598 },
+  { path: '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135846.log',
+    name: 'com.rahalcloud.mhealthapp1234-2026-07-29-135846.log',
+    size: 178,
+    modificationTime: 1785347926509 } ]
+2026-07-29T18:09:09.603Z [INFO]  FileLogger configured with default dir
+2026-07-29T18:09:09.603Z [INFO]  Logger test entry
+2026-07-29T18:09:09.606Z [INFO]  Default dir paths: [ '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+  '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135846.log' ]
+2026-07-29T18:09:09.611Z [INFO]  [DEBUG] isRealHealth: true
+2026-07-29T18:09:09.612Z [INFO]  [DEBUG] latest respiratory_rate in SQLite: null
+2026-07-29T18:09:09.613Z [INFO]  [DEBUG] latest heart_rate in SQLite: { sampleId: 'apple-health-heart_rate-2026-07-29T17:55:01.574Z-SourceProxy',
+  patientId: '68262',
+  source: 'apple-health',
+  type: 'heart_rate',
+  value: 80,
+  valueJson: null,
+  unit: 'count/min',
+  recordedAt: '2026-07-29T17:55:01.574Z',
+  receivedAt: '2026-07-29T18:00:05.438Z',
+  metadataJson: '{"hkSource":"SourceProxy","hkUuid":"AC09B60D-B9EE-46C7-B9C9-11DD2C9F3C0D"}',
+  sourceDocId: null }
+2026-07-29T18:09:09.618Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:09:09.618Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:09:09.633Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:09:09.634Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:09:09.644Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:09:09.645Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-29T18:09:09.646Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:09:09.647Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:09:09.648Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:09:09.649Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:09:09.650Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:09:09.651Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:09:09.652Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:09:09.653Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:09:09.654Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:09:09.655Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:09:11.350Z [INFO]  [BertTokenizer] Loaded vocab (30522 tokens) from tokenizer.json
+2026-07-29T18:09:11.353Z [INFO]  [TfliteEmbedder] Trying fp32 delegates=[cpu]…
+2026-07-29T18:09:11.353Z [INFO]  Loading Tensorflow Lite Model 8
+2026-07-29T18:09:11.353Z [INFO]  Resolved Model path: http://192.168.1.151:8081/assets/?unstable_path=.%2Fassets%2Fmodels%2Fnlu/mdbr-leaf-ir.tflite?platform=ios&hash=3c7f016bdbf1c406b5d723f113ca992c
+2026-07-29T18:09:14.910Z [INFO]  FileLogger loaded: { _logLevel: 0,
+  _formatter: [Function: defaultFormatter],
+  _originalConsole: 
+   { debug: [Function],
+     log: [Function],
+     info: [Function],
+     warn: [Function],
+     error: [Function] } }
+2026-07-29T18:09:14.919Z [INFO]  Log file paths: [ '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+  '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135846.log' ]
+2026-07-29T18:09:14.921Z [INFO]  Log file infos: [ { path: '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+    name: 'com.rahalcloud.mhealthapp1234-2026-07-29-135847.log',
+    size: 58519,
+    modificationTime: 1785348554919 },
+  { path: '/var/mobile/Containers/Data/Application/6FB7EBD8-055C-466D-949A-3CDA358804E4/Library/Caches/Logs/com.rahalcloud.mhealthapp1234-2026-07-29-135846.log',
+    name: 'com.rahalcloud.mhealthapp1234-2026-07-29-135846.log',
+    size: 178,
+    modificationTime: 1785347926509 } ]
+2026-07-29T18:09:15.437Z [INFO]  [TfliteEmbedder] Inputs: [ { name: 'input_ids', dataType: 'int64', shape: [ 1, 512 ] },
+  { name: 'attention_mask', dataType: 'int64', shape: [ 1, 512 ] } ]
+2026-07-29T18:09:15.437Z [INFO]  [TfliteEmbedder] Outputs: [ { name: 'sentence_embedding',
+    dataType: 'float32',
+    shape: [ 1, 768 ] } ]
+2026-07-29T18:09:15.726Z [INFO]  [TfliteEmbedder] Probe OK packMode=i64_dataview
+2026-07-29T18:09:15.726Z [INFO]  [TfliteEmbedder] Ready leaf-ir fp32/cpu pack=i64_dataview 768-d in 4564ms
+2026-07-29T18:09:34.134Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:09:34.134Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:09:34.148Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:09:34.149Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:09:34.155Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:09:34.156Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:09:34.157Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:09:34.158Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 0 samples
+2026-07-29T18:09:34.159Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:09:34.161Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:09:34.162Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:09:34.163Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:09:34.165Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:09:34.166Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:09:34.168Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:09:34.169Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:10:47.475Z [WARN]  [AppleHealthSource] anchor priming failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:10:47.477Z [WARN]  [AppleHealthSource] anchor priming failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:10:47.510Z [WARN]  [AppleHealthSource] incremental sync failed for sleep: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierSleepAnalysis" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:10:47.513Z [INFO]  [AppleHealthSource] incremental sync for spo2 returned 0 samples
+2026-07-29T18:10:47.513Z [WARN]  [AppleHealthSource] incremental sync failed for coughing: [Error: QuantityTypeModule.queryQuantitySamplesWithAnchor(...): Cannot convert "HKCategoryTypeIdentifierCoughing" to enum QuantityTypeIdentifier - invalid value!]
+2026-07-29T18:10:47.514Z [INFO]  [AppleHealthSource] incremental sync for respiratory_rate returned 0 samples
+2026-07-29T18:10:47.516Z [INFO]  [AppleHealthSource] incremental sync for temperature returned 0 samples
+2026-07-29T18:10:47.520Z [INFO]  [AppleHealthSource] incremental sync for heart_rate returned 1 samples
+2026-07-29T18:10:47.520Z [WARN]  InteractionManager has been deprecated and will be removed in a future release. Please refactor long tasks into smaller ones, and  use 'requestIdleCallback' instead.
+2026-07-29T18:10:47.523Z [INFO]  [AppleHealthSource] Persisting sample: {"sampleId":"apple-health-heart_rate-2026-07-29T18:09:10.414Z-SourceProxy","patientId":"68262","source":"apple-health","type":"heart_rate","value":79,"unit":"count/min","recordedAt":"2026-07-29T18:09:10.414Z","receivedAt":"2026-07-29T18:10:47.520Z","metadataJson":"{\"hkSource\":\"SourceProxy\",\"hkUuid\":\"C7917C02-4015-4057-BCB4-FA6036B879E6\"}"}
+2026-07-29T18:10:47.530Z [INFO]  [Orchestrator] Received vitals sample { patient: '68262',
+  type: 'heart_rate',
+  value: 79,
+  unit: 'count/min',
+  source: 'apple-health',
+  timestamp: '2026-07-29T18:09:10.414Z' }
+2026-07-29T18:10:47.540Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_diastolic returned 0 samples
+2026-07-29T18:10:47.541Z [INFO]  [AppleHealthSource] incremental sync for blood_pressure_systolic returned 0 samples
+2026-07-29T18:10:47.542Z [INFO]  [AppleHealthSource] incremental sync for blood_glucose returned 0 samples
+2026-07-29T18:10:47.543Z [INFO]  [AppleHealthSource] incremental sync for weight returned 0 samples
+2026-07-29T18:10:47.544Z [INFO]  [AppleHealthSource] incremental sync for steps returned 0 samples
+2026-07-29T18:10:47.545Z [INFO]  [AppleHealthSource] incremental sync for height returned 0 samples
+2026-07-29T18:10:47.546Z [INFO]  [AppleHealthSource] incremental sync for distance returned 0 samples
+2026-07-29T18:10:47.547Z [INFO]  [AppleHealthSource] incremental sync for flights_climbed returned 0 samples
+2026-07-29T18:10:47.880Z [INFO]  [DEBUG] Weekly vitals updated: 3 readings for patient 68262
+2026-07-29T18:10:47.883Z [INFO]  [AppleHealthSource] Publishing to bus instance: { handlers: {} }
+2026-07-29T18:10:47.884Z [INFO]  [Orchestrator] Received vitals sample { patient: '68262',
+  type: 'heart_rate',
+  value: 79,
+  unit: 'count/min',
+  source: 'apple-health',
+  timestamp: '2026-07-29T18:09:10.414Z' }
+2026-07-29T18:10:48.040Z [INFO]  [Orchestrator] Flushing vitals batch { patient: '68262', count: 2 }
+2026-07-29T18:10:48.048Z [INFO]  [DEBUG] Weekly vitals updated: 3 readings for patient 68262
+2026-07-29T18:10:50.916Z [INFO]  [ML] Evaluating vitals_sample for patientId= 68262 sampleType= heart_rate
+2026-07-29T18:10:50.916Z [INFO]  [ML] Model loaded: true threshold: 1.1298478841781616
+2026-07-29T18:10:50.923Z [INFO]  [ML] Wearable readiness { patient: '68262',
+  qualifyingTypes: [ 'heart_rate' ],
+  requiredMinimum: 2,
+  sources: [ 'apple-health' ],
+  reason: 'insufficient_sample_types' }
