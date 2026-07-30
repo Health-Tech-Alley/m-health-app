@@ -1,5 +1,5 @@
 import { useFocusEffect } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -18,6 +18,7 @@ import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
+import { useTheme } from "@/hooks/use-theme";
 import {
   deleteAppointment,
   insertAppointment,
@@ -226,6 +227,11 @@ function emptyForm(profile: ReturnType<typeof getOnboardingProfile>) {
 }
 
 export default function ScheduleScreen() {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const isDark = theme.appBackground === "#000000";
+  const actionAccent = isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+  const dangerAccent = isDark ? AppTheme.colors.dangerLight : AppTheme.colors.danger;
   const profile = getOnboardingProfile();
   const { patientId } = usePatientRecord();
   // let athenaPatientId = '-1';
@@ -451,11 +457,12 @@ export default function ScheduleScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <View style={styles.root}>
+    <SafeAreaView style={[styles.safeArea, themedStyles.screen]} edges={["top"]}>
+      <View style={[styles.root, themedStyles.screen]}>
         <ScrollView
+          style={themedStyles.screen}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, themedStyles.screen]}
           keyboardShouldPersistTaps="handled"
         >
           <MainTabHeader
@@ -465,33 +472,33 @@ export default function ScheduleScreen() {
             icon="schedule"
           />
 
-          <View style={styles.nextAppointmentCard}>
-            <View style={styles.nextAppointmentMarker}>
-              <Text style={styles.nextAppointmentMarkerText}>01</Text>
+          <View style={[styles.nextAppointmentCard, themedStyles.nextAppointmentCard]}>
+            <View style={[styles.nextAppointmentMarker, themedStyles.heroSoftSurface]}>
+              <Text style={[styles.nextAppointmentMarkerText, themedStyles.heroStrongText]}>01</Text>
             </View>
 
             <View style={styles.nextAppointmentTextBlock}>
-              <Text style={styles.nextAppointmentLabel}>NEXT APPOINTMENT</Text>
-              <Text style={styles.nextAppointmentTitle}>Primary Care</Text>
-              <Text style={styles.nextAppointmentTime}>
+              <Text style={[styles.nextAppointmentLabel, themedStyles.heroLabelText]}>NEXT APPOINTMENT</Text>
+              <Text style={[styles.nextAppointmentTitle, themedStyles.heroStrongText]}>Primary Care</Text>
+              <Text style={[styles.nextAppointmentTime, themedStyles.heroSupportingText]}>
                 {nextAppointment
                   ? formatAppointmentDateTime(nextAppointment.date, getAppointmentTime(nextAppointment))
                   : "No upcoming appointment scheduled"}
               </Text>
             </View>
 
-            <View style={styles.nextAppointmentBadge}>
-              <Text style={styles.nextAppointmentBadgeText}>SCHEDULED / NEXT</Text>
+            <View style={[styles.nextAppointmentBadge, themedStyles.heroSoftSurface]}>
+              <Text style={[styles.nextAppointmentBadgeText, themedStyles.heroStrongText]}>SCHEDULED / NEXT</Text>
             </View>
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Scheduled appointments</Text>
+          <View style={[styles.card, themedStyles.card]}>
+            <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Scheduled appointments</Text>
 
             {appointmentLoadError ? (
-              <Text style={styles.emptyText}>Appointments unavailable</Text>
+              <Text style={[styles.emptyText, themedStyles.secondaryText]}>Appointments unavailable</Text>
             ) : sortedUpcoming.length === 0 ? (
-              <Text style={styles.emptyText}>No upcoming appointments.</Text>
+              <Text style={[styles.emptyText, themedStyles.secondaryText]}>No upcoming appointments.</Text>
             ) : (
               sortedUpcoming.map((appt) => {
                 const statusLabel = appt.date === todayIso ? "TODAY" : "SCHEDULED";
@@ -499,7 +506,7 @@ export default function ScheduleScreen() {
                 const isCanceling = cancelingId === appt.appointmentid;
 
                 return (
-                  <View key={appt.appointmentid} style={styles.appointmentCard}>
+                  <View key={appt.appointmentid} style={[styles.appointmentCard, themedStyles.card]}>
                     <View style={styles.appointmentAccent} />
 
                     <Pressable
@@ -510,31 +517,35 @@ export default function ScheduleScreen() {
                     >
                       <View style={styles.appointmentTextBlock}>
                         <View style={styles.appointmentTitleRow}>
-                          <Text style={styles.appointmentType} numberOfLines={1}>
+                          <Text style={[styles.appointmentType, themedStyles.primaryText]} numberOfLines={1}>
                             {formatAppointmentTypeLabel(appt.type)}
                           </Text>
                           <View
                             style={[
                               styles.statusBadge,
+                              themedStyles.statusBadge,
                               statusLabel === "TODAY" && styles.statusBadgeToday,
+                              statusLabel === "TODAY" && themedStyles.statusBadgeToday,
                             ]}
                           >
                             <Text
                               style={[
                                 styles.statusBadgeText,
+                                themedStyles.statusBadgeText,
                                 statusLabel === "TODAY" && styles.statusBadgeTextToday,
+                                statusLabel === "TODAY" && themedStyles.statusBadgeTextToday,
                               ]}
                             >
                               {statusLabel}
                             </Text>
                           </View>
                           <View>
-                            <Text style={styles.appointmentType}>
+                            <Text style={[styles.appointmentType, themedStyles.primaryText]}>
                               {appt.patientappointmenttypename ? ` ${appt.patientappointmenttypename}` : ""}
                             </Text>
                           </View>
                         </View>
-                        <Text style={styles.appointmentProvider} numberOfLines={1}>
+                        <Text style={[styles.appointmentProvider, themedStyles.secondaryText]} numberOfLines={1}>
                           {appt.provider}
                         </Text>
                         <View style={styles.appointmentMetaRow}>
@@ -545,24 +556,25 @@ export default function ScheduleScreen() {
                           >
                             🕒
                           </Text>
-                          <Text style={styles.appointmentDateTime} numberOfLines={1}>
+                          <Text style={[styles.appointmentDateTime, themedStyles.mutedText]} numberOfLines={1}>
                             {dateTimeLabel}
                           </Text>
                         </View>
                         <View style={styles.appointmentActions}>
                           <Pressable
-                            style={styles.appointmentActionButton}
+                            style={[styles.appointmentActionButton, themedStyles.controlSurface]}
                             onPress={() => openEdit(appt)}
                             hitSlop={8}
                             accessibilityRole="button"
                             accessibilityLabel={`Edit ${appt.type} appointment on ${appt.date}`}
                           >
-                            <AppIcon name="edit" size={13} color={AppTheme.colors.brand} />
-                            <Text style={styles.editLink}>Edit</Text>
+                            <AppIcon name="edit" size={13} color={actionAccent} />
+                            <Text style={[styles.editLink, themedStyles.actionText]}>Edit</Text>
                           </Pressable>
                           <Pressable
                             style={[
                               styles.appointmentActionButton,
+                              themedStyles.controlSurface,
                               isCanceling && styles.appointmentActionButtonDisabled,
                             ]}
                             onPress={() => handleDelete(appt)}
@@ -571,8 +583,8 @@ export default function ScheduleScreen() {
                             accessibilityRole="button"
                             accessibilityLabel={`Delete ${appt.type} appointment on ${appt.date}`}
                           >
-                            <AppIcon name="delete" size={13} color={AppTheme.colors.danger} />
-                            <Text style={styles.deleteLink}>
+                            <AppIcon name="delete" size={13} color={dangerAccent} />
+                            <Text style={[styles.deleteLink, themedStyles.dangerText]}>
                               {isCanceling ? "Canceling…" : "Delete"}
                             </Text>
                           </Pressable>
@@ -586,35 +598,35 @@ export default function ScheduleScreen() {
           </View>
 
           <Pressable
-            style={styles.createAppointmentButton}
+            style={[styles.createAppointmentButton, themedStyles.card]}
             onPress={() => setIsCreateAppointmentVisible((visible) => !visible)}
             accessibilityRole="button"
             accessibilityState={{ expanded: isCreateAppointmentVisible }}
           >
-            <Text style={styles.createAppointmentButtonText}>Create appointment</Text>
+            <Text style={[styles.createAppointmentButtonText, themedStyles.actionText]}>Create appointment</Text>
           </Pressable>
 
           {isCreateAppointmentVisible ? (
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Create appointment</Text>
+            <View style={[styles.card, themedStyles.card]}>
+              <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Create appointment</Text>
 
               <Pressable
-                style={styles.collapseRow}
+                style={[styles.collapseRow, themedStyles.controlSurface]}
                 onPress={() => setIsAppointmentDetailsOpen((open) => !open)}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: isAppointmentDetailsOpen }}
               >
-                <Text style={styles.collapseRowText}>Appointment details</Text>
+                <Text style={[styles.collapseRowText, themedStyles.actionText]}>Appointment details</Text>
                 <AppIcon
                   name="chevronRight"
                   size={22}
-                  color={AppTheme.colors.brand}
+                  color={actionAccent}
                 />
               </Pressable>
 
               {isAppointmentDetailsOpen ? (
-                <View style={styles.collapsibleContent}>
-                  <Text style={styles.sectionTitle}>Appointment type</Text>
+                <View style={[styles.collapsibleContent, themedStyles.collapsibleContent]}>
+                  <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Appointment type</Text>
 
                   <View style={styles.chipRow}>
                     {appointmentTypes.map((type) => {
@@ -622,10 +634,10 @@ export default function ScheduleScreen() {
                       return (
                         <Pressable
                           key={type}
-                          style={[styles.chip, selected && styles.chipSelected]}
+                          style={[styles.chip, themedStyles.chip, selected && styles.chipSelected]}
                           onPress={() => setForm({ ...form, appointmentType: type })}
                         >
-                          <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                          <Text style={[styles.chipText, themedStyles.secondaryText, selected && styles.chipTextSelected]}>
                             {formatAppointmentTypeLabel(type)}
                           </Text>
                         </Pressable>
@@ -654,8 +666,8 @@ export default function ScheduleScreen() {
                     placeholder="What should the provider review?"
                   />
 
-                  <Text style={styles.sectionTitle}>Find a time</Text>
-                  <Text style={styles.helperText}>Search open slots within a date range, then pick one.</Text>
+                  <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Find a time</Text>
+                  <Text style={[styles.helperText, themedStyles.secondaryText]}>Search open slots within a date range, then pick one.</Text>
 
                   <View style={styles.twoColumnFields}>
                     <Field
@@ -691,10 +703,10 @@ export default function ScheduleScreen() {
                         return (
                           <Pressable
                             key={slot.appointmentid}
-                            style={[styles.slotRow, selected && styles.slotRowSelected]}
+                            style={[styles.slotRow, themedStyles.controlSurface, selected && styles.slotRowSelected]}
                             onPress={() => setSelectedSlot(slot)}
                           >
-                            <Text style={[styles.slotRowText, selected && styles.slotRowTextSelected]}>
+                            <Text style={[styles.slotRowText, themedStyles.primaryText, selected && styles.slotRowTextSelected]}>
                               {formatSlotLabel(slot)}
                             </Text>
                             {selected ? <AppIcon name="edit" size={14} color={AppTheme.colors.white} /> : null}
@@ -707,22 +719,22 @@ export default function ScheduleScreen() {
               ) : null}
 
               <Pressable
-                style={styles.collapseRow}
+                style={[styles.collapseRow, themedStyles.controlSurface]}
                 onPress={() => setIsReminderOpen((open) => !open)}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: isReminderOpen }}
               >
-                <Text style={styles.collapseRowText}>Reminder</Text>
+                <Text style={[styles.collapseRowText, themedStyles.actionText]}>Reminder</Text>
                 <AppIcon
                   name="chevronRight"
                   size={22}
-                  color={AppTheme.colors.brand}
+                  color={actionAccent}
                 />
               </Pressable>
 
               {isReminderOpen ? (
-                <View style={styles.collapsibleContent}>
-                  <Text style={styles.sectionTitle}>Reminder</Text>
+                <View style={[styles.collapsibleContent, themedStyles.collapsibleContent]}>
+                  <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Reminder</Text>
 
                   <View style={styles.chipRow}>
                     {reminderOptions.map((option) => {
@@ -730,10 +742,10 @@ export default function ScheduleScreen() {
                       return (
                         <Pressable
                           key={option}
-                          style={[styles.chip, selected && styles.chipSelected]}
+                          style={[styles.chip, themedStyles.chip, selected && styles.chipSelected]}
                           onPress={() => setForm({ ...form, reminder: option })}
                         >
-                          <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                          <Text style={[styles.chipText, themedStyles.secondaryText, selected && styles.chipTextSelected]}>
                             {option}
                           </Text>
                         </Pressable>
@@ -786,9 +798,9 @@ export default function ScheduleScreen() {
 
         {/* Edit modal */}
         {editing ? (
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalSheet}>
-              <Text style={styles.modalTitle}>Edit appointment</Text>
+          <View style={[styles.modalOverlay, themedStyles.modalOverlay]}>
+            <View style={[styles.modalSheet, themedStyles.modalSheet]}>
+              <Text style={[styles.modalTitle, themedStyles.primaryText]}>Edit appointment</Text>
 
               <ScrollView
                 style={styles.modalScroll}
@@ -796,17 +808,17 @@ export default function ScheduleScreen() {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
-                <Text style={styles.modalLabel}>Type</Text>
+                <Text style={[styles.modalLabel, themedStyles.sectionTitle]}>Type</Text>
                 <View style={styles.modalChipRow}>
                   {appointmentTypes.map((type) => {
                     const selected = editForm.appointmentType === type;
                     return (
                       <Pressable
                         key={type}
-                        style={[styles.chip, selected && styles.chipSelected]}
+                        style={[styles.chip, themedStyles.chip, selected && styles.chipSelected]}
                         onPress={() => setEditForm({ ...editForm, appointmentType: type })}
                       >
-                        <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                        <Text style={[styles.chipText, themedStyles.secondaryText, selected && styles.chipTextSelected]}>
                           {formatAppointmentTypeLabel(type)}
                         </Text>
                       </Pressable>
@@ -832,17 +844,17 @@ export default function ScheduleScreen() {
                   onChangeText={(v) => setEditForm({ ...editForm, reason: v })}
                   placeholder="Reason for visit"
                 />
-                <Text style={styles.helperText}>
+                <Text style={[styles.helperText, themedStyles.secondaryText]}>
                   To change the date/time, delete this appointment and book a new slot instead.
                 </Text>
               </ScrollView>
 
-              <View style={styles.modalActions}>
+              <View style={[styles.modalActions, themedStyles.modalActions]}>
                 <Pressable
-                  style={[styles.modalButton, styles.modalCancel]}
+                  style={[styles.modalButton, styles.modalCancel, themedStyles.modalCancel]}
                   onPress={() => setEditing(null)}
                 >
-                  <Text style={styles.modalCancelText}>Cancel</Text>
+                  <Text style={[styles.modalCancelText, themedStyles.secondaryText]}>Cancel</Text>
                 </Pressable>
                 <Pressable style={styles.modalButton} onPress={saveEdit}>
                   <Text style={styles.modalSaveText}>Save</Text>
@@ -869,15 +881,17 @@ function Field({
   placeholder: string;
   containerStyle?: StyleProp<ViewStyle>;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   return (
     <View style={[styles.fieldBlock, containerStyle]}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={[styles.fieldLabel, themedStyles.primaryText]}>{label}</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, themedStyles.input]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={AppTheme.colors.textMuted}
+        placeholderTextColor={theme.appTextMuted}
       />
     </View>
   );
@@ -896,15 +910,17 @@ function LargeField({
   placeholder: string;
   containerStyle?: StyleProp<ViewStyle>;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   return (
     <View style={[styles.fieldBlock, containerStyle]}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={[styles.fieldLabel, themedStyles.primaryText]}>{label}</Text>
       <TextInput
-        style={[styles.input, styles.largeInput]}
+        style={[styles.input, styles.largeInput, themedStyles.input]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={AppTheme.colors.textMuted}
+        placeholderTextColor={theme.appTextMuted}
         multiline
         textAlignVertical="top"
       />
@@ -962,6 +978,99 @@ function compareAppointmentsByDateTime(a: Appointment, b: Appointment): number {
   if (Number.isNaN(aMs)) return 1;
   if (Number.isNaN(bMs)) return -1;
   return aMs - bMs;
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === "#000000";
+
+  return StyleSheet.create({
+    screen: {
+      backgroundColor: theme.appBackground,
+    },
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    controlSurface: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    nextAppointmentCard: {
+      backgroundColor: isDark ? theme.appSurface : AppTheme.colors.brand,
+      ...(isDark
+        ? {
+            borderColor: theme.appBorder,
+            borderWidth: 1,
+          }
+        : null),
+    },
+    heroSoftSurface: {
+      backgroundColor: isDark ? theme.appControlSurface : "rgba(255,255,255,0.2)",
+    },
+    heroStrongText: {
+      color: isDark ? theme.appText : AppTheme.colors.white,
+    },
+    heroLabelText: {
+      color: isDark ? theme.appSectionText : AppTheme.colors.white,
+    },
+    heroSupportingText: {
+      color: isDark ? theme.appTextSupporting : AppTheme.colors.white,
+    },
+    sectionTitle: {
+      color: theme.appSectionText,
+    },
+    primaryText: {
+      color: theme.appText,
+    },
+    secondaryText: {
+      color: theme.appTextSupporting,
+    },
+    mutedText: {
+      color: theme.appTextMuted,
+    },
+    actionText: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand,
+    },
+    dangerText: {
+      color: isDark ? AppTheme.colors.dangerLight : AppTheme.colors.danger,
+    },
+    statusBadge: {
+      backgroundColor: theme.appBrandSoftSurface,
+    },
+    statusBadgeToday: {
+      backgroundColor: isDark ? "rgba(249, 115, 22, 0.12)" : AppTheme.colors.warningSoft,
+    },
+    statusBadgeText: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand,
+    },
+    statusBadgeTextToday: {
+      color: AppTheme.colors.warning,
+    },
+    chip: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    collapsibleContent: {
+      borderBottomColor: theme.appBorder,
+    },
+    input: {
+      backgroundColor: theme.appInputBackground,
+      borderColor: theme.appBorder,
+      color: theme.appText,
+    },
+    modalOverlay: {
+      backgroundColor: isDark ? "rgba(0,0,0,0.72)" : "rgba(0,0,0,0.5)",
+    },
+    modalSheet: {
+      backgroundColor: theme.appSurface,
+    },
+    modalActions: {
+      borderTopColor: theme.appBorder,
+    },
+    modalCancel: {
+      backgroundColor: theme.appControlSurface,
+    },
+  });
 }
 
 const styles = StyleSheet.create({
