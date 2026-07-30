@@ -18,6 +18,7 @@ import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { DeviceSetupStep } from "@/components/models/DeviceSetupStep";
 import { AppTheme } from "@/constants/theme";
 import { useSettings } from "@/contexts/settings-context";
+import { useTheme } from "@/hooks/use-theme";
 import {
   refreshPatientRecord,
   selectPatientRecord,
@@ -411,6 +412,8 @@ function getImportedEhrStatusText(bundleStatus: {
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
   const existingProfile = getOnboardingProfile();
   const { snapshot, ready } = usePatientRecord();
   const { importBundledEhrProfile } = useBundledEhrImport();
@@ -1399,7 +1402,7 @@ export default function OnboardingScreen() {
                     value={symptomSearch}
                     onChangeText={setSymptomSearch}
                     placeholder="Search symptoms..."
-                    placeholderTextColor={AppTheme.colors.textMuted}
+                    placeholderTextColor={theme.appTextMuted}
                   />
 
                   <View style={styles.symptomGrid}>
@@ -1517,7 +1520,7 @@ export default function OnboardingScreen() {
                           value={baselineBloodPressureSystolic}
                           onChangeText={setBaselineBloodPressureSystolic}
                           placeholder="Top number"
-                          placeholderTextColor={AppTheme.colors.textMuted}
+                          placeholderTextColor={theme.appTextMuted}
                           keyboardType="number-pad"
                         />
                         <Text style={styles.fieldUnitText}>mmHg</Text>
@@ -1529,7 +1532,7 @@ export default function OnboardingScreen() {
                           value={baselineBloodPressureDiastolic}
                           onChangeText={setBaselineBloodPressureDiastolic}
                           placeholder="Bottom number"
-                          placeholderTextColor={AppTheme.colors.textMuted}
+                          placeholderTextColor={theme.appTextMuted}
                           keyboardType="number-pad"
                         />
                         <Text style={styles.fieldUnitText}>mmHg</Text>
@@ -1827,6 +1830,8 @@ function WelcomeStep({
   selectedDemoProfileId: DemoOnboardingProfileId | null;
   onSelectDemoProfile: (profileId: DemoOnboardingProfileId) => void;
 }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
   const demoOptions = getDemoOnboardingOptions();
   const [isDemoCasesExpanded, setIsDemoCasesExpanded] = useState(false);
 
@@ -1846,7 +1851,7 @@ function WelcomeStep({
         <AppIcon
           name="chevronRight"
           size={24}
-          color={AppTheme.colors.textMuted}
+          color={theme.appTextMuted}
         />
       </Pressable>
 
@@ -1915,6 +1920,9 @@ function WelcomeStep({
 }
 
 function ProgressTracker({ activeIndex }: { activeIndex: number }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <View style={styles.progressBlock}>
       <View style={styles.progressLine}>
@@ -1965,6 +1973,9 @@ function StepShell({
   subtitle: string;
   children: ReactNode;
 }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <View style={styles.stepShell}>
       <View style={styles.stepIntro}>
@@ -1978,6 +1989,9 @@ function StepShell({
 }
 
 function SectionLabel({ title }: { title: string }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return <Text style={styles.sectionLabel}>{title}</Text>;
 }
 
@@ -2007,6 +2021,8 @@ function Field({
   editable?: boolean;
   imported?: boolean;
 }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
   const helperText = imported ? "Imported from EHR" : helper;
 
   return (
@@ -2017,7 +2033,7 @@ function Field({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={AppTheme.colors.textMuted}
+        placeholderTextColor={theme.appTextMuted}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
         editable={editable}
@@ -2051,6 +2067,8 @@ function LargeField({
   editable?: boolean;
   imported?: boolean;
 }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
   const helperText = imported ? "Imported from EHR" : undefined;
 
   return (
@@ -2065,7 +2083,7 @@ function LargeField({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={AppTheme.colors.textMuted}
+        placeholderTextColor={theme.appTextMuted}
         multiline
         textAlignVertical="top"
         editable={editable}
@@ -2091,6 +2109,9 @@ function AddressFields({
   address: AddressProfile;
   onChange: (field: keyof AddressProfile, value: string) => void;
 }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <View>
       <Field
@@ -2153,6 +2174,9 @@ function ChipGroup<T extends string>({
   selectedValue: T;
   onSelect: (value: T) => void;
 }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <View style={styles.chipBlock}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -2194,6 +2218,9 @@ function ChoiceCard({
   selected: boolean;
   onPress: () => void;
 }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <Pressable
       style={[styles.choiceCard, selected && styles.choiceCardSelected]}
@@ -2230,6 +2257,9 @@ function ClassificationSelect({
   setExpandedSelect: Dispatch<SetStateAction<ExpandedSelect>>;
   onSelect: (value: string) => void;
 }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <SelectPanel
       title={title}
@@ -2297,6 +2327,9 @@ function SelectPanel({
   onToggle: () => void;
   children: ReactNode;
 }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <View style={styles.selectPanel}>
       <Pressable style={styles.selectHeader} onPress={onToggle}>
@@ -2314,6 +2347,9 @@ function SelectPanel({
 }
 
 function SummaryRow({ text }: { text: string }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <View style={styles.summaryRow}>
       <View style={styles.summaryDot} />
@@ -2338,17 +2374,37 @@ function getBaselineStatusText(status: WearableBaselineStatus): string {
   return "Tap below to check the device connection.";
 }
 
-const styles = StyleSheet.create({
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === "#000000";
+  const colors = {
+    screen: theme.appBackground,
+    surface: theme.appSurface,
+    softSurface: theme.appControlSurface,
+    text: theme.appText,
+    textSoft: theme.appTextSupporting,
+    textMuted: theme.appTextMuted,
+    sectionText: theme.appSectionText,
+    border: theme.appBorder,
+    brandSoft: theme.appBrandSoftSurface,
+    importedAccent: isDark ? theme.appProfileAvatarBorder : "#B7FFF1",
+    iconSurface: isDark ? theme.appControlSurface : AppTheme.colors.white,
+    clinicalSurface: isDark ? "#0A2B2E" : "#F4FBFC",
+    clinicalBorder: isDark ? "#1D5C64" : "#B7DDE8",
+    clinicalMetricBorder: isDark ? "#284A4D" : "#D9E7E5",
+    selectedAccentText: isDark ? "#6EE7D8" : AppTheme.colors.brandDark,
+  };
+
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: AppTheme.colors.screen,
+    backgroundColor: colors.screen,
   },
   keyboardRoot: {
     flex: 1,
   },
   root: {
     flex: 1,
-    backgroundColor: AppTheme.colors.screen,
+    backgroundColor: colors.screen,
   },
   content: {
     paddingHorizontal: 24,
@@ -2368,14 +2424,14 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 23,
-    backgroundColor: AppTheme.colors.surface,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
   backIcon: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 32,
     fontWeight: "700",
     lineHeight: 34,
@@ -2392,7 +2448,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   stepCount: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 13,
     fontWeight: "700",
     marginTop: 2,
@@ -2417,9 +2473,9 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: AppTheme.colors.softSurface,
+    backgroundColor: colors.softSurface,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 6,
@@ -2429,7 +2485,7 @@ const styles = StyleSheet.create({
     borderColor: AppTheme.colors.brand,
   },
   progressNumber: {
-    color: AppTheme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: "900",
   },
@@ -2437,7 +2493,7 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.white,
   },
   progressLabel: {
-    color: AppTheme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 10,
     fontWeight: "800",
     textAlign: "center",
@@ -2473,14 +2529,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   welcomeTitle: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 38,
     fontWeight: "900",
     letterSpacing: -0.5,
     marginBottom: 12,
   },
   welcomeSubtitle: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 17,
     lineHeight: 27,
     textAlign: "center",
@@ -2488,21 +2544,21 @@ const styles = StyleSheet.create({
   },
   previewCard: {
     width: "100%",
-    backgroundColor: AppTheme.colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: AppTheme.radius.card,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
+    borderColor: colors.border,
     padding: 20,
     ...AppTheme.shadow,
   },
   previewTitle: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 17,
     fontWeight: "900",
     marginBottom: 14,
   },
   privacyText: {
-    color: AppTheme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: "800",
     marginTop: 20,
@@ -2510,10 +2566,10 @@ const styles = StyleSheet.create({
   },
   demoProfileBlock: {
     width: "100%",
-    backgroundColor: AppTheme.colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: AppTheme.radius.card,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
+    borderColor: colors.border,
     padding: 16,
     marginTop: 14,
     gap: 8,
@@ -2534,8 +2590,8 @@ const styles = StyleSheet.create({
     minHeight: 58,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.softSurface,
+    borderColor: colors.border,
+    backgroundColor: colors.softSurface,
     paddingHorizontal: 14,
     paddingVertical: 10,
     flexDirection: "row",
@@ -2544,18 +2600,18 @@ const styles = StyleSheet.create({
   },
   demoProfileRowSelected: {
     borderColor: AppTheme.colors.brand,
-    backgroundColor: AppTheme.colors.brandSoft,
+    backgroundColor: colors.brandSoft,
   },
   demoProfileTextBlock: {
     flex: 1,
   },
   demoProfileTitle: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 14,
     fontWeight: "900",
   },
   demoProfileSubtitle: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 12,
     fontWeight: "700",
     marginTop: 2,
@@ -2565,27 +2621,27 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   stepIntro: {
-    backgroundColor: AppTheme.colors.brandSoft,
+    backgroundColor: colors.brandSoft,
     borderWidth: 1,
-    borderColor: "#B7FFF1",
+    borderColor: colors.importedAccent,
     borderRadius: AppTheme.radius.card,
     padding: 20,
     marginBottom: 4,
   },
   stepTitle: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 26,
     fontWeight: "900",
     marginBottom: 8,
   },
   stepSubtitle: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 15,
     lineHeight: 23,
     fontWeight: "600",
   },
   sectionLabel: {
-    color: AppTheme.colors.sectionText,
+    color: colors.sectionText,
     fontSize: 13,
     fontWeight: "900",
     letterSpacing: 1.2,
@@ -2599,13 +2655,13 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   fieldLabel: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 13,
     fontWeight: "900",
     marginBottom: 8,
   },
   fieldHelper: {
-    color: AppTheme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     marginTop: 6,
     lineHeight: 17,
@@ -2614,17 +2670,17 @@ const styles = StyleSheet.create({
     minHeight: 56,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.surface,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 15,
     fontWeight: "700",
   },
   inputImported: {
     borderColor: AppTheme.colors.brand,
-    backgroundColor: AppTheme.colors.brandSoft,
+    backgroundColor: colors.brandSoft,
   },
   largeInput: {
     minHeight: 104,
@@ -2644,14 +2700,14 @@ const styles = StyleSheet.create({
     minWidth: 120,
   },
   fieldUnitText: {
-    color: AppTheme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: "800",
     marginTop: 6,
   },
 
   diagnosisHelper: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 13,
     lineHeight: 19,
     fontWeight: "700",
@@ -2662,7 +2718,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderStyle: "dashed",
     borderColor: AppTheme.colors.brand,
-    backgroundColor: AppTheme.colors.brandSoft,
+    backgroundColor: colors.brandSoft,
     padding: 15,
     flexDirection: "row",
     alignItems: "center",
@@ -2671,7 +2727,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: AppTheme.colors.white,
+    backgroundColor: colors.iconSurface,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
@@ -2685,14 +2741,14 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   ehrSubtitle: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "700",
     marginTop: 2,
   },
   ehrSelectedPatient: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "900",
@@ -2700,7 +2756,7 @@ const styles = StyleSheet.create({
   },
   ehrAppliedButton: {
     borderColor: AppTheme.colors.brand,
-    backgroundColor: AppTheme.colors.brandSoft,
+    backgroundColor: colors.brandSoft,
     opacity: 0.7,
   },
   ehrDisabledButton: {
@@ -2709,8 +2765,8 @@ const styles = StyleSheet.create({
   clinicalGuidanceCard: {
     borderRadius: AppTheme.radius.card,
     borderWidth: 1,
-    borderColor: "#B7DDE8",
-    backgroundColor: "#F4FBFC",
+    borderColor: colors.clinicalBorder,
+    backgroundColor: colors.clinicalSurface,
     padding: 16,
     gap: 14,
   },
@@ -2718,12 +2774,12 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   clinicalGuidanceTitle: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 16,
     fontWeight: "900",
   },
   clinicalGuidanceText: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 13,
     lineHeight: 20,
     fontWeight: "700",
@@ -2736,12 +2792,12 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#D9E7E5",
-    backgroundColor: AppTheme.colors.white,
+    borderColor: colors.clinicalMetricBorder,
+    backgroundColor: colors.iconSurface,
     padding: 12,
   },
   guidanceMetricLabel: {
-    color: AppTheme.colors.sectionText,
+    color: colors.sectionText,
     fontSize: 11,
     fontWeight: "900",
     letterSpacing: 0.6,
@@ -2749,7 +2805,7 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   guidanceMetricValue: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "800",
@@ -2760,19 +2816,19 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderBottomWidth: 1,
-    borderBottomColor: AppTheme.colors.border,
+    borderBottomColor: colors.border,
     gap: 10,
   },
   mobilityOptionRowSelected: {
-    backgroundColor: AppTheme.colors.brandSoft,
+    backgroundColor: colors.brandSoft,
   },
   mobilityIconCircle: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: AppTheme.colors.white,
+    backgroundColor: colors.iconSurface,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2784,12 +2840,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   mobilityOptionLabel: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 15,
     fontWeight: "900",
   },
   mobilityOptionDescription: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 13,
     fontWeight: "700",
     marginTop: 2,
@@ -2798,7 +2854,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   suggestedDiagnosisTitle: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 13,
     fontWeight: "900",
   },
@@ -2808,13 +2864,13 @@ const styles = StyleSheet.create({
   suggestedDiagnosisChip: {
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.surface,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     padding: 14,
   },
   suggestedDiagnosisChipSelected: {
     borderColor: AppTheme.colors.brand,
-    backgroundColor: AppTheme.colors.brandSoft,
+    backgroundColor: colors.brandSoft,
   },
   suggestedDiagnosisCode: {
     color: AppTheme.colors.brand,
@@ -2823,16 +2879,16 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   suggestedDiagnosisCodeSelected: {
-    color: AppTheme.colors.brandDark,
+    color: colors.selectedAccentText,
   },
   suggestedDiagnosisLabel: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 13,
     lineHeight: 19,
     fontWeight: "800",
   },
   suggestedDiagnosisLabelSelected: {
-    color: AppTheme.colors.text,
+    color: colors.text,
   },
 
   chipBlock: {
@@ -2846,8 +2902,8 @@ const styles = StyleSheet.create({
   chip: {
     borderRadius: AppTheme.radius.pill,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.surface,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     paddingHorizontal: 14,
     paddingVertical: 11,
   },
@@ -2856,7 +2912,7 @@ const styles = StyleSheet.create({
     borderColor: AppTheme.colors.brand,
   },
   chipText: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 13,
     fontWeight: "900",
   },
@@ -2867,22 +2923,22 @@ const styles = StyleSheet.create({
   choiceCard: {
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.surface,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     padding: 16,
     flexDirection: "row",
     alignItems: "flex-start",
   },
   choiceCardSelected: {
     borderColor: AppTheme.colors.brand,
-    backgroundColor: AppTheme.colors.brandSoft,
+    backgroundColor: colors.brandSoft,
   },
   radioOuter: {
     width: 24,
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: AppTheme.colors.border,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
@@ -2901,13 +2957,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   choiceTitle: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 15,
     fontWeight: "900",
     marginBottom: 4,
   },
   choiceBody: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 13,
     lineHeight: 19,
     fontWeight: "600",
@@ -2916,8 +2972,8 @@ const styles = StyleSheet.create({
   selectPanel: {
     borderRadius: AppTheme.radius.lg,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.surface,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     overflow: "hidden",
   },
   selectHeader: {
@@ -2931,7 +2987,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   selectTitle: {
-    color: AppTheme.colors.sectionText,
+    color: colors.sectionText,
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 1,
@@ -2939,7 +2995,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   selectValue: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 14,
     lineHeight: 20,
     fontWeight: "800",
@@ -2952,7 +3008,7 @@ const styles = StyleSheet.create({
   },
   selectContent: {
     borderTopWidth: 1,
-    borderTopColor: AppTheme.colors.border,
+    borderTopColor: colors.border,
     padding: 10,
     gap: 8,
   },
@@ -2960,8 +3016,8 @@ const styles = StyleSheet.create({
   optionRow: {
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.softSurface,
+    borderColor: colors.border,
+    backgroundColor: colors.softSurface,
     padding: 14,
     flexDirection: "row",
     alignItems: "flex-start",
@@ -2969,7 +3025,7 @@ const styles = StyleSheet.create({
   },
   optionRowSelected: {
     borderColor: AppTheme.colors.brand,
-    backgroundColor: AppTheme.colors.brandSoft,
+    backgroundColor: colors.brandSoft,
   },
   optionCode: {
     color: AppTheme.colors.brand,
@@ -2981,13 +3037,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   optionLabel: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 14,
     lineHeight: 20,
     fontWeight: "800",
   },
   optionCategory: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "700",
@@ -2998,7 +3054,7 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 2,
@@ -3012,11 +3068,11 @@ const styles = StyleSheet.create({
     minHeight: 48,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.surface,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 14,
     fontWeight: "700",
     marginBottom: 10,
@@ -3029,8 +3085,8 @@ const styles = StyleSheet.create({
   symptomChip: {
     borderRadius: AppTheme.radius.pill,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.softSurface,
+    borderColor: colors.border,
+    backgroundColor: colors.softSurface,
     paddingHorizontal: 13,
     paddingVertical: 10,
   },
@@ -3039,7 +3095,7 @@ const styles = StyleSheet.create({
     borderColor: AppTheme.colors.brand,
   },
   symptomChipText: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 13,
     fontWeight: "800",
   },
@@ -3047,7 +3103,7 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.white,
   },
   emptySelectText: {
-    color: AppTheme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: "800",
     paddingVertical: 10,
@@ -3057,28 +3113,28 @@ const styles = StyleSheet.create({
   disclaimerCard: {
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.surface,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     padding: 16,
     flexDirection: "row",
     alignItems: "flex-start",
   },
   disclaimerCardAccepted: {
     borderColor: AppTheme.colors.brand,
-    backgroundColor: AppTheme.colors.brandSoft,
+    backgroundColor: colors.brandSoft,
   },
   disclaimerTextBlock: {
     flex: 1,
     marginLeft: 12,
   },
   disclaimerTitle: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 15,
     fontWeight: "900",
     marginBottom: 5,
   },
   disclaimerBody: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 13,
     lineHeight: 20,
     fontWeight: "600",
@@ -3108,8 +3164,8 @@ const styles = StyleSheet.create({
   deviceCard: {
     borderRadius: AppTheme.radius.card,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.surface,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     padding: 20,
     ...AppTheme.shadow,
   },
@@ -3122,7 +3178,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: AppTheme.colors.brandSoft,
+    backgroundColor: colors.brandSoft,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,
@@ -3131,13 +3187,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   deviceTitle: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: "900",
     marginBottom: 4,
   },
   deviceSubtitle: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 14,
     lineHeight: 20,
     fontWeight: "700",
@@ -3156,7 +3212,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   deviceHelper: {
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 13,
     lineHeight: 20,
     fontWeight: "600",
@@ -3165,12 +3221,12 @@ const styles = StyleSheet.create({
   summaryCard: {
     borderRadius: AppTheme.radius.card,
     borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    backgroundColor: AppTheme.colors.surface,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     padding: 18,
   },
   summaryTitle: {
-    color: AppTheme.colors.text,
+    color: colors.text,
     fontSize: 16,
     fontWeight: "900",
     marginBottom: 12,
@@ -3190,7 +3246,7 @@ const styles = StyleSheet.create({
   },
   summaryText: {
     flex: 1,
-    color: AppTheme.colors.textSoft,
+    color: colors.textSoft,
     fontSize: 14,
     lineHeight: 21,
     fontWeight: "700",
@@ -3204,9 +3260,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 14,
     paddingBottom: 18,
-    backgroundColor: AppTheme.colors.screen,
+    backgroundColor: colors.screen,
     borderTopWidth: 1,
-    borderTopColor: AppTheme.colors.border,
+    borderTopColor: colors.border,
   },
   primaryButton: {
     minHeight: 58,
@@ -3220,4 +3276,5 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "900",
   },
-});
+  });
+}
