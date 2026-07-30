@@ -36,6 +36,7 @@ import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
+import { useTheme } from '@/hooks/use-theme';
 import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import type { SlmTaskReason, SlmTaskLease } from '@/services/slm/slm-task-queue';
 import { isModelInstalled } from '@/services/model-storage';
@@ -80,6 +81,8 @@ export function SlmInsightSheet({
   reason = 'safety_note_explain',
   allowMinimize = true,
 }: SlmInsightSheetProps) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const slm = useSLM();
   const optionalGate = useOptionalFeatureGate('slm');
   const {
@@ -756,7 +759,7 @@ export function SlmInsightSheet({
     currentModelId,
     error,
   );
-  const statusTone = deriveStatusTone(phase, source);
+  const statusTone = deriveStatusTone(phase, source, theme);
   const inProgress =
     phase === 'loading' || phase === 'thinking' || phase === 'streaming';
   const isMini = presentation === 'mini';
@@ -766,19 +769,19 @@ export function SlmInsightSheet({
   if (!optionalGate.ready) {
     const greyedOverlay = (
       <View style={allowMinimize ? styles.miniHost : styles.overlay}>
-        <View style={[styles.sheet, styles.greyedSheet]}>
+        <View style={[styles.sheet, themedStyles.sheet, styles.greyedSheet, themedStyles.sheetMini]}>
           <View style={styles.header}>
-            <Text style={styles.title} numberOfLines={2}>
+            <Text style={[styles.title, themedStyles.title]} numberOfLines={2}>
               {title}
             </Text>
             <Pressable
-              style={styles.closeButton}
+              style={[styles.closeButton, themedStyles.iconButton]}
               onPress={requestClose}
               hitSlop={12}
               accessibilityRole="button"
               accessibilityLabel="Close Concierge"
             >
-              <Text style={styles.closeText}>×</Text>
+              <Text style={[styles.closeText, themedStyles.iconButtonText]}>×</Text>
             </Pressable>
           </View>
           <View style={styles.greyedBody}>
@@ -803,7 +806,9 @@ export function SlmInsightSheet({
     <Animated.View
       style={[
         styles.sheet,
+        themedStyles.sheet,
         isMini && styles.sheetMini,
+        isMini && themedStyles.sheetMini,
         {
           transform: [
             {
@@ -814,48 +819,48 @@ export function SlmInsightSheet({
       ]}
     >
       <View style={styles.dragArea} {...panResponder.panHandlers}>
-        <View style={styles.handle} />
+        <View style={[styles.handle, themedStyles.handle]} />
         <View style={styles.header}>
           <Pressable
             style={styles.titlePress}
             onPress={isMini ? expand : undefined}
             disabled={!isMini}
           >
-            <Text style={styles.title} numberOfLines={isMini ? 1 : 2}>
+            <Text style={[styles.title, themedStyles.title]} numberOfLines={isMini ? 1 : 2}>
               {title}
             </Text>
           </Pressable>
           <View style={styles.headerActions}>
             {allowMinimize && !isMini ? (
               <Pressable
-                style={styles.iconButton}
+                style={[styles.iconButton, themedStyles.iconButton]}
                 onPress={minimize}
                 hitSlop={12}
                 accessibilityRole="button"
                 accessibilityLabel="Minimize Concierge"
               >
-                <Text style={styles.iconButtonText}>–</Text>
+                <Text style={[styles.iconButtonText, themedStyles.iconButtonText]}>–</Text>
               </Pressable>
             ) : null}
             {isMini ? (
               <Pressable
-                style={styles.iconButton}
+                style={[styles.iconButton, themedStyles.iconButton]}
                 onPress={expand}
                 hitSlop={12}
                 accessibilityRole="button"
                 accessibilityLabel="Expand Concierge"
               >
-                <Text style={styles.iconButtonText}>▴</Text>
+                <Text style={[styles.iconButtonText, themedStyles.iconButtonText]}>▴</Text>
               </Pressable>
             ) : null}
             <Pressable
-              style={styles.closeButton}
+              style={[styles.closeButton, themedStyles.iconButton]}
               onPress={requestClose}
               hitSlop={12}
               accessibilityRole="button"
               accessibilityLabel="Close Concierge"
             >
-              <Text style={styles.closeText}>×</Text>
+              <Text style={[styles.closeText, themedStyles.iconButtonText]}>×</Text>
             </Pressable>
           </View>
         </View>
@@ -887,11 +892,11 @@ export function SlmInsightSheet({
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator
         >
-          <Text style={styles.answerLabel}>Concierge response</Text>
+          <Text style={[styles.answerLabel, themedStyles.answerLabel]}>Concierge response</Text>
 
           {phase === 'error' ? (
             <View>
-              <Text style={styles.errorText}>
+              <Text style={[styles.errorText, themedStyles.errorText]}>
                 Couldn&apos;t generate an explanation: {error}
               </Text>
               <Pressable
@@ -908,20 +913,20 @@ export function SlmInsightSheet({
           ) : null}
 
           {(phase === 'loading' || phase === 'thinking') && source !== 'cache' ? (
-            <Text style={styles.thinkingText}>Thinking…</Text>
+            <Text style={[styles.thinkingText, themedStyles.mutedText]}>Thinking…</Text>
           ) : null}
 
           {phase === 'streaming' ? (
-            <Text style={styles.streamingText}>{answer || '…'}</Text>
+            <Text style={[styles.streamingText, themedStyles.secondaryText]}>{answer || '…'}</Text>
           ) : null}
 
           {phase === 'done' ? (
             finalText ? (
               <MarkdownRenderer size="large">{finalText}</MarkdownRenderer>
             ) : answer ? (
-              <Text style={styles.answerText}>{answer}</Text>
+              <Text style={[styles.answerText, themedStyles.primaryText]}>{answer}</Text>
             ) : (
-              <Text style={styles.emptyText}>No response.</Text>
+              <Text style={[styles.emptyText, themedStyles.mutedText]}>No response.</Text>
             )
           ) : null}
 
@@ -935,18 +940,20 @@ export function SlmInsightSheet({
 
           {phase === 'done' || phase === 'error' ? (
             <Pressable
-              style={styles.regenerateButton}
+              style={[styles.regenerateButton, themedStyles.regenerateButton]}
               onPress={handleRegenerate}
               accessibilityRole="button"
               accessibilityLabel="Regenerate explanation"
             >
-              <Text style={styles.regenerateButtonText}>Regenerate</Text>
+              <Text style={[styles.regenerateButtonText, themedStyles.regenerateButtonText]}>
+                Regenerate
+              </Text>
             </Pressable>
           ) : null}
         </ScrollView>
 
         {phase === 'streaming' || phase === 'done' ? (
-          <Text style={styles.footnote}>
+          <Text style={[styles.footnote, themedStyles.mutedText]}>
             {source === 'cache'
               ? 'Saved explanation — still guidance, not a diagnosis. Confirm with the care team.'
               : 'Concierge guidance — not a diagnosis. Confirm with the care team.'}
@@ -964,7 +971,7 @@ export function SlmInsightSheet({
       pointerEvents={isMini ? 'box-none' : 'auto'}
     >
       <Animated.View
-        style={[styles.backdropFill, { opacity: backdropOpacity }]}
+        style={[styles.backdropFill, themedStyles.backdropFill, { opacity: backdropOpacity }]}
         pointerEvents="none"
       />
       {!isMini ? (
@@ -1021,18 +1028,83 @@ function deriveStatusLabel(
 function deriveStatusTone(
   phase: Phase,
   source: Source | null,
+  theme: ReturnType<typeof useTheme>,
 ): { fg: string; bg: string } {
+  const isDark = theme.appBackground === '#000000';
   if (source === 'cache' && phase === 'done') {
-    return { fg: AppTheme.colors.brandDark, bg: AppTheme.colors.brandSoft };
+    return {
+      fg: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brandDark,
+      bg: isDark ? theme.appControlSurface : AppTheme.colors.brandSoft,
+    };
   }
   switch (phase) {
     case 'error':
-      return { fg: AppTheme.colors.danger, bg: AppTheme.colors.dangerLight };
+      return {
+        fg: isDark ? AppTheme.colors.dangerLight : AppTheme.colors.danger,
+        bg: isDark ? 'rgba(240, 6, 22, 0.16)' : AppTheme.colors.dangerLight,
+      };
     case 'done':
-      return { fg: AppTheme.colors.brandDark, bg: AppTheme.colors.brandSoft };
+      return {
+        fg: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brandDark,
+        bg: isDark ? theme.appControlSurface : AppTheme.colors.brandSoft,
+      };
     default:
-      return { fg: AppTheme.colors.brand, bg: AppTheme.colors.brandSoft };
+      return {
+        fg: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand,
+        bg: isDark ? theme.appControlSurface : AppTheme.colors.brandSoft,
+      };
   }
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+
+  return StyleSheet.create({
+    backdropFill: {
+      backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.5)',
+    },
+    sheet: {
+      backgroundColor: theme.appSurface,
+    },
+    sheetMini: {
+      borderColor: theme.appBorder,
+      backgroundColor: theme.appSurface,
+    },
+    handle: {
+      backgroundColor: theme.appBorder,
+    },
+    title: {
+      color: theme.appText,
+    },
+    iconButton: {
+      backgroundColor: theme.appControlSurface,
+    },
+    iconButtonText: {
+      color: theme.appTextSupporting,
+    },
+    answerLabel: {
+      color: theme.appTextMuted,
+    },
+    primaryText: {
+      color: theme.appText,
+    },
+    secondaryText: {
+      color: theme.appTextSupporting,
+    },
+    mutedText: {
+      color: theme.appTextMuted,
+    },
+    errorText: {
+      color: isDark ? AppTheme.colors.dangerLight : AppTheme.colors.danger,
+    },
+    regenerateButton: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    regenerateButtonText: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brandDark,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

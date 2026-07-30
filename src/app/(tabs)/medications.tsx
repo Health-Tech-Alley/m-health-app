@@ -19,6 +19,7 @@ import { AppTheme } from "@/constants/theme";
 import { CitationList } from "@/components/common/CitationList";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
+import { useTheme } from "@/hooks/use-theme";
 import {
   deleteMedication,
   getActiveMedications,
@@ -112,6 +113,10 @@ function loadMedRows(patientId: string): MedRow[] {
 }
 
 export default function MedicationsScreen() {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const brandIconColor =
+    theme.appBackground === "#000000" ? AppTheme.colors.brandPale : AppTheme.colors.brand;
   const router = useRouter();
   const { patientId, snapshot, refresh } = usePatientRecord();
   const activePatient = useActivePatientView();
@@ -302,11 +307,12 @@ export default function MedicationsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <View style={styles.root}>
+    <SafeAreaView style={[styles.safeArea, themedStyles.screen]} edges={["top"]}>
+      <View style={[styles.root, themedStyles.screen]}>
         <ScrollView
+          style={themedStyles.screen}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, themedStyles.screen]}
         >
           <MainTabHeader
             title="Medication Management"
@@ -315,8 +321,8 @@ export default function MedicationsScreen() {
           />
 
           {nextDue ? (
-            <View style={styles.nextDueCard}>
-              <View style={styles.clockCircle}>
+            <View style={[styles.nextDueCard, themedStyles.nextDueCard]}>
+              <View style={[styles.clockCircle, themedStyles.clockCircle]}>
                 <Text style={styles.clockText}>⏰</Text>
               </View>
 
@@ -333,24 +339,30 @@ export default function MedicationsScreen() {
           ) : null}
 
           <Pressable
-            style={styles.reminderPreferencesButton}
+            style={[styles.reminderPreferencesButton, themedStyles.card]}
             onPress={() => router.push("/notifications-reminders")}
             accessibilityRole="button"
             accessibilityLabel="Open reminder preferences"
           >
-            <AppIcon name="bell" size={18} color={AppTheme.colors.brand} />
-            <Text style={styles.reminderPreferencesText}>Reminder preferences</Text>
+            <AppIcon name="bell" size={18} color={brandIconColor} />
+            <Text style={[styles.reminderPreferencesText, themedStyles.accentText]}>
+              Reminder preferences
+            </Text>
           </Pressable>
 
-          <Text style={styles.sectionLabel}>Active medications</Text>
+          <Text style={[styles.sectionLabel, themedStyles.sectionText]}>Active medications</Text>
 
           {rows.length === 0 ? (
-            <Text style={styles.emptyText}>No medications yet. Add one below.</Text>
+            <Text style={[styles.emptyText, themedStyles.secondaryText]}>
+              No medications yet. Add one below.
+            </Text>
           ) : (
             <>
               {confirmationRequiredRows.length > 0 ? (
                 <>
-                  <Text style={styles.sectionLabel}>Confirmation required</Text>
+                  <Text style={[styles.sectionLabel, themedStyles.sectionText]}>
+                    Confirmation required
+                  </Text>
                   {confirmationRequiredRows.map((row) => (
                     <MedicationCard
                       key={row.med.medicationId}
@@ -370,17 +382,23 @@ export default function MedicationsScreen() {
               {otherActiveRows.length > 0 ? (
                 <>
                   <Pressable
-                    style={styles.historyToggle}
+                    style={[styles.historyToggle, themedStyles.controlSurface]}
                     onPress={() => setShowOtherCurrentMedications((current) => !current)}
                     accessibilityRole="button"
                     accessibilityState={{ expanded: showOtherCurrentMedications }}
                   >
-                    <Text style={styles.historyToggleText}>Other current medications</Text>
-                    <Text style={styles.historyToggleCount}>{otherActiveRows.length}</Text>
+                    <Text style={[styles.historyToggleText, themedStyles.secondaryText]}>
+                      Other current medications
+                    </Text>
+                    <Text style={[styles.historyToggleCount, themedStyles.mutedText]}>
+                      {otherActiveRows.length}
+                    </Text>
                   </Pressable>
                   {showOtherCurrentMedications ? (
                     <>
-                      <Text style={styles.sectionLabel}>Other current medications</Text>
+                      <Text style={[styles.sectionLabel, themedStyles.sectionText]}>
+                        Other current medications
+                      </Text>
                       {otherActiveRows.map((row) => (
                         <MedicationCard
                           key={row.med.medicationId}
@@ -401,26 +419,32 @@ export default function MedicationsScreen() {
             </>
           )}
 
-          <Pressable style={styles.addMedicationButton} onPress={openAdd}>
-            <Text style={styles.addMedicationText}>➕ Add Medication</Text>
+          <Pressable style={[styles.addMedicationButton, themedStyles.addMedicationButton]} onPress={openAdd}>
+            <Text style={[styles.addMedicationText, themedStyles.secondaryText]}>
+              ➕ Add Medication
+            </Text>
           </Pressable>
           {medicationCandidates.length > 0 ? (
             <>
               <Pressable
-                style={styles.historyToggle}
+                style={[styles.historyToggle, themedStyles.controlSurface]}
                 onPress={() => setShowMedicationHistory((current) => !current)}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: showMedicationHistory }}
               >
-                <Text style={styles.historyToggleText}>
+                <Text style={[styles.historyToggleText, themedStyles.secondaryText]}>
                   {showMedicationHistory ? "Hide" : "View"} historical / review medications
                 </Text>
-                <Text style={styles.historyToggleCount}>{medicationCandidates.length}</Text>
+                <Text style={[styles.historyToggleCount, themedStyles.mutedText]}>
+                  {medicationCandidates.length}
+                </Text>
               </Pressable>
               {showMedicationHistory ? (
                 <>
-                  <Text style={styles.sectionLabel}>Medication history / review candidates</Text>
-                  <Text style={styles.candidateIntro}>
+                  <Text style={[styles.sectionLabel, themedStyles.sectionText]}>
+                    Medication history / review candidates
+                  </Text>
+                  <Text style={[styles.candidateIntro, themedStyles.secondaryText]}>
                     Saved for medication review. These are separate from current medications.
                   </Text>
                   {medicationCandidates.map((candidate) => (
@@ -444,53 +468,53 @@ export default function MedicationsScreen() {
         onRequestClose={() => setEditing(null)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setEditing(null)}>
-          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>
+          <Pressable style={[styles.modalSheet, themedStyles.card]} onPress={(e) => e.stopPropagation()}>
+            <Text style={[styles.modalTitle, themedStyles.primaryText]}>
               {editing === "new" ? "Add Medication" : "Edit Medication"}
             </Text>
 
-            <Text style={styles.modalLabel}>Name</Text>
+            <Text style={[styles.modalLabel, themedStyles.sectionText]}>Name</Text>
             <TextInput
-              style={styles.modalInput}
+              style={[styles.modalInput, themedStyles.modalInput]}
               value={editName}
               onChangeText={setEditName}
               placeholder="e.g. Albuterol"
-              placeholderTextColor={AppTheme.colors.textMuted}
+              placeholderTextColor={theme.appTextMuted}
             />
 
-            <Text style={styles.modalLabel}>Dose</Text>
+            <Text style={[styles.modalLabel, themedStyles.sectionText]}>Dose</Text>
             <TextInput
-              style={styles.modalInput}
+              style={[styles.modalInput, themedStyles.modalInput]}
               value={editDose}
               onChangeText={setEditDose}
               placeholder="e.g. 2 puffs"
-              placeholderTextColor={AppTheme.colors.textMuted}
+              placeholderTextColor={theme.appTextMuted}
             />
 
-            <Text style={styles.modalLabel}>Instructions / Frequency</Text>
+            <Text style={[styles.modalLabel, themedStyles.sectionText]}>Instructions / Frequency</Text>
             <TextInput
-              style={styles.modalInput}
+              style={[styles.modalInput, themedStyles.modalInput]}
               value={editInstructions}
               onChangeText={setEditInstructions}
               placeholder="e.g. Once daily"
-              placeholderTextColor={AppTheme.colors.textMuted}
+              placeholderTextColor={theme.appTextMuted}
             />
 
-            <Text style={styles.modalLabel}>Administration time (HH:mm, 24h)</Text>
+            <Text style={[styles.modalLabel, themedStyles.sectionText]}>Administration time (HH:mm, 24h)</Text>
             <TextInput
-              style={styles.modalInput}
+              style={[styles.modalInput, themedStyles.modalInput]}
               value={editTime}
               onChangeText={setEditTime}
               placeholder="e.g. 20:00"
-              placeholderTextColor={AppTheme.colors.textMuted}
+              placeholderTextColor={theme.appTextMuted}
             />
 
             <View style={styles.modalActions}>
               <Pressable
-                style={[styles.modalButton, styles.modalCancel]}
+                style={[styles.modalButton, styles.modalCancel, themedStyles.modalCancel]}
                 onPress={() => setEditing(null)}
               >
-                <Text style={styles.modalCancelText}>Cancel</Text>
+                <Text style={[styles.modalCancelText, themedStyles.secondaryText]}>Cancel</Text>
               </Pressable>
               <Pressable style={styles.modalButton} onPress={saveEdit}>
                 <Text style={styles.modalSaveText}>Save</Text>
@@ -532,6 +556,10 @@ function MedicationCard({
   onDelete?: () => void;
   onSlmCheck: () => void;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const brandIconColor =
+    theme.appBackground === "#000000" ? AppTheme.colors.brandPale : AppTheme.colors.brand;
   const isConfirmed = row.status === "confirmed";
   const isCustom = row.med.source === "custom";
   const showConfirmationUi = row.confirmationRequired;
@@ -549,25 +577,27 @@ function MedicationCard({
   };
 
   return (
-    <View style={styles.medicationCard}>
+    <View style={[styles.medicationCard, themedStyles.card]}>
       <View style={styles.medicationHeader}>
         <View style={[styles.medDot, { backgroundColor: row.accent }]} />
 
         <View style={styles.medicationTitleBlock}>
           <View style={styles.nameRow}>
-            <Text style={styles.medicationName}>{row.med.name}</Text>
+            <Text style={[styles.medicationName, themedStyles.primaryText]}>{row.med.name}</Text>
             {isCustom ? (
               <View style={styles.customBadge}>
                 <Text style={styles.customBadgeText}>Custom</Text>
               </View>
             ) : null}
             {row.confirmationLabel ? (
-              <View style={styles.confirmationBadge}>
-                <Text style={styles.confirmationBadgeText}>{row.confirmationLabel}</Text>
+              <View style={[styles.confirmationBadge, themedStyles.brandSoftSurface]}>
+                <Text style={[styles.confirmationBadgeText, themedStyles.accentText]}>
+                  {row.confirmationLabel}
+                </Text>
               </View>
             ) : null}
           </View>
-          <Text style={styles.medicationDose}>
+          <Text style={[styles.medicationDose, themedStyles.secondaryText]}>
             {row.med.dosage ?? "—"} · {row.med.frequency ?? row.med.indication ?? "—"}
           </Text>
         </View>
@@ -575,8 +605,8 @@ function MedicationCard({
         {showConfirmationUi ? <StatusPill status={row.status} /> : null}
       </View>
 
-      <View style={[styles.timeBox, isConfirmed && styles.timeBoxConfirmed]}>
-        <Text style={[styles.timeText, isConfirmed && styles.timeTextConfirmed]}>
+      <View style={[styles.timeBox, isConfirmed && styles.timeBoxConfirmed, themedStyles.controlSurface]}>
+        <Text style={[styles.timeText, themedStyles.secondaryText, isConfirmed && styles.timeTextConfirmed]}>
           ⏰ {timeLabel}
         </Text>
       </View>
@@ -594,6 +624,7 @@ function MedicationCard({
             style={[
               styles.primaryAction,
               isConfirmed && styles.primaryActionConfirmed,
+              isConfirmed && themedStyles.primaryActionConfirmed,
             ]}
             onPress={onToggleConfirm}
           >
@@ -601,6 +632,7 @@ function MedicationCard({
               style={[
                 styles.primaryActionText,
                 isConfirmed && styles.primaryActionTextConfirmed,
+                isConfirmed && themedStyles.primaryActionTextConfirmed,
               ]}
             >
               {isConfirmed ? "✅ Confirmed · tap to undo" : "✅ Confirm Given"}
@@ -608,18 +640,21 @@ function MedicationCard({
           </Pressable>
         ) : null}
 
-        <Pressable style={styles.iconButton} onPress={onEdit}>
-          <AppIcon name="note" size={20} color={AppTheme.colors.textMuted} />
+        <Pressable style={[styles.iconButton, themedStyles.iconButton]} onPress={onEdit}>
+          <AppIcon name="note" size={20} color={theme.appTextMuted} />
         </Pressable>
 
         {isCustom ? (
-          <Pressable style={styles.iconButton} onPress={onSlmCheck}>
-            <AppIcon name="care" size={20} color={AppTheme.colors.brand} />
+          <Pressable style={[styles.iconButton, themedStyles.iconButton]} onPress={onSlmCheck}>
+            <AppIcon name="care" size={20} color={brandIconColor} />
           </Pressable>
         ) : null}
 
         {onDelete ? (
-          <Pressable style={[styles.iconButton, styles.iconButtonDanger]} onPress={onDelete}>
+          <Pressable
+            style={[styles.iconButton, themedStyles.iconButton, styles.iconButtonDanger]}
+            onPress={onDelete}
+          >
             <Text style={styles.deleteIconText}>🗑</Text>
           </Pressable>
         ) : null}
@@ -639,6 +674,8 @@ function MedKnowledgeCollapsibles({
   openSection: null | 'indication' | 'sideEffects' | 'warnings' | 'other';
   onToggle: (key: 'indication' | 'sideEffects' | 'warnings' | 'other') => void;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const indicationText = glance?.indication ?? medIndication?.trim() ?? null;
   const sideEffects = glance?.sideEffects ?? null;
   const warnings = glance?.warnings ?? null;
@@ -665,11 +702,11 @@ function MedKnowledgeCollapsibles({
   }
 
   return (
-    <View style={styles.knowledgeBlock}>
+    <View style={[styles.knowledgeBlock, themedStyles.knowledgeBlock]}>
       {rows.map((row) => {
         const open = openSection === row.key;
         return (
-          <View key={row.key} style={styles.knowledgeRow}>
+          <View key={row.key} style={[styles.knowledgeRow, themedStyles.knowledgeRow]}>
             <Pressable
               style={styles.knowledgeHeader}
               onPress={() => onToggle(row.key)}
@@ -677,11 +714,11 @@ function MedKnowledgeCollapsibles({
               accessibilityState={{ expanded: open }}
               accessibilityLabel={`${row.label}${open ? ' — collapse' : ' — expand'}`}
             >
-              <Text style={styles.knowledgeLabel}>{row.label}</Text>
-              <Text style={styles.knowledgeChevron}>{open ? '▾' : '▸'}</Text>
+              <Text style={[styles.knowledgeLabel, themedStyles.primaryText]}>{row.label}</Text>
+              <Text style={[styles.knowledgeChevron, themedStyles.mutedText]}>{open ? '▾' : '▸'}</Text>
             </Pressable>
             {open ? (
-              <Text style={styles.knowledgeBody}>{row.body}</Text>
+              <Text style={[styles.knowledgeBody, themedStyles.secondaryText]}>{row.body}</Text>
             ) : null}
           </View>
         );
@@ -704,6 +741,9 @@ function MedicationCandidateCard({
 }: {
   candidate: MedicationCandidate;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const isDark = theme.appBackground === "#000000";
   const sourceDetail = [
     candidate.sourceFile,
     typeof candidate.visitIndex === "number" ? `visit ${candidate.visitIndex}` : undefined,
@@ -715,28 +755,28 @@ function MedicationCandidateCard({
   void sourceDetail;
 
   return (
-    <View style={[styles.medicationCard, styles.candidateCard]}>
+    <View style={[styles.medicationCard, themedStyles.card, styles.candidateCard, themedStyles.candidateCard]}>
       <View style={styles.medicationHeader}>
-        <View style={[styles.medDot, { backgroundColor: AppTheme.colors.brandDark }]} />
+        <View style={[styles.medDot, { backgroundColor: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brandDark }]} />
         <View style={styles.medicationTitleBlock}>
           <View style={styles.nameRow}>
-            <Text style={styles.medicationName}>{candidate.name}</Text>
-            <View style={styles.reviewBadge}>
-              <Text style={styles.reviewBadgeText}>Review only</Text>
+            <Text style={[styles.medicationName, themedStyles.primaryText]}>{candidate.name}</Text>
+            <View style={[styles.reviewBadge, themedStyles.warningSurface]}>
+              <Text style={[styles.reviewBadgeText, themedStyles.warningText]}>Review only</Text>
             </View>
           </View>
-          <Text style={styles.medicationDose}>
+          <Text style={[styles.medicationDose, themedStyles.secondaryText]}>
             {candidate.category} - historical/review context
           </Text>
         </View>
       </View>
 
-      <Text style={styles.candidateIntro}>
+      <Text style={[styles.candidateIntro, themedStyles.secondaryText]}>
         Saved for review. No reminders are set from this item.
       </Text>
 
-      <View style={styles.reviewAction}>
-        <Text style={styles.reviewActionText}>Historical / review context</Text>
+      <View style={[styles.reviewAction, themedStyles.reviewAction]}>
+        <Text style={[styles.reviewActionText, themedStyles.accentText]}>Historical / review context</Text>
       </View>
     </View>
   );
@@ -749,13 +789,17 @@ function StatusPill({
   status: MedStatus;
   compact?: boolean;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const label = status === "confirmed" ? "Confirmed" : "Pending";
   return (
     <View
       style={[
         styles.statusPill,
         status === "pending" && styles.statusPending,
+        status === "pending" && themedStyles.warningSurface,
         status === "confirmed" && styles.statusConfirmed,
+        status === "confirmed" && themedStyles.brandSoftSurface,
         compact && styles.statusPillCompact,
       ]}
     >
@@ -763,13 +807,106 @@ function StatusPill({
         style={[
           styles.statusText,
           status === "pending" && styles.statusTextPending,
+          status === "pending" && themedStyles.warningText,
           status === "confirmed" && styles.statusTextConfirmed,
+          status === "confirmed" && themedStyles.accentText,
         ]}
       >
         {label}
       </Text>
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === "#000000";
+
+  return StyleSheet.create({
+    screen: {
+      backgroundColor: theme.appBackground,
+    },
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    candidateCard: {
+      backgroundColor: isDark ? theme.appSurface : "#FBFFFE",
+      borderColor: isDark ? theme.appBorder : AppTheme.colors.brandSoft,
+    },
+    controlSurface: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    nextDueCard: {
+      ...(isDark
+        ? {
+            backgroundColor: theme.appSurface,
+            borderColor: theme.appBorder,
+            borderWidth: 1,
+          }
+        : null),
+    },
+    clockCircle: {
+      backgroundColor: isDark ? theme.appControlSurface : "rgba(255,255,255,0.2)",
+    },
+    primaryText: {
+      color: theme.appText,
+    },
+    secondaryText: {
+      color: theme.appTextSupporting,
+    },
+    mutedText: {
+      color: theme.appTextMuted,
+    },
+    sectionText: {
+      color: theme.appSectionText,
+    },
+    accentText: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand,
+    },
+    brandSoftSurface: {
+      backgroundColor: theme.appBrandSoftSurface,
+    },
+    warningSurface: {
+      backgroundColor: isDark ? "rgba(249, 115, 22, 0.16)" : AppTheme.colors.warningSoft,
+    },
+    warningText: {
+      color: isDark ? AppTheme.colors.warning : "#B77900",
+    },
+    addMedicationButton: {
+      borderColor: theme.appBorder,
+    },
+    knowledgeBlock: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    knowledgeRow: {
+      borderBottomColor: theme.appBorder,
+    },
+    primaryActionConfirmed: {
+      backgroundColor: isDark ? theme.appControlSurface : AppTheme.colors.brandSoft,
+      borderColor: isDark ? AppTheme.colors.brandPale : "#A7F3D0",
+    },
+    primaryActionTextConfirmed: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand,
+    },
+    iconButton: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    reviewAction: {
+      backgroundColor: theme.appBrandSoftSurface,
+      borderColor: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brandPale,
+    },
+    modalInput: {
+      backgroundColor: theme.appInputBackground,
+      borderColor: theme.appBorder,
+      color: theme.appText,
+    },
+    modalCancel: {
+      backgroundColor: theme.appControlSurface,
+    },
+  });
 }
 
 const styles = StyleSheet.create({
