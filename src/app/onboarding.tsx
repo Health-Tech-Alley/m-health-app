@@ -24,6 +24,7 @@ import {
   selectPatientRecord,
   usePatientRecord,
 } from "@/contexts/patient-record-context";
+import { useSettings } from "@/contexts/settings-context";
 import patientProfiles from "@/data/fhir/patient-profiles";
 import { AppleHealthSource } from "@/data/sensors/apple-health-source";
 import { ALL_HEALTHKIT_READ_TYPES } from "@/data/sensors/healthkit-type-map";
@@ -93,6 +94,12 @@ const languageOptions: LanguagePreference[] = [
   "English + Español",
   "Other",
 ];
+
+const appearanceOptions = [
+  { label: "System", value: "system" },
+  { label: "Light", value: "light" },
+  { label: "Dark", value: "dark" },
+] as const;
 
 const medicalComfortOptions: MedicalComfortLevel[] = [
   "Keep it simple",
@@ -416,6 +423,7 @@ export default function OnboardingScreen() {
   const styles = useMemo(() => createThemedStyles(theme), [theme]);
   const existingProfile = getOnboardingProfile();
   const { snapshot, ready } = usePatientRecord();
+  const { settings, setTheme } = useSettings();
   const { importBundledEhrProfile } = useBundledEhrImport();
   const { setSimulateMissingOptionalFeatures } = useSettings();
 
@@ -1198,6 +1206,8 @@ export default function OnboardingScreen() {
                   onSelect={setAvailability}
                 />
 
+                <SectionLabel title="Preferences" />
+
                 <ChipGroup
                   label="Notifications"
                   options={notificationOptions}
@@ -1211,6 +1221,39 @@ export default function OnboardingScreen() {
                   selectedValue={languagePreference}
                   onSelect={setLanguagePreference}
                 />
+
+                <View style={styles.chipBlock}>
+                  <Text style={styles.fieldLabel}>Appearance</Text>
+
+                  <View style={styles.chipRow}>
+                    {appearanceOptions.map(({ label, value }) => {
+                      const selected = settings.theme === value;
+
+                      return (
+                        <Pressable
+                          key={value}
+                          style={[
+                            styles.chip,
+                            selected && styles.chipSelected,
+                          ]}
+                          onPress={() => setTheme(value)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Use ${label} appearance`}
+                          accessibilityState={{ selected }}
+                        >
+                          <Text
+                            style={[
+                              styles.chipText,
+                              selected && styles.chipTextSelected,
+                            ]}
+                          >
+                            {label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
 
                 <ChipGroup
                   label="Medical detail comfort"
