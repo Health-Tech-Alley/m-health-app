@@ -21,6 +21,7 @@ function formatBytes(bytes: number): string {
 export type KnowledgePackProgressCardProps = {
   title?: string;
   subtitle?: string;
+  presentation?: 'default' | 'onboarding';
   runnerOptions?: PackRunnerOptions;
   showUpdateReset?: boolean;
   autoStart?: boolean;
@@ -29,13 +30,14 @@ export type KnowledgePackProgressCardProps = {
 export function KnowledgePackProgressCard({
   title = 'Clinical knowledge',
   subtitle = 'On-device pack · required for Home',
+  presentation = 'default',
   runnerOptions,
   showUpdateReset = false,
   autoStart = false,
 }: KnowledgePackProgressCardProps) {
   const pack = useKnowledgePackInstall();
   const theme = useTheme();
-  const themedStyles = useMemo(() => createStyles(theme), [theme]);
+  const themedStyles = useMemo(() => createStyles(theme, presentation), [theme, presentation]);
 
   // Auto-start is driven by parent via pack.autoStartOnce to control Wi-Fi alert timing.
   void autoStart;
@@ -177,7 +179,12 @@ export function KnowledgePackProgressCard({
   );
 }
 
-function createStyles(theme: ReturnType<typeof useTheme>) {
+function createStyles(
+  theme: ReturnType<typeof useTheme>,
+  presentation: NonNullable<KnowledgePackProgressCardProps['presentation']>,
+) {
+  const isOnboarding = presentation === 'onboarding';
+
   return StyleSheet.create({
     card: {
       backgroundColor: theme.appSurface,
@@ -185,9 +192,24 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     },
     title: {
       color: theme.appText,
+      ...(isOnboarding
+        ? {
+            fontSize: 18,
+            fontWeight: '900',
+            marginBottom: 2,
+          }
+        : null),
     },
     subtitle: {
-      color: theme.appTextMuted,
+      color: isOnboarding ? theme.appTextSupporting : theme.appTextMuted,
+      ...(isOnboarding
+        ? {
+            fontSize: 14,
+            lineHeight: 20,
+            fontWeight: '700',
+            marginBottom: 2,
+          }
+        : null),
     },
     barTrack: {
       backgroundColor: theme.appBorder,

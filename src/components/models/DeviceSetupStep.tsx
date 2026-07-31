@@ -9,6 +9,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { AppTheme } from '@/constants/theme';
 import { useKnowledgePackInstall } from '@/hooks/useKnowledgePackInstall';
 import { useModelDownloadQueue } from '@/hooks/useModelDownloadQueue';
+import { useTheme } from '@/hooks/use-theme';
 import type { PackRunnerOptions } from '@/clinical-evidence/pack';
 
 import { KnowledgePackProgressCard } from './KnowledgePackProgressCard';
@@ -28,8 +29,33 @@ export function DeviceSetupStep({
 }: DeviceSetupStepProps) {
   const pack = useKnowledgePackInstall();
   const models = useModelDownloadQueue();
+  const theme = useTheme();
 
   const keepAwake = pack.inFlight || models.anyDownloading;
+  const isDark = theme.appBackground === '#000000';
+  const themedStyles = useMemo(
+    () =>
+      StyleSheet.create({
+        introCard: {
+          backgroundColor: theme.appBrandSoftSurface,
+          borderColor: isDark ? theme.appProfileAvatarBorder : '#B7FFF1',
+        },
+        heading: {
+          color: theme.appText,
+        },
+        subheading: {
+          color: theme.appTextSupporting,
+        },
+        banner: {
+          backgroundColor: isDark ? '#3A2610' : '#FFF4E5',
+          borderColor: isDark ? '#A16207' : '#F5D0A9',
+        },
+        bannerText: {
+          color: isDark ? '#FDBA74' : '#7A4E12',
+        },
+      }),
+    [isDark, theme],
+  );
 
   useEffect(() => {
     let active = true;
@@ -91,12 +117,16 @@ export function DeviceSetupStep({
 
   return (
     <View style={styles.root}>
-      <Text style={styles.heading}>Device setup</Text>
-      <Text style={styles.subheading}>
-        Download on-device AI before home care use
-      </Text>
-      <View style={styles.banner}>
-        <Text style={styles.bannerText}>{banner}</Text>
+      <View style={[styles.introCard, themedStyles.introCard]}>
+        <Text style={[styles.heading, themedStyles.heading]}>Device setup</Text>
+        <Text style={[styles.subheading, themedStyles.subheading]}>
+          Download on-device AI before home care use
+        </Text>
+      </View>
+      <View style={[styles.banner, themedStyles.banner]}>
+        <Text style={[styles.bannerText, themedStyles.bannerText]}>
+          {banner}
+        </Text>
       </View>
       <SlmModelCarousel
         hfTokenHint
@@ -108,35 +138,50 @@ export function DeviceSetupStep({
           )
         }
       />
-      <KnowledgePackProgressCard runnerOptions={runnerOptions} />
+      <KnowledgePackProgressCard
+        runnerOptions={runnerOptions}
+        presentation="onboarding"
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
-    gap: 14,
+    gap: 16,
     paddingBottom: 24,
   },
+  introCard: {
+    backgroundColor: AppTheme.colors.brandSoft,
+    borderWidth: 1,
+    borderColor: '#B7FFF1',
+    borderRadius: AppTheme.radius.card,
+    padding: 20,
+    marginBottom: 4,
+  },
   heading: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 26,
+    fontWeight: '900',
     color: AppTheme.colors.text,
+    marginBottom: 8,
   },
   subheading: {
     fontSize: 15,
-    color: AppTheme.colors.textMuted,
+    lineHeight: 23,
+    fontWeight: '600',
+    color: AppTheme.colors.textSoft,
   },
   banner: {
     backgroundColor: '#FFF4E5',
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: AppTheme.radius.card,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#F5D0A9',
   },
   bannerText: {
     fontSize: 13,
     color: '#7A4E12',
-    lineHeight: 18,
+    lineHeight: 20,
+    fontWeight: '600',
   },
 });

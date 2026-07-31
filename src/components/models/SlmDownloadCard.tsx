@@ -99,6 +99,7 @@ function Row({
 export type SlmDownloadCardProps = {
   title?: string;
   subtitle?: string;
+  presentation?: 'default' | 'onboarding';
   showDelete?: boolean;
   hfTokenHint?: boolean;
   onNeedHfToken?: () => void;
@@ -109,6 +110,7 @@ export type SlmDownloadCardProps = {
 export function SlmDownloadCard({
   title = 'Concierge model',
   subtitle = 'Hugging Face · one download at a time',
+  presentation = 'default',
   showDelete = false,
   hfTokenHint = false,
   onNeedHfToken,
@@ -116,7 +118,7 @@ export function SlmDownloadCard({
 }: SlmDownloadCardProps) {
   const queue = useModelDownloadQueue();
   const theme = useTheme();
-  const themedStyles = useMemo(() => createStyles(theme), [theme]);
+  const themedStyles = useMemo(() => createStyles(theme, presentation), [theme, presentation]);
 
   return (
     <View style={[styles.card, themedStyles.card]}>
@@ -152,7 +154,12 @@ export function SlmDownloadCard({
   );
 }
 
-function createStyles(theme: ReturnType<typeof useTheme>) {
+function createStyles(
+  theme: ReturnType<typeof useTheme>,
+  presentation: NonNullable<SlmDownloadCardProps['presentation']>,
+) {
+  const isOnboarding = presentation === 'onboarding';
+
   return StyleSheet.create({
     card: {
       backgroundColor: theme.appSurface,
@@ -160,9 +167,24 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     },
     title: {
       color: theme.appText,
+      ...(isOnboarding
+        ? {
+            fontSize: 18,
+            fontWeight: '900',
+            marginBottom: 2,
+          }
+        : null),
     },
     subtitle: {
-      color: theme.appTextMuted,
+      color: isOnboarding ? theme.appTextSupporting : theme.appTextMuted,
+      ...(isOnboarding
+        ? {
+            fontSize: 14,
+            lineHeight: 20,
+            fontWeight: '700',
+            marginBottom: 2,
+          }
+        : null),
     },
     link: {
       color: AppTheme.colors.brand,
