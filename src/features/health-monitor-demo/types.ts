@@ -4,7 +4,6 @@ import type {
   HistoricalAnomalyEvent,
   PatientProfile,
   RawObservationInput,
-  UC2DecisionResult,
 } from '@/ml-models/uc2-decision-layer';
 
 export type V2Toggle = {
@@ -26,7 +25,6 @@ export interface HealthMonitorDemoState {
   history: HistoricalAnomalyEvent[];
   toggles: V2Toggle;
   v2Result: DecisionLayerResult | null;
-  v1Result: UC2DecisionResult | null;
   status: DemoStatus;
   error: string | null;
   slmStatus: SLMStatus;
@@ -39,7 +37,7 @@ export type HealthMonitorDemoAction =
   | { type: 'select-fixture'; payload: { fixtureId: string; raw: RawObservationInput; profile: PatientProfile; caregiver?: CaregiverHitlInput; history?: HistoricalAnomalyEvent[] } }
   | { type: 'toggle'; payload: { key: keyof V2Toggle; value: boolean } }
   | { type: 'run-start' }
-  | { type: 'run-success'; payload: { v2: DecisionLayerResult; v1: UC2DecisionResult } }
+  | { type: 'run-success'; payload: { v2: DecisionLayerResult } }
   | { type: 'run-error'; payload: { error: string } }
   | { type: 'slm-start' }
   | { type: 'slm-token'; payload: { token: string } }
@@ -59,7 +57,6 @@ export function reducer(state: HealthMonitorDemoState, action: HealthMonitorDemo
         caregiverInput: action.payload.caregiver ?? null,
         history: action.payload.history ?? [],
         v2Result: null,
-        v1Result: null,
         status: 'idle',
         error: null,
         slmStatus: 'idle',
@@ -79,7 +76,6 @@ export function reducer(state: HealthMonitorDemoState, action: HealthMonitorDemo
         ...state,
         status: 'done',
         v2Result: action.payload.v2,
-        v1Result: action.payload.v1,
       };
     case 'run-error':
       return { ...state, status: 'error', error: action.payload.error };
@@ -113,7 +109,6 @@ export const initialState: HealthMonitorDemoState = {
     usePersonalizedThresholds: true,
   },
   v2Result: null,
-  v1Result: null,
   status: 'idle',
   error: null,
   slmStatus: 'idle',

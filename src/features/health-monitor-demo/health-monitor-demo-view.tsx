@@ -50,16 +50,6 @@ function ResultRow({ label, value, tone }: { label: string; value?: string | num
   );
 }
 
-function ComparisonRow({ label, v1, v2 }: { label: string; v1?: string | number | null; v2?: string | number | null }) {
-  return (
-    <View style={styles.comparisonRow}>
-      <Text style={styles.comparisonLabel}>{label}</Text>
-      <Text style={styles.comparisonValue}>{v1 ?? '—'}</Text>
-      <Text style={styles.comparisonValue}>{v2 ?? '—'}</Text>
-    </View>
-  );
-}
-
 export function HealthMonitorDemoView({
   state,
   dispatch,
@@ -70,7 +60,6 @@ export function HealthMonitorDemoView({
 }: ViewProps) {
   const running = state.status === 'running';
   const hasResult = state.v2Result !== null;
-  const hasBoth = state.v2Result !== null && state.v1Result !== null;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -78,7 +67,7 @@ export function HealthMonitorDemoView({
         <MainTabHeader
           title="Health Monitor Playground"
           eyebrow="UC2 v2 Demo"
-          subtitle="Toggle v2 features, run the pipeline, and compare v1 vs v2 results."
+          subtitle="Toggle v2 features and run the decision pipeline."
           icon="assistant"
         />
 
@@ -138,7 +127,7 @@ export function HealthMonitorDemoView({
             disabled={!state.raw || running || !mlReady}
             onPress={onRun}>
             <Text style={styles.primaryButtonText}>
-              {running ? 'Running…' : !mlReady ? 'ML Model Loading…' : 'Run v1 + v2 Pipelines'}
+              {running ? 'Running…' : !mlReady ? 'ML Model Loading…' : 'Run v2 Pipeline'}
             </Text>
           </Pressable>
 
@@ -148,8 +137,7 @@ export function HealthMonitorDemoView({
         </Section>
 
         {hasResult && state.v2Result ? (
-          <Section title="v2 Pipeline Result">
-            <ResultRow
+          <Section title="v2 Pipeline Result">            <ResultRow
               label="Emergency"
               value={state.v2Result.emergency.is_emergency ? `YES: ${state.v2Result.emergency.reason}` : 'No'}
               tone={state.v2Result.emergency.is_emergency ? 'danger' : 'ok'}
@@ -198,31 +186,6 @@ export function HealthMonitorDemoView({
             <ResultRow label="Final Decision" value={state.v2Result.final_decision.final_notification_type} />
             <ResultRow label="Final Severity" value={state.v2Result.final_decision.post_hitl_severity} />
             <ResultRow label="Notification" value={state.v2Result.final_decision.final_notification_title} />
-          </Section>
-        ) : null}
-
-        {hasBoth && state.v2Result && state.v1Result ? (
-          <Section title="v1 vs v2 Comparison">
-            <View style={styles.comparisonHeader}>
-              <Text style={styles.comparisonHeaderCell}>Field</Text>
-              <Text style={styles.comparisonHeaderCell}>v1</Text>
-              <Text style={styles.comparisonHeaderCell}>v2</Text>
-            </View>
-            <ComparisonRow
-              label="Anomaly Type"
-              v1={state.v1Result.initialAnomalyType}
-              v2={state.v2Result.sensor_classification?.sensor_anomaly_type}
-            />
-            <ComparisonRow
-              label="Severity"
-              v1={state.v1Result.finalDecision.final_severity}
-              v2={state.v2Result.final_decision.post_hitl_severity}
-            />
-            <ComparisonRow
-              label="Notification"
-              v1={state.v1Result.finalDecision.final_notification_type}
-              v2={state.v2Result.final_decision.final_notification_type}
-            />
           </Section>
         ) : null}
 
@@ -366,39 +329,6 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     flexShrink: 1,
     textAlign: 'right',
-  },
-  comparisonHeader: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: AppTheme.colors.border,
-    paddingBottom: 4,
-  },
-  comparisonHeaderCell: {
-    flex: 1,
-    fontSize: 11,
-    fontWeight: '800',
-    color: AppTheme.colors.textMuted,
-    textTransform: 'uppercase',
-  },
-  comparisonRow: {
-    flexDirection: 'row',
-    paddingVertical: 6,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: AppTheme.colors.border,
-  },
-  comparisonLabel: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '700',
-    color: AppTheme.colors.text,
-  },
-  comparisonValue: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: '600',
-    color: AppTheme.colors.textSoft,
-    fontFamily: 'monospace',
-    textAlign: 'center',
   },
   streamingText: {
     color: AppTheme.colors.textSoft,

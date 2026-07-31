@@ -5,6 +5,7 @@
  * These tests verify that the production runtime is truly 12D end-to-end.
  */
 
+import { makeFinalDecision } from "../finalDecision";
 import {
     runUC2DecisionLayerV2,
     FEATURE_ORDER,
@@ -537,7 +538,6 @@ describe("7.11 Caregiver critical route severity 3", () => {
 
     it("non-emergency severity 3 path does not collapse to severity 2", async () => {
         // Directly test that makeFinalDecision honours critical_route_triggered
-        const { makeFinalDecision } = await import("../finalDecision");
         const result = makeFinalDecision({
             emergency: {
                 emergency: false,
