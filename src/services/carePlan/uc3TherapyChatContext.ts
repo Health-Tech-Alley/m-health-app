@@ -143,7 +143,9 @@ export function buildUc3TherapySystemContext(
 
 /**
  * Minimal seed add-on. Prefer system context for the full list; keep seed short
- * so multi-turn history does not explode n_ctx.
+ * so multi-turn history does not explode n_ctx. Includes today's actual logged
+ * therapy values so the first explain turn (and follow-ups) see what the
+ * caregiver just entered on the therapy card.
  */
 export function buildUc3TherapySeedSupplement(
   snapshot: PatientRecordSnapshot | null | undefined,
@@ -153,6 +155,7 @@ export function buildUc3TherapySeedSupplement(
   const assigned = getAssignedDevelopmentRehabExercises(
     snapshot.rehabExerciseAssignments ?? [],
   );
+  const labelByKey = new Map(assigned.map((e) => [e.key, e.label]));
   const ex =
     assigned.length > 0
       ? assigned.map((e) => e.label).join('; ')
@@ -166,5 +169,21 @@ export function buildUc3TherapySeedSupplement(
       ? activeMeds.map((m) => m.name).join('; ')
       : snapshot.patient?.currentMedications?.trim()?.slice(0, 120) || 'none listed';
 
-  return `\nPlan snapshot — exercises: ${ex}. Meds: ${meds}.`;
+  const today = snapshot.todayDailyCareEntry;
+  const todayBits: string[] = [];
+  if (today) {
+    todayBits.push(`done=${today.therapyCompleted ? 'yes' : 'no'}`);
+    if (today.exerciseRepetitions != null) todayBits.push(`reps ${today.exerciseRepetitions}`);
+    if (today.romDegrees != null) todayBits.push(`ROM ${today.romDegrees}°`);
+    if (today.walkingMinutes != null) todayBits.push(`walk ${today.walkingMinutes}m`);
+    if (today.painScore != null) todayBits.push(`pain ${today.painScore}/10`);
+    if (today.fatigue != null) todayBits.push(`fatigue ${today.fatigue}/10`);
+    const completed = (today.completedExerciseKeys ?? [])
+      .map((k) => exerciseLabel(k, labelByKey))
+      .join(', ');
+    if (completed) todayBits.push(`completed: ${completed}`);
+  }
+  const todayLine = todayBits.length > 0 ? ` Today: ${todayBits.join(' · ')}.` : '';
+
+  return `\nPlan snapshot — exercises: ${ex}. Meds: ${meds}.${todayLine}`;
 }

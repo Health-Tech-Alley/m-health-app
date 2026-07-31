@@ -180,6 +180,56 @@ describe('uc3TherapyChatContext', () => {
     expect(seed.length).toBeLessThan(400);
   });
 
+  it('seed supplement carries today actual therapy values', () => {
+    const seed = buildUc3TherapySeedSupplement(baseSnapshot());
+    expect(seed).toContain('reps 12');
+    expect(seed).toContain('done=yes');
+    expect(seed).toContain('completed: Sit-to-stand practice');
+  });
+
+  it('system context carries today actual therapy values for the SLM', () => {
+    const ctx = buildUc3TherapySystemContext(baseSnapshot());
+    expect(ctx).toContain('Today:');
+    expect(ctx).toContain('reps 12');
+    expect(ctx).toContain('done=yes');
+    expect(ctx).toContain('completed: Sit-to-stand practice');
+  });
+
+  it('omits today metric parts that are not logged (does not invent values)', () => {
+    const ctx = buildUc3TherapySystemContext(
+      baseSnapshot({
+        todayDailyCareEntry: {
+          entryId: 'd2',
+          patientId: 'p1',
+          entryDate: '2026-07-27',
+          therapyCompleted: false,
+          setsCompleted: 0,
+          recommendedSets: 0,
+          exerciseRepetitions: 8,
+          caregiverConcern: false,
+          createdAt: '2026-07-27T00:00:00.000Z',
+          updatedAt: '2026-07-27T00:00:00.000Z',
+        },
+      }),
+    );
+    expect(ctx).toContain('reps 8');
+    expect(ctx).toContain('done=no');
+    // The Today session line must not invent unlogged metric values.
+    const todayLine = ctx.split('\n').find((l) => l.startsWith('Today:')) ?? '';
+    expect(todayLine).not.toContain('ROM ');
+    expect(todayLine).not.toContain('walk ');
+    expect(todayLine).not.toMatch(/pain \d/);
+    expect(todayLine).not.toMatch(/fatigue \d/);
+  });
+
+  it('reports "Today: no log yet" when no daily entry exists', () => {
+    const ctx = buildUc3TherapySystemContext(
+      baseSnapshot({ todayDailyCareEntry: null }),
+    );
+    expect(ctx).toContain('Today: no log yet');
+    expect(ctx).not.toContain('reps ');
+  });
+
   it('handles null snapshot without throwing', () => {
     expect(buildUc3TherapySystemContext(null)).toContain('No patient');
     expect(buildUc3TherapySeedSupplement(null)).toBe('');

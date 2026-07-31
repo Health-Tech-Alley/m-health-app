@@ -1,7 +1,6 @@
 import type { ChatMessage } from '@/inference/inference-provider';
 import { AlertAutoencoder } from '@/ml-models/alert-autoencoder';
 import type {
-  AppleWatchVitalsInput,
   CaregiverHitlInput,
   DecisionLayerResult,
   HistoricalAnomalyEvent,
@@ -50,26 +49,6 @@ export const V2_FIXTURES: V2Fixture[] = [
 ];
 
 const MOCK_SCALER = { mean: new Array(12).fill(0), scale: new Array(12).fill(1) };
-
-function rawToAppleWatchInput(raw: RawObservationInput): AppleWatchVitalsInput {
-  return {
-    patient_id: raw.patient_id,
-    timestamp: raw.timestamp_iso,
-    heart_rate: raw.heart_rate,
-    blood_oxygen: raw.blood_oxygen,
-    blood_pressure_systolic: raw.blood_pressure_systolic,
-    blood_pressure_diastolic: raw.blood_pressure_diastolic,
-    glucose_level: raw.glucose_level,
-    body_temperature: raw.body_temperature,
-    respiratory_rate: raw.respiratory_rate,
-    activity_level: raw.activity_level,
-    sleep_quality: raw.sleep_quality,
-    stress_level: raw.stress_level,
-    hrv_sdnn: raw.hrv_sdnn,
-    steps_count: raw.steps_count,
-    calories_burned: raw.calories_burned,
-  };
-}
 
 export function createHealthMonitorDemoController(mlModel: AlertAutoencoder) {
   let abortController: AbortController | null = null;

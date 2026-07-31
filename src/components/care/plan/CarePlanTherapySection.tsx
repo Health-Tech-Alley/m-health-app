@@ -17,7 +17,10 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { InCardMiniChat } from '@/components/care/InCardMiniChat';
 import { AppTheme } from '@/constants/theme';
-import { usePatientRecord, getCurrentPatientSnapshot } from '@/contexts/patient-record-context';
+import {
+  getCurrentPatientSnapshot,
+  usePatientRecord,
+} from '@/contexts/patient-record-context';
 import {
   DAILY_CARE_SKIPPED_REASON_OPTIONS,
   DAILY_CARE_URGENT_SYMPTOM_OPTIONS,
@@ -84,11 +87,17 @@ const VITAL_FIELDS: RehabilitationMeasurementType[] = [
   'rehabilitation_joint_contracture_rom',
 ];
 
+/**
+ * Option chips aligned to UC3 plan defaults for post-stroke rehab:
+ * reps baseline~8 target~18, ROM baseline~30 target~65–90°, walk baseline~3–5
+ * target~12+, pain/fatigue 0–10 clinical scales (concern ~4–5).
+ */
 const FIELD_OPTIONS: Record<DailyCareEditField, Array<{ value: number; label: string }>> = {
   setsCompleted: [],
   exerciseRepetitions: [
     { value: 0, label: '0' },
     { value: 5, label: '5' },
+    { value: 8, label: '8' },
     { value: 10, label: '10' },
     { value: 15, label: '15' },
     { value: 20, label: '20' },
@@ -100,12 +109,15 @@ const FIELD_OPTIONS: Record<DailyCareEditField, Array<{ value: number; label: st
     { value: 30, label: '30\u00b0' },
     { value: 45, label: '45\u00b0' },
     { value: 60, label: '60\u00b0' },
+    { value: 75, label: '75\u00b0' },
     { value: 90, label: '90\u00b0' },
   ],
   walkingMinutes: [
     { value: 0, label: '0 min' },
+    { value: 3, label: '3 min' },
     { value: 5, label: '5 min' },
     { value: 10, label: '10 min' },
+    { value: 15, label: '15 min' },
     { value: 20, label: '20 min' },
     { value: 30, label: '30 min' },
     { value: 45, label: '45 min' },
@@ -114,15 +126,19 @@ const FIELD_OPTIONS: Record<DailyCareEditField, Array<{ value: number; label: st
     { value: 0, label: '0 \u2014 none' },
     { value: 2, label: '2 \u2014 mild' },
     { value: 4, label: '4 \u2014 moderate' },
+    { value: 5, label: '5 \u2014 moderate+' },
     { value: 6, label: '6 \u2014 strong' },
     { value: 8, label: '8 \u2014 severe' },
+    { value: 10, label: '10 \u2014 worst' },
   ],
   fatigue: [
     { value: 0, label: '0 \u2014 none' },
     { value: 2, label: '2 \u2014 mild' },
     { value: 4, label: '4 \u2014 moderate' },
+    { value: 5, label: '5 \u2014 moderate+' },
     { value: 6, label: '6 \u2014 strong' },
     { value: 8, label: '8 \u2014 severe' },
+    { value: 10, label: '10 \u2014 exhausted' },
   ],
 };
 
@@ -137,8 +153,8 @@ const FIELD_TITLES: Record<DailyCareEditField, string> = {
 
 const FIELD_HINTS: Record<DailyCareEditField, string> = {
   setsCompleted: 'How many sets were completed today?',
-  exerciseRepetitions: 'About how many total reps today?',
-  romDegrees: 'Best range of motion measured today (degrees).',
+  exerciseRepetitions: 'About how many total reps today? (plan target often ~15–20)',
+  romDegrees: 'Best range of motion measured today (0–90+ degrees).',
   walkingMinutes: 'About how many minutes of walking today?',
   painScore: 'Pain level (0 = none, 10 = worst).',
   fatigue: 'Fatigue level (0 = none, 10 = exhausted).',
@@ -250,18 +266,61 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
     return () => clearTimeout(handle);
   }, [patientId, therapySessionDate, activeAssignmentListKey]);
 
-  const saveDailyCarePatch = (patch: Partial<DailyCareEntry>): DailyCareEntry | null => {
-    if (!patientId) return null;
-    upsertDailyCareEntry({
-      ...(dailyEntry ?? {}),
-      ...patch,
-      patientId,
-      carePlanId: dailyEntry?.carePlanId ?? carePlanId ?? null,
-      assignedExerciseKeys: activeAssignedExercises.map((e) => e.key),
-    });
-    refresh();
-    return null;
-  };
+  // State-first daily-care patch: read the latest active-patient entry from
+  // the store (not the `dailyEntry` prop, which can be stale during rapid
+  // consecutive edits), apply the patch, persist only the affected row, and
+  // roll back on failure. A full snapshot refresh is not required per field.
+  const saveDailyCarePatch = useCallback(
+    (patch: Partial<DailyCareEntry>): void => {
+      if (!patientId) return;
+      let nextEntry: DailyCareEntry | null = null;
+      void mutatePatientRecord(
+        (latestSnapshot: PatientRecordSnapshot) => {
+          if (latestSnapshot.patient?.patientId !== patientId) {
+            throw new Error(`Cannot save daily care for inactive patient: ${patientId}`);
+          }
+          const existing = latestSnapshot.todayDailyCareEntry;
+          const assignedExerciseKeys = activeAssignedExercises.map((e) => e.key);
+          const now = new Date().toISOString();
+          nextEntry = {
+            ...(existing ?? {
+              entryId: `dce-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`,
+              patientId,
+              entryDate: now.slice(0, 10),
+              therapyCompleted: false,
+              setsCompleted: 0,
+              recommendedSets: 0,
+              caregiverConcern: false,
+              createdAt: now,
+            }),
+            ...patch,
+            patientId,
+            carePlanId: existing?.carePlanId ?? carePlanId ?? null,
+            assignedExerciseKeys,
+            updatedAt: now,
+          };
+          const history = latestSnapshot.rehabDailyEntries ?? [];
+          const has = history.some((e) => e.entryDate === nextEntry!.entryDate);
+          const rehabDailyEntries = (has
+            ? history.map((e) => (e.entryDate === nextEntry!.entryDate ? nextEntry! : e))
+            : [...history, nextEntry!]
+          ).sort((a, b) => a.entryDate.localeCompare(b.entryDate));
+          return {
+            ...latestSnapshot,
+            todayDailyCareEntry: nextEntry,
+            rehabDailyEntries,
+          };
+        },
+        () => {
+          if (nextEntry) Object.assign(nextEntry, upsertDailyCareEntry(nextEntry));
+        },
+      ).catch((error) => {
+        console.error('[CarePlanTherapySection] daily care update failed:', error);
+        setUc3CompletionStatus('Care update could not be saved. Please try again.');
+      });
+    },
+    [activeAssignedExercises, carePlanId, mutatePatientRecord, patientId],
+  );
 
   const confirmTherapyCompleted = useCallback(async () => {
     if (uc3CompletionRunning) return;
@@ -333,12 +392,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
     } finally {
       setUc3CompletionRunning(false);
     }
-  }, [
-    uc3CompletionRunning,
-    saveDailyCarePatch,
-    getCurrentPatientSnapshot,
-    refresh,
-  ]);
+  }, [uc3CompletionRunning, saveDailyCarePatch, refresh]);
 
   const handleTherapyCompletionPress = useCallback(() => {
     if (uc3CompletionRunning) return;
@@ -720,9 +774,11 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
         title="Explain rehabilitation progress"
         contextProfile="uc3_therapy"
         seedPrompt={buildUc3ResultExplainPrompt(uc3ResultDisplay, {
-          therapySeedSupplement: buildUc3TherapySeedSupplement(snapshot),
+          therapySeedSupplement: buildUc3TherapySeedSupplement(
+            getCurrentPatientSnapshot() ?? snapshot,
+          ),
         })}
-        cacheTitle={`rehab-progress:${uc3ResultId ?? therapySessionDate}:${uc3ResultDisplay.statusLabel}:${uc3ResultDisplay.dataQualityLabel ?? ''}:${uc3ResultDisplay.detailLines.join('|')}:${(snapshot?.rehabExerciseAssignments ?? []).map((a) => a.exerciseKey).join(',')}:${(snapshot?.medications ?? []).filter((m) => m.active !== false).map((m) => m.name).join(',')}`}
+        cacheTitle={`rehab-progress:${uc3ResultId ?? therapySessionDate}:${uc3ResultDisplay.statusLabel}:${uc3ResultDisplay.dataQualityLabel ?? ''}:${uc3ResultDisplay.detailLines.join('|')}:${(snapshot?.rehabExerciseAssignments ?? []).map((a) => a.exerciseKey).join(',')}:${(snapshot?.medications ?? []).filter((m) => m.active !== false).map((m) => m.name).join(',')}:reps=${dailyEntry?.exerciseRepetitions ?? ''}:rom=${dailyEntry?.romDegrees ?? ''}:walk=${dailyEntry?.walkingMinutes ?? ''}:pain=${dailyEntry?.painScore ?? ''}:fat=${dailyEntry?.fatigue ?? ''}:done=${dailyEntry?.therapyCompleted ? 1 : 0}`}
         onClose={() => setUc3ExplainOpen(false)}
         enableObservationHitl
       />
@@ -903,7 +959,7 @@ function EditableSymptomBox({
   return (
     <Pressable style={styles.symptomBox} onPress={onPress} accessibilityRole="button" accessibilityLabel={`Edit ${label}`}>
       <Text style={styles.symptomLabel}>{label}</Text>
-      <Text style={styles.symptomValue}>{value == null ? '\u2014' : `${value}/8`}</Text>
+      <Text style={styles.symptomValue}>{value == null ? '\u2014' : `${value}/10`}</Text>
     </Pressable>
   );
 }

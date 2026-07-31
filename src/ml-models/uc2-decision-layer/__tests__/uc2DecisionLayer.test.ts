@@ -164,8 +164,26 @@ describe("UC2 decision layer v2 — caregiver observation matrix", () => {
         expect(results.breathingResp.caregiver_hitl?.max_matrix_delta).toBe(3);
     });
 
-    it("VOMITING_OR_DIARRHEA + GI_AUTONOMIC produces matrix delta +3", () => {
-        expect(results.vomitingGi.caregiver_hitl?.max_matrix_delta).toBe(3);
+    it("VOMITING_OR_DIARRHEA fixture classifies cardio-respiratory and produces matrix delta +1", () => {
+        // The fixture's extreme vitals (BP 180/120, temp 103, glucose 200)
+        // dominate the AE contributors, so its anomaly family is
+        // CARDIO_RESPIRATORY — the VOMITING_OR_DIARRHEA row of the matrix
+        // gives delta +1 there, not the +3 of the GI_AUTONOMIC family.
+        expect(results.vomitingGi.caregiver_hitl?.anomaly_family).toBe(
+            "CARDIO_RESPIRATORY",
+        );
+        expect(results.vomitingGi.caregiver_hitl?.max_matrix_delta).toBe(1);
+    });
+
+    it("VOMITING_OR_DIARRHEA + GI_AUTONOMIC matrix row produces delta +3", () => {
+        // Direct matrix check for the GI_AUTONOMIC row (not reachable from the
+        // cardio-dominant fixture above).
+        const evaluation = evaluateCaregiverObservationMatrix({
+            selected_codes: ["VOMITING_OR_DIARRHEA"],
+            sensor_anomaly_type: "UNEXPLAINED_PHYSIOLOGIC_STRESS",
+        });
+        expect(evaluation.anomaly_family).toBe("GI_AUTONOMIC");
+        expect(evaluation.max_matrix_delta).toBe(3);
     });
 
     it("WEAK_CONFUSED fixture classifies cardio-respiratory and produces matrix delta +2", () => {
