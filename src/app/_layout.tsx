@@ -32,6 +32,7 @@ import * as Notifications from 'expo-notifications';
 import { AndroidNotificationPriority } from 'expo-notifications';
 
 import { NativeModules } from "react-native";
+import { installConsoleCapture } from "./logging/consoleCapture";
 
 // Add this OUTSIDE any component, at the module level
 Notifications.setNotificationHandler({
@@ -56,31 +57,6 @@ Notifications.setNotificationHandler({
 function isFileLoggerNativeAvailable(): boolean {
   const bridge = NativeModules.FileLogger as { configure?: unknown } | null | undefined;
   return Boolean(bridge && typeof bridge.configure === "function");
-}
-
-function LoggerInit() {
-  useEffect(() => {
-    void (async () => {
-      try {
-        const { FileLogger } = await import("react-native-file-logger");
-
-        await FileLogger.configure({
-          captureConsole: true,
-        });
-
-        console.log("FileLogger configured with default dir");
-
-        FileLogger.info("Logger test entry");
-
-        const paths = await FileLogger.getLogFilePaths();
-        console.log("Default dir paths:", paths);
-      } catch (err) {
-        console.warn("[FileLogger] configure failed:", err);
-      }
-    })();
-  }, []);
-
-  return null;
 }
 
 function SlmPolicySync() {
@@ -151,6 +127,10 @@ function NotificationResponseInit() {
 }
 
 export default function RootLayout() {
+  useEffect(() => {
+      installConsoleCapture();
+  }, []);
+
   const [databaseInit] = useState<{ ready: boolean; error: Error | null }>(() => {
     try {
       initializeDatabase();
@@ -184,7 +164,6 @@ export default function RootLayout() {
 
   return (
     <Provider store={store}>
-      <LoggerInit />
       <ThemeProvider value={DefaultTheme}>
         <SettingsProvider>
           <PatientRecordProvider>

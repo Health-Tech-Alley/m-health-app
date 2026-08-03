@@ -1,5 +1,5 @@
 // src/app/logs.tsx
-import { File } from "expo-file-system";
+import { Directory, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -26,16 +26,6 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-async function loadFileLogger() {
-  try {
-    const mod = await import("react-native-file-logger");
-    return mod.FileLogger;
-  } catch (err) {
-    console.error("Failed loading FileLogger", err);
-    return null;
-  }
-}
-
 export default function LogsScreen() {
   const insets = useSafeAreaInsets();
   const [files, setFiles] = useState<LogFile[]>([]);
@@ -45,25 +35,25 @@ export default function LogsScreen() {
   const loadFiles = useCallback(async () => {
     setLoading(true);
     try {
-      const FileLogger = await loadFileLogger();
-      console.log("FileLogger loaded:", FileLogger);
-      if (!FileLogger) {
-        setUnavailable(true);
+      setUnavailable(false);
+      const logsDir = new Directory(Paths.document, "logs");
+
+      if (!logsDir.exists) {
         setFiles([]);
         return;
       }
-      setUnavailable(false);
-      const paths = await FileLogger.getLogFilePaths();
-      console.log("Log file paths:", paths);
-      const infos = paths.map((path) => {
-        const file = new File(path);
-        return {
-          path,
-          name: path.split("/").pop() ?? path,
-          size: file.exists ? file.size ?? 0 : 0,
-          modificationTime: file.exists ? file.modificationTime : null,
-        };
-      });
+      const entries = logsDir.list();
+      const infos = entries
+        .filter(
+          (entry): entry is File =>
+            entry instanceof File && entry.name.endsWith(".log")
+        )
+        .map((file) => ({
+          path: file.uri,
+          name: file.name,
+          size: file.size ?? 0,
+          modificationTime: file.modificationTime,
+        })); 
       console.log("Log file infos:", infos);
       infos.sort((a, b) => (b.modificationTime ?? 0) - (a.modificationTime ?? 0));
       setFiles(infos);
@@ -100,9 +90,14 @@ export default function LogsScreen() {
         text: "Delete",
         style: "destructive",
         onPress: async () => {
-          const FileLogger = await loadFileLogger();
-          if (!FileLogger) return;
-          await FileLogger.deleteLogFiles();
+          const logsDir = new Directory(Paths.document, "logs");
+          if (logsDir.exists) {
+            for (const entry of logsDir.list()) {
+              if (entry instanceof File) {
+                entry.delete();
+              }
+            }
+          }
           loadFiles();
         },
       },
@@ -110,19 +105,19 @@ export default function LogsScreen() {
   };
 
   const sendLogsByEmail = async () => {
-    const FileLogger = await loadFileLogger();
-    if (!FileLogger) {
-      Alert.alert("File logging unavailable in this build");
-      return;
-    }
-    FileLogger.sendLogFilesByEmail({
-      to: "rahalncm@gmail.com",
-      subject: "Log files from M-Health App",
-      body: "Attached are the log files.",
-      compressFiles: true,
-    }).catch((err) => {
-      console.error("Failed to send log files by email", err);
-    });
+    // const FileLogger = await loadFileLogger();
+    // if (!FileLogger) {
+    //   Alert.alert("File logging unavailable in this build");
+    //   return;
+    // }
+    // FileLogger.sendLogFilesByEmail({
+    //   to: "rahalncm@gmail.com",
+    //   subject: "Log files from M-Health App",
+    //   body: "Attached are the log files.",
+    //   compressFiles: true,
+    // }).catch((err) => {
+    //   console.error("Failed to send log files by email", err);
+    // });
   };
 
   return (
