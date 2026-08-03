@@ -295,6 +295,7 @@ import {
 import {
   getRehabExerciseAssignments,
   replaceRehabExerciseAssignments,
+  seedDevelopmentRehabExercisesIfEligible,
 } from './repositories/rehabExerciseAssignmentRepository';
 import {
   calculateRehabExerciseAssignmentCounts,
@@ -807,5 +808,62 @@ describe('UC3 development rehab exercise assignment path', () => {
         activeCarePlan,
       ),
     ).toBe(true);
+  });
+});
+
+describe('seedDevelopmentRehabExercisesIfEligible', () => {
+  it('assigns all development exercises for a post-stroke persona', () => {
+    const seeded = seedDevelopmentRehabExercisesIfEligible({
+      patientId: 'patient-stroke',
+      carePlanId: 'careplan-stroke',
+      conditions: strokeConditions,
+    });
+
+    expect(seeded).toBe(true);
+    const assignments = getRehabExerciseAssignments('patient-stroke', 'careplan-stroke');
+    expect(assignments).toHaveLength(5);
+    expect(assignments.every((a) => a.active)).toBe(true);
+    expect(assignments.every((a) => a.source === 'seed:fhir_import')).toBe(true);
+    expect(assignments.map((a) => a.exerciseKey)).toEqual(
+      expect.arrayContaining([
+        'supported_arm_reach',
+        'grasp_release',
+        'sit_to_stand',
+        'supported_weight_shift',
+        'assisted_walking',
+      ]),
+    );
+  });
+
+  it('is a no-op for non-UC3 personas (e.g. cerebral palsy)', () => {
+    const cpConditions: PatientCondition[] = [
+      {
+        conditionId: 'condition-cp',
+        patientId: 'patient-cp',
+        name: 'Cerebral palsy',
+        snomedCode: '8845000',
+        conditionRole: 'primary_diagnosis',
+      },
+    ];
+
+    const seeded = seedDevelopmentRehabExercisesIfEligible({
+      patientId: 'patient-cp',
+      carePlanId: 'careplan-cp',
+      conditions: cpConditions,
+    });
+
+    expect(seeded).toBe(false);
+    expect(getRehabExerciseAssignments('patient-cp', 'careplan-cp')).toEqual([]);
+  });
+
+  it('is a no-op when conditions lack a SNOMED code', () => {
+    const seeded = seedDevelopmentRehabExercisesIfEligible({
+      patientId: 'patient-stroke',
+      carePlanId: 'careplan-stroke',
+      conditions: [{ ...strokeConditions[0], snomedCode: undefined }],
+    });
+
+    expect(seeded).toBe(false);
+    expect(getRehabExerciseAssignments('patient-stroke', 'careplan-stroke')).toEqual([]);
   });
 });

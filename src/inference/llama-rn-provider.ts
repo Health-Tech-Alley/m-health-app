@@ -9,6 +9,8 @@ import type {
 import { effectiveNPredict } from './n-predict';
 import { MissingNativeModuleError } from './missing-native-module-error';
 import { File } from 'expo-file-system';
+import { getModelEntry } from './model-catalog';
+import { mapMessagesForModel } from './message-mapping';
 
 /**
  * Remove inline thinking blocks from a raw completion string.
@@ -41,14 +43,25 @@ export class LlamaRnProvider implements InferenceProvider {
   /** Single-flight lock — concurrent initLlama races crash native llama.rn. */
   private loadInflight: Promise<void> | null = null;
   private loadedPath: string | null = null;
+  /** Catalog id of the loaded model (set via LoadOptions.modelId). */
+  private loadedModelId: string | null = null;
   /** n_ctx of the successfully loaded context (prompt budgeting). */
   private loadedNCtx: number | null = null;
+  /** True while a completion is streaming — release() stops it first. */
+  private activeCompletion = false;
+
+  /** Catalog id of the loaded model, when the load passed one. */
+  getLoadedModelId(): string | null {
+    return this.loadedModelId;
+  }
 
   async loadModel(path: string, options?: LoadOptions): Promise<void> {
     const cleanPath = path.replace(/^file:\/\//, '');
 
     // Already loaded this file — no-op (callers often race acquire + ensureReady).
     if (this.context && this.loadedPath === cleanPath) {
+      // Keep catalog id in sync when a prior load omitted modelId.
+      if (options?.modelId) this.loadedModelId = options.modelId;
       console.log('[LlamaRnProvider] Model already loaded; skipping re-init');
       return;
     }
@@ -57,7 +70,10 @@ export class LlamaRnProvider implements InferenceProvider {
     if (this.loadInflight) {
       console.log('[LlamaRnProvider] Load already in progress; awaiting single-flight');
       await this.loadInflight;
-      if (this.context && this.loadedPath === cleanPath) return;
+      if (this.context && this.loadedPath === cleanPath) {
+        if (options?.modelId) this.loadedModelId = options.modelId;
+        return;
+      }
       // Previous attempt failed or loaded a different path — fall through once.
     }
 
@@ -66,6 +82,37 @@ export class LlamaRnProvider implements InferenceProvider {
       if (this.loadInflight === work) this.loadInflight = null;
     });
     await this.loadInflight;
+  }
+
+  /** Free the native context without awaiting loadInflight (avoids self-deadlock). */
+  private async freeContext(): Promise<void> {
+    if (!this.context) {
+      this.modelInfo = null;
+      this.loadedPath = null;
+      this.loadedModelId = null;
+      this.loadedNCtx = null;
+      return;
+    }
+    // Abort any in-flight completion BEFORE releasing the native context —
+    // killing llama.rn mid-stream can abort the whole process (Metro reload).
+    if (this.activeCompletion) {
+      try {
+        this.context.stopCompletion?.();
+      } catch (err) {
+        console.warn('[LlamaRnProvider] stopCompletion failed:', err);
+      }
+      this.activeCompletion = false;
+    }
+    try {
+      await this.context.release();
+    } catch (err) {
+      console.warn('[LlamaRnProvider] context.release failed:', err);
+    }
+    this.context = null;
+    this.modelInfo = null;
+    this.loadedPath = null;
+    this.loadedModelId = null;
+    this.loadedNCtx = null;
   }
 
   private async loadModelExclusive(cleanPath: string, options?: LoadOptions): Promise<void> {
@@ -80,8 +127,11 @@ export class LlamaRnProvider implements InferenceProvider {
     }
 
     // Release any prior context before a new mmap (never two contexts at once).
+    // Must NOT call release() here — release() awaits loadInflight, and we ARE
+    // the in-flight load (self-deadlock → chat hangs, then Metro reloads).
     if (this.context) {
-      await this.release();
+      console.log('[LlamaRnProvider] Freeing prior context before loading a different model');
+      await this.freeContext();
     }
 
     // resolveModelPath often returns a file:// URI; File accepts that form.
@@ -114,15 +164,38 @@ export class LlamaRnProvider implements InferenceProvider {
       return parts.join(' | ');
     };
 
-    // Prefer 4096 (fits explain prompts). Fall back to 3072 then 2048 — never
-    // 1024 (explain system+user always overflows and yields "context is full").
+    // Preferred context from the catalog profile. Both models prefer 8K
+    // (longer conversations); the SLM context RAM-gates it down to 4K on
+    // low-RAM devices. Fall back down the ladder on load failure.
+    //
+    // GPU policy: `options.nGpuLayers` comes from the catalog.
+    // - Gemma: -1 (Metal) with CPU fallback on the last rung.
+    // - Bonsai 8B (1-bit Q1_0): -1 — Q1_0 has Metal kernels in llama.rn 0.12.x.
+    // - A future CPU-only quant (e.g. TQ2_0 ternary, which has no Metal
+    //   kernels and hard-crashes under Metal offload) must set nGpuLayers: 0.
     const preferredCtx = options?.nCtx ?? 4096;
-    const attempts: { nCtx: number; gpuLayers: number; label: string }[] = [
-      { nCtx: Math.min(preferredCtx, 4096), gpuLayers: -1, label: `n_ctx=${Math.min(preferredCtx, 4096)} gpu=-1` },
-      { nCtx: 3072, gpuLayers: -1, label: 'n_ctx=3072 gpu=-1' },
-      { nCtx: 2048, gpuLayers: -1, label: 'n_ctx=2048 gpu=-1' },
-      { nCtx: 2048, gpuLayers: 0, label: 'n_ctx=2048 gpu=0 (CPU-only)' },
-    ];
+    const preferredGpu = options?.nGpuLayers ?? -1;
+    const forceCpu = preferredGpu === 0;
+    const capCtx = (n: number) => Math.max(2048, Math.min(n, 8192));
+    const ctxAttempts = [capCtx(preferredCtx), 4096, 3072, 2048];
+    const attempts: { nCtx: number; gpuLayers: number; label: string }[] = [];
+    const pushAttempt = (nCtx: number, gpuLayers: number) => {
+      if (attempts.some((a) => a.nCtx === nCtx && a.gpuLayers === gpuLayers)) return;
+      const gpuLabel = gpuLayers === 0 ? 'gpu=0 (CPU-only)' : `gpu=${gpuLayers}`;
+      attempts.push({ nCtx, gpuLayers, label: `n_ctx=${nCtx} ${gpuLabel}` });
+    };
+    for (const n of ctxAttempts) {
+      pushAttempt(n, forceCpu ? 0 : preferredGpu);
+    }
+    // Metal models: final CPU-only safety rung after GPU attempts fail.
+    if (!forceCpu) {
+      pushAttempt(2048, 0);
+    }
+
+    console.log(
+      `[LlamaRnProvider] Load plan modelId=${options?.modelId ?? 'unknown'} ` +
+        `forceCpu=${forceCpu} attempts=${attempts.map((a) => a.label).join(' → ')}`,
+    );
 
     let lastErr: any = null;
     let usedNCtx = preferredCtx;
@@ -137,6 +210,7 @@ export class LlamaRnProvider implements InferenceProvider {
         console.log(`[LlamaRnProvider] Model loaded successfully with ${a.label}`);
         lastErr = null;
         this.loadedPath = cleanPath;
+        this.loadedModelId = options?.modelId ?? null;
         usedNCtx = a.nCtx;
         this.loadedNCtx = a.nCtx;
         break;
@@ -144,6 +218,7 @@ export class LlamaRnProvider implements InferenceProvider {
         lastErr = err;
         this.context = null;
         this.loadedNCtx = null;
+        this.loadedModelId = null;
         const detail = describeLlamaErr(err);
         console.warn(`[LlamaRnProvider] ${a.label} failed: ${detail}`);
         if (err?.stack) console.warn(`[LlamaRnProvider] stack: ${err.stack}`);
@@ -153,11 +228,14 @@ export class LlamaRnProvider implements InferenceProvider {
     if (lastErr || !this.context) {
       this.loadedPath = null;
       this.loadedNCtx = null;
+      this.loadedModelId = null;
       const detail = describeLlamaErr(lastErr);
       console.error('[LlamaRnProvider] All load attempts failed. Last error:', detail);
-      const hint = fileSize > 2_000_000_000
-        ? ' The model is large (~2.9 GB). Free device RAM, close other apps, unload Concierge, and retry. Avoid opening Explain while chat is also loading the model.'
-        : '';
+      const hint = forceCpu
+        ? ' This model runs on CPU (no Metal offload). Free device RAM, close other apps, unload any other Concierge model, and retry.'
+        : fileSize > 2_000_000_000
+          ? ' The model is large (~2.9 GB). Free device RAM, close other apps, unload Concierge, and retry. Avoid opening Explain while chat is also loading the model.'
+          : '';
       throw new Error(`Failed to load model: ${detail}.${hint}`);
     }
 
@@ -170,6 +248,7 @@ export class LlamaRnProvider implements InferenceProvider {
 
   async release(): Promise<void> {
     // Wait for any in-flight load so we do not release mid-init (native crash).
+    // Only wait when we are NOT that in-flight load (exclusive uses freeContext).
     if (this.loadInflight) {
       try {
         await this.loadInflight;
@@ -177,17 +256,7 @@ export class LlamaRnProvider implements InferenceProvider {
         // ignore load failure; still clear state below
       }
     }
-    if (this.context) {
-      try {
-        await this.context.release();
-      } catch (err) {
-        console.warn('[LlamaRnProvider] context.release failed:', err);
-      }
-      this.context = null;
-      this.modelInfo = null;
-      this.loadedPath = null;
-      this.loadedNCtx = null;
-    }
+    await this.freeContext();
   }
 
   getModelInfo(): ModelInfo | null {
@@ -333,29 +402,44 @@ export class LlamaRnProvider implements InferenceProvider {
 
       const reasoningFormat = options?.reasoningFormat ?? 'none';
       const enableThinking = reasoningFormat === 'auto';
-      const mappedMessages = messages.map((m, index) => {
-        let content = m.content;
-        // Gemma 4: enable thinking by prefixing <|think|> on the system turn.
-        if (
-          enableThinking &&
-          m.role === 'system' &&
-          index === messages.findIndex((x) => x.role === 'system') &&
-          content &&
-          !content.startsWith('<|think|>')
-        ) {
-          content = `<|think|>\n${content}`;
-        }
-        return { role: m.role, content };
-      });
+      // Family-aware message mapping: Gemma 4 gets a <|think|> prefix on the
+      // system turn when thinking; Qwen3-family (Bonsai) gets a direct-answer
+      // nudge when thinking is off (its template forces <think> anyway).
+      const entry = getModelEntry(this.loadedModelId);
+      const mappedMessages = mapMessagesForModel(messages, entry, enableThinking);
 
+      // Family-aware sampling defaults. When the caller leaves sampling at
+      // the shared Gemma defaults (1.0 / 0.95 / 64) while a non-Gemma model
+      // is loaded, apply that model's catalog sampling (e.g. Bonsai 8B
+      // 0.7 / 0.95 / 20). Explicit non-default values always win.
+      const gemmaSampling = { temperature: 1.0, topP: 0.95, topK: 64 };
+      const callerSampling = {
+        temperature: options?.temperature ?? gemmaSampling.temperature,
+        topP: options?.topP ?? gemmaSampling.topP,
+        topK: options?.topK ?? gemmaSampling.topK,
+      };
+      const atGemmaDefaults =
+        callerSampling.temperature === gemmaSampling.temperature &&
+        callerSampling.topP === gemmaSampling.topP &&
+        callerSampling.topK === gemmaSampling.topK;
+      const sampling =
+        atGemmaDefaults && entry && entry.family !== 'gemma4'
+          ? {
+              temperature: entry.sampling.temperature,
+              topP: entry.sampling.topP,
+              topK: entry.sampling.topK,
+            }
+          : callerSampling;
+
+      this.activeCompletion = true;
       this.context
         .completion(
           {
             messages: mappedMessages,
             n_predict: nPredict,
-            temperature: options?.temperature ?? 1.0,
-            top_p: options?.topP ?? 0.95,
-            top_k: options?.topK ?? 64,
+            temperature: sampling.temperature,
+            top_p: sampling.topP,
+            top_k: sampling.topK,
             jinja: true,
             enable_thinking: enableThinking,
             reasoning_format: reasoningFormat,
@@ -376,6 +460,7 @@ export class LlamaRnProvider implements InferenceProvider {
           },
         )
         .then((result: any) => {
+          this.activeCompletion = false;
           signal.removeEventListener('abort', abortHandler);
           // Flush any text still held in the marker carry buffer so the last
           // answer/thinking fragment is delivered to the callbacks.
@@ -416,6 +501,7 @@ export class LlamaRnProvider implements InferenceProvider {
           });
         })
         .catch((err: any) => {
+          this.activeCompletion = false;
           signal.removeEventListener('abort', abortHandler);
           if (err.name === 'AbortError' || signal.aborted) {
             reject(new DOMException('Aborted', 'AbortError'));

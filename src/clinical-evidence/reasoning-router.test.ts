@@ -131,4 +131,15 @@ describe('selectChatGeneration', () => {
     expect(d.profile).toBe(CONCIERGE_GENERATION_DEEP);
     expect(d.reason).toContain('default_deep');
   });
+
+  it('always routes Bonsai (Qwen3) to DEEP even for FAST-eligible intents', () => {
+    const d = selectChatGeneration({
+      intent: makeIntent('caregiver_chat_general', 0.9),
+      modelId: 'bonsai-8b-1bit',
+    });
+    expect(d.mode).toBe('auto');
+    expect(d.reason).toBe('qwen3_always_deep');
+    expect(d.profile.maxTokens).toBe(-1);
+    expect(d.profile.temperature).toBe(0.7);
+  });
 });

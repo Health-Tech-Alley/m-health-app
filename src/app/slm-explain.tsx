@@ -34,6 +34,8 @@ import {
   useOrchestratorPatientId,
 } from '@/contexts/orchestrator-context';
 import { useSLM } from '@/contexts/slm-context';
+import { useSettings } from '@/contexts/settings-context';
+import { isModelInstalled } from '@/services/model-storage';
 import {
   getAlertById,
   getUc3TrajectoryResultById,
@@ -41,7 +43,7 @@ import {
   insertCaregiverAction,
 } from '@/data';
 import type { NextStepActionId } from '@/data/types';
-import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
+import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
 import type { AgentProposal } from '@/orchestration';
 import { executeNextStep, type NextStepExecutionResult } from '@/orchestration/next-steps';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
@@ -99,7 +101,17 @@ function formatLoadFailureMessage(raw: string): string {
   return raw;
 }
 
-const CAREGIVER_SLM_MODEL_ID = DEFAULT_SLM_MODEL_ID;
+/**
+ * Resolve the model to load for an explain: the persisted default when it is
+ * installed, otherwise the first installed catalog model (multi-model).
+ */
+function resolveExplainModelId(
+  demoDefault: string | null | undefined,
+  installed: (id: string) => boolean,
+): string {
+  if (demoDefault && installed(demoDefault)) return demoDefault;
+  return DEFAULT_SLM_MODEL_ID;
+}
 
 type ExplanationTarget =
   | { kind: 'alert'; alert: NonNullable<ReturnType<typeof getAlertById>> }
@@ -111,6 +123,7 @@ export default function SlmExplainScreen() {
   const router = useRouter();
   const orchestrator = useOrchestrator();
   const slm = useSLM();
+  const { settings } = useSettings();
   const patientId = useOrchestratorPatientId();
   const {
     alertId,
@@ -270,8 +283,11 @@ export default function SlmExplainScreen() {
       }
       // Brief yield so native release can finish before re-mmap.
       await new Promise((r) => setTimeout(r, 400));
-      log(`Loading Concierge model ${CAREGIVER_SLM_MODEL_ID}…`);
-      await slm.loadModel(CAREGIVER_SLM_MODEL_ID);
+      const modelId = resolveExplainModelId(settings.demoDefaultModelId, (id) =>
+        MODEL_CATALOG.some((m) => m.id === id && isModelInstalled(m)),
+      );
+      log(`Loading Concierge model ${modelId}…`);
+      await slm.loadModel(modelId);
       log('Concierge loaded. Retrying explanation…');
       explainStartedRef.current = false;
       await explain();
@@ -282,7 +298,7 @@ export default function SlmExplainScreen() {
     } finally {
       setLoading(false);
     }
-  }, [slm, explain, log]);
+  }, [slm, explain, log, settings.demoDefaultModelId]);
 
   // Reset auto-run when the explain target changes (new result / card / alert).
   const targetKey =

@@ -111,7 +111,7 @@ export type RehabExerciseKey =
   | 'supported_weight_shift'
   | 'assisted_walking';
 
-export type RehabExerciseAssignmentSource = 'developer_uc3_v2';
+export type RehabExerciseAssignmentSource = 'developer_uc3_v2' | 'seed:fhir_import';
 
 export interface RehabExerciseDefinition {
   key: RehabExerciseKey;

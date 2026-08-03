@@ -167,7 +167,7 @@ The caregiver's calendar view of the care plan in motion.
 ## Tech Stack
 
 - **Framework:** Expo SDK ~56.0.12 + React Native 0.85.3 + expo-router
-- **On-device Concierge:** llama.cpp via `llama.rn` — **Gemma-4-E2B-it Q4_K_M only** (`InferenceProvider`)
+- **On-device Concierge:** llama.cpp via `llama.rn` — **Gemma-4-E2B-it Q4_K_M** default (`InferenceProvider`), Bonsai-8B 1-bit alternate (Metal GPU)
 - **Pre-SLM NLU:** TFLite leaf-ir embedder + chat/care intent heads (`src/nlu/`)
 - **Orchestration:** In-process MCP — 4 agents, CEP debounce, confidence router, prompt-budget guard
 - **Retrieval:** CachedFusedRetriever — BM25 → graph 1-hop → dense rerank over global pack ∪ patient overlay
@@ -458,7 +458,7 @@ m-health-app/
 │   ├── components/              # dashboard/, care/, careConcierge/, messaging/, …
 │   ├── contexts/                # settings, patient-record, slm, sensor, uc2, orchestrator, critical-alert
 │   ├── store/                   # Redux Toolkit slices
-│   ├── inference/               # InferenceProvider, llama.rn, model-catalog (Gemma 4 E2B only)
+│   ├── inference/               # InferenceProvider, llama.rn, model-catalog (Gemma default + Bonsai 8B)
 │   ├── nlu/                     # Pre-SLM NLU, app-surfaces, intent heads
 │   ├── ml-models/               # UC2 / UC3 / UC4 + alert autoencoder
 │   ├── services/                # carePlan/, slm/, ml/, uc3/, uc4/, messaging/, …

@@ -2,7 +2,7 @@
  * Shared Concierge model download card (Device setup + Settings).
  */
 
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import {
@@ -98,6 +98,8 @@ export type SlmDownloadCardProps = {
   showDelete?: boolean;
   hfTokenHint?: boolean;
   onNeedHfToken?: () => void;
+  /** Called after a model was successfully deleted (e.g. default reassignment). */
+  onModelDeleted?: (modelId: string) => void;
 };
 
 export function SlmDownloadCard({
@@ -106,6 +108,7 @@ export function SlmDownloadCard({
   showDelete = false,
   hfTokenHint = false,
   onNeedHfToken,
+  onModelDeleted,
 }: SlmDownloadCardProps) {
   const queue = useModelDownloadQueue();
 
@@ -128,7 +131,14 @@ export function SlmDownloadCard({
             void queue.startDownload(row.id);
           }}
           onCancel={() => queue.cancelDownload(row.id)}
-          onDelete={() => queue.removeModel(row.id)}
+          onDelete={() => {
+            const result = queue.removeModel(row.id);
+            if (!result.ok) {
+              Alert.alert('Keep a Concierge model', result.reason);
+            } else {
+              onModelDeleted?.(row.id);
+            }
+          }}
         />
       ))}
     </View>

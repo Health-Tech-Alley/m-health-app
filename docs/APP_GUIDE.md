@@ -9,7 +9,7 @@ It is a living document — update it as the UI evolves.
 > Markdown, see [`MARKDOWN_GUIDE.md`](./MARKDOWN_GUIDE.md).
 > For the high-level pitch, see the root [`README.md`](../README.md).
 >
-> **Last pass aligned to codebase:** 2026-07-27 (5-tab shell, Gemma-only catalog,
+> **Last pass aligned to codebase:** 2026-07-31 (5-tab shell, multi-model catalog,
 > Care ADCP spine, NLU/safety refuses, knowledge-bundle runner, 34 repos).
 
 ---
@@ -101,7 +101,7 @@ Every tab uses the branded `ScreenHeader` (Health Tech Alley logo + title).
 | `secure-messaging.tsx` | Local encrypted messaging UI |
 | `select-fhir-profile.tsx` / `ehr-complete.tsx` | FHIR persona pick + post-import |
 | `profile.tsx` | Caregiver & patient profile (stack) |
-| `models.tsx` | Concierge Brain download manager (Gemma 4 E2B only) |
+| `models.tsx` | Concierge Brain download manager (Gemma default / Bonsai 8B alternate) |
 | `care-management.tsx` / `health-monitor-demo.tsx` | Health Monitor harness |
 | `acute-anomaly.tsx` | Orchestration E2E demo (developer) |
 | `performance.tsx` | 1 Hz RAM dashboard |
@@ -410,12 +410,13 @@ control-token stripping, multiline input, Care Context card.
 
 ### Models (`src/app/models/`)
 
-- Catalog is **Gemma 4 E2B Instruct only** (`gemma-4-e2b`, Q4_K_M, ~2.4 GB) —
-  `src/inference/model-catalog.ts`. HealthGPT-Pro entries were removed.
+- Catalog: **Gemma 4 E2B Instruct** (`gemma-4-e2b`, Q4_K_M, ~2.4 GB) is the default;
+  **Bonsai 8B (1-bit)** (`bonsai-8b-1bit`, `prism-ml/Bonsai-8B-gguf` Q1_0, ~1.15 GB) is an
+  experimental alternate — `src/inference/model-catalog.ts`. HealthGPT-Pro entries were removed.
 - Download from Hugging Face with progress, cancel, delete; optional HF token
   in `expo-secure-store`.
 - Models live under the app documents `models/` directory (**git-ignored**).
-- Shared **`SlmDownloadCard` + `useModelDownloadQueue`** power Models, Settings,
+- Shared **`SlmModelCarousel` + `useModelDownloadQueue`** power Models, Settings,
   and onboarding Device setup (one SLM download app-wide).
 
 ### Care Management (`src/app/care-management/`)
@@ -447,7 +448,10 @@ Implements the canonical ST-01-style flow:
 ### Concierge SLM (`llama.rn`)
 
 - `InferenceProvider` → `LlamaRnProvider`; app-wide `SLMProvider` / `useSLM()`.
-- **Single catalog model:** Gemma-4-E2B-it Q4_K_M (`DEFAULT_SLM_MODEL_ID`).
+- **Default catalog model:** Gemma-4-E2B-it Q4_K_M (`DEFAULT_SLM_MODEL_ID`). Alternate:
+  Bonsai 8B (1-bit Qwen3 Q1_0, **Metal GPU offload** — Q1_0 kernels are built into
+  llama.rn). Lower quality than the ternary pack, but tiny and fast.
+  The model picker is a swipe carousel on Device setup and developer Models settings.
 - Metal GPU when available (`n_gpu_layers: -1`).
 - Reasoning channel via jinja + `reasoning_format: 'auto'`;
   `stripControlTokens()` before Markdown.

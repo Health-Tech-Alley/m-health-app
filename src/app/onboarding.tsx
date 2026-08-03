@@ -851,17 +851,8 @@ export default function OnboardingScreen() {
     }
     if (!modelQueue.anyInstalled) {
       Alert.alert(
-        "Continue without Concierge model?",
-        "Clinical knowledge is ready, but the on-device Concierge model is not downloaded. Chat and some explanations will be limited until you download a model (Device setup can be reopened from Settings → Models).",
-        [
-          { text: "Stay and download", style: "cancel" },
-          {
-            text: "Continue to Home",
-            onPress: () => {
-              router.replace("/dashboard");
-            },
-          },
-        ],
+        "Concierge model required",
+        "Download at least one Concierge model to finish setup. The Concierge needs an on-device model for chat, explanations, and care-plan support.",
       );
       return;
     }

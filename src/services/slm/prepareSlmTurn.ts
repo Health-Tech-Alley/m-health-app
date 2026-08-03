@@ -16,7 +16,7 @@ import {
   type RetrievedCitation,
 } from '@/clinical-evidence';
 import { fetchOnDemandMedToOverlay } from '@/clinical-evidence/pack';
-import { CONCIERGE_GENERATION_DEEP } from '@/constants/concierge';
+import { getConciergeGeneration } from '@/constants/concierge';
 import type { GenerateOptions } from '@/inference/inference-provider';
 import {
   createReadyEmbedder,
@@ -104,6 +104,8 @@ export type PrepareSlmTurnOptions = {
   nluTimeoutMs?: number;
   allowDevelopmentNluFallback?: boolean;
   logTag?: string;
+  /** Active Concierge model id — drives per-family generation sampling. */
+  modelId?: string | null;
 };
 
 export type PreparedSlmTurn = {
@@ -246,6 +248,7 @@ export async function prepareSlmTurn(
     meds: medNames,
     citedChunkCount: nluPacket?.chunks.length ?? 0,
     forceDeep,
+    modelId: options.modelId ?? null,
   });
 
   const toolsOverride =
@@ -400,8 +403,9 @@ export async function prepareSlmTurn(
   }
 
   // Sheets default DEEP; chat may FAST via generationDecision when forceDeep false.
+  // Model-aware profiles come from the router (or the forced deep profile).
   const generation: GenerateOptions = forceDeep
-    ? CONCIERGE_GENERATION_DEEP
+    ? getConciergeGeneration(options.modelId ?? null, 'deep')
     : generationDecision.profile;
 
   return {

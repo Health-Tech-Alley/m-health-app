@@ -9,14 +9,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
-import { SlmDownloadCard } from '@/components/models/SlmDownloadCard';
+import { SlmModelCarousel } from '@/components/models/SlmModelCarousel';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useSettings } from '@/contexts/settings-context';
 import { useTheme } from '@/hooks/use-theme';
 import { useModelDownloadQueue } from '@/hooks/useModelDownloadQueue';
-import { MODEL_CATALOG } from '@/inference/model-catalog';
+import { MODEL_CATALOG, DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
 import type { ModelsState } from './types';
 
 type ModelsViewProps = {
@@ -28,7 +28,7 @@ type ModelsViewProps = {
 export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
   const theme = useTheme();
   const { settings, setDemoDefaultModelId } = useSettings();
-  const defaultModelId = settings.demoDefaultModelId ?? 'gemma-4-e2b';
+  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
   const [tokenInput, setTokenInput] = useState('');
   const [tokenSectionOpen, setTokenSectionOpen] = useState(false);
   const queue = useModelDownloadQueue();
@@ -108,7 +108,7 @@ export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
             </ThemedView>
           )}
 
-          <SlmDownloadCard showDelete />
+          <SlmModelCarousel showDelete />
 
           <ThemedView type="backgroundElement" style={styles.defaultSection}>
             <ThemedText type="smallBold">Default Concierge model</ThemedText>
