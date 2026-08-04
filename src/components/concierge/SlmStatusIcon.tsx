@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useSLM, type ChatUnloadGrace } from '@/contexts/slm-context';
+import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
 
 const COLORS = {
   ready: '#22C55E',
@@ -140,7 +141,7 @@ export function SlmStatusIcon({ compact = true, onPress, accessibilityLabel }: S
     onPress ??
     (loadStatus === 'error'
       ? () => {
-          void loadModel(currentModelId ?? 'gemma-4-e2b');
+          void loadModel(currentModelId ?? DEFAULT_SLM_MODEL_ID);
         }
       : undefined);
 

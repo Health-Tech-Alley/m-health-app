@@ -31,7 +31,7 @@ import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
 import { KnowledgePackProgressCard } from '@/components/models/KnowledgePackProgressCard';
-import { SlmDownloadCard } from '@/components/models/SlmDownloadCard';
+import { SlmModelCarousel } from '@/components/models/SlmModelCarousel';
 import { useModelDownloadQueue } from '@/hooks/useModelDownloadQueue';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import {
@@ -953,9 +953,12 @@ export function AdvancedDeveloperSettingsScreen() {
   }, [patientId]);
 
   const handleDeleteAll = useCallback(() => {
+    const installed = modelQueue.rows.filter((r) => r.status === 'installed');
+    if (installed.length === 0) return;
     Alert.alert(
       'Delete All Models',
-      'This will remove all downloaded models. You\'ll need to download them again.',
+      `This will remove all ${installed.length} downloaded model(s). ` +
+        'At least one Concierge model must stay on this device, so you will need to re-download one before Concierge can run.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -966,12 +969,13 @@ export function AdvancedDeveloperSettingsScreen() {
               slm.unloadModel();
             }
             const count = modelQueue.clearAll();
-            Alert.alert('Complete', `Removed ${count} model${count !== 1 ? 's' : ''}.`);
+            setDemoDefaultModelId(DEFAULT_SLM_MODEL_ID);
+            Alert.alert('Complete', `Removed ${count} model${count !== 1 ? 's' : ''}. Re-download a Concierge model to keep Concierge available.`);
           },
         },
       ],
     );
-  }, [slm, modelQueue]);
+  }, [slm, modelQueue, setDemoDefaultModelId]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -1002,7 +1006,7 @@ export function AdvancedDeveloperSettingsScreen() {
               {slm.loadError ? (
                 <Text style={styles.devInfo}>Load error: {slm.loadError}</Text>
               ) : null}
-              <SlmDownloadCard showDelete title="Concierge models" subtitle="Same download queue as Device setup · one at a time" />
+              <SlmModelCarousel showDelete />
               <View style={styles.modelActions}>
                 {MODEL_CATALOG.map((m) => {
                   const row = modelQueue.rows.find((r) => r.id === m.id);

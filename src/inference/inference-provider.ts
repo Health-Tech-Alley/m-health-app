@@ -1,5 +1,13 @@
 export interface LoadOptions {
   nCtx?: number;
+  /** Catalog model id being loaded — lets the provider apply family profiles. */
+  modelId?: string;
+  /**
+   * llama.rn `n_gpu_layers`. `-1` = all GPU layers; `0` = CPU only.
+   * Q1_0 (1-bit Bonsai) has Metal kernels; some quants (e.g. TQ2_0 ternary)
+   * crash under Metal and must force CPU.
+   */
+  nGpuLayers?: number;
 }
 
 export interface GenerateOptions {
@@ -59,6 +67,8 @@ export interface InferenceProvider {
   getModelInfo(): ModelInfo | null;
   /** Loaded n_ctx when known; default 4096 if not reported. */
   getContextSize?(): number;
+  /** Catalog id of the loaded model, when known. */
+  getLoadedModelId?(): string | null;
   chat(
     messages: ChatMessage[],
     onToken: TokenCallback,

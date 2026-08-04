@@ -12,7 +12,7 @@
 | Onboarding | Welcome + 5 form steps + **Device setup** (Concierge model + clinical knowledge pack); Mike/Elena/James/Sofia presets; FHIR import |
 | Care plan spine (ADCP) | Plan Pulse, priorities (UC4), Your Review, therapy (UC3), goals, safety, monitoring, backup |
 | Care ask soft-NLU | Coaching router + in-card Concierge; caregiver-reported emergency path |
-| Concierge chat | Gemma 4 E2B only; Pre-SLM NLU; safety refuses; citations |
+| Concierge chat | Gemma 4 E2B (default) or Bonsai 8B 1-bit (alternate); Pre-SLM NLU; safety refuses; citations |
 | Health Monitor (UC2) | Decision layer + TFLite autoencoder; Home critical dialog + alert detail |
 | Secure messaging | Local AES-256-GCM store only (no relay) |
 | Appointments | Full CRUD + reminders on Schedule |
@@ -21,7 +21,7 @@
 ## Stack (implemented)
 
 - Expo SDK ~56.0.12, React Native 0.85.3, expo-router
-- Concierge: `llama.rn` / **Gemma-4-E2B-it Q4_K_M** only (`src/inference/model-catalog.ts`)
+- Concierge: `llama.rn` — **Gemma-4-E2B-it Q4_K_M** (default) + **Bonsai-8B Q1_0 1-bit** (alternate, experimental, Metal GPU) via `src/inference/model-catalog.ts`
 - NLU: TFLite `mdbr-leaf-ir` + chat/care intent heads (`src/nlu/`, `assets/models/nlu/`); `.tflite` models distributed via **Git LFS**
 - Knowledge pack: `src/clinical-evidence/pack/` — global pack DB, layer fetchers, float16 leaf-ir vectors, pack evidence graph
 - Retrieval: `CachedFusedRetriever` unions pack ∪ patient overlay; graph expand default ON; dense rerank over candidates

@@ -37,7 +37,7 @@ import { audit } from '@/services/audit/auditService';
 import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
-import { CONCIERGE_GENERATION_DEEP } from '@/constants/concierge';
+import { getConciergeGeneration } from '@/constants/concierge';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 import {
   resolveCareText,
@@ -289,7 +289,7 @@ export function CarePlanAskChat({
             );
           },
           controller.signal,
-          CONCIERGE_GENERATION_DEEP,
+          getConciergeGeneration(defaultModelId, 'deep'),
         );
         if (cancelRef.current) return;
         const cleaned = stripControlTokens(result.text).answer;
@@ -319,6 +319,7 @@ export function CarePlanAskChat({
     [
       activeIntent,
       currentModelId,
+      defaultModelId,
       ensureModelAndLease,
       provider,
       snapshot,

@@ -591,6 +591,13 @@ export async function createReadyEmbedder(
   const embedder = getSharedTfliteEmbedder();
   if (embedder.isReady()) return embedder;
   const t0 = Date.now();
+  // After a recorded failure (e.g. the 91 MB asset could not be fetched from
+  // Metro), do not stall every chat turn on a full retry — bound the retry
+  // budget to 3s so a transient outage can still recover but a broken asset
+  // fails fast and the turn continues without NLU.
+  const effectiveTimeout = embedder.getLastLoadError()
+    ? Math.min(timeoutMs, 3_000)
+    : timeoutMs;
   try {
     await Promise.race([
       embedder.load(),
@@ -599,13 +606,13 @@ export async function createReadyEmbedder(
           () =>
             reject(
               new Error(
-                `TFLite embedder load timeout after ${timeoutMs}ms` +
+                `TFLite embedder load timeout after ${effectiveTimeout}ms` +
                   (embedder.getLastLoadError()
                     ? ` (last error: ${embedder.getLastLoadError()})`
                     : ''),
               ),
             ),
-          timeoutMs,
+          effectiveTimeout,
         ),
       ),
     ]);

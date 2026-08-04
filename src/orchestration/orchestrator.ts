@@ -44,7 +44,7 @@ import {
   getUc4PriorityCardSummaryById,
   getUc4RunSummaryById,
 } from '@/data/repositories/uc4PriorityRepository';
-import type { InferenceProvider } from '@/inference/inference-provider';
+import type { InferenceProvider, GenerateOptions } from '@/inference/inference-provider';
 import type { FusedRetriever, RetrievedChunk } from '@/knowledge';
 import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
 import type { AppleWatchVitalsInput, UC2DecisionResult } from '@/ml-models/uc2-decision-layer';
@@ -55,7 +55,7 @@ import { dispatchImmediate } from '@/services/notifications';
 import type { SlmTaskQueue } from '@/services/slm/slm-task-queue';
 import { store } from '@/store';
 
-import { CONCIERGE_GENERATION_EXPLAIN, REASONING_FORMAT_EXPLAIN } from '@/constants/concierge';
+import { REASONING_FORMAT_EXPLAIN, getConciergeGeneration } from '@/constants/concierge';
 import type {
   HealthSampleSource,
   MlRawVitalsPayload,
@@ -1122,11 +1122,9 @@ export class Orchestrator {
         () => {},
         new AbortController().signal,
         {
+          ...this.getExplainGeneration(),
           maxTokens: 768,
           maxReasoningTokens: 384,
-          temperature: CONCIERGE_GENERATION_EXPLAIN.temperature,
-          topP: CONCIERGE_GENERATION_EXPLAIN.topP,
-          reasoningFormat: REASONING_FORMAT_EXPLAIN,
         },
         // Capture reasoning for the transparency trace (D4). Not displayed
         // to the caregiver — the explain path waits for the full answer.
@@ -1298,11 +1296,9 @@ export class Orchestrator {
         new AbortController().signal,
         // Finite budgets — unlimited explain + huge prompt filled the window.
         {
+          ...this.getExplainGeneration(),
           maxTokens: 512,
           maxReasoningTokens: 256,
-          temperature: CONCIERGE_GENERATION_EXPLAIN.temperature,
-          topP: CONCIERGE_GENERATION_EXPLAIN.topP,
-          reasoningFormat: REASONING_FORMAT_EXPLAIN,
         },
         (reasoningToken) => {
           this.addTrace({
@@ -1412,11 +1408,9 @@ export class Orchestrator {
         () => {},
         new AbortController().signal,
         {
+          ...this.getExplainGeneration(),
           maxTokens: 512,
           maxReasoningTokens: 256,
-          temperature: CONCIERGE_GENERATION_EXPLAIN.temperature,
-          topP: CONCIERGE_GENERATION_EXPLAIN.topP,
-          reasoningFormat: REASONING_FORMAT_EXPLAIN,
         },
       );
     } finally {
@@ -1486,7 +1480,7 @@ export class Orchestrator {
         ],
         () => {},
         new AbortController().signal,
-        { ...CONCIERGE_GENERATION_EXPLAIN, reasoningFormat: REASONING_FORMAT_EXPLAIN },
+        { ...this.getExplainGeneration() },
       );
       return slmResult.text;
     } finally {
@@ -1707,6 +1701,17 @@ export class Orchestrator {
     const info = this.slm.getModelInfo?.();
     if (info && typeof info.nCtx === 'number' && info.nCtx > 0) return info.nCtx;
     return 4096;
+  }
+
+  /**
+   * Model-aware explain generation defaults (sampling follows the loaded
+   * catalog family; explain paths override the token budgets below).
+   */
+  private getExplainGeneration(): Required<GenerateOptions> {
+    return {
+      ...getConciergeGeneration(this.slm.getLoadedModelId?.() ?? null, 'deep'),
+      reasoningFormat: REASONING_FORMAT_EXPLAIN,
+    };
   }
 
   /** Compact UC3 metric dump for explain prompts (avoids multi-KB JSON). */

@@ -10,7 +10,7 @@
  */
 
 import { getDeviceMemoryModule, isNativeMemoryAvailable } from '@/services/device-memory';
-import { MODEL_CATALOG } from '@/inference/model-catalog';
+import { KV_BYTES_PER_TOKEN, MODEL_CATALOG } from '@/inference/model-catalog';
 
 export const RAM_HEADROOM_RATIO = 1.25;
 export const MIN_FREE_HEADROOM_MB = 500;
@@ -19,12 +19,28 @@ export type RamGateResult =
   | { ok: true; freeMB: number | null; requiredMB: number; native: boolean }
   | { ok: false; freeMB: number | null; requiredMB: number; native: boolean; reason: string };
 
-export function checkSlmRamGate(modelId: string): RamGateResult {
+/**
+ * Pre-load RAM gate for SLM model loading.
+ *
+ * Checks free device memory against the model's footprint — weights plus an
+ * estimated KV-cache allocation for the requested context window — before
+ * attempting a load. Prevents the OOM death spiral where blind foreground
+ * reload exhausts LlamaRnProvider's attempt ladder and leaves
+ * loadStatus === 'error'.
+ *
+ * `nCtx` defaults to the catalog entry's preferred context so e.g. a model
+ * with a larger window is gated on its KV-cache cost, not just the weights.
+ */
+export function checkSlmRamGate(modelId: string, nCtx?: number): RamGateResult {
   const entry = MODEL_CATALOG.find((m) => m.id === modelId);
   const modelMB = entry
     ? (entry.sizeBytes ?? 2.4e9) / (1024 * 1024)
     : 2400;
-  const requiredMB = Math.max(modelMB * RAM_HEADROOM_RATIO, modelMB + MIN_FREE_HEADROOM_MB);
+  const ctxTokens = nCtx ?? entry?.preferredNCtx ?? 4096;
+  const kvMB = entry
+    ? ((KV_BYTES_PER_TOKEN[entry.family] ?? KV_BYTES_PER_TOKEN.gemma4) * ctxTokens) / (1024 * 1024)
+    : 0;
+  const requiredMB = Math.max(modelMB * RAM_HEADROOM_RATIO, modelMB + MIN_FREE_HEADROOM_MB) + kvMB;
 
   // No native bridge: cannot pre-gate, and free memory is unknown.
   if (!isNativeMemoryAvailable()) {
@@ -38,7 +54,7 @@ export function checkSlmRamGate(modelId: string): RamGateResult {
       freeMB,
       requiredMB,
       native: true,
-      reason: `Need ~${requiredMB.toFixed(0)} MB free, have ${freeMB.toFixed(0)} MB`,
+      reason: `Need ~${requiredMB.toFixed(0)} MB free (${modelMB.toFixed(0)} MB weights + ${kvMB.toFixed(0)} MB context), have ${freeMB.toFixed(0)} MB`,
     };
   }
   return { ok: true, freeMB, requiredMB, native: true };

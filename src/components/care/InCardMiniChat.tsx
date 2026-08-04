@@ -269,6 +269,7 @@ export function InCardMiniChat({
         allowDevelopmentNluFallback: allowDevNlu,
         skipNlu: useUc3Therapy,
         toolsOverride: useUc3Therapy ? [] : undefined,
+        modelId: defaultModelId,
         extraSystemContext: useUc3Therapy
           ? buildUc3TherapySystemContext(liveSnapshot)
           : undefined,

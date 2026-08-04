@@ -315,6 +315,7 @@ export function SlmInsightSheet({
       forceDeep: true,
       allowDevelopmentNluFallback: allowDevNlu,
       logTag: 'SlmInsightSheet',
+      modelId: defaultModelId,
     });
     if (cancelRef.current) return;
 

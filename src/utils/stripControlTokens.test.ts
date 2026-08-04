@@ -17,6 +17,21 @@ describe('stripControlTokens', () => {
     });
   });
 
+  it('extracts <think> tags (Gemma 4 E2B / Qwen3-family)', () => {
+    const text = '<think>internal reasoning</think>The caregiver answer.';
+    expect(stripControlTokens(text)).toEqual({
+      thinking: 'internal reasoning',
+      answer: 'The caregiver answer.',
+    });
+  });
+
+  it('strips stray control tokens around think content', () => {
+    const text = 'Answer here <|end|> <think>reasoning</think>';
+    const result = stripControlTokens(text);
+    expect(result.thinking).toBe('reasoning');
+    expect(result.answer).toBe('Answer here');
+  });
+
   it('strips stray control tokens', () => {
     const text = 'Hello <|end|> world';
     expect(stripControlTokens(text)).toEqual({

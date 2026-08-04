@@ -1,8 +1,9 @@
 import { getDatabase } from '../db';
-import type { RehabExerciseAssignment, RehabExerciseKey } from '../types';
+import type { PatientCondition, RehabExerciseAssignment, RehabExerciseKey } from '../types';
 import {
   DEVELOPMENT_UC3_REHAB_EXERCISE_SOURCE,
   DEVELOPMENT_UC3_REHAB_EXERCISES,
+  mapConditionsToUc3ConditionGroup,
   normalizeUniqueDevelopmentRehabExerciseKeys,
 } from '../uc3RehabExercises';
 import { clearUnassignedCompletedExerciseKeys } from './dailyCareEntryRepository';
@@ -81,4 +82,28 @@ export function replaceRehabExerciseAssignments(input: {
   clearUnassignedCompletedExerciseKeys(input.patientId, input.carePlanId, activeKeys);
 
   return getRehabExerciseAssignments(input.patientId, input.carePlanId);
+}
+
+/**
+ * Seed the development rehab exercises for a UC3-eligible patient (post-stroke
+ * SNOMED codes in the condition set) — used after FHIR import so the Care
+ * therapy card shows assigned exercises instead of "0 active exercises".
+ * Non-eligible personas (CP, COPD, Spina Bifida) are left untouched. Idempotent
+ * (upsert semantics) and best-effort.
+ */
+export function seedDevelopmentRehabExercisesIfEligible(input: {
+  patientId: string;
+  carePlanId: string;
+  conditions: readonly PatientCondition[];
+}): boolean {
+  if (!mapConditionsToUc3ConditionGroup(input.conditions)) {
+    return false;
+  }
+  replaceRehabExerciseAssignments({
+    patientId: input.patientId,
+    carePlanId: input.carePlanId,
+    exerciseKeys: DEVELOPMENT_UC3_REHAB_EXERCISES.map((exercise) => exercise.key),
+    source: 'seed:fhir_import',
+  });
+  return true;
 }

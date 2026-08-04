@@ -10,12 +10,12 @@ import type {
     ChatMessage as ProviderChatMessage,
 } from "@/inference/inference-provider";
 import type { ModelEntry } from "@/inference/model-catalog";
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from "@/inference/model-catalog";
+import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG, resolveActiveModelId } from "@/inference/model-catalog";
 import { getHfToken } from "@/services/hf-token-store";
 import { downloadModel } from "@/services/model-download";
 import { isModelInstalled } from "@/services/model-storage";
 import type { PatientRecordSnapshot } from "@/data/repositories/patientRecordRepository";
-import { CONCIERGE_GENERATION_DEEP } from "@/constants/concierge";
+import { CONCIERGE_GENERATION_DEEP, getConciergeGeneration } from "@/constants/concierge";
 import { TOOL_SCHEMAS } from "@/orchestration/mcp/tool-registry";
 import { filterToolsForSkill, getSkillPromptFragment } from "@/orchestration/skills";
 import { stripControlTokens } from "@/utils/stripControlTokens";
@@ -133,20 +133,27 @@ export type CaregiverAssistantResponse = {
   source: "mock" | "native-slm" | "backend";
 };
 
+/**
+ * Resolve the caregiver SLM model: the default catalog model when installed,
+ * otherwise the first installed catalog model (multi-model support).
+ */
 export function getCaregiverSLMModel(): ModelEntry {
-  const model = MODEL_CATALOG.find(
-    (entry) => entry.id === CAREGIVER_SLM_MODEL_ID,
-  );
+  const id = resolveActiveModelId(CAREGIVER_SLM_MODEL_ID, (mid) => {
+    const entry = MODEL_CATALOG.find((m) => m.id === mid);
+    return entry ? isModelInstalled(entry) : false;
+  });
+  const model = MODEL_CATALOG.find((entry) => entry.id === id);
 
   if (!model) {
-    throw new Error(`Caregiver SLM model not found: ${CAREGIVER_SLM_MODEL_ID}`);
+    throw new Error(`Caregiver SLM model not found: ${id}`);
   }
 
   return model;
 }
 
+/** True when at least one Concierge model is installed on-device. */
 export function isCaregiverSLMModelInstalled(): boolean {
-  return isModelInstalled(getCaregiverSLMModel());
+  return MODEL_CATALOG.some((entry) => isModelInstalled(entry));
 }
 
 export async function downloadCaregiverSLMModel(params: {
@@ -180,8 +187,10 @@ export async function askCaregiverAssistantWithProvider(params: {
   onToken?: (token: string) => void;
   signal?: AbortSignal;
   skillId?: string;
+  /** Resolve the active model id for per-model generation defaults. */
+  getModelId?: () => string | null;
 }): Promise<CaregiverAssistantResponse> {
-  const { provider, prompt, context = {}, onToken, signal, skillId } = params;
+  const { provider, prompt, context = {}, onToken, signal, skillId, getModelId } = params;
 
   const systemContext = buildCaregiverSystemContext(context, skillId ? { skillId } : undefined);
 
@@ -196,11 +205,15 @@ export async function askCaregiverAssistantWithProvider(params: {
     },
   ];
 
+  const generation =
+    getModelId != null
+      ? getConciergeGeneration(getModelId(), 'deep')
+      : CONCIERGE_GENERATION_DEEP;
   const result = await provider.chat(
     messages,
     onToken ?? (() => {}),
     signal ?? new AbortController().signal,
-    CONCIERGE_GENERATION_DEEP,
+    generation,
   );
 
   return {

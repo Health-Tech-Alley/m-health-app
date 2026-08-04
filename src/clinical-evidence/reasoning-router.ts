@@ -21,7 +21,9 @@ import type { ReasoningMode } from '@/constants/concierge';
 import {
   CONCIERGE_GENERATION_DEEP,
   CONCIERGE_GENERATION_FAST,
+  getConciergeGeneration,
 } from '@/constants/concierge';
+import { getModelEntry } from '@/inference/model-catalog';
 import { CONFIDENCE_THRESHOLD } from '@/nlu/intent-labels';
 import type { NluIntent, NluIntentLabel } from '@/nlu/types';
 import { messageHasClinicalKeywords } from './retrieval-helper';
@@ -65,6 +67,9 @@ export type ChatGenerationDecision = {
  * Fail-closed: missing NLU, low confidence, or clinical intents → DEEP.
  * FAST_ELIGIBLE intents with high confidence → FAST.
  * Optional safety: clinical-chunk override for misclassified turns.
+ *
+ * When `modelId` is provided, sampling follows that catalog model's profile
+ * (e.g. Bonsai 8B); when omitted, the shared Gemma defaults apply.
  */
 export function selectChatGeneration(args: {
   intent?: NluIntent | null;
@@ -73,37 +78,45 @@ export function selectChatGeneration(args: {
   meds?: string[];
   citedChunkCount?: number;
   forceDeep?: boolean;
+  modelId?: string | null;
 }): ChatGenerationDecision {
+  const deepProfile = args.modelId
+    ? getConciergeGeneration(args.modelId, 'deep')
+    : CONCIERGE_GENERATION_DEEP;
+  const fastProfile = args.modelId
+    ? getConciergeGeneration(args.modelId, 'fast')
+    : CONCIERGE_GENERATION_FAST;
+  const deep = (reason: string): ChatGenerationDecision => ({
+    profile: deepProfile,
+    mode: 'auto',
+    reason,
+  });
+  const fast = (reason: string): ChatGenerationDecision => ({
+    profile: fastProfile,
+    mode: 'none',
+    reason,
+  });
+
+  // Qwen3-family models (Bonsai) always think — their chat template forces a
+  // <think> channel — so FAST is never applicable to them; always DEEP.
+  if (args.modelId && getModelEntry(args.modelId)?.family === 'qwen3') {
+    return deep('qwen3_always_deep');
+  }
+
   if (args.forceDeep) {
-    return {
-      profile: CONCIERGE_GENERATION_DEEP,
-      mode: 'auto',
-      reason: 'forceDeep',
-    };
+    return deep('forceDeep');
   }
 
   if (!args.intent) {
-    return {
-      profile: CONCIERGE_GENERATION_DEEP,
-      mode: 'auto',
-      reason: 'no_nlu_packet',
-    };
+    return deep('no_nlu_packet');
   }
 
   if (args.intent.confidence < CONFIDENCE_THRESHOLD) {
-    return {
-      profile: CONCIERGE_GENERATION_DEEP,
-      mode: 'auto',
-      reason: `low_confidence:${args.intent.confidence.toFixed(2)}`,
-    };
+    return deep(`low_confidence:${args.intent.confidence.toFixed(2)}`);
   }
 
   if (ALWAYS_DEEP_INTENTS.has(args.intent.primary)) {
-    return {
-      profile: CONCIERGE_GENERATION_DEEP,
-      mode: 'auto',
-      reason: `always_deep_intent:${args.intent.primary}`,
-    };
+    return deep(`always_deep_intent:${args.intent.primary}`);
   }
 
   if (FAST_ELIGIBLE_INTENTS.has(args.intent.primary)) {
@@ -116,25 +129,13 @@ export function selectChatGeneration(args: {
         args.meds ?? [],
       )
     ) {
-      return {
-        profile: CONCIERGE_GENERATION_DEEP,
-        mode: 'auto',
-        reason: 'fast_intent_overridden_by_clinical_chunks',
-      };
+      return deep('fast_intent_overridden_by_clinical_chunks');
     }
 
-    return {
-      profile: CONCIERGE_GENERATION_FAST,
-      mode: 'none',
-      reason: `fast_intent:${args.intent.primary}`,
-    };
+    return fast(`fast_intent:${args.intent.primary}`);
   }
 
-  return {
-    profile: CONCIERGE_GENERATION_DEEP,
-    mode: 'auto',
-    reason: `default_deep:${args.intent.primary}`,
-  };
+  return deep(`default_deep:${args.intent.primary}`);
 }
 
 /**

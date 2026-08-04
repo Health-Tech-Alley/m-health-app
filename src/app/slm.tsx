@@ -43,13 +43,14 @@ import {
   truncateForQuickAnswer,
 } from '@/components/concierge/ThinkingIndicator';
 import { AppTheme, MaxContentWidth } from '@/constants/theme';
-import { CONCIERGE_GENERATION_DEEP, CONCIERGE_GENERATION_FAST } from '@/constants/concierge';
+import { getConciergeGeneration } from '@/constants/concierge';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import { CHAT_UNLOAD_GRACE_MS, useSLM } from '@/contexts/slm-context';
 import { useOrchestratorSafe, useOrchestratorRetriever, useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { useTheme } from '@/hooks/use-theme';
 import type { ChatMessage as ProviderChatMessage } from '@/inference/inference-provider';
+import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
 import {
   buildCaregiverAssistantContextFromSnapshot,
   buildCaregiverSystemContext,
@@ -884,6 +885,7 @@ export default function SLMScreen({
       allowDevelopmentNluFallback: allowDevelopmentNluFallback,
       nluTimeoutMs: NLU_TIMEOUT_MS,
       logTag: 'SLM Chat',
+      modelId: slm.currentModelId ?? DEFAULT_SLM_MODEL_ID,
     });
     const nluMs = Date.now() - nluT0;
     const nluPacket = prepared.nluPacket;
@@ -892,7 +894,7 @@ export default function SLMScreen({
     const userContent = prepared.userContent;
 
     console.log(
-      `[SLM Chat] generation=${generationDecision.profile === CONCIERGE_GENERATION_FAST ? 'FAST' : 'DEEP'} ` +
+      `[SLM Chat] generation=${generationDecision.mode === 'none' ? 'FAST' : 'DEEP'} ` +
         `reason=${generationDecision.reason} ` +
         `intent=${nluPacket?.intent?.primary ?? 'none'} ` +
         `conf=${nluPacket?.intent?.confidence?.toFixed(2) ?? 'n/a'} ` +
@@ -971,7 +973,7 @@ export default function SLMScreen({
       console.log(
         `[SLM Chat] latency_ms total=${turnMs} nlu=${nluMs} slm_e2e=${slmMs} ` +
           `ttft=${ttftMs ?? 'n/a'} model=${slm.currentModelId ?? 'unknown'} ` +
-          `mode=${generationDecision.profile === CONCIERGE_GENERATION_FAST ? 'FAST' : 'DEEP'} ` +
+          `mode=${generationDecision.mode === 'none' ? 'FAST' : 'DEEP'} ` +
           `intent=${nluPacket?.intent?.primary ?? 'none'} ` +
           `conf=${nluPacket?.intent?.confidence?.toFixed(2) ?? 'n/a'}`,
       );
@@ -1159,7 +1161,7 @@ export default function SLMScreen({
             });
           },
           turn2Abort.signal,
-          CONCIERGE_GENERATION_DEEP,
+          getConciergeGeneration(slm.currentModelId ?? DEFAULT_SLM_MODEL_ID, 'deep'),
         );
       };
 
@@ -1194,7 +1196,7 @@ export default function SLMScreen({
             // Ignore streaming partials on rewrite; we only keep final text.
           },
           retryAbort.signal,
-          CONCIERGE_GENERATION_DEEP,
+          getConciergeGeneration(slm.currentModelId ?? DEFAULT_SLM_MODEL_ID, 'deep'),
         );
         if (retryResult.text?.trim() && !looksLikeRawDump(retryResult.text)) {
           finalText = retryResult.text;

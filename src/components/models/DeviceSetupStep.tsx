@@ -12,7 +12,7 @@ import { useModelDownloadQueue } from '@/hooks/useModelDownloadQueue';
 import type { PackRunnerOptions } from '@/clinical-evidence/pack';
 
 import { KnowledgePackProgressCard } from './KnowledgePackProgressCard';
-import { SlmDownloadCard } from './SlmDownloadCard';
+import { SlmModelCarousel } from './SlmModelCarousel';
 
 const KEEP_AWAKE_TAG = 'device-setup-downloads';
 
@@ -98,7 +98,16 @@ export function DeviceSetupStep({
       <View style={styles.banner}>
         <Text style={styles.bannerText}>{banner}</Text>
       </View>
-      <SlmDownloadCard hfTokenHint />
+      <SlmModelCarousel
+        hfTokenHint
+        showUseDefault={false}
+        onNeedHfToken={() =>
+          Alert.alert(
+            'Hugging Face token',
+            'Public Concierge models do not need a token. If a download fails with a 401, add a token in Settings → Models.',
+          )
+        }
+      />
       <KnowledgePackProgressCard runnerOptions={runnerOptions} />
     </View>
   );

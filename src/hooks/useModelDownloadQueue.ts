@@ -192,6 +192,36 @@ export function removeDownloadedModel(modelId: string): void {
   refreshInstalled();
 }
 
+export type ModelDeleteResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Guarded delete — the last installed Concierge model cannot be removed
+ * (Concierge surfaces hard-require at least one model on-device).
+ */
+export function canDeleteModel(modelId: string): ModelDeleteResult {
+  const installedIds = state.rows.filter((r) => r.status === 'installed').map((r) => r.id);
+  if (installedIds.length <= 1 && installedIds.includes(modelId)) {
+    return {
+      ok: false,
+      reason: 'Keep at least one Concierge model on this device. Download a different model first if you want to replace it.',
+    };
+  }
+  return { ok: true };
+}
+
+/** Remove a model with the keep-≥1 guard applied. */
+export function removeModelGuarded(modelId: string): ModelDeleteResult {
+  const guard = canDeleteModel(modelId);
+  if (!guard.ok) return guard;
+  removeDownloadedModel(modelId);
+  return { ok: true };
+}
+
+/** Ids of installed models (for default reassignment after a delete). */
+export function getInstalledModelIds(): string[] {
+  return state.rows.filter((r) => r.status === 'installed').map((r) => r.id);
+}
+
 export function removeAllDownloadedModels(): number {
   for (const id of [...cancelHandles.keys()]) {
     cancelModelDownload(id);
@@ -221,7 +251,7 @@ export function useModelDownloadQueue() {
   }, []);
 
   const removeModel = useCallback((modelId: string) => {
-    removeDownloadedModel(modelId);
+    return removeModelGuarded(modelId);
   }, []);
 
   const clearAll = useCallback(() => removeAllDownloadedModels(), []);

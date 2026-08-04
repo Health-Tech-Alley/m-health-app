@@ -11,13 +11,16 @@
  */
 
 import type { InferenceProvider, GenerateOptions } from '@/inference/inference-provider';
-import { CONCIERGE_GENERATION_DEEP } from '@/constants/concierge';
+import { getConciergeGeneration } from '@/constants/concierge';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 
-const CARE_OPTIONS: GenerateOptions = {
-  ...CONCIERGE_GENERATION_DEEP,
-  reasoningFormat: 'auto',
-};
+/** Model-aware deep generation for Care Concierge (loaded model id). */
+function careOptions(provider: InferenceProvider): GenerateOptions {
+  return {
+    ...getConciergeGeneration(provider.getLoadedModelId?.() ?? null, 'deep'),
+    reasoningFormat: 'auto',
+  };
+}
 
 export async function runSlmCompletion(params: {
   provider: InferenceProvider;
@@ -43,7 +46,7 @@ export async function runSlmCompletion(params: {
       params.onToken?.(token);
     },
     params.signal ?? new AbortController().signal,
-    CARE_OPTIONS,
+    careOptions(provider),
   );
 
   const raw = result.text || accumulator;

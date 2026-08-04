@@ -18,7 +18,7 @@ import type {
   ModelInfo,
 } from '@/inference/inference-provider';
 import { LlamaRnProvider } from '@/inference/llama-rn-provider';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG, resolveModelPath } from '@/inference/model-catalog';
+import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG, getModelEntry, resolveModelPath } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import { useSettings } from '@/contexts/settings-context';
 import { checkSlmRamGate } from '@/services/slm/slm-ram-gate';
@@ -151,7 +151,7 @@ export function SLMProvider({ children }: { children: ReactNode }) {
         oomRetryTimerRef.current = null;
         oomRetryUsedRef.current = true;
 
-        const gate = checkSlmRamGate(modelId);
+        const gate = checkSlmRamGate(modelId, getModelEntry(modelId)?.preferredNCtx);
         const improved =
           freeMBAtFailRef.current == null ||
           (gate.freeMB != null && gate.freeMB > freeMBAtFailRef.current + 100);
@@ -175,10 +175,23 @@ export function SLMProvider({ children }: { children: ReactNode }) {
         // Prior load failed — allow a fresh attempt below.
       }
 
+      // Hot-switch: if a *known different* model is resident, release it first.
+      // When loadedId is null, provider.loadModel path-matches and either
+      // no-ops (same file) or freeContext()+reloads (different file) without
+      // deadlocking.
       if (provider.getModelInfo() !== null) {
-        setLoadStatus('ready');
-        setCurrentModelId((prev) => prev ?? modelId);
-        return;
+        const loadedId = provider.getLoadedModelId?.() ?? null;
+        if (loadedId === modelId) {
+          setLoadStatus('ready');
+          setCurrentModelId(modelId);
+          return;
+        }
+        if (loadedId != null && loadedId !== modelId) {
+          console.log(`[SLM] Switching model: ${loadedId} → ${modelId}`);
+          await provider.release();
+          setLoadStatus('idle');
+          setCurrentModelId(null);
+        }
       }
 
       const entry = MODEL_CATALOG.find((m) => m.id === modelId);
@@ -191,7 +204,18 @@ export function SLMProvider({ children }: { children: ReactNode }) {
       }
 
       // ── Pre-load RAM gate (shared by both modes) ──
-      const gate = checkSlmRamGate(modelId);
+      // Preferred n_ctx is 8K (longer conversations). If the 8K KV cache does
+      // not fit in free RAM, fall back to 4K so low-RAM devices still load.
+      const preferredNCtx = getModelEntry(modelId)?.preferredNCtx ?? 4096;
+      let gate = checkSlmRamGate(modelId, preferredNCtx);
+      let effectiveNCtx = preferredNCtx;
+      if (!gate.ok && preferredNCtx > 4096) {
+        const fallback = checkSlmRamGate(modelId, 4096);
+        if (fallback.ok) {
+          gate = fallback;
+          effectiveNCtx = 4096;
+        }
+      }
       if (!gate.ok) {
         const message = `Not enough free memory to load Concierge. ${gate.reason}`;
         setLoadError(message);
@@ -211,8 +235,14 @@ export function SLMProvider({ children }: { children: ReactNode }) {
 
         try {
           const path = resolveModelPath(entry.file);
-          // Prefer 4096 ctx — 8192 doubles KV RAM and often OOMs on device with 2.9GB GGUF.
-          await provider.loadModel(path, { nCtx: 4096 });
+          // Profile-driven n_ctx (8K preferred, RAM-gated down to 4K) + GPU
+          // policy (Bonsai Q1_0 offloads to Metal; a future CPU-only quant
+          // would set nGpuLayers: 0).
+          await provider.loadModel(path, {
+            nCtx: effectiveNCtx,
+            modelId,
+            nGpuLayers: entry.nGpuLayers,
+          });
           const info: ModelInfo | null = provider.getModelInfo();
           setCurrentModelId(modelId);
           setModelSizeGB(info ? info.sizeBytes / (1024 * 1024 * 1024) : null);
@@ -313,7 +343,7 @@ export function SLMProvider({ children }: { children: ReactNode }) {
     if (!entry || !isModelInstalled(entry)) return;
     if (loadStatus !== 'idle') return;
     const t = setTimeout(() => {
-      const gate = checkSlmRamGate(defaultModelId);
+      const gate = checkSlmRamGate(defaultModelId, getModelEntry(defaultModelId)?.preferredNCtx);
       if (!gate.ok) {
         setLoadError(`Not enough free memory to load Concierge. ${gate.reason}`);
         setLoadStatus('error');
@@ -361,7 +391,7 @@ export function SLMProvider({ children }: { children: ReactNode }) {
         const entry = MODEL_CATALOG.find((m) => m.id === defaultModelId);
         if (!entry || !isModelInstalled(entry)) return;
 
-        const gate = checkSlmRamGate(defaultModelId);
+        const gate = checkSlmRamGate(defaultModelId, getModelEntry(defaultModelId)?.preferredNCtx);
         if (!gate.ok) {
           console.warn('[SLM] Skip foreground reload — RAM gate:', gate.reason);
           setLoadError(`Concierge paused: ${gate.reason}. Free memory and tap to retry.`);
@@ -397,7 +427,7 @@ export function SLMProvider({ children }: { children: ReactNode }) {
     if (!dynamic && loadStatus === 'idle') {
       const entry = MODEL_CATALOG.find((m) => m.id === defaultModelId);
       if (entry && isModelInstalled(entry)) {
-        const gate = checkSlmRamGate(defaultModelId);
+        const gate = checkSlmRamGate(defaultModelId, getModelEntry(defaultModelId)?.preferredNCtx);
         if (gate.ok) {
           // Defer to avoid setState-during-effect cascade.
           setTimeout(() => void loadModel(defaultModelId).catch(() => {}), 0);
