@@ -36,6 +36,14 @@ import { upsertSymptom, deleteSymptomsForPatient } from '../repositories/symptom
 import { upsertWearableDevice } from '../repositories/wearableDeviceRepository';
 import { getPatientRecordSnapshot } from '../repositories/patientRecordRepository';
 import { seedAdcpV1FromSnapshot } from '../repositories/adcpRepository';
+import {
+  getRehabExerciseAssignments,
+  replaceRehabExerciseAssignments,
+} from '../repositories/rehabExerciseAssignmentRepository';
+import {
+  DEVELOPMENT_UC3_REHAB_EXERCISES,
+  isUc3DevelopmentExerciseAssignmentEligible,
+} from '../uc3RehabExercises';
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
@@ -355,6 +363,13 @@ export function seedDatabaseFromProfile(
     console.error('[seedFromProfile] ADCP v1 seed failed:', err);
   }
 
+  // -- UC3 default rehab exercise assignments (app-owned) -----------------
+  // When the patient is UC3-eligible (e.g. post-stroke rehab) and no exercise
+  // assignments exist yet, seed the standard app-created checklist. This is an
+  // onboarding-time action with source 'developer_uc3_v2' — it is NOT written
+  // into the FHIR import path, so imported EHR records stay accurate.
+  seedDefaultUc3ExerciseAssignments(patientId);
+
   // -- Seed a demo appointment so the Schedule screen isn't empty -----------
   // Use a stable appointmentId derived from the patient so re-seeding on the
   // next cold start replaces this row instead of adding a duplicate
@@ -399,6 +414,31 @@ export function seedDatabaseFromProfile(
     });
 
   return patientId;
+}
+
+/**
+ * Seed the default UC3 rehab exercise checklist for eligible patients.
+ * App-owned (source 'developer_uc3_v2'); no-op unless the patient has an
+ * active care plan, maps to a supported UC3 condition group, and has no
+ * existing assignments.
+ */
+export function seedDefaultUc3ExerciseAssignments(patientId: string): void {
+  try {
+    const snapshot = getPatientRecordSnapshot(patientId);
+    const carePlan = snapshot.carePlan;
+    if (!carePlan?.planId) return;
+    if (!isUc3DevelopmentExerciseAssignmentEligible(snapshot.conditions, carePlan)) return;
+    if (getRehabExerciseAssignments(patientId, carePlan.planId).length > 0) return;
+
+    replaceRehabExerciseAssignments({
+      patientId,
+      carePlanId: carePlan.planId,
+      exerciseKeys: DEVELOPMENT_UC3_REHAB_EXERCISES.map((exercise) => exercise.key),
+    });
+  } catch (err) {
+    // Best-effort — never block onboarding completion.
+    console.error('[seedFromProfile] UC3 exercise assignment seed failed:', err);
+  }
 }
 
 /**

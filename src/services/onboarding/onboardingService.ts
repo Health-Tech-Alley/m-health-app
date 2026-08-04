@@ -16,7 +16,7 @@ import { upsertMedicationSchedule } from '@/data/repositories/medicationSchedule
 import { upsertSymptom } from '@/data/repositories/symptomRepository';
 import { upsertWearableDevice } from '@/data/repositories/wearableDeviceRepository';
 import type { Medication, Patient, SymptomCategory } from '@/data/types';
-import { seedDatabaseFromProfile } from '@/data/seed/seedFromProfile';
+import { seedDatabaseFromProfile, seedDefaultUc3ExerciseAssignments } from '@/data/seed/seedFromProfile';
 
 /**
  * Service layer for first-time caregiver onboarding.
@@ -528,6 +528,16 @@ export async function completeOnboardingProfileForImportedPatient(
     });
   });
   saveOnboardingProfile(profileForSave);
+
+  // App-owned UC3 default exercises (source 'developer_uc3_v2') for
+  // UC3-eligible imported patients (e.g. post-stroke demo presets). This is an
+  // onboarding-time action, NOT part of the FHIR import itself — the imported
+  // EHR record stays accurate.
+  try {
+    seedDefaultUc3ExerciseAssignments(patientId);
+  } catch (err) {
+    console.error('[onboarding] UC3 exercise assignment seed failed:', err);
+  }
 
   return {
     savedInMemory: true,

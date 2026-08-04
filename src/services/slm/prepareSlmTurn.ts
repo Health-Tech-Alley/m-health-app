@@ -24,6 +24,7 @@ import {
 } from '@/knowledge/embedder';
 import type { FusedRetriever, McpToolSummary } from '@/knowledge/types';
 import type { PatientRecordSnapshot } from '@/data/types';
+import { getAssignedDevelopmentRehabExercises } from '@/data/uc3RehabExercises';
 import {
   PreSlmNlu,
   buildPatientNluContext,
@@ -271,6 +272,18 @@ export async function prepareSlmTurn(
   });
   if (identityGuard.hasMismatch) {
     systemContext = `${systemContext}\n\n${identityGuard.systemPromptBlock}`;
+  }
+
+  // Exercise ground truth: stable labels only (no mutable daily metrics).
+  // Present in main chat and in-card explain; omitted when extraSystemContext
+  // already carries its own therapy block.
+  if (snapshot && !options.extraSystemContext) {
+    const assigned = getAssignedDevelopmentRehabExercises(
+      snapshot.rehabExerciseAssignments ?? [],
+    );
+    if (assigned.length > 0) {
+      systemContext = `${systemContext}\n\nExercises: ${assigned.map((e) => e.label).join('; ')}.`;
+    }
   }
 
   const extraSystem = options.extraSystemContext?.trim();

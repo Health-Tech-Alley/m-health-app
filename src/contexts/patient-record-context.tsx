@@ -39,6 +39,7 @@ import {
   type PatientRecordSnapshot,
 } from '@/data';
 import { saveFHIRBundleToDB } from '@/data/fhir/fhir-import';
+import { seedDefaultUc3ExerciseAssignments } from '@/data/seed/seedFromProfile';
 import { hydrateLiveVitals, clearLiveVitals } from '@/hooks/useActivePatientView';
 
 // ---------------------------------------------------------------------------
@@ -246,6 +247,14 @@ export function PatientRecordProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [initialized, patientId, providerToken]);
+
+  // App-owned UC3 default exercises: seed once on app start for any
+  // onboarding-complete patient that is UC3-eligible (no-ops if already
+  // assigned or not eligible). Idempotent and fire-and-forget.
+  useEffect(() => {
+    if (!patientId || !initialized) return;
+    seedDefaultUc3ExerciseAssignments(patientId);
+  }, [patientId, initialized]);
 
   useEffect(() => {
     return () => {
