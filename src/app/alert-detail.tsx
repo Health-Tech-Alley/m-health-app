@@ -25,6 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppTheme } from '@/constants/theme';
 import { severityColor, severityLabel } from '@/constants/user-terms';
+import { useTheme } from '@/hooks/use-theme';
 import {
   getAlertById,
   getAnomalyConfidenceRatio,
@@ -54,6 +55,9 @@ const RED = AppTheme.colors.danger;
 
 export default function AlertDetailScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const isDark = theme.appBackground === '#000000';
   const { alertId } = useLocalSearchParams<{ alertId: string }>();
   const orchestrator = useOrchestratorSafe();
   const activePatientId = useOrchestratorPatientId();
@@ -240,9 +244,9 @@ export default function AlertDetailScreen() {
 
   if (!alert) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={['top', 'bottom']}>
         <View style={styles.missing}>
-          <Text style={styles.muted}>{alertUnavailableMessage}</Text>
+          <Text style={[styles.muted, themedStyles.supportingText]}>{alertUnavailableMessage}</Text>
           <Pressable style={styles.button} onPress={() => router.back()}>
             <Text style={styles.buttonText}>Back</Text>
           </Pressable>
@@ -255,15 +259,16 @@ export default function AlertDetailScreen() {
   const isEmergency = alert.severity === 3;
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+    <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={['top', 'bottom']}>
       <ScrollView
+        style={themedStyles.scrollView}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.topBar}>
           <Pressable style={styles.backButton} onPress={() => router.back()} hitSlop={12}>
-            <Text style={styles.backLink}>← Back</Text>
+            <Text style={[styles.backLink, themedStyles.brandText]}>← Back</Text>
           </Pressable>
         </View>
 
@@ -278,9 +283,9 @@ export default function AlertDetailScreen() {
         </View>
 
         {isEmergency && (
-          <View style={styles.emergencyBanner}>
-            <Text style={styles.emergencyHeadline}>⚠ This is an emergency</Text>
-            <Text style={styles.emergencySubtext}>
+          <View style={[styles.emergencyBanner, themedStyles.emergencyBanner]}>
+            <Text style={[styles.emergencyHeadline, themedStyles.dangerText]}>⚠ This is an emergency</Text>
+            <Text style={[styles.emergencySubtext, themedStyles.dangerText]}>
               If the situation is life-threatening, act now. You can still ask the Concierge
               for an explanation afterwards.
             </Text>
@@ -289,8 +294,8 @@ export default function AlertDetailScreen() {
 
         {/* Vitals context (severity 1–2) */}
         {!isEmergency && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Recent Vitals (24h)</Text>
+          <View style={[styles.card, themedStyles.card]}>
+            <Text style={[styles.cardTitle, themedStyles.sectionText]}>Recent Vitals (24h)</Text>
             <VitalsInline label="SpO2" samples={recentSpo2.map((s) => s.value)} unit="%" />
             <VitalsInline label="Heart Rate" samples={recentHr.map((s) => s.value)} unit="bpm" />
           </View>
@@ -298,10 +303,10 @@ export default function AlertDetailScreen() {
 
         {/* ML event details (UC2 decision-layer output) */}
         {mlDetails && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Health Monitor analysis</Text>
+          <View style={[styles.card, themedStyles.card]}>
+            <Text style={[styles.cardTitle, themedStyles.sectionText]}>Health Monitor analysis</Text>
             {mlDetails.event.initialAnomalyType && (
-              <Text style={styles.mlLine}>
+              <Text style={[styles.mlLine, themedStyles.primaryText]}>
                 Pattern: {mlDetails.event.initialAnomalyType.replace(/_/g, ' ').toLowerCase()}
                 {mlDetails.event.postHitlAnomalyType &&
                 mlDetails.event.postHitlAnomalyType !== mlDetails.event.initialAnomalyType
@@ -310,20 +315,20 @@ export default function AlertDetailScreen() {
               </Text>
             )}
             {mlDetails.ratio !== null && (
-              <Text style={styles.mlLine}>
+              <Text style={[styles.mlLine, themedStyles.primaryText]}>
                 Confidence ratio: {mlDetails.ratio.toFixed(2)} (higher = more confident)
               </Text>
             )}
             {mlDetails.ruleEngine && mlDetails.ruleEngine.is_emergency && (
-              <Text style={[styles.mlLine, { color: RED }]}>
+              <Text style={[styles.mlLine, themedStyles.dangerText]}>
                 Rule engine: emergency ({mlDetails.ruleEngine.reasons.join(', ')})
               </Text>
             )}
             {mlDetails.topFeatures.length > 0 && (
               <>
-                <Text style={styles.mlSubTitle}>Top contributing features</Text>
+                <Text style={[styles.mlSubTitle, themedStyles.brandText]}>Top contributing features</Text>
                 {mlDetails.topFeatures.slice(0, 5).map(([name, val]) => (
-                  <Text key={name} style={styles.mlFeatureLine}>
+                  <Text key={name} style={[styles.mlFeatureLine, themedStyles.supportingText]}>
                     • {name}: {val.toFixed(2)}
                   </Text>
                 ))}
@@ -334,8 +339,8 @@ export default function AlertDetailScreen() {
 
         {/* Emergency actions */}
         {isEmergency && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Take Action</Text>
+          <View style={[styles.card, themedStyles.card]}>
+            <Text style={[styles.cardTitle, themedStyles.sectionText]}>Take Action</Text>
             <ActionRow label="📞 Call 911" onPress={() => handleAction('call_911')} disabled={busy} danger />
             <ActionRow label="🏥 Go to nearest ER" onPress={() => handleAction('go_to_er')} disabled={busy} danger />
             <ActionRow label="👨‍⚕️ Contact Provider" onPress={() => handleAction('contact_pcp')} disabled={busy} />
@@ -345,9 +350,9 @@ export default function AlertDetailScreen() {
 
         {/* Caregiver observations (severity 1-2 HITL) */}
         {!isEmergency && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>What did you notice?</Text>
-            <Text style={styles.observationHint}>
+          <View style={[styles.card, themedStyles.card]}>
+            <Text style={[styles.cardTitle, themedStyles.sectionText]}>What did you notice?</Text>
+            <Text style={[styles.observationHint, themedStyles.supportingText]}>
               Select anything unusual around this time. This feeds the anomaly
               analysis and is logged to the audit trail.
             </Text>
@@ -367,8 +372,8 @@ export default function AlertDetailScreen() {
         )}
 
         {/* Explain + note */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Concierge & Notes</Text>
+        <View style={[styles.card, themedStyles.card]}>
+          <Text style={[styles.cardTitle, themedStyles.sectionText]}>Concierge & Notes</Text>
           <ActionRow
             label={isEmergency ? 'Ask the Concierge (optional)' : 'Ask the Concierge'}
             onPress={askAssistant}
@@ -383,30 +388,30 @@ export default function AlertDetailScreen() {
         </View>
 
         {statusMsg ? (
-          <View style={styles.statusBox}>
-            <Text style={styles.statusText}>{statusMsg}</Text>
+          <View style={[styles.statusBox, themedStyles.statusBox]}>
+            <Text style={[styles.statusText, themedStyles.primaryText]}>{statusMsg}</Text>
           </View>
         ) : null}
       </ScrollView>
 
       {/* Note modal */}
       <Modal visible={noteOpen} animationType="slide" transparent onRequestClose={() => setNoteOpen(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Add a note</Text>
+        <View style={[styles.modalOverlay, themedStyles.modalOverlay]}>
+          <View style={[styles.modalCard, themedStyles.modalCard]}>
+            <Text style={[styles.modalTitle, themedStyles.primaryText]}>Add a note</Text>
             <TextInput
-              style={styles.noteInput}
+              style={[styles.noteInput, themedStyles.noteInput]}
               value={noteText}
               onChangeText={setNoteText}
               placeholder="Describe what you observed or did…"
-              placeholderTextColor="#9AA4A8"
+              placeholderTextColor={isDark ? theme.appTextMuted : '#9AA4A8'}
               multiline
               textAlignVertical="top"
               autoFocus
             />
             <View style={styles.modalActions}>
               <Pressable style={styles.modalCancel} onPress={() => setNoteOpen(false)}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
+                <Text style={[styles.modalCancelText, themedStyles.supportingText]}>Cancel</Text>
               </Pressable>
               <Pressable style={styles.modalSave} onPress={saveNote}>
                 <Text style={styles.buttonText}>Save note</Text>
@@ -433,18 +438,25 @@ export default function AlertDetailScreen() {
 }
 
 function VitalsInline({ label, samples, unit }: { label: string; samples: number[]; unit: string }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const isDark = theme.appBackground === '#000000';
   const latest = samples.length > 0 ? samples[samples.length - 1] : null;
   const trend =
     samples.length >= 2 ? samples[samples.length - 1] - samples[0] : 0;
+  const trendColor =
+    trend < 0
+      ? isDark ? AppTheme.colors.dangerLight : RED
+      : isDark ? AppTheme.colors.brandPale : TEAL;
   return (
-    <View style={styles.vitalRow}>
-      <Text style={styles.vitalName}>{label}</Text>
-      <Text style={styles.vitalLatest}>
+    <View style={[styles.vitalRow, themedStyles.vitalRow]}>
+      <Text style={[styles.vitalName, themedStyles.primaryText]}>{label}</Text>
+      <Text style={[styles.vitalLatest, themedStyles.primaryText]}>
         {latest != null ? `${Math.round(latest * 100) / 100}` : '—'}
-        <Text style={styles.vitalUnit}> {unit}</Text>
+        <Text style={[styles.vitalUnit, themedStyles.supportingText]}> {unit}</Text>
       </Text>
       {samples.length >= 2 ? (
-        <Text style={[styles.vitalTrend, trend < 0 ? { color: RED } : { color: TEAL }]}>
+        <Text style={[styles.vitalTrend, { color: trendColor }]}>
           {trend < 0 ? '▼' : '▲'} {Math.abs(Math.round(trend * 100) / 100)}
         </Text>
       ) : null}
@@ -467,25 +479,114 @@ function ActionRow({
   primary?: boolean;
   subtle?: boolean;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const style = [
     styles.action,
+    themedStyles.action,
     danger && styles.actionDanger,
+    danger && themedStyles.actionDanger,
     primary && styles.actionPrimary,
     subtle && styles.actionSubtle,
+    subtle && themedStyles.actionSubtle,
     disabled && styles.actionDisabled,
   ];
   const textStyle = [
     styles.actionText,
+    themedStyles.actionText,
     danger && styles.actionTextDanger,
+    danger && themedStyles.actionTextDanger,
     primary && styles.actionTextPrimary,
     subtle && styles.actionTextSubtle,
+    subtle && themedStyles.actionTextSubtle,
     disabled && styles.actionTextDisabled,
+    disabled && themedStyles.actionTextDisabled,
   ];
   return (
     <Pressable style={style} onPress={onPress} disabled={disabled}>
       <Text style={textStyle}>{label}</Text>
     </Pressable>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  const brandText = isDark ? AppTheme.colors.brandPale : TEAL;
+  const dangerText = isDark ? AppTheme.colors.dangerLight : RED;
+
+  return StyleSheet.create({
+    safeArea: {
+      backgroundColor: theme.appBackground,
+    },
+    scrollView: {
+      backgroundColor: theme.appBackground,
+    },
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    primaryText: {
+      color: theme.appText,
+    },
+    supportingText: {
+      color: theme.appTextSupporting,
+    },
+    sectionText: {
+      color: theme.appSectionText,
+    },
+    brandText: {
+      color: brandText,
+    },
+    dangerText: {
+      color: dangerText,
+    },
+    emergencyBanner: {
+      backgroundColor: isDark ? 'rgba(240, 6, 22, 0.16)' : AppTheme.colors.dangerLight,
+      borderColor: isDark ? 'rgba(255, 233, 236, 0.34)' : '#FFC7CE',
+    },
+    vitalRow: {
+      borderBottomColor: theme.appBorder,
+    },
+    action: {
+      borderColor: theme.appBorder,
+      backgroundColor: theme.appControlSurface,
+    },
+    actionDanger: {
+      borderColor: isDark ? 'rgba(255, 233, 236, 0.34)' : '#FFC7CE',
+      backgroundColor: isDark ? 'rgba(240, 6, 22, 0.16)' : AppTheme.colors.dangerLight,
+    },
+    actionSubtle: {
+      borderColor: theme.appBorder,
+      backgroundColor: theme.appSurface,
+    },
+    actionText: {
+      color: theme.appText,
+    },
+    actionTextDanger: {
+      color: dangerText,
+    },
+    actionTextSubtle: {
+      color: theme.appTextSupporting,
+    },
+    actionTextDisabled: {
+      color: isDark ? theme.appTextMuted : MUTED,
+    },
+    statusBox: {
+      backgroundColor: isDark ? theme.appControlSurface : AppTheme.colors.brandSoft,
+      borderColor: isDark ? theme.appBorder : AppTheme.colors.brandPale,
+    },
+    modalOverlay: {
+      backgroundColor: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(7,26,51,0.48)',
+    },
+    modalCard: {
+      backgroundColor: theme.appSurface,
+    },
+    noteInput: {
+      color: theme.appText,
+      backgroundColor: isDark ? theme.appInputBackground : AppTheme.colors.softSurface,
+      borderColor: theme.appBorder,
+    },
+  });
 }
 
 const styles = StyleSheet.create({
