@@ -6,11 +6,13 @@
  * "always/never do" framing used by doc 39.
  */
 
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon } from '@/components/AppIcon';
 import { AppTheme } from '@/constants/theme';
-import { sectionStyles } from './carePlanSectionStyles';
+import { useTheme } from '@/hooks/use-theme';
+import { createThemedSectionStyles } from './carePlanSectionStyles';
 import type { CarePlanSafetyLine } from '@/services/carePlan/carePlanViewModel';
 
 export interface CarePlanSafetySectionProps {
@@ -25,11 +27,17 @@ const KIND_PREFIX: Record<CarePlanSafetyLine['kind'], string> = {
 };
 
 export function CarePlanSafetySection({ lines, onExplainLine }: CarePlanSafetySectionProps) {
+  const theme = useTheme();
+  const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const iconColor =
+    theme.appBackground === '#000000' ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+
   if (lines.length === 0) {
     return (
       <View style={sectionStyles.card}>
       <View style={sectionStyles.headerRow}>
-        <AppIcon name="heart" size={18} color={AppTheme.colors.brand} />
+        <AppIcon name="heart" size={18} color={iconColor} />
         <Text style={sectionStyles.title}>Safety</Text>
       </View>
       <Text style={sectionStyles.bodyMuted}>
@@ -42,7 +50,7 @@ export function CarePlanSafetySection({ lines, onExplainLine }: CarePlanSafetySe
   return (
     <View style={sectionStyles.card} accessible accessibilityLabel="Safety considerations">
       <View style={sectionStyles.headerRow}>
-        <AppIcon name="heart" size={18} color={AppTheme.colors.brand} />
+        <AppIcon name="heart" size={18} color={iconColor} />
         <Text style={sectionStyles.title}>Safety</Text>
       </View>
       <Text style={sectionStyles.subtitle}>
@@ -56,7 +64,7 @@ export function CarePlanSafetySection({ lines, onExplainLine }: CarePlanSafetySe
           accessibilityRole="button"
           accessibilityLabel={`Safety line: ${KIND_PREFIX[line.kind] ? `${KIND_PREFIX[line.kind]}: ` : ''}${line.text}`}
         >
-          <Text style={styles.bullet}>
+          <Text style={[styles.bullet, themedStyles.bullet]}>
             {line.kind === 'always' ? '\u2713' : line.kind === 'never' ? '\u2715' : '\u2022'}
           </Text>
           <Text style={sectionStyles.listText}>
@@ -67,6 +75,15 @@ export function CarePlanSafetySection({ lines, onExplainLine }: CarePlanSafetySe
       ))}
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    bullet: {
+      color:
+        theme.appBackground === '#000000' ? AppTheme.colors.brandPale : AppTheme.colors.brand,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

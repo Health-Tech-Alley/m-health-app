@@ -6,11 +6,13 @@
  * "ADCP" in the caregiver UI (D3).
  */
 
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { useCarePlanBackup, type CarePlanBackupStatus } from '@/hooks/useCarePlanBackup';
-import { sectionStyles } from './carePlanSectionStyles';
+import { useTheme } from '@/hooks/use-theme';
+import { createThemedSectionStyles } from './carePlanSectionStyles';
 
 export interface CarePlanBackupSectionProps {
   patientId: string | null;
@@ -24,6 +26,9 @@ export function CarePlanBackupSection({
   autoGrantConsent,
   onRestored,
 }: CarePlanBackupSectionProps) {
+  const theme = useTheme();
+  const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const { status, exportInFlight, importInFlight, exportBackup, importBackup } =
     useCarePlanBackup(patientId, { onRestored });
 
@@ -49,13 +54,18 @@ export function CarePlanBackupSection({
           </Text>
         </Pressable>
         <Pressable
-          style={[styles.actionButton, styles.importButton, importInFlight && styles.actionButtonDisabled]}
+          style={[
+            styles.actionButton,
+            styles.importButton,
+            themedStyles.importButton,
+            importInFlight && styles.actionButtonDisabled,
+          ]}
           onPress={() => void importBackup()}
           disabled={importInFlight || !patientId}
           accessibilityRole="button"
           accessibilityLabel="Restore from a care plan file"
         >
-          <Text style={styles.importText}>
+          <Text style={[styles.importText, themedStyles.importText]}>
             {importInFlight ? 'Restoring\u2026' : 'Restore from file'}
           </Text>
         </Pressable>
@@ -67,6 +77,9 @@ export function CarePlanBackupSection({
 }
 
 function StatusLine({ status }: { status: CarePlanBackupStatus }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   if (status.kind === 'idle') return null;
   let text: string | null = null;
   let tone: 'muted' | 'success' | 'warning' | 'error' = 'muted';
@@ -95,12 +108,38 @@ function StatusLine({ status }: { status: CarePlanBackupStatus }) {
   }
   if (!text) return null;
   const styleByTone = {
-    muted: styles.statusMuted,
-    success: styles.statusSuccess,
-    warning: styles.statusWarning,
-    error: styles.statusError,
+    muted: themedStyles.statusMuted,
+    success: themedStyles.statusSuccess,
+    warning: themedStyles.statusWarning,
+    error: themedStyles.statusError,
   }[tone];
   return <Text style={[styles.status, styleByTone]}>{text}</Text>;
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+
+  return StyleSheet.create({
+    importButton: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    importText: {
+      color: theme.appText,
+    },
+    statusMuted: {
+      color: theme.appTextMuted,
+    },
+    statusSuccess: {
+      color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand,
+    },
+    statusWarning: {
+      color: AppTheme.colors.warning,
+    },
+    statusError: {
+      color: AppTheme.colors.danger,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

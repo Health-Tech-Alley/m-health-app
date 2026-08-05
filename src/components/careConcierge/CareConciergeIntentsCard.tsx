@@ -9,10 +9,13 @@
  * Care Concierge is **never** on a fast path (L8).
  */
 
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon } from '@/components/AppIcon';
+import { createThemedSectionStyles } from '@/components/care/plan/carePlanSectionStyles';
 import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { intentCatalogList } from '@/services/carePlan/intentRouter';
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
 
@@ -50,39 +53,52 @@ export function CareConciergeIntentsCard({
   intents: intentsProp,
 }: CareConciergeIntentsCardProps) {
   const intents = intentsProp ?? intentCatalogList();
+  const theme = useTheme();
+  const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const isDark = theme.appBackground === '#000000';
+  const iconColor = isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand;
   const handlePress = (intent: AdcpProposalIntentId) => {
     if (!patientId) return;
     onLaunch(intent);
   };
 
   return (
-    <View style={styles.card}>
-      <View style={styles.headerRow}>
-        <AppIcon name="care" size={18} color={AppTheme.colors.brand} />
-        <Text style={styles.title}>Care Concierge</Text>
+    <View style={sectionStyles.card}>
+      <View style={sectionStyles.headerRow}>
+        <AppIcon name="care" size={18} color={iconColor} />
+        <Text style={sectionStyles.title}>Care Concierge</Text>
       </View>
-      <Text style={styles.subtitle}>
+      <Text style={sectionStyles.subtitle}>
         Pick a plan-aware question. Concierge waits for your review before any change is applied.
       </Text>
       {intents.map((intent) => (
         <Pressable
           key={intent.intent}
-          style={styles.row}
+          style={sectionStyles.listRow}
           onPress={() => handlePress(intent.intent)}
           accessibilityRole="button"
           accessibilityLabel={`Run intent ${intent.caregiverLabel}`}
         >
           <View style={styles.rowLeft}>
-            <Text style={styles.rowTitle}>{intent.caregiverLabel}</Text>
-            <Text style={styles.rowSub}>
+            <Text style={sectionStyles.listText}>{intent.caregiverLabel}</Text>
+            <Text style={[styles.rowSub, themedStyles.mutedText]}>
               {INTENT_DESCRIPTION[intent.intent] ?? intent.description}
             </Text>
           </View>
-          <AppIcon name="chevronRight" size={20} color={AppTheme.colors.textMuted} />
+          <AppIcon name="chevronRight" size={20} color={theme.appTextMuted} />
         </Pressable>
       ))}
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    mutedText: {
+      color: theme.appTextMuted,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

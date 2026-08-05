@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import type { LatestUc4PriorityCardSummary } from '@/data/types';
+import { useTheme } from '@/hooks/use-theme';
 import type { Uc4CardResponseAction } from '@/services/uc4/uc4EvaluationService';
 
 type Uc4PriorityCardProps = {
@@ -37,6 +38,8 @@ function humanize(value: string): string {
 export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardProps) {
   const [selectedOptions, setSelectedOptions] = useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = useState(false);
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   const toggleOption = (fieldId: string, option: string) => {
     setSelectedOptions((current) => ({
@@ -64,32 +67,34 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
   };
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, themedStyles.card]}>
       <View style={styles.header}>
         <View style={styles.headerText}>
-          <Text style={styles.kicker}>Care focus</Text>
-          <Text style={styles.title}>{card.title}</Text>
+          <Text style={[styles.kicker, themedStyles.mutedText]}>Care focus</Text>
+          <Text style={[styles.title, themedStyles.primaryText]}>{card.title}</Text>
         </View>
-        <Text style={styles.score}>{Math.round(card.score * 100)}%</Text>
+        <Text style={[styles.score, themedStyles.actionText]}>{Math.round(card.score * 100)}%</Text>
       </View>
 
-      <Text style={styles.body} numberOfLines={expanded ? undefined : 3}>
+      <Text style={[styles.body, themedStyles.supportingText]} numberOfLines={expanded ? undefined : 3}>
         {card.body}
       </Text>
       {card.body.length > 150 ? (
         <Pressable onPress={() => setExpanded((current) => !current)}>
-          <Text style={styles.expand}>{expanded ? 'Show less' : 'Show more'}</Text>
+          <Text style={[styles.expand, themedStyles.actionText]}>
+            {expanded ? 'Show less' : 'Show more'}
+          </Text>
         </Pressable>
       ) : null}
 
-      <Text style={styles.safety}>{card.safetyBoundary}</Text>
+      <Text style={[styles.safety, themedStyles.mutedText]}>{card.safetyBoundary}</Text>
 
       {card.whatToLogNextSchema.length > 0 ? (
-        <View style={styles.logNext}>
-          <Text style={styles.logNextTitle}>What to log next</Text>
+        <View style={[styles.logNext, themedStyles.dividerTop]}>
+          <Text style={[styles.logNextTitle, themedStyles.primaryText]}>What to log next</Text>
           {card.whatToLogNextSchema.map((field) => (
             <View key={field.fieldId} style={styles.fieldBlock}>
-              <Text style={styles.fieldLabel}>{field.label}</Text>
+              <Text style={[styles.fieldLabel, themedStyles.supportingText]}>{field.label}</Text>
               <View style={styles.optionWrap}>
                 {(field.options ?? []).map((option) => {
                   const key = `${field.fieldId}:${option}`;
@@ -97,10 +102,10 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
                   return (
                     <Pressable
                       key={option}
-                      style={[styles.optionChip, active && styles.optionChipActive]}
+                      style={[styles.optionChip, themedStyles.controlSurface, active && styles.optionChipActive, active && themedStyles.brandSoftSurface]}
                       onPress={() => toggleOption(field.fieldId, option)}
                     >
-                      <Text style={[styles.optionText, active && styles.optionTextActive]}>
+                      <Text style={[styles.optionText, themedStyles.supportingText, active && styles.optionTextActive, active && themedStyles.actionText]}>
                         {humanize(option)}
                       </Text>
                     </Pressable>
@@ -114,11 +119,14 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
 
       {onRespond ? (
         <View style={styles.actions}>
-          <Pressable style={styles.secondaryButton} onPress={() => submit('acknowledged')}>
-            <Text style={styles.secondaryButtonText}>Got it</Text>
+          <Pressable style={[styles.secondaryButton, themedStyles.brandSoftSurface]} onPress={() => submit('acknowledged')}>
+            <Text style={[styles.secondaryButtonText, themedStyles.actionText]}>Got it</Text>
           </Pressable>
-          <Pressable style={styles.secondaryButton} onPress={() => submit('provider_review_requested')}>
-            <Text style={styles.secondaryButtonText}>Provider review</Text>
+          <Pressable
+            style={[styles.secondaryButton, themedStyles.brandSoftSurface]}
+            onPress={() => submit('provider_review_requested')}
+          >
+            <Text style={[styles.secondaryButtonText, themedStyles.actionText]}>Provider review</Text>
           </Pressable>
         </View>
       ) : null}
@@ -135,10 +143,10 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
           ) : null}
           {onRespond ? (
             <Pressable
-              style={[styles.dismissButton, styles.bottomActionButton]}
+              style={[styles.dismissButton, themedStyles.controlSurface, styles.bottomActionButton]}
               onPress={() => submit('dismissed')}
             >
-              <Text style={styles.dismissButtonText}>Dismiss</Text>
+              <Text style={[styles.dismissButtonText, themedStyles.mutedText]}>Dismiss</Text>
             </Pressable>
           ) : null}
           {onExplain ? (
@@ -153,6 +161,22 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
       ) : null}
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  const actionText = isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+
+  return StyleSheet.create({
+    card: { backgroundColor: theme.appSurface, borderColor: theme.appBorder },
+    primaryText: { color: theme.appText },
+    supportingText: { color: theme.appTextSupporting },
+    mutedText: { color: theme.appTextMuted },
+    actionText: { color: actionText },
+    dividerTop: { borderTopColor: theme.appBorder },
+    controlSurface: { backgroundColor: theme.appControlSurface },
+    brandSoftSurface: { backgroundColor: theme.appBrandSoftSurface },
+  });
 }
 
 const styles = StyleSheet.create({

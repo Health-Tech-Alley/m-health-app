@@ -16,6 +16,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Uc4PriorityCard } from '@/components/care/Uc4PriorityCard';
 import { AppTheme } from '@/constants/theme';
 import type { LatestUc4PriorityCardSummary } from '@/data/types';
+import { useTheme } from '@/hooks/use-theme';
 import { UC4_RULE_REGISTRY } from '@/ml-models/uc4-micro-priorities/uc4RuleRegistry';
 import type { Uc4CardResponseAction } from '@/services/uc4/uc4EvaluationService';
 import type {
@@ -30,7 +31,7 @@ import {
   CARE_TIMELINE_BUCKET_ORDER,
   humanizeMedicationWatchCode,
 } from '@/services/carePlan/carePrioritiesService';
-import { sectionStyles } from './carePlanSectionStyles';
+import { createThemedSectionStyles } from './carePlanSectionStyles';
 
 export interface CarePrioritiesSectionProps {
   view: CarePrioritiesView;
@@ -70,6 +71,9 @@ export function CarePrioritiesSection({
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [openBucket, setOpenBucket] = useState<CareTimelineBucketKey | null>(null);
   const [watchAreasExpanded, setWatchAreasExpanded] = useState(false);
+  const theme = useTheme();
+  const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   const timelineCounts = useMemo(
     () => new Map(view.timeline.map((bucket) => [bucket.key, bucket.items.length])),
@@ -119,14 +123,14 @@ export function CarePrioritiesSection({
       {hasTimeline ? (
         <View style={styles.timelineBlock}>
           <View style={styles.timelineHeader}>
-            <Text style={styles.subTitle}>Care timeline</Text>
+            <Text style={[styles.subTitle, themedStyles.mutedText]}>Care timeline</Text>
             {onExplainTimeline ? (
               <Pressable
                 onPress={onExplainTimeline}
                 accessibilityRole="button"
                 accessibilityLabel="Explain this timeline with Concierge"
               >
-                <Text style={styles.explainLink}>Explain</Text>
+                <Text style={[styles.explainLink, themedStyles.actionText]}>Explain</Text>
               </Pressable>
             ) : null}
           </View>
@@ -137,13 +141,13 @@ export function CarePrioritiesSection({
               return (
                 <Pressable
                   key={key}
-                  style={[styles.bucketChip, active && styles.bucketChipActive]}
+                  style={[styles.bucketChip, themedStyles.controlSurface, active && styles.bucketChipActive, active && themedStyles.brandSoftSurface]}
                   onPress={() => setOpenBucket(active ? null : key)}
                   accessibilityRole="button"
                   accessibilityState={{ expanded: active }}
                   accessibilityLabel={`${CARE_TIMELINE_BUCKET_LABELS[key]}, ${count} items`}
                 >
-                  <Text style={[styles.bucketChipText, active && styles.bucketChipTextActive]}>
+                  <Text style={[styles.bucketChipText, themedStyles.supportingText, active && styles.bucketChipTextActive, active && themedStyles.actionText]}>
                     {CARE_TIMELINE_BUCKET_LABELS[key]} · {count}
                   </Text>
                 </Pressable>
@@ -155,7 +159,7 @@ export function CarePrioritiesSection({
               {openBucketItems.map((item) => (
                 <View key={item.id} style={styles.bucketItemRow}>
                   <Text style={sectionStyles.listBullet}>{'\u2022'}</Text>
-                  <Text style={styles.bucketItemText} numberOfLines={2}>
+                  <Text style={[styles.bucketItemText, themedStyles.primaryText]} numberOfLines={2}>
                     {item.text}
                   </Text>
                 </View>
@@ -163,7 +167,7 @@ export function CarePrioritiesSection({
             </View>
           ) : null}
           {openBucket && openBucketItems.length === 0 ? (
-            <Text style={styles.bucketEmpty}>Nothing here yet.</Text>
+            <Text style={[styles.bucketEmpty, themedStyles.mutedText]}>Nothing here yet.</Text>
           ) : null}
         </View>
       ) : null}
@@ -183,7 +187,7 @@ export function CarePrioritiesSection({
       ))}
 
       {view.watchAreas.length > 0 ? (
-        <View style={styles.watchBlock}>
+        <View style={[styles.watchBlock, themedStyles.dividerTop]}>
           <Pressable
             style={styles.watchHeader}
             onPress={() => setWatchAreasExpanded((current) => !current)}
@@ -191,10 +195,10 @@ export function CarePrioritiesSection({
             accessibilityState={{ expanded: watchAreasExpanded }}
             accessibilityLabel={`Medication areas to watch, ${watchAreaCountLabel}`}
           >
-            <Text style={styles.watchHeaderTitle}>Medication areas to watch</Text>
+            <Text style={[styles.watchHeaderTitle, themedStyles.mutedText]}>Medication areas to watch</Text>
             <View style={styles.watchHeaderMeta}>
-              <Text style={styles.watchCount}>{watchAreaCountLabel}</Text>
-              <Text style={styles.chevron}>{watchAreasExpanded ? 'v' : '>'}</Text>
+              <Text style={[styles.watchCount, themedStyles.mutedText]}>{watchAreaCountLabel}</Text>
+              <Text style={[styles.chevron, themedStyles.mutedText]}>{watchAreasExpanded ? 'v' : '>'}</Text>
             </View>
           </Pressable>
           {watchAreasExpanded ? (
@@ -234,8 +238,12 @@ function PriorityGroupBlock({
   onExplainCard?: (card: LatestUc4PriorityCardSummary) => void;
   onRespond?: CarePrioritiesSectionProps['onRespond'];
 }) {
+  const theme = useTheme();
+  const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
-    <View style={styles.groupBlock}>
+    <View style={[styles.groupBlock, themedStyles.dividerTop]}>
       <Pressable
         style={styles.groupHeader}
         onPress={onToggle}
@@ -244,9 +252,9 @@ function PriorityGroupBlock({
         accessibilityLabel={`${group.label}, ${group.rows.length} priorities`}
       >
         <View style={styles.groupHeaderText}>
-          <Text style={styles.groupTitle}>{group.label}</Text>
+          <Text style={[styles.groupTitle, themedStyles.primaryText]}>{group.label}</Text>
           {relatedNames.length > 0 ? (
-            <Text style={styles.relatedText} numberOfLines={1}>
+            <Text style={[styles.relatedText, themedStyles.mutedText]} numberOfLines={1}>
               Related: {relatedNames.join(', ')}
             </Text>
           ) : null}
@@ -255,7 +263,7 @@ function PriorityGroupBlock({
           <View style={[sectionStyles.pill, sectionStyles.pillMuted]}>
             <Text style={sectionStyles.pillMutedText}>{group.rows.length}</Text>
           </View>
-          <Text style={styles.chevron}>{expanded ? '\u2212' : '+'}</Text>
+          <Text style={[styles.chevron, themedStyles.mutedText]}>{expanded ? '\u2212' : '+'}</Text>
         </View>
       </Pressable>
 
@@ -288,6 +296,9 @@ function PriorityRowBlock({
   onExplainCard?: (card: LatestUc4PriorityCardSummary) => void;
   onRespond?: CarePrioritiesSectionProps['onRespond'];
 }) {
+  const theme = useTheme();
+  const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const whyLines = row.card
     ? row.card.firedRuleCodes
         .map((code) => RULE_DESCRIPTIONS.get(code))
@@ -303,10 +314,10 @@ function PriorityRowBlock({
         accessibilityState={{ expanded }}
         accessibilityLabel={row.title}
       >
-        <Text style={styles.rowTitle} numberOfLines={expanded ? undefined : 2}>
+        <Text style={[styles.rowTitle, themedStyles.primaryText]} numberOfLines={expanded ? undefined : 2}>
           {row.title}
         </Text>
-        <Text style={styles.rowScore}>{Math.round(row.score * 100)}%</Text>
+        <Text style={[styles.rowScore, themedStyles.actionText]}>{Math.round(row.score * 100)}%</Text>
       </Pressable>
 
       {expanded ? (
@@ -320,16 +331,16 @@ function PriorityRowBlock({
           ) : null}
 
           {row.kind === 'plan_priority' ? (
-            <Text style={styles.planPriorityNote}>On your care plan.</Text>
+            <Text style={[styles.planPriorityNote, themedStyles.mutedText]}>On your care plan.</Text>
           ) : null}
 
           {whyLines.length > 0 ? (
-            <View style={styles.whyBlock}>
-              <Text style={styles.whyTitle}>Why you are seeing this</Text>
+            <View style={[styles.whyBlock, themedStyles.dividerTop]}>
+              <Text style={[styles.whyTitle, themedStyles.mutedText]}>Why you are seeing this</Text>
               {whyLines.map((line) => (
                 <View key={line} style={styles.bucketItemRow}>
                   <Text style={sectionStyles.listBullet}>{'\u2022'}</Text>
-                  <Text style={styles.whyText}>{line}</Text>
+                  <Text style={[styles.whyText, themedStyles.supportingText]}>{line}</Text>
                 </View>
               ))}
             </View>
@@ -350,16 +361,20 @@ function MedicationWatchRow({
   onAddToPlan?: (area: MedicationWatchArea) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const visible = expanded ? area.watchAreas : area.watchAreas.slice(0, 3);
   return (
     <View style={styles.watchRow}>
-      <Text style={styles.watchMedName} numberOfLines={1}>
+      <Text style={[styles.watchMedName, themedStyles.primaryText]} numberOfLines={1}>
         {area.medicationName}
       </Text>
       <View style={styles.watchChips}>
         {visible.map((code) => (
-          <View key={code} style={styles.watchChip}>
-            <Text style={styles.watchChipText}>{humanizeMedicationWatchCode(code)}</Text>
+          <View key={code} style={[styles.watchChip, themedStyles.brandSoftSurface]}>
+            <Text style={[styles.watchChipText, themedStyles.actionText]}>
+              {humanizeMedicationWatchCode(code)}
+            </Text>
           </View>
         ))}
         {area.watchAreas.length > 3 ? (
@@ -368,7 +383,7 @@ function MedicationWatchRow({
             accessibilityRole="button"
             accessibilityLabel={expanded ? 'Show fewer watch areas' : 'Show all watch areas'}
           >
-            <Text style={styles.explainLink}>
+            <Text style={[styles.explainLink, themedStyles.actionText]}>
               {expanded ? 'Less' : `+${area.watchAreas.length - 3} more`}
             </Text>
           </Pressable>
@@ -382,7 +397,7 @@ function MedicationWatchRow({
               accessibilityRole="button"
               accessibilityLabel={`Explain watch areas for ${area.medicationName}`}
             >
-              <Text style={styles.explainLink}>Explain</Text>
+              <Text style={[styles.explainLink, themedStyles.actionText]}>Explain</Text>
             </Pressable>
           ) : null}
           {onAddToPlan ? (
@@ -391,13 +406,28 @@ function MedicationWatchRow({
               accessibilityRole="button"
               accessibilityLabel={`Review watch areas for ${area.medicationName} for the care plan`}
             >
-              <Text style={styles.explainLink}>Review for care plan</Text>
+              <Text style={[styles.explainLink, themedStyles.actionText]}>Review for care plan</Text>
             </Pressable>
           ) : null}
         </View>
       ) : null}
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  const actionText = isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+
+  return StyleSheet.create({
+    primaryText: { color: theme.appText },
+    supportingText: { color: theme.appTextSupporting },
+    mutedText: { color: theme.appTextMuted },
+    actionText: { color: actionText },
+    dividerTop: { borderTopColor: theme.appBorder },
+    controlSurface: { backgroundColor: theme.appControlSurface },
+    brandSoftSurface: { backgroundColor: theme.appBrandSoftSurface },
+  });
 }
 
 const styles = StyleSheet.create({

@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import type {
   Caregiver,
   CarePlan,
@@ -28,7 +29,7 @@ import {
 } from '@/services/carePlan/careCategories';
 import { narrativeToBullets } from '@/services/carePlan/considerationBullets';
 import type { PatientNluContext } from '@/nlu/types';
-import { sectionStyles } from './carePlanSectionStyles';
+import { createThemedSectionStyles } from './carePlanSectionStyles';
 
 export interface GoalExplainRequest {
   kind: 'goal' | 'activity';
@@ -121,6 +122,9 @@ export function CarePlanGoalsSection({
   onExplainCategory,
   onExplainConsideration,
 }: CarePlanGoalsSectionProps) {
+  const theme = useTheme();
+  const themedSectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const activities = useMemo(
     () => primaryPlan?.activities ?? [],
     [primaryPlan?.activities],
@@ -214,7 +218,7 @@ export function CarePlanGoalsSection({
   }
 
   return (
-    <View style={sectionStyles.card}>
+    <View style={themedSectionStyles.card}>
       <Pressable
         style={styles.sectionHeader}
         onPress={() => setSectionExpanded((current) => !current)}
@@ -225,16 +229,16 @@ export function CarePlanGoalsSection({
         }`}
       >
         <View style={styles.sectionTitleRow}>
-          <Text style={[sectionStyles.title, styles.sectionTitleText]}>Goals & activities</Text>
+          <Text style={[themedSectionStyles.title, styles.sectionTitleText]}>Goals & activities</Text>
           {total > 0 ? (
-            <View style={sectionStyles.pill}>
-              <Text style={sectionStyles.pillText}>{total}</Text>
+            <View style={themedSectionStyles.pill}>
+              <Text style={themedSectionStyles.pillText}>{total}</Text>
             </View>
           ) : null}
-          <Text style={styles.sectionChevron}>{sectionExpanded ? '\u2304' : '\u203a'}</Text>
+          <Text style={[styles.sectionChevron, themedStyles.chevron]}>{sectionExpanded ? '\u2304' : '\u203a'}</Text>
         </View>
         {subtitleLabels.length > 0 ? (
-          <Text style={styles.sectionSubtitle}>{subtitleLabels.join(' \u00b7 ')}</Text>
+          <Text style={[styles.sectionSubtitle, themedStyles.mutedText]}>{subtitleLabels.join(' \u00b7 ')}</Text>
         ) : null}
       </Pressable>
 
@@ -242,11 +246,11 @@ export function CarePlanGoalsSection({
         <View style={styles.expandedBody}>
           {hasCareAreas ? (
             <View>
-              <Text style={styles.bodySectionTitle}>Care areas</Text>
+              <Text style={[styles.bodySectionTitle, themedStyles.sectionLabel]}>Care areas</Text>
               {orderedGroups.map((group) => {
                 const expanded = Boolean(expandedGroups[group.key]);
                 return (
-                  <View key={group.key} style={styles.groupBlock}>
+                  <View key={group.key} style={[styles.groupBlock, themedStyles.dividerTop]}>
                     <View style={styles.groupHeaderRow}>
                       <Pressable
                         style={styles.groupHeader}
@@ -257,12 +261,12 @@ export function CarePlanGoalsSection({
                         accessibilityState={{ expanded }}
                         accessibilityLabel={`${group.label}, ${group.items.length} items`}
                       >
-                        <Text style={styles.groupTitle}>{group.label}</Text>
+                        <Text style={[styles.groupTitle, themedStyles.primaryText]}>{group.label}</Text>
                         <View style={styles.groupMeta}>
-                          <View style={[sectionStyles.pill, sectionStyles.pillMuted]}>
-                            <Text style={sectionStyles.pillMutedText}>{group.items.length}</Text>
+                          <View style={[themedSectionStyles.pill, themedSectionStyles.pillMuted]}>
+                            <Text style={themedSectionStyles.pillMutedText}>{group.items.length}</Text>
                           </View>
-                          <Text style={styles.chevron}>{expanded ? '\u2212' : '+'}</Text>
+                          <Text style={[styles.chevron, themedStyles.chevron]}>{expanded ? '\u2212' : '+'}</Text>
                         </View>
                       </Pressable>
                       {expanded && onExplainCategory ? (
@@ -276,7 +280,7 @@ export function CarePlanGoalsSection({
                           accessibilityRole="button"
                           accessibilityLabel={`Explain ${group.label} with Concierge`}
                         >
-                          <Text style={styles.explainLink}>Explain</Text>
+                          <Text style={[styles.explainLink, themedStyles.actionText]}>Explain</Text>
                         </Pressable>
                       ) : null}
                     </View>
@@ -287,8 +291,8 @@ export function CarePlanGoalsSection({
                           const itemExpanded = Boolean(expandedItems[item.id]);
                           const summary = summarizeGoalText(item.text);
                           return (
-                            <View key={item.id} style={styles.bulletRow}>
-                              <Text style={styles.bulletMark}>{'\u2022'}</Text>
+                            <View key={item.id} style={[styles.bulletRow, themedStyles.softRow]}>
+                              <Text style={[styles.bulletMark, themedStyles.actionText]}>{'\u2022'}</Text>
                               <View style={styles.bulletBody}>
                                 <Pressable
                                   onPress={() =>
@@ -298,13 +302,9 @@ export function CarePlanGoalsSection({
                                   accessibilityState={{ expanded: itemExpanded }}
                                   accessibilityLabel={summary}
                                 >
-                                  <Text style={styles.bulletText}>
-                                    {itemExpanded ? item.text : summary}
-                                  </Text>
+                                  <Text style={[styles.bulletText, themedStyles.primaryText]}>{itemExpanded ? item.text : summary}</Text>
                                   <View style={styles.itemMetaRow}>
-                                    <Text style={styles.kindTag}>
-                                      {item.kind === 'goal' ? 'Goal' : 'Activity'}
-                                    </Text>
+                                    <Text style={[styles.kindTag, themedStyles.mutedText]}>{item.kind === 'goal' ? 'Goal' : 'Activity'}</Text>
                                     {item.status ? (
                                       <Pressable
                                         onPress={() =>
@@ -315,20 +315,16 @@ export function CarePlanGoalsSection({
                                         accessibilityRole="button"
                                         accessibilityLabel={`Status ${item.status}`}
                                       >
-                                        <Text style={styles.statusChip}>{item.status}</Text>
+                                        <Text style={[styles.statusChip, themedStyles.statusChip]}>{item.status}</Text>
                                       </Pressable>
                                     ) : null}
                                     {item.targetDate ? (
-                                      <Text style={styles.itemMeta}>
-                                        Target {item.targetDate}
-                                      </Text>
+                                      <Text style={[styles.itemMeta, themedStyles.mutedText]}>Target {item.targetDate}</Text>
                                     ) : null}
                                   </View>
                                 </Pressable>
                                 {statusInfoFor === item.id ? (
-                                  <Text style={styles.statusExplainer}>
-                                    {statusExplanation(item.status)}
-                                  </Text>
+                                  <Text style={[styles.statusExplainer, themedStyles.supportingText]}>{statusExplanation(item.status)}</Text>
                                 ) : null}
                                 {itemExpanded && onExplainItem ? (
                                   <Pressable
@@ -343,9 +339,7 @@ export function CarePlanGoalsSection({
                                     accessibilityRole="button"
                                     accessibilityLabel="Explain this item with Concierge"
                                   >
-                                    <Text style={styles.explainLink}>
-                                      Explain with Concierge
-                                    </Text>
+                                    <Text style={[styles.explainLink, themedStyles.actionText]}>Explain with Concierge</Text>
                                   </Pressable>
                                 ) : null}
                               </View>
@@ -356,14 +350,16 @@ export function CarePlanGoalsSection({
                     ) : (
                       <View style={styles.previewList}>
                         {group.items.slice(0, 3).map((item) => (
-                          <Text key={item.id} style={styles.previewLine} numberOfLines={1}>
+                          <Text
+                            key={item.id}
+                            style={[styles.previewLine, themedStyles.supportingText]}
+                            numberOfLines={1}
+                          >
                             {'\u2022'} {summarizeGoalText(item.text, 72)}
                           </Text>
                         ))}
                         {group.items.length > 3 ? (
-                          <Text style={styles.previewMore}>
-                            +{group.items.length - 3} more
-                          </Text>
+                          <Text style={[styles.previewMore, themedStyles.mutedText]}>+{group.items.length - 3} more</Text>
                         ) : null}
                       </View>
                     )}
@@ -374,9 +370,13 @@ export function CarePlanGoalsSection({
           ) : null}
 
           {hasCareConsiderations ? (
-            <View style={styles.summarySection} accessible accessibilityLabel="Care considerations">
+            <View
+              style={[styles.summarySection, themedStyles.dividerTop]}
+              accessible
+              accessibilityLabel="Care considerations"
+            >
               <View style={styles.summarySectionHeaderStatic}>
-                <Text style={styles.summarySectionTitle}>Care considerations</Text>
+                <Text style={[styles.summarySectionTitle, themedStyles.sectionLabel]}>Care considerations</Text>
               </View>
               <View style={styles.summarySectionBody}>
                 {considerations.map((consideration) => {
@@ -386,7 +386,10 @@ export function CarePlanGoalsSection({
                       ? consideration.bullets
                       : [consideration.text];
                   return (
-                    <View key={consideration.id} style={styles.considerationBlock}>
+                    <View
+                      key={consideration.id}
+                      style={[styles.considerationBlock, themedStyles.dividerTop]}
+                    >
                       <Pressable
                         style={styles.considerationHeader}
                         onPress={() =>
@@ -398,14 +401,12 @@ export function CarePlanGoalsSection({
                         accessibilityState={{ expanded }}
                         accessibilityLabel={`${consideration.label}, ${bullets.length} points`}
                       >
-                        <Text style={styles.considerationLabel}>{consideration.label}</Text>
+                        <Text style={[styles.considerationLabel, themedStyles.sectionLabel]}>{consideration.label}</Text>
                         <View style={styles.groupMeta}>
-                          <View style={[sectionStyles.pill, sectionStyles.pillMuted]}>
-                            <Text style={sectionStyles.pillMutedText}>
-                              {bullets.length}
-                            </Text>
+                          <View style={[themedSectionStyles.pill, themedSectionStyles.pillMuted]}>
+                            <Text style={themedSectionStyles.pillMutedText}>{bullets.length}</Text>
                           </View>
-                          <Text style={styles.chevron}>{expanded ? '\u2212' : '+'}</Text>
+                          <Text style={[styles.chevron, themedStyles.chevron]}>{expanded ? '\u2212' : '+'}</Text>
                         </View>
                       </Pressable>
                       {expanded ? (
@@ -414,25 +415,21 @@ export function CarePlanGoalsSection({
                             {bullets.map((bullet, idx) => (
                               <View
                                 key={`${consideration.id}-b-${idx}`}
-                                style={styles.bulletRow}
+                                style={[styles.bulletRow, themedStyles.softRow]}
                               >
-                                <Text style={styles.bulletMark}>{'\u2022'}</Text>
-                                <Text style={styles.bulletText}>{bullet}</Text>
+                                <Text style={[styles.bulletMark, themedStyles.actionText]}>{'\u2022'}</Text>
+                                <Text style={[styles.bulletText, themedStyles.primaryText]}>{bullet}</Text>
                               </View>
                             ))}
                           </View>
-                          <Text style={styles.considerationFullText}>
-                            {consideration.text}
-                          </Text>
+                          <Text style={[styles.considerationFullText, themedStyles.supportingText]}>{consideration.text}</Text>
                           {onExplainConsideration ? (
                             <Pressable
                               onPress={() => onExplainConsideration(consideration.text)}
                               accessibilityRole="button"
                               accessibilityLabel={`Discuss ${consideration.label} with Concierge`}
                             >
-                              <Text style={styles.explainLink}>
-                                Discuss with Concierge
-                              </Text>
+                              <Text style={[styles.explainLink, themedStyles.actionText]}>Discuss with Concierge</Text>
                             </Pressable>
                           ) : null}
                         </>
@@ -445,7 +442,7 @@ export function CarePlanGoalsSection({
           ) : null}
 
           {hasCareTeam ? (
-            <View style={styles.summarySection}>
+            <View style={[styles.summarySection, themedStyles.dividerTop]}>
               <Pressable
                 style={styles.summarySectionHeader}
                 onPress={() => setExpandedSummarySections((current) => toggle(current, 'care-team'))}
@@ -455,22 +452,20 @@ export function CarePlanGoalsSection({
                   careTeam.length === 1 ? 'member' : 'members'
                 }`}
               >
-                <Text style={styles.summarySectionTitle}>Care team</Text>
+                <Text style={[styles.summarySectionTitle, themedStyles.sectionLabel]}>Care team</Text>
                 <View style={styles.groupMeta}>
-                  <View style={[sectionStyles.pill, sectionStyles.pillMuted]}>
-                    <Text style={sectionStyles.pillMutedText}>{careTeam.length}</Text>
+                  <View style={[themedSectionStyles.pill, themedSectionStyles.pillMuted]}>
+                    <Text style={themedSectionStyles.pillMutedText}>{careTeam.length}</Text>
                   </View>
-                  <Text style={styles.sectionChevron}>
-                    {expandedSummarySections['care-team'] ? '\u2304' : '\u203a'}
-                  </Text>
+                  <Text style={[styles.sectionChevron, themedStyles.chevron]}>{expandedSummarySections['care-team'] ? '\u2304' : '\u203a'}</Text>
                 </View>
               </Pressable>
               {expandedSummarySections['care-team'] ? (
                 <View style={styles.summarySectionBody}>
                   {careTeam.map((member) => (
                     <View key={member} style={styles.careTeamRow}>
-                      <Text style={sectionStyles.listBullet}>{'\u2022'}</Text>
-                      <Text style={sectionStyles.listText}>{member}</Text>
+                      <Text style={themedSectionStyles.listBullet}>{'\u2022'}</Text>
+                      <Text style={themedSectionStyles.listText}>{member}</Text>
                     </View>
                   ))}
                 </View>
@@ -630,6 +625,42 @@ function parseCareTeam(json: string | null | undefined): string[] {
   } catch {
     return [];
   }
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  const actionText = isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+
+  return StyleSheet.create({
+    primaryText: {
+      color: theme.appText,
+    },
+    supportingText: {
+      color: theme.appTextSupporting,
+    },
+    mutedText: {
+      color: theme.appTextMuted,
+    },
+    sectionLabel: {
+      color: theme.appTextMuted,
+    },
+    chevron: {
+      color: theme.appTextMuted,
+    },
+    actionText: {
+      color: actionText,
+    },
+    dividerTop: {
+      borderTopColor: theme.appBorder,
+    },
+    softRow: {
+      backgroundColor: theme.appControlSurface,
+    },
+    statusChip: {
+      color: actionText,
+      backgroundColor: theme.appBrandSoftSurface,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

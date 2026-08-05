@@ -6,7 +6,9 @@
  */
 
 import { StyleSheet } from 'react-native';
-import { AppTheme } from '@/constants/theme';
+import { AppTheme, Colors } from '@/constants/theme';
+
+type CareSectionTheme = (typeof Colors)[keyof typeof Colors];
 
 export const sectionStyles = StyleSheet.create({
   card: {
@@ -123,3 +125,28 @@ export const sectionStyles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+export function createThemedSectionStyles(theme: CareSectionTheme) {
+  const isDark = theme.appBackground === '#000000';
+  const brandText = isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+
+  return StyleSheet.create({
+    card: {
+      ...StyleSheet.flatten(sectionStyles.card),
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+      ...(isDark ? { elevation: 0, shadowOpacity: 0 } : null),
+    },
+    headerRow: sectionStyles.headerRow,
+    title: { ...StyleSheet.flatten(sectionStyles.title), color: theme.appText },
+    subtitle: { ...StyleSheet.flatten(sectionStyles.subtitle), color: theme.appTextMuted },
+    pill: { ...StyleSheet.flatten(sectionStyles.pill), backgroundColor: theme.appBrandSoftSurface },
+    pillText: { ...StyleSheet.flatten(sectionStyles.pillText), color: brandText },
+    pillMuted: { ...StyleSheet.flatten(sectionStyles.pillMuted), backgroundColor: theme.appControlSurface },
+    pillMutedText: { ...StyleSheet.flatten(sectionStyles.pillMutedText), color: theme.appTextSupporting },
+    bodyMuted: { ...StyleSheet.flatten(sectionStyles.bodyMuted), color: theme.appTextSupporting },
+    listRow: { ...StyleSheet.flatten(sectionStyles.listRow), borderTopColor: theme.appBorder },
+    listBullet: { ...StyleSheet.flatten(sectionStyles.listBullet), color: brandText },
+    listText: { ...StyleSheet.flatten(sectionStyles.listText), color: theme.appText },
+  });
+}

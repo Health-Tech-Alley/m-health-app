@@ -10,7 +10,7 @@
  * catalog chips open the same in-card thread.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -32,6 +32,7 @@ import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
+import { useTheme } from '@/hooks/use-theme';
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
 import type { NextStepActionId, PatientRecordSnapshot } from '@/data/types';
 import { executeNextStep } from '@/orchestration/next-steps';
@@ -123,6 +124,8 @@ export function CarePlanAskChat({
   const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
     MODEL_CATALOG.some((m) => m.id === id && isModelInstalled(m)),
   );
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   const [composerText, setComposerText] = useState('');
   const [routingBusy, setRoutingBusy] = useState(false);
@@ -782,9 +785,9 @@ export function CarePlanAskChat({
   if (!optionalGate.ready) {
     return (
       <View style={styles.wrap} accessible accessibilityLabel="Ask about the care plan">
-        <View style={styles.card}>
-          <Text style={styles.title}>Ask about the plan</Text>
-          <Text style={styles.subtitle}>
+        <View style={[styles.card, themedStyles.card]}>
+          <Text style={[styles.title, themedStyles.primaryText]}>Ask about the plan</Text>
+          <Text style={[styles.subtitle, themedStyles.supportingText]}>
             The Concierge powers care-plan questions. It is not downloaded yet.
           </Text>
           <OptionalFeaturePrompt
@@ -799,9 +802,9 @@ export function CarePlanAskChat({
   return (
     <View style={styles.wrap} accessible accessibilityLabel="Ask about the care plan">
       {!chatOpen ? (
-        <View style={styles.card}>
-          <Text style={styles.title}>Ask about the plan</Text>
-          <Text style={styles.subtitle}>
+        <View style={[styles.card, themedStyles.card]}>
+          <Text style={[styles.title, themedStyles.primaryText]}>Ask about the plan</Text>
+          <Text style={[styles.subtitle, themedStyles.supportingText]}>
             Type a short request. Concierge opens in this card — you still confirm any plan change.
           </Text>
           <View style={styles.row}>
@@ -809,9 +812,9 @@ export function CarePlanAskChat({
               value={composerText}
               onChangeText={setComposerText}
               placeholder={placeholder}
-              placeholderTextColor={AppTheme.colors.textSoft}
+              placeholderTextColor={theme.appTextSupporting}
               editable={!disabled && !routingBusy && writable !== false}
-              style={styles.input}
+              style={[styles.input, themedStyles.input]}
               returnKeyType="send"
               onSubmitEditing={() => void submitComposer()}
               maxLength={500}
@@ -837,9 +840,9 @@ export function CarePlanAskChat({
           {routeError ? <Text style={styles.error}>{routeError}</Text> : null}
 
           {refuseMessage ? (
-            <View style={styles.refuse}>
-              <Text style={styles.refuseTitle}>Couldn&apos;t apply that</Text>
-              <Text style={styles.refuseBody}>{refuseMessage}</Text>
+            <View style={[styles.refuse, themedStyles.controlCard]}>
+              <Text style={[styles.refuseTitle, themedStyles.primaryText]}>Couldn&apos;t apply that</Text>
+              <Text style={[styles.refuseBody, themedStyles.supportingText]}>{refuseMessage}</Text>
             </View>
           ) : null}
 
@@ -910,18 +913,18 @@ export function CarePlanAskChat({
 
           {resolution?.kind === 'single_chip' || resolution?.kind === 'multi_chip' ? (
             <View style={styles.chips}>
-              <Text style={styles.chipHint}>
+              <Text style={[styles.chipHint, themedStyles.supportingText]}>
                 {resolution.kind === 'single_chip' ? 'Did you mean:' : 'Try one of these:'}
               </Text>
               {resolution.chips.map((c) => (
                 <Pressable
                   key={c.chipId}
-                  style={styles.chip}
+                  style={[styles.chip, themedStyles.brandSoftChip]}
                   onPress={() => launchIntent(c.intent, c.args)}
                   accessibilityRole="button"
                   accessibilityLabel={c.label}
                 >
-                  <Text style={styles.chipText}>{c.label}</Text>
+                  <Text style={[styles.chipText, themedStyles.actionText]}>{c.label}</Text>
                 </Pressable>
               ))}
               <Pressable
@@ -936,35 +939,35 @@ export function CarePlanAskChat({
                 accessibilityRole="button"
                 accessibilityLabel="Open free chat with this question"
               >
-                <Text style={styles.chipSecondaryText}>Chat about this instead</Text>
+                <Text style={[styles.chipSecondaryText, themedStyles.supportingText]}>Chat about this instead</Text>
               </Pressable>
             </View>
           ) : null}
         </View>
       ) : (
-        <View style={styles.chatCard} accessibilityLabel={chatTitle}>
+        <View style={[styles.chatCard, themedStyles.chatCard]} accessibilityLabel={chatTitle}>
           <View style={styles.header}>
-            <Text style={styles.chatTitle} numberOfLines={2}>
+            <Text style={[styles.chatTitle, themedStyles.primaryText]} numberOfLines={2}>
               {chatTitle}
             </Text>
             <Pressable
-              style={styles.closeButton}
+              style={[styles.closeButton, themedStyles.controlSurface]}
               onPress={requestCloseChat}
               hitSlop={12}
               accessibilityRole="button"
               accessibilityLabel="Close plan chat"
             >
-              <Text style={styles.closeText}>×</Text>
+              <Text style={[styles.closeText, themedStyles.supportingText]}>×</Text>
             </Pressable>
           </View>
 
-          <View style={styles.statusRow}>
+          <View style={[styles.statusRow, themedStyles.brandSoftSurface]}>
             {busy ? (
               <ActivityIndicator color={AppTheme.colors.brand} size="small" />
             ) : (
-              <View style={styles.statusDot} />
+              <View style={[styles.statusDot, themedStyles.actionBackground]} />
             )}
-            <Text style={styles.statusText} numberOfLines={2}>
+            <Text style={[styles.statusText, themedStyles.actionText]} numberOfLines={2}>
               {statusLine}
             </Text>
           </View>
@@ -981,9 +984,10 @@ export function CarePlanAskChat({
                 style={[
                   styles.bubble,
                   msg.role === 'user' ? styles.userBubble : styles.assistantBubble,
+                  msg.role === 'user' ? themedStyles.controlSurface : themedStyles.brandSoftSurface,
                 ]}
               >
-                <Text style={styles.bubbleLabel}>
+                <Text style={[styles.bubbleLabel, themedStyles.mutedText]}>
                   {msg.role === 'user' ? 'You' : 'Concierge'}
                 </Text>
                 {msg.role === 'assistant' && msg.status === 'done' ? (
@@ -1003,7 +1007,9 @@ export function CarePlanAskChat({
                   <Text
                     style={[
                       styles.bubbleText,
+                      themedStyles.primaryText,
                       msg.status === 'streaming' && styles.streamingText,
+                      msg.status === 'streaming' && themedStyles.supportingText,
                       msg.status === 'error' && styles.errorTextBubble,
                     ]}
                   >
@@ -1014,13 +1020,13 @@ export function CarePlanAskChat({
             ))}
 
             {proposalNote && !proposalConfirmVisible ? (
-              <Text style={styles.proposalNote}>{proposalNote}</Text>
+              <Text style={[styles.proposalNote, themedStyles.supportingText]}>{proposalNote}</Text>
             ) : null}
 
             {showHitl && !hitlResolved ? (
-              <View style={styles.hitlCard}>
-                <Text style={styles.hitlTitle}>Your review</Text>
-                <Text style={styles.hitlBody}>
+              <View style={[styles.hitlCard, themedStyles.card]}>
+                <Text style={[styles.hitlTitle, themedStyles.primaryText]}>Your review</Text>
+                <Text style={[styles.hitlBody, themedStyles.supportingText]}>
                   Select anything you observed so Concierge can refine this guidance. This is
                   optional.
                 </Text>
@@ -1038,11 +1044,11 @@ export function CarePlanAskChat({
                     <Text style={styles.hitlPrimaryText}>Apply review & continue</Text>
                   </Pressable>
                   <Pressable
-                    style={[styles.hitlButton, styles.hitlSecondary]}
+                    style={[styles.hitlButton, styles.hitlSecondary, themedStyles.controlSurface]}
                     onPress={handleSkipHitl}
                     disabled={busy}
                   >
-                    <Text style={styles.hitlSecondaryText}>Skip review</Text>
+                    <Text style={[styles.hitlSecondaryText, themedStyles.supportingText]}>Skip review</Text>
                   </Pressable>
                 </View>
               </View>
@@ -1053,7 +1059,7 @@ export function CarePlanAskChat({
                 style={styles.reopenProposal}
                 onPress={() => setProposalConfirmVisible(true)}
               >
-                <Text style={styles.reopenProposalText}>Review plan proposal…</Text>
+                <Text style={[styles.reopenProposalText, themedStyles.actionText]}>Review plan proposal…</Text>
               </Pressable>
             ) : null}
           </ScrollView>
@@ -1063,10 +1069,10 @@ export function CarePlanAskChat({
               value={followUp}
               onChangeText={setFollowUp}
               placeholder="Ask a follow-up…"
-              placeholderTextColor={AppTheme.colors.textMuted}
+              placeholderTextColor={theme.appTextMuted}
               editable={!busy}
               multiline
-              style={styles.followInput}
+              style={[styles.followInput, themedStyles.input]}
             />
             <Pressable
               style={[styles.sendButton, (!followUp.trim() || busy) && styles.sendDisabled]}
@@ -1079,7 +1085,7 @@ export function CarePlanAskChat({
             </Pressable>
           </View>
 
-          <Text style={styles.footnote}>
+          <Text style={[styles.footnote, themedStyles.mutedText]}>
             Concierge guidance — not a diagnosis. Confirm any plan change below.
           </Text>
         </View>
@@ -1099,19 +1105,19 @@ export function CarePlanAskChat({
             if (!proposalBusy) setProposalConfirmVisible(false);
           }}
         >
-          <Pressable style={styles.confirmSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.confirmTitle}>Confirm plan proposal</Text>
-            <Text style={styles.confirmMessage}>
+          <Pressable style={[styles.confirmSheet, themedStyles.card]} onPress={(e) => e.stopPropagation()}>
+            <Text style={[styles.confirmTitle, themedStyles.primaryText]}>Confirm plan proposal</Text>
+            <Text style={[styles.confirmMessage, themedStyles.supportingText]}>
               Concierge drafted a care plan update. Confirm to send it for review, or cancel to
               dismiss it. Nothing is applied until you confirm.
             </Text>
             <View style={styles.confirmActions}>
               <Pressable
-                style={[styles.confirmButton, styles.confirmCancelButton]}
+                style={[styles.confirmButton, styles.confirmCancelButton, themedStyles.controlSurface]}
                 onPress={handleRejectProposals}
                 disabled={proposalBusy}
               >
-                <Text style={styles.confirmCancelText}>Dismiss</Text>
+                <Text style={[styles.confirmCancelText, themedStyles.supportingText]}>Dismiss</Text>
               </Pressable>
               <Pressable
                 style={[styles.confirmButton, styles.confirmPrimaryButton]}
@@ -1130,6 +1136,38 @@ export function CarePlanAskChat({
       </Modal>
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  const actionText = isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+
+  return StyleSheet.create({
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+      ...(isDark ? { elevation: 0, shadowOpacity: 0 } : null),
+    },
+    chatCard: {
+      backgroundColor: theme.appSurface,
+      borderColor: actionText,
+      ...(isDark ? { elevation: 0, shadowOpacity: 0 } : null),
+    },
+    controlCard: { backgroundColor: theme.appControlSurface, borderColor: theme.appBorder },
+    controlSurface: { backgroundColor: theme.appControlSurface },
+    brandSoftSurface: { backgroundColor: theme.appBrandSoftSurface },
+    brandSoftChip: { backgroundColor: theme.appBrandSoftSurface, borderColor: actionText },
+    primaryText: { color: theme.appText },
+    supportingText: { color: theme.appTextSupporting },
+    mutedText: { color: theme.appTextMuted },
+    actionText: { color: actionText },
+    actionBackground: { backgroundColor: actionText },
+    input: {
+      backgroundColor: theme.appInputBackground,
+      borderColor: theme.appBorder,
+      color: theme.appText,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

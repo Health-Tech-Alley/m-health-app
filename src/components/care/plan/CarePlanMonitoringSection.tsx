@@ -7,7 +7,8 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
-import { sectionStyles } from './carePlanSectionStyles';
+import { useTheme } from '@/hooks/use-theme';
+import { createThemedSectionStyles } from './carePlanSectionStyles';
 import type { Threshold } from '@/data/types';
 
 export interface CarePlanMonitoringBaselines {
@@ -132,6 +133,9 @@ export function CarePlanMonitoringSection({
   thresholds,
   baselines,
 }: CarePlanMonitoringSectionProps) {
+  const theme = useTheme();
+  const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [howMonitorExpanded, setHowMonitorExpanded] = useState(false);
   const baseline = useMemo(() => baselineRows(baselines), [baselines]);
@@ -163,12 +167,12 @@ export function CarePlanMonitoringSection({
       </View>
 
       {baseline.length > 0 ? (
-        <View style={styles.baselineCard}>
-          <Text style={styles.baselineTitle}>From onboarding / care plan</Text>
+        <View style={[styles.baselineCard, themedStyles.baselineCard]}>
+          <Text style={[styles.baselineTitle, themedStyles.mutedText]}>From onboarding / care plan</Text>
           {baseline.map((row) => (
             <View key={row.label} style={styles.baselineRow}>
-              <Text style={styles.baselineLabel}>{row.label}</Text>
-              <Text style={styles.baselineValue}>{row.value}</Text>
+              <Text style={[styles.baselineLabel, themedStyles.supportingText]}>{row.label}</Text>
+              <Text style={[styles.baselineValue, themedStyles.primaryText]}>{row.value}</Text>
             </View>
           ))}
         </View>
@@ -181,19 +185,23 @@ export function CarePlanMonitoringSection({
               key={group.severity}
               style={[
                 styles.groupCard,
+                themedStyles.groupCard,
                 group.meta.tone === 'emergency' && styles.groupEmergency,
+                group.meta.tone === 'emergency' && themedStyles.groupEmergency,
                 group.meta.tone === 'watch' && styles.groupWatch,
+                group.meta.tone === 'watch' && themedStyles.groupWatch,
                 group.meta.tone === 'info' && styles.groupInfo,
+                group.meta.tone === 'info' && themedStyles.groupInfo,
               ]}
             >
-              <Text style={styles.groupTitle}>{group.meta.title}</Text>
-              <Text style={styles.groupSubtitle}>{group.meta.subtitle}</Text>
+              <Text style={[styles.groupTitle, themedStyles.primaryText]}>{group.meta.title}</Text>
+              <Text style={[styles.groupSubtitle, themedStyles.supportingText]}>{group.meta.subtitle}</Text>
               {group.items.map((t) => {
                 const open = expandedId === t.thresholdId;
                 return (
                   <Pressable
                     key={t.thresholdId}
-                    style={styles.ruleRow}
+                    style={[styles.ruleRow, themedStyles.ruleRow]}
                     onPress={() =>
                       setExpandedId((current) =>
                         current === t.thresholdId ? null : t.thresholdId,
@@ -204,21 +212,21 @@ export function CarePlanMonitoringSection({
                     accessibilityLabel={headline(t)}
                   >
                     <View style={styles.ruleHeader}>
-                      <Text style={styles.ruleHeadline}>{headline(t)}</Text>
-                      <Text style={styles.ruleChevron}>{open ? '▾' : '▸'}</Text>
+                      <Text style={[styles.ruleHeadline, themedStyles.primaryText]}>
+                        {headline(t)}
+                      </Text>
+                      <Text style={[styles.ruleChevron, themedStyles.mutedText]}>
+                        {open ? '▾' : '▸'}
+                      </Text>
                     </View>
                     {open ? (
                       <View style={styles.ruleBody}>
-                        <Text style={styles.ruleMeaning}>{plainMeaning(t)}</Text>
-                        <Text style={styles.ruleSource}>{sourceLabel(t.source)}</Text>
-                        <Text style={styles.ruleSeverity}>
-                          Urgency level {severityBucket(t.severity)} of 3
-                        </Text>
+                        <Text style={[styles.ruleMeaning, themedStyles.supportingText]}>{plainMeaning(t)}</Text>
+                        <Text style={[styles.ruleSource, themedStyles.actionText]}>{sourceLabel(t.source)}</Text>
+                        <Text style={[styles.ruleSeverity, themedStyles.mutedText]}>Urgency level {severityBucket(t.severity)} of 3</Text>
                       </View>
                     ) : (
-                      <Text style={styles.ruleHint} numberOfLines={1}>
-                        {plainMeaning(t)}
-                      </Text>
+                      <Text style={[styles.ruleHint, themedStyles.mutedText]} numberOfLines={1}>{plainMeaning(t)}</Text>
                     )}
                   </Pressable>
                 );
@@ -227,7 +235,7 @@ export function CarePlanMonitoringSection({
           ))}
         </View>
       ) : (
-        <View style={styles.howMonitorCard}>
+        <View style={[styles.howMonitorCard, themedStyles.howMonitorCard]}>
           <Pressable
             style={styles.howMonitorHeader}
             onPress={() => setHowMonitorExpanded((v) => !v)}
@@ -235,44 +243,91 @@ export function CarePlanMonitoringSection({
             accessibilityState={{ expanded: howMonitorExpanded }}
             accessibilityLabel={`How Health Monitor works${howMonitorExpanded ? ' — collapse' : ' — expand'}`}
           >
-            <Text style={styles.howMonitorTitle}>How Health Monitor works</Text>
-            <Text style={styles.ruleChevron}>{howMonitorExpanded ? '▾' : '▸'}</Text>
+            <Text style={[styles.howMonitorTitle, themedStyles.primaryText]}>How Health Monitor works</Text>
+            <Text style={[styles.ruleChevron, themedStyles.mutedText]}>
+              {howMonitorExpanded ? '▾' : '▸'}
+            </Text>
           </Pressable>
           {howMonitorExpanded ? (
             <View style={styles.howMonitorBody}>
-              <Text style={styles.howMonitorText}>
+              <Text style={[styles.howMonitorText, themedStyles.supportingText]}>
                 1. Ask a vitals or what-if question in Concierge (e.g. “What if SpO₂ is
                 86% and heart rate is 118?”).
               </Text>
-              <Text style={styles.howMonitorText}>
+              <Text style={[styles.howMonitorText, themedStyles.supportingText]}>
                 2. When vitals are detected, you’ll see “activating Health Monitor”
                 and it runs right away.
               </Text>
-              <Text style={styles.howMonitorText}>
+              <Text style={[styles.howMonitorText, themedStyles.supportingText]}>
                 3. Severity 1–2 may ask for observations. In developer mode, it may
                 also offer a local demo follow-up appointment.
               </Text>
-              <Text style={styles.howMonitorText}>
+              <Text style={[styles.howMonitorText, themedStyles.supportingText]}>
                 4. After you finish, Concierge explains with that context. Severity 3
                 skips review/scheduling and may show a critical banner — never
                 auto-calls 911.
               </Text>
-              <Text style={styles.howMonitorFootnote}>
+              <Text style={[styles.howMonitorFootnote, themedStyles.actionText]}>
                 SpO₂ is percent (86, not 0.86). Pure med/schedule questions skip Health
                 Monitor. Personalized cutoffs from the care plan appear above when
                 available.
               </Text>
             </View>
           ) : (
-            <Text style={styles.howMonitorHint}>
-              Tap to learn how Health Monitor uses vitals and what-if questions.
-            </Text>
+            <Text style={[styles.howMonitorHint, themedStyles.mutedText]}>Tap to learn how Health Monitor uses vitals and what-if questions.</Text>
           )}
         </View>
       )}
 
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  const actionText = isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+
+  return StyleSheet.create({
+    baselineCard: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    groupCard: {
+      borderColor: theme.appBorder,
+    },
+    groupEmergency: {
+      borderColor: isDark ? AppTheme.colors.dangerSoft : AppTheme.colors.danger,
+      backgroundColor: isDark ? 'rgba(245, 42, 55, 0.14)' : AppTheme.colors.dangerLight,
+    },
+    groupWatch: {
+      borderColor: AppTheme.colors.attentionAmber,
+      backgroundColor: isDark ? 'rgba(245, 158, 11, 0.14)' : '#FFF8EB',
+    },
+    groupInfo: {
+      borderColor: theme.appBorder,
+      backgroundColor: theme.appControlSurface,
+    },
+    ruleRow: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+    },
+    howMonitorCard: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    primaryText: {
+      color: theme.appText,
+    },
+    supportingText: {
+      color: theme.appTextSupporting,
+    },
+    mutedText: {
+      color: theme.appTextMuted,
+    },
+    actionText: {
+      color: actionText,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

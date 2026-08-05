@@ -13,10 +13,11 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { CareConciergeIntentsCard } from '@/components/careConcierge/CareConciergeIntentsCard';
 import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { isMutatingIntent } from '@/services/carePlan/carePlanMode';
 import { intentCatalogList } from '@/services/carePlan/intentRouter';
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
-import { sectionStyles } from './carePlanSectionStyles';
+import { createThemedSectionStyles } from './carePlanSectionStyles';
 
 export interface CareAskRegionProps {
   patientId: string | null;
@@ -36,6 +37,9 @@ export function CareAskRegion({
   onLaunchIntent,
   children,
 }: CareAskRegionProps) {
+  const theme = useTheme();
+  const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const allIntents = useMemo(() => intentCatalogList(), []);
 
   // Read-only mode hides mutating intents so the catalog matches what can run.
@@ -47,9 +51,15 @@ export function CareAskRegion({
   return (
     <View style={styles.region} accessible accessibilityLabel="Care Concierge">
       {!writable ? (
-        <View style={styles.banner} accessible accessibilityLabel="Read-only mode banner">
-          <Text style={styles.bannerTitle}>Care plan is in view-only mode</Text>
-          <Text style={styles.bannerBody}>
+        <View
+          style={[styles.banner, themedStyles.banner]}
+          accessible
+          accessibilityLabel="Read-only mode banner"
+        >
+          <Text style={[styles.bannerTitle, themedStyles.primaryText]}>
+            Care plan is in view-only mode
+          </Text>
+          <Text style={[styles.bannerBody, themedStyles.supportingText]}>
             Concierge can still explain using your plan. Turn on Living care plan updates in More to make changes.
           </Text>
         </View>
@@ -73,6 +83,19 @@ export function CareAskRegion({
       )}
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+
+  return StyleSheet.create({
+    banner: {
+      backgroundColor: isDark ? 'rgba(249,115,22,0.16)' : AppTheme.colors.warningSoft,
+      borderColor: AppTheme.colors.warning,
+    },
+    primaryText: { color: theme.appText },
+    supportingText: { color: theme.appTextSupporting },
+  });
 }
 
 const styles = StyleSheet.create({

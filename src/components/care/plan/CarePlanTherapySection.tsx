@@ -21,6 +21,7 @@ import {
   getCurrentPatientSnapshot,
   usePatientRecord,
 } from '@/contexts/patient-record-context';
+import { useTheme } from '@/hooks/use-theme';
 import {
   DAILY_CARE_SKIPPED_REASON_OPTIONS,
   DAILY_CARE_URGENT_SYMPTOM_OPTIONS,
@@ -44,7 +45,7 @@ import { evaluateAndPersistUc4Priorities } from '@/services/uc4/uc4EvaluationSer
 import {
   type Uc3ResultDisplay,
 } from '@/services/uc3/uc3ResultPresenter';
-import { sectionStyles } from './carePlanSectionStyles';
+import { createThemedSectionStyles } from './carePlanSectionStyles';
 
 type DailyCareEditField =
   | 'setsCompleted'
@@ -173,6 +174,9 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
   } = props;
 
   const { mutatePatientRecord, snapshot } = usePatientRecord();
+  const theme = useTheme();
+  const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   const [uc3CompletionRunning, setUc3CompletionRunning] = useState(false);
   const [uc3CompletionStatus, setUc3CompletionStatus] = useState<string | null>(null);
@@ -526,22 +530,22 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
         <Text style={sectionStyles.title}>Therapy</Text>
         <View style={styles.compactStatsRow}>
           <View
-            style={styles.dailyFactBox}
+            style={[styles.dailyFactBox, themedStyles.controlCard]}
             accessible
             accessibilityLabel={`Daily logs ${dailyLogCompletedCount} of ${REQUIRED_DAILY_LOG_FIELDS.length} completed`}
           >
-            <Text style={styles.dailyFactLabel}>Daily logs</Text>
-            <Text style={styles.dailyFactValue}>
+            <Text style={[styles.dailyFactLabel, themedStyles.mutedText]}>Daily logs</Text>
+            <Text style={[styles.dailyFactValue, themedStyles.primaryText]}>
               {dailyLogCompletedCount} / {REQUIRED_DAILY_LOG_FIELDS.length}
             </Text>
           </View>
           <View
-            style={styles.dailyFactBox}
+            style={[styles.dailyFactBox, themedStyles.controlCard]}
             accessible
             accessibilityLabel={assignedExerciseAccessibilityLabel}
           >
-            <Text style={styles.dailyFactLabel}>Assigned exercises</Text>
-            <Text style={styles.dailyFactValue}>{assignedExerciseValueLabel}</Text>
+            <Text style={[styles.dailyFactLabel, themedStyles.mutedText]}>Assigned exercises</Text>
+            <Text style={[styles.dailyFactValue, themedStyles.primaryText]}>{assignedExerciseValueLabel}</Text>
           </View>
         </View>
         <Pressable
@@ -568,7 +572,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
             accessibilityState={{ expanded: true }}
             accessibilityLabel="Show less therapy details"
           >
-            <Text style={styles.showLessText}>Show less</Text>
+            <Text style={[styles.showLessText, themedStyles.mutedText]}>Show less</Text>
           </Pressable>
           <View style={sectionStyles.pill}>
             <Text style={sectionStyles.pillText}>{activeAssignedExercises.length}</Text>
@@ -594,6 +598,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
           <View
             style={[
               styles.completionCheckbox,
+              themedStyles.actionBorder,
               dailyEntry?.therapyCompleted && styles.completionCheckboxChecked,
             ]}
           >
@@ -602,8 +607,8 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
             ) : null}
           </View>
           <View style={styles.completionTextBlock}>
-            <Text style={styles.completionTitle}>Therapy completed today</Text>
-            <Text style={styles.completionSubtitle}>
+            <Text style={[styles.completionTitle, themedStyles.primaryText]}>Therapy completed today</Text>
+            <Text style={[styles.completionSubtitle, themedStyles.supportingText]}>
               {'Mark complete after today\u2019s rehab routine is done.'}
             </Text>
           </View>
@@ -611,11 +616,11 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
       </View>
 
       {uc3CompletionStatus ? (
-        <Text style={styles.uc3CompletionStatus}>{uc3CompletionStatus}</Text>
+        <Text style={[styles.uc3CompletionStatus, themedStyles.supportingText]}>{uc3CompletionStatus}</Text>
       ) : null}
 
       {!dailyEntry?.therapyCompleted ? (
-        <View style={styles.accordionCard}>
+        <View style={[styles.accordionCard, themedStyles.dividerBorder]}>
           <Pressable
             style={styles.accordionHeader}
             onPress={() => setSkippedReasonExpanded((expanded) => !expanded)}
@@ -624,10 +629,10 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
             accessibilityLabel={`Why wasn't the session completed? ${skippedReasonSummary}`}
           >
             <View style={styles.accordionHeaderText}>
-              <Text style={styles.accordionTitle}>{'Why wasn\u2019t the session completed?'}</Text>
-              <Text style={styles.accordionSummary}>{skippedReasonSummary}</Text>
+              <Text style={[styles.accordionTitle, themedStyles.primaryText]}>{'Why wasn\u2019t the session completed?'}</Text>
+              <Text style={[styles.accordionSummary, themedStyles.mutedText]}>{skippedReasonSummary}</Text>
             </View>
-            <Text style={styles.accordionChevron}>{skippedReasonExpanded ? 'v' : '>'}</Text>
+            <Text style={[styles.accordionChevron, themedStyles.mutedText]}>{skippedReasonExpanded ? 'v' : '>'}</Text>
           </Pressable>
           {skippedReasonExpanded ? (
             <View style={styles.accordionBody}>
@@ -637,12 +642,12 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
                   return (
                     <Pressable
                       key={option.value}
-                      style={[styles.option, selected && styles.optionSelected]}
+                      style={[styles.option, themedStyles.controlCard, selected && styles.optionSelected, selected && themedStyles.selectedOption]}
                       onPress={() => toggleSkippedReason(option.value)}
                       accessibilityRole="button"
                       accessibilityState={{ selected }}
                     >
-                      <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
+                      <Text style={[styles.optionText, themedStyles.primaryText, selected && styles.optionTextSelected, selected && themedStyles.actionText]}>
                         {option.label}
                       </Text>
                     </Pressable>
@@ -654,7 +659,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
         </View>
       ) : null}
 
-      <View style={styles.accordionCard}>
+      <View style={[styles.accordionCard, themedStyles.dividerBorder]}>
         <Pressable
           style={styles.accordionHeader}
           onPress={() => setAssignedExercisesExpanded((expanded) => !expanded)}
@@ -663,10 +668,10 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
           accessibilityLabel={`Assigned exercises. ${assignedExercisesSummary}`}
         >
           <View style={styles.accordionHeaderText}>
-            <Text style={styles.accordionTitle}>Assigned exercises</Text>
-            <Text style={styles.accordionSummary}>{assignedExercisesSummary}</Text>
+            <Text style={[styles.accordionTitle, themedStyles.primaryText]}>Assigned exercises</Text>
+            <Text style={[styles.accordionSummary, themedStyles.mutedText]}>{assignedExercisesSummary}</Text>
           </View>
-          <Text style={styles.accordionChevron}>{assignedExercisesExpanded ? 'v' : '>'}</Text>
+          <Text style={[styles.accordionChevron, themedStyles.mutedText]}>{assignedExercisesExpanded ? 'v' : '>'}</Text>
         </Pressable>
         {assignedExercisesExpanded ? (
           <View style={styles.accordionBody}>
@@ -682,19 +687,19 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
                 ))}
               </View>
             ) : (
-              <Text style={styles.assignedExerciseEmpty}>No exercises assigned.</Text>
+              <Text style={[styles.assignedExerciseEmpty, themedStyles.mutedText]}>No exercises assigned.</Text>
             )}
           </View>
         ) : null}
       </View>
 
-      <View style={styles.setsRow}>
+      <View style={[styles.setsRow, themedStyles.dividerBorder]}>
         <View>
-          <Text style={styles.setsLabel}>Daily sets</Text>
-          <Text style={styles.setsValue}>{formatSets(dailyEntry)}</Text>
+          <Text style={[styles.setsLabel, themedStyles.mutedText]}>Daily sets</Text>
+          <Text style={[styles.setsValue, themedStyles.primaryText]}>{formatSets(dailyEntry)}</Text>
         </View>
         {dailyEntry && dailyEntry.recommendedSets > 0 ? (
-          <View style={styles.setsProgressTrack}>
+          <View style={[styles.setsProgressTrack, themedStyles.controlSurface]}>
             <View
               style={[
                 styles.setsProgressFill,
@@ -724,8 +729,10 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
       <View
         style={[
           styles.accordionCard,
+          themedStyles.dividerBorder,
           styles.accordionCardLast,
           selectedUrgentSymptomCodes.length > 0 && styles.accordionCardAlert,
+          selectedUrgentSymptomCodes.length > 0 && themedStyles.urgentCard,
         ]}
       >
         <Pressable
@@ -736,12 +743,12 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
           accessibilityLabel={`Urgent symptoms. ${urgentSymptomsSummary}`}
         >
           <View style={styles.accordionHeaderText}>
-            <Text style={[styles.accordionTitle, selectedUrgentSymptomCodes.length > 0 && styles.accordionTitleAlert]}>
+            <Text style={[styles.accordionTitle, themedStyles.primaryText, selectedUrgentSymptomCodes.length > 0 && styles.accordionTitleAlert]}>
               Urgent symptoms
             </Text>
-            <Text style={styles.accordionSummary}>{urgentSymptomsSummary}</Text>
+            <Text style={[styles.accordionSummary, themedStyles.mutedText]}>{urgentSymptomsSummary}</Text>
           </View>
-          <Text style={styles.accordionChevron}>{urgentSymptomsExpanded ? 'v' : '>'}</Text>
+          <Text style={[styles.accordionChevron, themedStyles.mutedText]}>{urgentSymptomsExpanded ? 'v' : '>'}</Text>
         </Pressable>
         {urgentSymptomsExpanded ? (
           <View style={styles.accordionBody}>
@@ -795,9 +802,9 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
         />
       ) : null}
 
-      <View style={styles.consentRow}>
-        <View style={styles.consentDot} />
-        <Text style={styles.consentText}>Sharing with provider enabled</Text>
+      <View style={[styles.consentRow, themedStyles.dividerBorder]}>
+        <View style={[styles.consentDot, themedStyles.actionBackground]} />
+        <Text style={[styles.consentText, themedStyles.supportingText]}>Sharing with provider enabled</Text>
       </View>
 
       <Modal
@@ -814,16 +821,16 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
             if (!uc3CompletionRunning) setTherapyCompletionConfirmVisible(false);
           }}
         >
-          <Pressable style={styles.confirmSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.confirmTitle}>Confirm therapy completion</Text>
-            <Text style={styles.confirmMessage}>{'Was today\u2019s therapy session completed?'}</Text>
+          <Pressable style={[styles.confirmSheet, themedStyles.card]} onPress={(e) => e.stopPropagation()}>
+            <Text style={[styles.confirmTitle, themedStyles.primaryText]}>Confirm therapy completion</Text>
+            <Text style={[styles.confirmMessage, themedStyles.supportingText]}>{'Was today\u2019s therapy session completed?'}</Text>
             <View style={styles.confirmActions}>
               <Pressable
-                style={[styles.confirmButton, styles.confirmCancelButton]}
+                style={[styles.confirmButton, styles.confirmCancelButton, themedStyles.controlCard]}
                 onPress={() => setTherapyCompletionConfirmVisible(false)}
                 disabled={uc3CompletionRunning}
               >
-                <Text style={styles.confirmCancelText}>Cancel</Text>
+                <Text style={[styles.confirmCancelText, themedStyles.primaryText]}>Cancel</Text>
               </Pressable>
               <Pressable
                 style={[styles.confirmButton, styles.confirmPrimaryButton]}
@@ -855,12 +862,12 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
             setEditError('');
           }}
         >
-          <Pressable style={styles.editSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.editTitle}>
+          <Pressable style={[styles.editSheet, themedStyles.card]} onPress={(e) => e.stopPropagation()}>
+            <Text style={[styles.editTitle, themedStyles.primaryText]}>
               {editingField ? `Select ${FIELD_TITLES[editingField]}` : 'Select entry'}
             </Text>
             {editingField ? (
-              <Text style={styles.editHint}>
+              <Text style={[styles.editHint, themedStyles.supportingText]}>
                 {FIELD_HINTS[editingField].replace('{patientName}', patientName)}
               </Text>
             ) : null}
@@ -870,12 +877,12 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
                 return (
                   <Pressable
                     key={`${editingField}-${option.value}`}
-                    style={[styles.option, selected && styles.optionSelected]}
+                    style={[styles.option, themedStyles.controlCard, selected && styles.optionSelected, selected && themedStyles.selectedOption]}
                     onPress={() => editingField && selectFieldOption(editingField, option.value)}
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
                   >
-                    <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
+                    <Text style={[styles.optionText, themedStyles.primaryText, selected && styles.optionTextSelected, selected && themedStyles.actionText]}>
                       {option.label}
                     </Text>
                   </Pressable>
@@ -885,14 +892,14 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
             {editError ? <Text style={styles.editError}>{editError}</Text> : null}
             <View style={styles.editActions}>
               <Pressable
-                style={[styles.editButton, styles.editCancel]}
+                style={[styles.editButton, styles.editCancel, themedStyles.controlCard]}
                 onPress={() => {
                   setEditingField(null);
                   setEditDraft('');
                   setEditError('');
                 }}
               >
-                <Text style={styles.editCancelText}>Cancel</Text>
+                <Text style={[styles.editCancelText, themedStyles.primaryText]}>Cancel</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -911,6 +918,9 @@ function ExerciseChecklistRow({
   checked: boolean;
   onPress: () => void;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <Pressable
       style={[styles.exerciseChecklistRow, checked && styles.exerciseChecklistRowChecked]}
@@ -918,10 +928,10 @@ function ExerciseChecklistRow({
       accessibilityRole="checkbox"
       accessibilityState={{ checked }}
     >
-      <View style={[styles.exerciseChecklistBox, checked && styles.exerciseChecklistBoxChecked]}>
+      <View style={[styles.exerciseChecklistBox, themedStyles.actionBorder, checked && styles.exerciseChecklistBoxChecked]}>
         {checked ? <Text style={styles.exerciseChecklistCheck}>{'\u2713'}</Text> : null}
       </View>
-      <Text style={styles.exerciseChecklistLabel}>{label}</Text>
+      <Text style={[styles.exerciseChecklistLabel, themedStyles.primaryText]}>{label}</Text>
     </Pressable>
   );
 }
@@ -937,10 +947,18 @@ function EditableDailyFactBox({
   unit: string;
   onPress: () => void;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
-    <Pressable style={styles.dailyFactBox} onPress={onPress} accessibilityRole="button" accessibilityLabel={`Edit ${label}`}>
-      <Text style={styles.dailyFactLabel}>{label}</Text>
-      <Text style={styles.dailyFactValue}>
+    <Pressable
+      style={[styles.dailyFactBox, themedStyles.controlCard]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Edit ${label}`}
+    >
+      <Text style={[styles.dailyFactLabel, themedStyles.mutedText]}>{label}</Text>
+      <Text style={[styles.dailyFactValue, themedStyles.primaryText]}>
         {value == null ? '\u2014' : `${value} ${unit}`.trim()}
       </Text>
     </Pressable>
@@ -956,10 +974,18 @@ function EditableSymptomBox({
   value: number | null | undefined;
   onPress: () => void;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
-    <Pressable style={styles.symptomBox} onPress={onPress} accessibilityRole="button" accessibilityLabel={`Edit ${label}`}>
-      <Text style={styles.symptomLabel}>{label}</Text>
-      <Text style={styles.symptomValue}>{value == null ? '\u2014' : `${value}/10`}</Text>
+    <Pressable
+      style={[styles.symptomBox, themedStyles.controlCard]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Edit ${label}`}
+    >
+      <Text style={[styles.symptomLabel, themedStyles.mutedText]}>{label}</Text>
+      <Text style={[styles.symptomValue, themedStyles.primaryText]}>{value == null ? '\u2014' : `${value}/10`}</Text>
     </Pressable>
   );
 }
@@ -973,31 +999,33 @@ function Uc3ResultCard({
   onExplain?: () => void;
   explainOpen?: boolean;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const toneStyle =
     display.tone === 'urgent'
-      ? styles.uc3ResultCardUrgent
+      ? themedStyles.urgentCard
       : display.tone === 'review'
-        ? styles.uc3ResultCardReview
+        ? themedStyles.reviewCard
         : null;
   return (
-    <View style={[styles.uc3ResultCard, toneStyle]}>
+    <View style={[styles.uc3ResultCard, themedStyles.controlCard, toneStyle]}>
       <View style={styles.uc3ResultHeader}>
-        <Text style={styles.uc3ResultKicker}>Rehabilitation progress</Text>
+        <Text style={[styles.uc3ResultKicker, themedStyles.primaryText]}>Rehabilitation progress</Text>
         {display.reviewLabel ? (
-          <Text style={styles.uc3ResultBadge}>{display.reviewLabel}</Text>
+          <Text style={[styles.uc3ResultBadge, themedStyles.badge]}>{display.reviewLabel}</Text>
         ) : null}
       </View>
-      <Text style={styles.uc3ResultStatus}>{display.statusLabel}</Text>
+      <Text style={[styles.uc3ResultStatus, themedStyles.primaryText]}>{display.statusLabel}</Text>
       {display.generatedAtLabel ? (
-        <Text style={styles.uc3ResultMeta}>{display.generatedAtLabel}</Text>
+        <Text style={[styles.uc3ResultMeta, themedStyles.mutedText]}>{display.generatedAtLabel}</Text>
       ) : null}
       {display.explanation ? (
-        <Text style={styles.uc3ResultExplanation}>{display.explanation}</Text>
+        <Text style={[styles.uc3ResultExplanation, themedStyles.supportingText]}>{display.explanation}</Text>
       ) : null}
       {display.detailLines.length > 0 ? (
         <View style={styles.uc3ResultDetails}>
           {display.detailLines.map((line) => (
-            <Text key={line} style={styles.uc3ResultDetailLine}>
+            <Text key={line} style={[styles.uc3ResultDetailLine, themedStyles.supportingText]}>
               {line}
             </Text>
           ))}
@@ -1030,18 +1058,20 @@ function ProgressMetric({
   maxVal: number;
   unit: string;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const latest = measurements[measurements.length - 1];
   const value = latest?.value ?? 0;
   return (
     <View style={styles.progressMetric}>
       <View style={styles.progressMetricHeader}>
-        <Text style={styles.progressMetricLabel}>{label}</Text>
-        <Text style={styles.progressMetricValue}>
+        <Text style={[styles.progressMetricLabel, themedStyles.primaryText]}>{label}</Text>
+        <Text style={[styles.progressMetricValue, themedStyles.supportingText]}>
           {value}
           {unit ? ` ${unit}` : ''}
         </Text>
       </View>
-      <View style={styles.progressTrack}>
+      <View style={[styles.progressTrack, themedStyles.controlSurface]}>
         <View
           style={[
             styles.progressFill,
@@ -1058,7 +1088,7 @@ function ProgressMetric({
         ) : null}
       </View>
       {target > 0 ? (
-        <Text style={styles.progressTargetLabel}>
+        <Text style={[styles.progressTargetLabel, themedStyles.mutedText]}>
           Target {target}
           {unit ? ` ${unit}` : ''}
         </Text>
@@ -1078,6 +1108,34 @@ function formatSets(entry: DailyCareEntry | null): string {
 function countCompletedDailyLogFields(entry: DailyCareEntry | null): number {
   if (!entry) return 0;
   return REQUIRED_DAILY_LOG_FIELDS.filter((field) => Number.isFinite(entry[field])).length;
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  const actionText = isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+
+  return StyleSheet.create({
+    card: { backgroundColor: theme.appSurface, borderColor: theme.appBorder },
+    controlCard: { backgroundColor: theme.appControlSurface, borderColor: theme.appBorder },
+    controlSurface: { backgroundColor: theme.appControlSurface },
+    selectedOption: { backgroundColor: theme.appBrandSoftSurface, borderColor: actionText },
+    primaryText: { color: theme.appText },
+    supportingText: { color: theme.appTextSupporting },
+    mutedText: { color: theme.appTextMuted },
+    actionText: { color: actionText },
+    actionBackground: { backgroundColor: actionText },
+    actionBorder: { borderColor: actionText },
+    dividerBorder: { borderColor: theme.appBorder },
+    urgentCard: {
+      backgroundColor: isDark ? 'rgba(240,6,22,0.16)' : AppTheme.colors.dangerLight,
+      borderColor: AppTheme.colors.danger,
+    },
+    reviewCard: {
+      backgroundColor: isDark ? 'rgba(249,115,22,0.16)' : AppTheme.colors.warningSoft,
+      borderColor: AppTheme.colors.warning,
+    },
+    badge: { backgroundColor: theme.appSurface },
+  });
 }
 
 const styles = StyleSheet.create({

@@ -10,7 +10,7 @@
  *   - Fail-closed when no native model is available
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -34,6 +34,7 @@ import {
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
+import { useTheme } from '@/hooks/use-theme';
 import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
@@ -115,6 +116,8 @@ export function InCardMiniChat({
     MODEL_CATALOG.some((m) => m.id === id && isModelInstalled(m)),
   );
   const effectiveCacheTitle = cacheTitle ?? title;
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -469,21 +472,26 @@ export function InCardMiniChat({
   if (!optionalGate.ready) {
     return (
       <View
-        style={[styles.card, embedded && styles.cardEmbedded]}
+        style={[
+          styles.card,
+          themedStyles.card,
+          embedded && styles.cardEmbedded,
+          embedded && themedStyles.cardEmbedded,
+        ]}
         accessibilityLabel={title}
       >
         <View style={styles.header}>
-          <Text style={styles.title} numberOfLines={2}>
+          <Text style={[styles.title, themedStyles.primaryText]} numberOfLines={2}>
             {title}
           </Text>
           <Pressable
-            style={styles.closeButton}
+            style={[styles.closeButton, themedStyles.controlSurface]}
             onPress={requestClose}
             hitSlop={12}
             accessibilityRole="button"
             accessibilityLabel="Close mini Concierge"
           >
-            <Text style={styles.closeText}>×</Text>
+            <Text style={[styles.closeText, themedStyles.supportingText]}>×</Text>
           </Pressable>
         </View>
         <OptionalFeaturePrompt
@@ -497,31 +505,31 @@ export function InCardMiniChat({
 
   return (
     <View
-      style={[styles.card, embedded && styles.cardEmbedded]}
+      style={[styles.card, themedStyles.card, embedded && styles.cardEmbedded, embedded && themedStyles.cardEmbedded]}
       accessibilityLabel={title}
     >
       <View style={styles.header}>
-        <Text style={styles.title} numberOfLines={2}>
+        <Text style={[styles.title, themedStyles.primaryText]} numberOfLines={2}>
           {title}
         </Text>
         <Pressable
-          style={styles.closeButton}
+          style={[styles.closeButton, themedStyles.controlSurface]}
           onPress={requestClose}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Close mini Concierge"
         >
-          <Text style={styles.closeText}>×</Text>
+          <Text style={[styles.closeText, themedStyles.supportingText]}>×</Text>
         </Pressable>
       </View>
 
-      <View style={styles.statusRow}>
+      <View style={[styles.statusRow, themedStyles.brandSoftSurface]}>
         {busy ? (
           <ActivityIndicator color={AppTheme.colors.brand} size="small" />
         ) : (
-          <View style={styles.statusDot} />
+          <View style={[styles.statusDot, themedStyles.actionBackground]} />
         )}
-        <Text style={styles.statusText} numberOfLines={2}>
+        <Text style={[styles.statusText, themedStyles.actionText]} numberOfLines={2}>
           {statusLine}
         </Text>
       </View>
@@ -538,9 +546,10 @@ export function InCardMiniChat({
             style={[
               styles.bubble,
               msg.role === 'user' ? styles.userBubble : styles.assistantBubble,
+              msg.role === 'user' ? themedStyles.controlSurface : themedStyles.brandSoftSurface,
             ]}
           >
-            <Text style={styles.bubbleLabel}>
+            <Text style={[styles.bubbleLabel, themedStyles.mutedText]}>
               {msg.role === 'user' ? 'You' : 'Concierge'}
             </Text>
             {msg.role === 'assistant' && msg.status === 'done' ? (
@@ -549,7 +558,9 @@ export function InCardMiniChat({
               <Text
                 style={[
                   styles.bubbleText,
+                  themedStyles.primaryText,
                   msg.status === 'streaming' && styles.streamingText,
+                  msg.status === 'streaming' && themedStyles.supportingText,
                   msg.status === 'error' && styles.errorText,
                 ]}
               >
@@ -560,9 +571,9 @@ export function InCardMiniChat({
         ))}
 
         {showHitl && !hitlResolved ? (
-          <View style={styles.hitlCard}>
-            <Text style={styles.hitlTitle}>Your review</Text>
-            <Text style={styles.hitlBody}>
+          <View style={[styles.hitlCard, themedStyles.cardEmbedded]}>
+            <Text style={[styles.hitlTitle, themedStyles.primaryText]}>Your review</Text>
+            <Text style={[styles.hitlBody, themedStyles.supportingText]}>
               Select anything you observed so Concierge can refine this guidance.
               This is optional.
             </Text>
@@ -580,11 +591,11 @@ export function InCardMiniChat({
                 <Text style={styles.hitlPrimaryText}>Apply review & continue</Text>
               </Pressable>
               <Pressable
-                style={[styles.hitlButton, styles.hitlSecondary]}
+                style={[styles.hitlButton, styles.hitlSecondary, themedStyles.controlSurface]}
                 onPress={handleSkipHitl}
                 disabled={busy}
               >
-                <Text style={styles.hitlSecondaryText}>Skip review</Text>
+                <Text style={[styles.hitlSecondaryText, themedStyles.supportingText]}>Skip review</Text>
               </Pressable>
             </View>
           </View>
@@ -596,10 +607,10 @@ export function InCardMiniChat({
           value={input}
           onChangeText={setInput}
           placeholder="Ask a follow-up…"
-          placeholderTextColor={AppTheme.colors.textMuted}
+          placeholderTextColor={theme.appTextMuted}
           editable={!busy}
           multiline
-          style={styles.input}
+          style={[styles.input, themedStyles.input]}
         />
         <Pressable
           style={[styles.sendButton, (!input.trim() || busy) && styles.sendDisabled]}
@@ -612,11 +623,37 @@ export function InCardMiniChat({
         </Pressable>
       </View>
 
-      <Text style={styles.footnote}>
+      <Text style={[styles.footnote, themedStyles.mutedText]}>
         Concierge guidance — not a diagnosis. Confirm with the care team.
       </Text>
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  const actionText = isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+
+  return StyleSheet.create({
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: actionText,
+      ...(isDark ? { elevation: 0, shadowOpacity: 0 } : null),
+    },
+    cardEmbedded: { backgroundColor: theme.appSurface, borderColor: theme.appBorder },
+    controlSurface: { backgroundColor: theme.appControlSurface },
+    brandSoftSurface: { backgroundColor: theme.appBrandSoftSurface },
+    primaryText: { color: theme.appText },
+    supportingText: { color: theme.appTextSupporting },
+    mutedText: { color: theme.appTextMuted },
+    actionText: { color: actionText },
+    actionBackground: { backgroundColor: actionText },
+    input: {
+      backgroundColor: theme.appInputBackground,
+      borderColor: theme.appBorder,
+      color: theme.appText,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

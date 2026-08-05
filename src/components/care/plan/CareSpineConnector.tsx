@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import type { PlanPulseAttention } from '@/services/carePlan/planPulseService';
 
 export type SpineAttention = PlanPulseAttention | 'empty';
@@ -108,6 +109,8 @@ export function CareSpineConnector({
   playEntrance = false,
   reduceMotion = false,
 }: CareSpineConnectorProps) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(), []);
   const sorted = useMemo(
     () => [...nodes].sort((a, b) => a.y - b.y),
     [nodes],
@@ -147,6 +150,7 @@ export function CareSpineConnector({
       <View
         style={[
           styles.spine,
+          themedStyles.spine,
           {
             top: spineTop,
             height: spineHeight,
@@ -156,7 +160,7 @@ export function CareSpineConnector({
 
       {/* Branches + nodes at each section title */}
       {sorted.map((node) => {
-        const color = SPINE_NODE_COLORS[node.attention];
+        const color = getSpineNodeColor(node.attention, theme);
         const thickness = branchThickness(node.weight);
         return (
           <View key={node.id} pointerEvents="none">
@@ -179,8 +183,8 @@ export function CareSpineConnector({
                   backgroundColor: color,
                   borderColor:
                     node.attention === 'empty'
-                      ? AppTheme.colors.border
-                      : AppTheme.colors.white,
+                      ? theme.appBorder
+                      : theme.appSurface,
                   opacity: node.attention === 'empty' ? 0.5 : 1,
                 },
               ]}
@@ -190,6 +194,25 @@ export function CareSpineConnector({
       })}
     </Animated.View>
   );
+}
+
+function getSpineNodeColor(
+  attention: SpineAttention,
+  theme: ReturnType<typeof useTheme>,
+): string {
+  const isDark = theme.appBackground === '#000000';
+  if (attention === 'calm') return isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand;
+  if (attention === 'review') return AppTheme.colors.attentionAmber;
+  if (attention === 'urgent') return AppTheme.colors.danger;
+  return theme.appTextMuted;
+}
+
+function createThemedStyles() {
+  return StyleSheet.create({
+    spine: {
+      backgroundColor: AppTheme.colors.heroAccentSoft,
+    },
+  });
 }
 
 const styles = StyleSheet.create({

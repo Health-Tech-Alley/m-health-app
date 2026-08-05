@@ -65,6 +65,7 @@ import type { AdcpProposalIntentId } from "@/data/adcp/types";
 import { AppTheme } from "@/constants/theme";
 import { useCriticalAlert } from "@/contexts/critical-alert-context";
 import { usePatientRecord } from "@/contexts/patient-record-context";
+import { useTheme } from "@/hooks/use-theme";
 import {
   type DailyCareEntry,
   type Threshold,
@@ -111,6 +112,8 @@ import { ensureDefaultAdcpBackupConsent } from "@/services/consent/defaultConsen
 let careEntrancePlayedThisSession = false;
 
 export default function CareScreen() {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const { patientId, snapshot, refresh } = usePatientRecord();
   const { focus } = useLocalSearchParams<{ focus?: string }>();
   const { reopenOnCareFocus } = useCriticalAlert();
@@ -488,13 +491,15 @@ export default function CareScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <View style={styles.root}>
+    <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={["top"]}>
+      <View style={[styles.root, themedStyles.root]}>
         <ScrollView
           ref={scrollRef}
+          style={themedStyles.scrollView}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[
             styles.content,
+            themedStyles.content,
             explainRequest ? styles.contentWithMiniBar : null,
           ]}
         >
@@ -698,6 +703,15 @@ export default function CareScreen() {
       </View>
     </SafeAreaView>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    safeArea: { backgroundColor: theme.appBackground },
+    root: { backgroundColor: theme.appBackground },
+    scrollView: { backgroundColor: theme.appBackground },
+    content: { backgroundColor: theme.appBackground },
+  });
 }
 
 const styles = StyleSheet.create({
