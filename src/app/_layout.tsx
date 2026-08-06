@@ -35,6 +35,7 @@ import { dispatchImmediate } from "@/services/notifications/notificationService"
 import { simplePrompt } from '@sbaiahmed1/react-native-biometrics';
 import { NativeModules } from "react-native";
 import { installConsoleCapture } from "./logging/consoleCapture";
+import { isSensorAvailable } from '@sbaiahmed1/react-native-biometrics';
 
 // Add this OUTSIDE any component, at the module level
 Notifications.setNotificationHandler({
@@ -128,57 +129,90 @@ function NotificationResponseInit() {
   return null;
 }
 
-function authenticateUsingBioMetrics() {
+async function authenticateUsingBioMetrics(): Promise<boolean> {
   try {
-  simplePrompt('Authenticate')
-    .then((result) => {
-      if (result) {
-        console.log("Biometric authentication successful.");
-        dispatchImmediate({
-          patientId: '1234',
-          scope: 'anomaly',
-          title: "User Authenticated",
-          body: 'Authentication successful with biometrics',
-          severity: 1,
-        });
-      } else {
-        console.warn("Biometric authentication failed or was canceled.");
-        dispatchImmediate({
-          patientId: '1234',
-          scope: 'anomaly',
-          title: "Authentication Failed",
-          body: 'Biometric authentication failed or was canceled',
-          severity: 1,
-        });
-        router.push('/failedAuthentication' as never);
-      }
-    })
-    .catch((error) => {
-      console.error("Biometric authentication error:", error);
-      dispatchImmediate({
-        patientId: '1234',
-        scope: 'anomaly',
-        title: "Authentication Error",
-        body: 'Error during biometric authentication',
+    const { available, biometryType } = await isSensorAvailable();
+
+    console.log(
+      `Biometric sensor available: ${available}, type: ${biometryType}`
+    );
+
+    if (!available) {
+      console.warn("Biometric sensor is not available on this device.");
+      return false;
+    }
+
+    const result = await simplePrompt("Authenticate");
+
+    if (result) {
+      console.log("Biometric authentication successful.");
+
+      await dispatchImmediate({
+        patientId: "1234",
+        scope: "anomaly",
+        title: "User Authenticated",
+        body: "Authentication successful with biometrics",
         severity: 1,
       });
-      router.push('/failedAuthentication' as never);
-    });
-  } catch (error) {
-    console.error("Error during biometric authentication:", error);
-    dispatchImmediate({
-      patientId: '1234',
-      scope: 'anomaly',
-      title: "Authentication Error",
-      body: 'Error during biometric authentication',
+
+      return true;
+    }
+
+    console.warn("Biometric authentication failed or was canceled.");
+
+    await dispatchImmediate({
+      patientId: "1234",
+      scope: "anomaly",
+      title: "Authentication Failed",
+      body: "Biometric authentication failed or was canceled",
       severity: 1,
     });
+
+    router.replace("/failedAuthentication" as never);
+    return false;
+  } catch (error) {
+    console.error("Biometric authentication error:", error);
+
+    await dispatchImmediate({
+      patientId: "1234",
+      scope: "anomaly",
+      title: "Authentication Error",
+      body: "Error during biometric authentication",
+      severity: 1,
+    });
+
+    router.replace("/failedAuthentication" as never);
+    return false;
   }
 }
 
 export default function RootLayout() {
 
   const appState = useRef(AppState.currentState);
+
+  // for authentication on app launch
+  const authenticating = useRef(false);
+  const hasAuthenticatedThisLaunch = useRef(false);
+
+  const authenticate = async () => {
+
+    if (authenticating.current) return;
+    
+    authenticating.current = true;
+    try {
+      await authenticateUsingBioMetrics();
+      hasAuthenticatedThisLaunch.current = true;
+      return true;
+    } finally {
+      authenticating.current = false;
+    }
+  };
+
+  useEffect(() => {
+    (async () => {
+      await authenticate();
+    })();
+  }, []);
 
   useEffect(() => {
       installConsoleCapture();
@@ -210,29 +244,6 @@ export default function RootLayout() {
       };
     }
   });
-  
-  // initializing biometric scanning
-  // try { 
-  //   isSensorAvailable()
-  //     .then((sensorInfo) => {
-  //       const { available, biometryType } = sensorInfo;
-  //       console.log(`Biometric sensor available: ${available}, type: ${biometryType}`);
-  //       if (!available) {
-  //         console.warn("Biometric sensor is not available on this device.");
-  //       } else {
-  //         AuthenticateUsingBioMetrics();
-  //       }
-  //     });
-  // } catch (error) {
-  //   console.error("Error checking biometric sensor availability:", error);
-  //   dispatchImmediate({
-  //                 patientId: '1234',
-  //                 scope: 'anomaly',
-  //                 title: "Biometric Sensor Error",
-  //                 body: 'Error checking biometric sensor availability',
-  //                 severity: 1,
-  //               });
-  // }
 
   if (databaseInit.error) {
     return (
