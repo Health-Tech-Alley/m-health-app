@@ -7,8 +7,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
-import { upsertCaregiver } from "@/data";
-import type { Caregiver, Medication } from "@/data/types";
+import {
+  replacePatientSafetyNotesForPatient,
+  setPrimaryProviderForPatient,
+  upsertCaregiver,
+  upsertPatient,
+  upsertPatientSafetyProfileForPatient,
+} from "@/data";
+import type { Caregiver, Medication, Patient, PatientRecordSnapshot, PatientSafetySnapshot, Provider } from "@/data/types";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { useTheme } from "@/hooks/use-theme";
 import {
@@ -25,8 +31,25 @@ import {
 } from "@/services/onboarding/onboardingService";
 
 type DetailValue = string | number | boolean | null | undefined;
+type EditableCaregiver = { name?: string; relationship?: string; phone?: string; experience?: string; availability?: string; languagePreference?: string; mainConcern?: string };
+type EditableProvider = { name?: string | null; phone?: string | null; email?: string | null; role?: string | null };
+type ProviderSaveInput = Parameters<typeof setPrimaryProviderForPatient>[0];
+type PatientSafetySaveInput = Parameters<typeof upsertPatientSafetyProfileForPatient>[0];
 
-type EditableField = "name" | "relationship" | "phone" | "mainConcern";
+type EditableField = "caregiverName" | "caregiverRelationship" | "caregiverPhone" | "caregiverExperience" | "caregiverMainConcern" | "caregiverLanguage" | "patientPreferredName" | "patientName" | "patientAge" | "patientRoutine" | "patientGmfcs" | "patientFms" | "patientMacs" | "patientCfcs" | "patientEdacs" | "providerName" | "providerPhone" | "providerEmail" | "providerRole" | "safetyEmergencyContactName" | "safetyEmergencyContactRelationship" | "safetyEmergencyContactPhone" | "safetyEmergencyInstructions" | "safetyNotes" | "safetyAcknowledgement";
+type EditKind = "number" | "multiline" | "select" | "phone" | "email";
+
+const LANGUAGE_OPTIONS = ["English", "Español", "English + Español", "Other"];
+const LEVEL_OPTIONS = ["Not assessed", "I", "II", "III", "IV", "V"];
+const FMS_OPTIONS = ["Not assessed", "1", "2", "3", "4", "5", "6"];
+const SAFETY_ACKNOWLEDGEMENT_OPTIONS = ["Not provided", "Needs review", "Acknowledged"];
+
+const CAREGIVER_RECORD_KEYS: Partial<Record<EditableField, keyof Caregiver>> = { caregiverName: "name", caregiverRelationship: "relationship", caregiverExperience: "experience", caregiverMainConcern: "mainConcern", caregiverLanguage: "languagePreference" };
+const CAREGIVER_PROFILE_KEYS: Partial<Record<EditableField, keyof EditableCaregiver>> = { caregiverName: "name", caregiverRelationship: "relationship", caregiverPhone: "phone", caregiverExperience: "experience", caregiverMainConcern: "mainConcern", caregiverLanguage: "languagePreference" };
+const PATIENT_FIELD_KEYS: Partial<Record<EditableField, keyof Patient>> = { patientPreferredName: "preferredName", patientName: "name", patientAge: "age", patientRoutine: "baselineDailyRoutine", patientGmfcs: "gmfcs", patientFms: "fms", patientMacs: "macs", patientCfcs: "cfcs", patientEdacs: "edacs" };
+const PROVIDER_FIELD_KEYS: Partial<Record<EditableField, keyof EditableProvider>> = { providerName: "name", providerPhone: "phone", providerEmail: "email", providerRole: "role" };
+const EDIT_LABELS: Record<EditableField, string> = { caregiverName: "Caregiver name", caregiverRelationship: "Relationship", caregiverPhone: "Phone", caregiverExperience: "Experience", caregiverMainConcern: "Main concern", caregiverLanguage: "Language", patientPreferredName: "Preferred name", patientName: "Full name", patientAge: "Age", patientRoutine: "Routine", patientGmfcs: "GMFCS", patientFms: "FMS", patientMacs: "MACS", patientCfcs: "CFCS", patientEdacs: "EDACS", providerName: "Provider name", providerPhone: "Provider phone", providerEmail: "Provider email", providerRole: "Provider role", safetyEmergencyContactName: "Emergency contact name", safetyEmergencyContactRelationship: "Relationship", safetyEmergencyContactPhone: "Emergency contact phone", safetyEmergencyInstructions: "Emergency instructions", safetyNotes: "Safety notes", safetyAcknowledgement: "911 acknowledgement" };
+const EDIT_KINDS: Partial<Record<EditableField, EditKind>> = { patientAge: "number", patientRoutine: "multiline", caregiverLanguage: "select", patientGmfcs: "select", patientFms: "select", patientMacs: "select", patientCfcs: "select", patientEdacs: "select", providerPhone: "phone", providerEmail: "email", safetyEmergencyContactPhone: "phone", safetyEmergencyInstructions: "multiline", safetyNotes: "multiline", safetyAcknowledgement: "select" };
 
 function phoneFromCaregiverAvailability(availability?: string | null): string | undefined {
   return availability?.match(/^Phone:\s*(.+)$/i)?.[1]?.trim();
@@ -35,7 +58,12 @@ function phoneFromCaregiverAvailability(availability?: string | null): string | 
 export default function ProfileScreen() {
   const router = useRouter();
   const [profile, setProfile] = useState(() => getOnboardingProfile());
-  const { snapshot, refresh } = usePatientRecord();
+  const {
+    snapshot,
+    patientId: activePatientId,
+    mutatePatientRecord,
+    refresh,
+  } = usePatientRecord();
   const activePatient = useActivePatientView();
   const theme = useTheme();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
@@ -59,8 +87,22 @@ export default function ProfileScreen() {
     };
   }, [profile.caregiver, snapshot?.caregiver]);
 
-  const provider = profile.primaryCareProvider;
-  const safety = profile.safety;
+  const provider: EditableProvider = snapshot?.primaryCareProvider ?? {
+    ...profile.primaryCareProvider,
+    role: null,
+  };
+  const onboardingSafety = profile.safety;
+  const patientSafety = snapshot?.patientSafety ?? null;
+  const patientSafetyNotes = patientSafety?.safetyNotes ?? snapshot?.safetyNotes ?? "";
+  const legacyEmergencyContact = onboardingSafety?.emergencyContact?.trim() ?? "";
+  const hasStructuredEmergencyContact = Boolean(
+    patientSafety?.emergencyContactName?.trim() ||
+      patientSafety?.emergencyContactRelationship?.trim() ||
+      patientSafety?.emergencyContactPhone?.trim() ||
+      patientSafety?.emergencyInstructions?.trim(),
+  );
+  const showLegacyEmergencyContact =
+    !hasStructuredEmergencyContact && legacyEmergencyContact.length > 0;
   const caregiverName =
     activePatient?.caregiver?.name?.trim() || "Not provided";
   const caregiverRole =
@@ -72,59 +114,211 @@ export default function ProfileScreen() {
 
   const [editing, setEditing] = useState<EditableField | null>(null);
   const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const openEdit = (field: EditableField) => {
+    setSaveError(null);
     setEditing(field);
-    setDraft(String(caregiver?.[field] ?? ""));
+    setDraft(getEditableFieldValue(field, caregiver, snapshot?.patient, provider, patientSafety, patientSafetyNotes));
   };
 
-  const saveEdit = () => {
-    if (!editing) {
-      setEditing(null);
+  const closeEditor = () => {
+    if (saving) return;
+    setEditing(null); setDraft(""); setSaveError(null);
+  };
+
+  const saveEdit = async () => {
+    if (!editing || saving) return;
+
+    const field = editing;
+    const validation = validateDraft(field, draft, getEditableFieldValue(field, caregiver, snapshot?.patient, provider, patientSafety, patientSafetyNotes));
+    if (validation.error) {
+      setSaveError(validation.error);
       return;
     }
-    const trimmed = draft.trim();
-    const nextCaregiver = {
-      ...profile.caregiver,
-      name: editing === "name" ? trimmed : (caregiver?.name ?? profile.caregiver.name),
-      relationship:
-        editing === "relationship" ? trimmed : (caregiver?.relationship ?? profile.caregiver.relationship),
-      phone: editing === "phone" ? trimmed : (caregiver?.phone ?? profile.caregiver.phone),
-      mainConcern:
-        editing === "mainConcern" ? trimmed : (caregiver?.mainConcern ?? profile.caregiver.mainConcern),
-    };
-    const updatedProfile = {
-      ...profile,
-      caregiver: nextCaregiver,
-    };
-    saveOnboardingProfile(updatedProfile);
-    setProfile(updatedProfile);
-
-    if (snapshot?.patient) {
-      const now = new Date().toISOString();
-      const nextSqlite: Caregiver = snapshot.caregiver
-        ? { ...snapshot.caregiver }
-        : {
-            caregiverId: `caregiver-${snapshot.patient.patientId}`,
-            patientId: snapshot.patient.patientId,
-            name: "Caregiver",
-            createdAt: now,
-          };
-      if (editing === "name") nextSqlite.name = trimmed;
-      else if (editing === "relationship") nextSqlite.relationship = trimmed;
-      else if (editing === "mainConcern") nextSqlite.mainConcern = trimmed;
-      else if (editing === "phone") {
-        nextSqlite.availability = trimmed
-          ? `Phone: ${trimmed}`
-          : snapshot.caregiver?.availability;
-      }
-      if (!nextSqlite.name.trim()) nextSqlite.name = "Caregiver";
-      upsertCaregiver(nextSqlite);
-      refresh();
+    if (validation.noop) {
+      closeEditor();
+      return;
     }
-    setEditing(null);
-    setDraft("");
+
+    const intendedPatientId = activePatientId ?? snapshot?.patient?.patientId;
+    if (!intendedPatientId) {
+      setSaveError("No active patient is selected.");
+      return;
+    }
+
+    setSaving(true);
+    setSaveError(null);
+
+    try {
+      if (field.startsWith("caregiver")) {
+        let caregiverForPersist: Caregiver | null = null;
+        await mutatePatientRecord((latestSnapshot) => {
+          const patientId = latestSnapshot.patient?.patientId;
+          if (!patientId || patientId !== intendedPatientId) {
+            throw new Error(`Cannot update caregiver for inactive patient: ${intendedPatientId}`);
+          }
+          const nextCaregiver = patchCaregiverField(latestSnapshot, field, validation.value);
+          caregiverForPersist = nextCaregiver;
+          return { ...latestSnapshot, caregiver: nextCaregiver };
+        }, () => {
+          if (!caregiverForPersist) throw new Error("Caregiver update was not prepared.");
+          upsertCaregiver(caregiverForPersist);
+        });
+        updateCaregiverMirror(field, validation.value);
+      } else if (field.startsWith("provider")) {
+        let providerForPersist: ProviderSaveInput | null = null;
+        let persistedProvider: Provider | null = null;
+        let needsSnapshotRefresh = false;
+        const compatibilityProvider = getOnboardingProfile().primaryCareProvider;
+        await mutatePatientRecord((latestSnapshot) => {
+          const patient = latestSnapshot.patient;
+          if (!patient || patient.patientId !== intendedPatientId) {
+            throw new Error(`Cannot update provider for inactive patient: ${intendedPatientId}`);
+          }
+          const prepared = prepareProviderFieldSave(latestSnapshot, field, validation.value, compatibilityProvider);
+          providerForPersist = prepared.input;
+          needsSnapshotRefresh = prepared.optimisticProvider === null;
+          return prepared.optimisticProvider
+            ? { ...latestSnapshot, primaryCareProvider: prepared.optimisticProvider }
+            : latestSnapshot;
+        }, () => {
+          if (!providerForPersist) throw new Error("Provider update was not prepared.");
+          persistedProvider = setPrimaryProviderForPatient(providerForPersist);
+        });
+        if (persistedProvider) updateProviderMirror(persistedProvider);
+        if (needsSnapshotRefresh) refresh();
+      } else if (field.startsWith("safety")) {
+        if (field === "safetyNotes") {
+          let safetyNotesForPersist: string | null = null;
+          await mutatePatientRecord((latestSnapshot) => {
+            const patient = latestSnapshot.patient;
+            if (!patient || patient.patientId !== intendedPatientId) {
+              throw new Error(`Cannot update Safety for inactive patient: ${intendedPatientId}`);
+            }
+            const nextSafetyNotes = validation.value;
+            const nextSafety = createOptimisticPatientSafety(latestSnapshot, {
+              safetyNotes: nextSafetyNotes,
+            });
+            safetyNotesForPersist = nextSafetyNotes || null;
+            return {
+              ...latestSnapshot,
+              safetyNotes: nextSafetyNotes,
+              patientSafety: nextSafety,
+            };
+          }, () => {
+            replacePatientSafetyNotesForPatient(intendedPatientId, safetyNotesForPersist);
+          });
+          updateSafetyMirror({ safetyNotes: validation.value });
+        } else {
+          let safetyForPersist: PatientSafetySaveInput | null = null;
+          await mutatePatientRecord((latestSnapshot) => {
+            const patient = latestSnapshot.patient;
+            if (!patient || patient.patientId !== intendedPatientId) {
+              throw new Error(`Cannot update Safety for inactive patient: ${intendedPatientId}`);
+            }
+            const prepared = prepareSafetyProfileFieldSave(
+              latestSnapshot,
+              field,
+              validation.value,
+            );
+            safetyForPersist = prepared.input;
+            return { ...latestSnapshot, patientSafety: prepared.optimisticSafety };
+          }, () => {
+            if (!safetyForPersist) throw new Error("Safety update was not prepared.");
+            upsertPatientSafetyProfileForPatient(safetyForPersist);
+          });
+          if (field === "safetyAcknowledgement") {
+            updateSafetyMirror({
+              emergencyDisclaimerAccepted: safetyAcknowledgementToValue(validation.value),
+            });
+          }
+        }
+      } else {
+        let patientForPersist: Patient | null = null;
+        await mutatePatientRecord((latestSnapshot) => {
+          const patient = latestSnapshot.patient;
+          if (!patient || patient.patientId !== intendedPatientId) {
+            throw new Error(`Cannot update profile for inactive patient: ${intendedPatientId}`);
+          }
+          const nextPatient = patchPatientField(patient, field, validation.value);
+          patientForPersist = nextPatient;
+          return { ...latestSnapshot, patient: nextPatient };
+        }, () => {
+          if (!patientForPersist) throw new Error("Patient update was not prepared.");
+          upsertPatient(patientForPersist);
+        });
+      }
+
+      setEditing(null);
+      setDraft("");
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Profile update failed. Try again.");
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const updateCaregiverMirror = (field: EditableField, value: string) => {
+    const mirrorKey = CAREGIVER_PROFILE_KEYS[field as keyof typeof CAREGIVER_PROFILE_KEYS];
+    if (!mirrorKey) return;
+    setProfile((current) => {
+      const updatedProfile = {
+        ...current,
+        caregiver: { ...current.caregiver, [mirrorKey]: value },
+      };
+      saveOnboardingProfile(updatedProfile);
+      return updatedProfile;
+    });
+  };
+
+  const updateProviderMirror = (nextProvider: Provider) => {
+    setProfile((current) => {
+      const updatedProfile = {
+        ...current,
+        primaryCareProvider: {
+          ...current.primaryCareProvider,
+          name: nextProvider.name,
+          phone: nextProvider.phone ?? "",
+          email: nextProvider.email ?? "",
+        },
+      };
+      saveOnboardingProfile(updatedProfile);
+      return updatedProfile;
+    });
+  };
+
+  const updateSafetyMirror = (patch: {
+    safetyNotes?: string;
+    emergencyDisclaimerAccepted?: boolean | null;
+  }) => {
+    setProfile((current) => {
+      const updatedProfile = {
+        ...current,
+        safety: {
+          ...current.safety,
+          ...(patch.safetyNotes !== undefined
+            ? { safetyNotes: patch.safetyNotes }
+            : {}),
+          ...(patch.emergencyDisclaimerAccepted !== undefined
+            ? {
+                emergencyDisclaimerAccepted:
+                  patch.emergencyDisclaimerAccepted ?? undefined,
+              }
+            : {}),
+        },
+      };
+      saveOnboardingProfile(updatedProfile);
+      return updatedProfile;
+    });
+  };
+
+  const editingLabel = editing ? EDIT_LABELS[editing] : "profile field";
+  const editingKind = editing ? EDIT_KINDS[editing] ?? "text" : "text";
+  const keyboardType = editingKind === "number" ? "number-pad" : editingKind === "phone" ? "phone-pad" : editingKind === "email" ? "email-address" : "default";
+  const autoCapitalize = editingKind === "email" ? "none" : editing === "providerName" || editing === "safetyEmergencyContactName" ? "words" : undefined;
+  const selectOptions = editing ? getSelectOptions(editing, draft) : [];
 
   return (
     <SafeAreaView style={[styles.safeArea, themedStyles.screen]} edges={["top", "bottom"]}>
@@ -163,33 +357,29 @@ export default function ProfileScreen() {
           </View>
 
           <ProfileCard title="Caregiver · tap to edit" icon="profile">
-            <EditableDetailRow label="Name" value={caregiver?.name} onPress={() => openEdit("name")} />
-            <EditableDetailRow label="Relationship" value={caregiver?.relationship} onPress={() => openEdit("relationship")} />
-            <EditableDetailRow label="Phone" value={caregiver?.phone} onPress={() => openEdit("phone")} />
-            <DetailRow label="Experience" value={caregiver?.experience} />
+            <EditableDetailRow label="Name" value={caregiver?.name} onPress={() => openEdit("caregiverName")} />
+            <EditableDetailRow label="Relationship" value={caregiver?.relationship} onPress={() => openEdit("caregiverRelationship")} />
+            <EditableDetailRow label="Phone" value={caregiver?.phone} onPress={() => openEdit("caregiverPhone")} />
+            <EditableDetailRow label="Experience" value={caregiver?.experience} onPress={() => openEdit("caregiverExperience")} />
             <DetailRow label="Availability" value={caregiver?.availability} />
-            <EditableDetailRow label="Main concern" value={caregiver?.mainConcern} onPress={() => openEdit("mainConcern")} />
-            <DetailRow label="Language" value={caregiver?.languagePreference} />
+            <EditableDetailRow label="Main concern" value={caregiver?.mainConcern} onPress={() => openEdit("caregiverMainConcern")} />
+            <EditableDetailRow label="Language" value={caregiver?.languagePreference} onPress={() => openEdit("caregiverLanguage")} />
           </ProfileCard>
 
           <ProfileCard title="Patient" icon="care">
-            <DetailRow label="Preferred name" value={patientName} />
-            <DetailRow label="Full name" value={formalPatientName} />
-            <DetailRow label="Age" value={patientAge} />
+            <EditableDetailRow label="Preferred name" value={patientName} onPress={() => openEdit("patientPreferredName")} />
+            <EditableDetailRow label="Full name" value={formalPatientName} onPress={() => openEdit("patientName")} />
+            <EditableDetailRow label="Age" value={patientAge} onPress={() => openEdit("patientAge")} />
             <DetailRow label="Primary diagnosis" value={getPrimaryDiagnosisDisplay(activePatient)} />
             <DetailRow label="Comorbidities" value={getComorbiditiesDisplay(activePatient)} />
             <DetailRow label="SpO₂ cutoff" value={displayClinical(activePatient?.spo2Cutoff)} />
             <DetailRow label="Baseline HR" value={displayEntered(activePatient?.baselineHeartRate)} />
-            <DetailRow label="GMFCS" value={displayEntered(activePatient?.classifications.gmfcs)} />
-            <DetailRow label="FMS" value={displayEntered(activePatient?.classifications.fms)} />
-            <DetailRow label="MACS" value={displayEntered(activePatient?.classifications.macs)} />
-            <DetailRow label="CFCS" value={displayEntered(activePatient?.classifications.cfcs)} />
-            <DetailRow label="EDACS" value={displayEntered(activePatient?.classifications.edacs)} />
-            <DetailRow
-              label="Routine"
-              value={formatImportedRoutine(activePatient?.baselineDailyRoutine)}
-              multiline
-            />
+            <EditableDetailRow label="GMFCS" value={displayEntered(activePatient?.classifications.gmfcs)} onPress={() => openEdit("patientGmfcs")} />
+            <EditableDetailRow label="FMS" value={displayEntered(activePatient?.classifications.fms)} onPress={() => openEdit("patientFms")} />
+            <EditableDetailRow label="MACS" value={displayEntered(activePatient?.classifications.macs)} onPress={() => openEdit("patientMacs")} />
+            <EditableDetailRow label="CFCS" value={displayEntered(activePatient?.classifications.cfcs)} onPress={() => openEdit("patientCfcs")} />
+            <EditableDetailRow label="EDACS" value={displayEntered(activePatient?.classifications.edacs)} onPress={() => openEdit("patientEdacs")} />
+            <EditableDetailRow label="Routine" value={formatImportedRoutine(activePatient?.baselineDailyRoutine)} multiline onPress={() => openEdit("patientRoutine")} />
             <DetailRow
               label="Medications"
               value={displayClinical(medicationSummary)}
@@ -198,54 +388,57 @@ export default function ProfileScreen() {
           </ProfileCard>
 
           <ProfileCard title="Primary Care Provider" icon="provider">
-            <DetailRow label="Name" value={provider.name} />
-            <DetailRow label="Phone" value={provider.phone} />
-            <DetailRow label="Email" value={provider.email} />
+            <EditableDetailRow label="Name" value={provider.name} onPress={() => openEdit("providerName")} />
+            <EditableDetailRow label="Phone" value={provider.phone} onPress={() => openEdit("providerPhone")} />
+            <EditableDetailRow label="Email" value={provider.email} onPress={() => openEdit("providerEmail")} />
+            <EditableDetailRow label="Role" value={provider.role} onPress={() => openEdit("providerRole")} />
           </ProfileCard>
 
           <ProfileCard title="Safety" icon="alert">
-            <DetailRow label="Emergency contact" value={safety?.emergencyContact} />
-            <DetailRow label="Safety notes" value={safety?.safetyNotes} multiline />
-            <DetailRow
-              label="911 disclaimer"
-              value={
-                safety?.emergencyDisclaimerAccepted
-                  ? "Accepted"
-                  : "Needs review"
-              }
-            />
+            <EditableDetailRow label="Emergency contact name" value={patientSafety?.emergencyContactName} onPress={() => openEdit("safetyEmergencyContactName")} />
+            <EditableDetailRow label="Relationship" value={patientSafety?.emergencyContactRelationship} onPress={() => openEdit("safetyEmergencyContactRelationship")} />
+            <EditableDetailRow label="Phone" value={patientSafety?.emergencyContactPhone} onPress={() => openEdit("safetyEmergencyContactPhone")} />
+            <EditableDetailRow label="Emergency instructions" value={patientSafety?.emergencyInstructions} multiline onPress={() => openEdit("safetyEmergencyInstructions")} />
+            <EditableDetailRow label="Safety notes" value={patientSafetyNotes} multiline onPress={() => openEdit("safetyNotes")} />
+            <EditableDetailRow label="911 acknowledgement" value={formatSafetyAcknowledgement(patientSafety?.emergencyDisclaimerAccepted)} onPress={() => openEdit("safetyAcknowledgement")} />
+            {showLegacyEmergencyContact ? (
+              <DetailRow
+                label="Previous contact information"
+                value={legacyEmergencyContact}
+                multiline
+              />
+            ) : null}
           </ProfileCard>
         </ScrollView>
 
-        {/* Caregiver field edit modal */}
-        <Modal
-          visible={editing !== null}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setEditing(null)}
-        >
-          <Pressable style={styles.editOverlay} onPress={() => setEditing(null)}>
+        <Modal visible={editing !== null} transparent animationType="fade" onRequestClose={closeEditor}>
+          <Pressable style={styles.editOverlay} onPress={closeEditor}>
             <Pressable style={[styles.editSheet, themedStyles.card]} onPress={(e) => e.stopPropagation()}>
-              <Text style={[styles.editTitle, themedStyles.primaryText]}>
-                Edit {editing?.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}
-              </Text>
-              <TextInput
-                style={[styles.editInput, themedStyles.input]}
-                value={draft}
-                onChangeText={setDraft}
-                autoFocus
-                placeholder="Enter value…"
-                placeholderTextColor={theme.appTextMuted}
-              />
+              <Text style={[styles.editTitle, themedStyles.primaryText]}>Edit {editingLabel}</Text>
+              {editingKind === "select" ? (
+                <View style={styles.optionList}>
+                  {selectOptions.map((option) => {
+                    const selected = option === draft;
+                    const label = getOptionLabel(editing, option);
+                    return (
+                      <Pressable key={option} style={[styles.optionRow, themedStyles.optionSurface, selected && styles.optionRowSelected]} onPress={() => setDraft(option)} accessibilityRole="button" accessibilityLabel={`Select ${label}`} accessibilityState={{ selected, disabled: saving }} disabled={saving}>
+                        <Text style={[styles.optionText, themedStyles.primaryText, selected && styles.optionTextSelected]}>{label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : (
+                <TextInput style={[styles.editInput, themedStyles.input, editingKind === "multiline" && styles.editInputMultiline]} value={draft} onChangeText={setDraft} autoFocus multiline={editingKind === "multiline"} keyboardType={keyboardType} autoCapitalize={autoCapitalize} placeholder="Enter value..." placeholderTextColor={theme.appTextMuted} accessibilityLabel={editingLabel} editable={!saving} />
+              )}
+              {saveError ? (
+                <Text style={styles.editError} accessibilityRole="alert">{saveError}</Text>
+              ) : null}
               <View style={styles.editActions}>
-                <Pressable
-                  style={[styles.editButton, styles.editCancel, themedStyles.controlSurface]}
-                  onPress={() => setEditing(null)}
-                >
+                <Pressable style={[styles.editButton, styles.editCancel, themedStyles.controlSurface]} onPress={closeEditor} accessibilityRole="button" accessibilityLabel="Cancel profile edit" accessibilityState={{ disabled: saving }} disabled={saving}>
                   <Text style={[styles.editCancelText, themedStyles.secondaryText]}>Cancel</Text>
                 </Pressable>
-                <Pressable style={styles.editButton} onPress={saveEdit}>
-                  <Text style={styles.editSaveText}>Save</Text>
+                <Pressable style={[styles.editButton, saving && styles.editButtonDisabled]} onPress={saveEdit} accessibilityRole="button" accessibilityLabel={`Save ${editingLabel}`} accessibilityState={{ disabled: saving }} disabled={saving}>
+                  <Text style={styles.editSaveText}>{saving ? "Saving" : "Save"}</Text>
                 </Pressable>
               </View>
             </Pressable>
@@ -254,6 +447,209 @@ export default function ProfileScreen() {
       </View>
     </SafeAreaView>
   );
+}
+
+function getEditableFieldValue(
+  field: EditableField,
+  caregiver: EditableCaregiver | null,
+  patient: Patient | null | undefined,
+  provider: EditableProvider | null | undefined,
+  safety: PatientSafetySnapshot | null,
+  safetyNotes: string,
+): string {
+  if (field === "caregiverPhone") return caregiver?.phone ?? "";
+  const caregiverKey = CAREGIVER_PROFILE_KEYS[field];
+  if (caregiverKey) return String(caregiver?.[caregiverKey] ?? "");
+  const providerKey = PROVIDER_FIELD_KEYS[field];
+  if (providerKey) return String(provider?.[providerKey] ?? "");
+  if (field === "safetyEmergencyContactName") return safety?.emergencyContactName ?? "";
+  if (field === "safetyEmergencyContactRelationship") return safety?.emergencyContactRelationship ?? "";
+  if (field === "safetyEmergencyContactPhone") return safety?.emergencyContactPhone ?? "";
+  if (field === "safetyEmergencyInstructions") return safety?.emergencyInstructions ?? "";
+  if (field === "safetyNotes") return safetyNotes;
+  if (field === "safetyAcknowledgement") {
+    return formatSafetyAcknowledgement(safety?.emergencyDisclaimerAccepted);
+  }
+  const patientKey = PATIENT_FIELD_KEYS[field];
+  return patientKey ? String(patient?.[patientKey] ?? "") : "";
+}
+
+function validateDraft(field: EditableField, draft: string, currentValue: string): { value: string; noop?: boolean; error?: string } {
+  const value = draft.trim();
+  const current = currentValue.trim();
+  if (field === "providerName" && !value) {
+    return { value, error: "Provider name is required." };
+  }
+  if (value === current) return { value, noop: true };
+  if (!value && current && !isOptionalSafetyTextField(field)) {
+    return { value, error: "Leave the existing value in place or enter a new value." };
+  }
+  if (!value) {
+    return current && isOptionalSafetyTextField(field)
+      ? { value }
+      : { value, noop: true };
+  }
+  if (field === "patientAge" && !/^\d+$/.test(value)) {
+    return { value, error: "Age must be a nonnegative whole number." };
+  }
+  return { value };
+}
+
+function patchCaregiverField(latestSnapshot: PatientRecordSnapshot, field: EditableField, value: string): Caregiver {
+  const now = new Date().toISOString();
+  const patientId = latestSnapshot.patient?.patientId ?? "";
+  const nextCaregiver: Caregiver = latestSnapshot.caregiver
+    ? { ...latestSnapshot.caregiver }
+    : { caregiverId: `caregiver-${patientId}`, patientId, name: "Caregiver", createdAt: now };
+  const caregiverKey = CAREGIVER_RECORD_KEYS[field];
+
+  if (field === "caregiverPhone") nextCaregiver.availability = `Phone: ${value}`;
+  else if (caregiverKey) Object.assign(nextCaregiver, { [caregiverKey]: value });
+  if (!nextCaregiver.name.trim()) {
+    nextCaregiver.name = "Caregiver";
+  }
+  return nextCaregiver;
+}
+
+function patchPatientField(patient: Patient, field: EditableField, value: string): Patient {
+  const patientKey = PATIENT_FIELD_KEYS[field];
+  return patientKey
+    ? { ...patient, [patientKey]: value, updatedAt: new Date().toISOString() }
+    : { ...patient, updatedAt: new Date().toISOString() };
+}
+
+function prepareProviderFieldSave(
+  latestSnapshot: PatientRecordSnapshot,
+  field: EditableField,
+  value: string,
+  compatibilityProvider: EditableProvider,
+): { input: ProviderSaveInput; optimisticProvider: Provider | null } {
+  const patientId = latestSnapshot.patient?.patientId ?? "";
+  const existingProvider = latestSnapshot.primaryCareProvider ?? null;
+  const baseName = existingProvider?.name ?? compatibilityProvider.name ?? "";
+  const basePhone = existingProvider?.phone ?? (existingProvider ? "" : compatibilityProvider.phone) ?? "";
+  const baseEmail = existingProvider?.email ?? (existingProvider ? "" : compatibilityProvider.email) ?? "";
+  const baseRole = existingProvider?.role ?? "";
+  const name = field === "providerName" ? value : baseName.trim();
+  const phone = field === "providerPhone" ? value : basePhone.trim();
+  const email = field === "providerEmail" ? value : baseEmail.trim();
+  const role = field === "providerRole" ? value : baseRole.trim();
+
+  if (!name) {
+    throw new Error("Provider name is required before saving contact details.");
+  }
+
+  const input: ProviderSaveInput = {
+    providerId: existingProvider?.providerId,
+    patientId,
+    name,
+    phone: phone || null,
+    email: email || null,
+    role: role || null,
+  };
+
+  return {
+    input,
+    optimisticProvider: existingProvider
+      ? {
+          ...existingProvider,
+          name,
+          phone: phone || null,
+          email: email || null,
+          role: role || null,
+          isPrimary: true,
+        }
+      : null,
+  };
+}
+
+function prepareSafetyProfileFieldSave(
+  latestSnapshot: PatientRecordSnapshot,
+  field: EditableField,
+  value: string,
+): { input: PatientSafetySaveInput; optimisticSafety: PatientSafetySnapshot } {
+  const baseSafety = createOptimisticPatientSafety(latestSnapshot);
+  const input: PatientSafetySaveInput = { patientId: baseSafety.patientId };
+  let optimisticSafety = baseSafety;
+
+  if (field === "safetyEmergencyContactName") {
+    const nextValue = value || null;
+    input.emergencyContactName = nextValue;
+    optimisticSafety = { ...baseSafety, emergencyContactName: nextValue };
+  } else if (field === "safetyEmergencyContactRelationship") {
+    const nextValue = value || null;
+    input.emergencyContactRelationship = nextValue;
+    optimisticSafety = { ...baseSafety, emergencyContactRelationship: nextValue };
+  } else if (field === "safetyEmergencyContactPhone") {
+    const nextValue = value || null;
+    input.emergencyContactPhone = nextValue;
+    optimisticSafety = { ...baseSafety, emergencyContactPhone: nextValue };
+  } else if (field === "safetyEmergencyInstructions") {
+    const nextValue = value || null;
+    input.emergencyInstructions = nextValue;
+    optimisticSafety = { ...baseSafety, emergencyInstructions: nextValue };
+  } else if (field === "safetyAcknowledgement") {
+    const nextValue = safetyAcknowledgementToValue(value);
+    input.emergencyDisclaimerAccepted = nextValue;
+    optimisticSafety = { ...baseSafety, emergencyDisclaimerAccepted: nextValue };
+  }
+
+  return { input, optimisticSafety };
+}
+
+function createOptimisticPatientSafety(
+  latestSnapshot: PatientRecordSnapshot,
+  patch: Partial<PatientSafetySnapshot> = {},
+): PatientSafetySnapshot {
+  const patientId = latestSnapshot.patient?.patientId ?? "";
+  const currentSafety = latestSnapshot.patientSafety;
+  return {
+    patientId: currentSafety?.patientId ?? patientId,
+    safetyNotes: currentSafety?.safetyNotes ?? latestSnapshot.safetyNotes ?? "",
+    emergencyContactName: currentSafety?.emergencyContactName ?? null,
+    emergencyContactRelationship:
+      currentSafety?.emergencyContactRelationship ?? null,
+    emergencyContactPhone: currentSafety?.emergencyContactPhone ?? null,
+    emergencyInstructions: currentSafety?.emergencyInstructions ?? null,
+    emergencyDisclaimerAccepted:
+      currentSafety?.emergencyDisclaimerAccepted ?? null,
+    updatedAt: currentSafety?.updatedAt ?? null,
+    ...patch,
+  };
+}
+
+function formatSafetyAcknowledgement(value: boolean | null | undefined): string {
+  if (value === true) return "Acknowledged";
+  if (value === false) return "Needs review";
+  return "Not provided";
+}
+
+function safetyAcknowledgementToValue(value: string): boolean | null {
+  if (value === "Acknowledged") return true;
+  if (value === "Needs review") return false;
+  return null;
+}
+
+function isOptionalSafetyTextField(field: EditableField): boolean {
+  return (
+    field === "safetyEmergencyContactName" ||
+    field === "safetyEmergencyContactRelationship" ||
+    field === "safetyEmergencyContactPhone" ||
+    field === "safetyEmergencyInstructions" ||
+    field === "safetyNotes"
+  );
+}
+
+function getSelectOptions(field: EditableField, currentValue: string): string[] {
+  if (field === "safetyAcknowledgement") return SAFETY_ACKNOWLEDGEMENT_OPTIONS;
+  const options = field === "caregiverLanguage" ? LANGUAGE_OPTIONS : field === "patientFms" ? FMS_OPTIONS : EDIT_KINDS[field] === "select" ? LEVEL_OPTIONS : [];
+  const customValue = currentValue.trim();
+  if (customValue && !options.includes(customValue)) return [customValue, ...options];
+  return options;
+}
+
+function getOptionLabel(field: EditableField | null, value: string): string {
+  return field && field !== "patientFms" && LEVEL_OPTIONS.includes(value) && value !== "Not assessed" ? `Level ${value}` : value;
 }
 
 function ProfileCard({
@@ -308,18 +704,29 @@ function DetailRow({
 function EditableDetailRow({
   label,
   value,
+  multiline,
   onPress,
 }: {
   label: string;
   value: DetailValue;
+  multiline?: boolean;
   onPress: () => void;
 }) {
   const themedStyles = createThemedStyles(useTheme());
 
   return (
-    <Pressable style={[styles.detailRow, themedStyles.divider]} onPress={onPress}>
+    <Pressable
+      style={[styles.detailRow, themedStyles.divider, multiline && styles.detailRowMultiline]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Edit ${label}`}
+    >
       <Text style={[styles.detailLabel, themedStyles.secondaryText]}>{label}</Text>
-      <Text style={[styles.detailValue, themedStyles.primaryText]}>{formatDetailValue(value)}</Text>
+      <Text
+        style={[styles.detailValue, themedStyles.primaryText, multiline && styles.detailValueMultiline]}
+      >
+        {formatDetailValue(value)}
+      </Text>
       <Text style={styles.editChevron}>›</Text>
     </Pressable>
   );
@@ -375,21 +782,12 @@ function formatDetailValue(value: DetailValue): string {
 function createThemedStyles(theme: ReturnType<typeof useTheme>) {
   return StyleSheet.create({
     screen: { backgroundColor: theme.appBackground },
-    card: {
-      backgroundColor: theme.appSurface,
-      borderColor: theme.appBorder,
-    },
+    card: { backgroundColor: theme.appSurface, borderColor: theme.appBorder },
     divider: { borderBottomColor: theme.appBorder },
-    softSurface: {
-      backgroundColor: theme.appBrandSoftSurface,
-      borderColor: theme.appProfileAvatarBorder,
-    },
+    softSurface: { backgroundColor: theme.appBrandSoftSurface, borderColor: theme.appProfileAvatarBorder },
     controlSurface: { backgroundColor: theme.appControlSurface },
-    input: {
-      color: theme.appText,
-      backgroundColor: theme.appInputBackground,
-      borderColor: theme.appBorder,
-    },
+    input: { color: theme.appText, backgroundColor: theme.appInputBackground, borderColor: theme.appBorder },
+    optionSurface: { backgroundColor: theme.appInputBackground, borderColor: theme.appBorder },
     primaryText: { color: theme.appText },
     secondaryText: { color: theme.appTextSupporting },
   });
@@ -574,6 +972,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: AppTheme.colors.text,
   },
+  editInputMultiline: { minHeight: 110, textAlignVertical: "top" },
+  editError: { color: AppTheme.colors.danger, fontSize: 13, lineHeight: 18, fontWeight: "800", marginTop: 12 },
+  optionList: { gap: 8 },
+  optionRow: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  optionRowSelected: {
+    backgroundColor: AppTheme.colors.brand,
+    borderColor: AppTheme.colors.brand,
+  },
+  optionText: { fontSize: 14, lineHeight: 19, fontWeight: "900" },
+  optionTextSelected: { color: AppTheme.colors.white },
   editActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -586,6 +999,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 10,
   },
+  editButtonDisabled: { opacity: 0.6 },
   editCancel: { backgroundColor: AppTheme.colors.softSurface },
   editCancelText: { color: AppTheme.colors.textSoft, fontSize: 14, fontWeight: "900" },
   editSaveText: { color: AppTheme.colors.white, fontSize: 14, fontWeight: "900" },
