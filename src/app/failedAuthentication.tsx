@@ -10,6 +10,10 @@ const AppFailedAuthentication = () => {
     return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
+        <Text style={styles.errorHeader}>Authentication Failed</Text>
+        <Text style={styles.errorMessage}>
+          You have failed to authenticate. Please try again.
+        </Text>
         <Pressable
             style={[styles.button, styles.secondaryButton]}
             onPress={() => authenticateUsingBioMetrics()}>
@@ -68,6 +72,8 @@ function authenticateUsingBioMetrics() {
 }
 
 const styles = StyleSheet.create({
+    errorHeader: { fontSize: 24, fontWeight: 'bold', marginBottom: 20 },
+    errorMessage: { fontSize: 16, textAlign: 'center', marginBottom: 20 },
   container: {
     flex: 1,
     justifyContent: 'center',
