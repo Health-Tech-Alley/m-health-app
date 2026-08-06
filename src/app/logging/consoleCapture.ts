@@ -2,7 +2,13 @@
 
 import { log } from "./logger";
 
+let installed = false;
+
 export function installConsoleCapture() {
+  if (installed) {
+    return;
+  }
+  installed = true;
 
   const original = {
     log: console.log,

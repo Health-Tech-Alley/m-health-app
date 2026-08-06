@@ -1,12 +1,23 @@
-// src/logging/fileTransport.ts
+// fileTransport.ts
 
+import { dispatchImmediate } from "@/services/notifications/notificationService";
 import { Directory, File, Paths } from "expo-file-system";
 
 const logsDir = new Directory(Paths.document, "logs");
 
 async function ensureDir() {
-  if (!logsDir.exists) {
-    logsDir.create();
+  try {
+    if (!logsDir.exists) {
+      logsDir.create();
+    }
+  } catch (e) {
+    await dispatchImmediate({
+              patientId: '1234',
+              scope: 'anomaly',
+              title: "Logging Error",
+              body: 'Failed to create logs directory',
+              severity: 1,
+            });
   }
 }
 

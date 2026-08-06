@@ -31,6 +31,8 @@ import { Provider } from 'react-redux';
 import * as Notifications from 'expo-notifications';
 import { AndroidNotificationPriority } from 'expo-notifications';
 
+import { dispatchImmediate } from "@/services/notifications/notificationService";
+import { isSensorAvailable, simplePrompt } from '@sbaiahmed1/react-native-biometrics';
 import { NativeModules } from "react-native";
 import { installConsoleCapture } from "./logging/consoleCapture";
 
@@ -127,6 +129,29 @@ function NotificationResponseInit() {
 }
 
 export default function RootLayout() {
+
+  isSensorAvailable()
+    .then((sensorInfo) => {
+      const { available, biometryType } = sensorInfo;
+      console.log(`Biometric sensor available: ${available}, type: ${biometryType}`);
+      if (!available) {
+        console.warn("Biometric sensor is not available on this device.");
+      } else {
+        simplePrompt('Authenticate')
+        .then((result) => {
+          if (result) {
+            console.log("Biometric authentication successful.");
+            dispatchImmediate({
+                          patientId: '1234',
+                          scope: 'anomaly',
+                          title: "User Authenticated",
+                          body: 'Authentication successful with biometrics',
+                          severity: 1,
+                        });
+          }
+        });
+      }
+    });
   useEffect(() => {
       installConsoleCapture();
   }, []);
