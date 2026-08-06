@@ -377,6 +377,27 @@ export interface Patient {
   updatedAt: string;
 }
 
+export interface PatientSafetyProfile {
+  patientId: string;
+  emergencyContactName?: string | null;
+  emergencyContactRelationship?: string | null;
+  emergencyContactPhone?: string | null;
+  emergencyInstructions?: string | null;
+  emergencyDisclaimerAccepted?: boolean | null;
+  updatedAt: string;
+}
+
+export interface PatientSafetySnapshot {
+  patientId: string;
+  safetyNotes: string;
+  emergencyContactName?: string | null;
+  emergencyContactRelationship?: string | null;
+  emergencyContactPhone?: string | null;
+  emergencyInstructions?: string | null;
+  emergencyDisclaimerAccepted?: boolean | null;
+  updatedAt: string | null;
+}
+
 export interface Caregiver {
   caregiverId: string;
   patientId: string;
@@ -390,6 +411,17 @@ export interface Caregiver {
   mainConcern?: string;
   stressOrSupportNeeds?: string;
   backupCaregiver?: string;
+  createdAt: string;
+}
+
+export interface Provider {
+  providerId: string;
+  patientId: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  role?: string | null;
+  isPrimary: boolean;
   createdAt: string;
 }
 
@@ -1194,7 +1226,9 @@ export interface PendingPlanProposalSlice {
 export interface PatientRecordSnapshot {
   patient: Patient | null;
   safetyNotes: string;
+  patientSafety: PatientSafetySnapshot | null;
   caregiver: Caregiver | null;
+  primaryCareProvider?: Provider | null;
   conditions: PatientCondition[];
   comorbidities: PatientCondition[];
   primaryCondition: PatientCondition | null;

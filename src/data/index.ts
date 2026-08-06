@@ -44,6 +44,7 @@ export {
   confirmPendingCondition,
   deleteCondition,
   deleteConditionsForPatient,
+  replacePatientSafetyNotesForPatient,
 } from './repositories/patientRepository';
 export * from './repositories/auditRepository';
 export * from './repositories/consentRepository';
@@ -53,6 +54,8 @@ export * from './repositories/medicationConfirmationRequirementRepository';
 export * from './repositories/medicationConfirmationPreferenceRepository';
 export * from './repositories/notificationRepository';
 export * from './repositories/appSettingsRepository';
+export * from './repositories/providerRepository';
+export * from './repositories/patientSafetyRepository';
 export * from './repositories/knowledgeCacheRepository';
 export * from './patientKnowledgeIds';
 export * from './repositories/knowledgeChunkEdgeRepository';

@@ -1442,4 +1442,30 @@ export const MIGRATIONS: Migration[] = [
         ON knowledge_chunk_feedback(patient_id, chunk_id, created_at DESC);
     `);
   },
+
+  // 48: explicit primary-provider marker. Existing rows keep is_primary = 0;
+  // resolution falls back to the newest provider row until a primary is set.
+  (db: SQLiteDatabase) => {
+    const columns = db.getAllSync<{ name: string }>(
+      `PRAGMA table_info(providers);`,
+    );
+    if (!columns.some((column) => column.name === 'is_primary')) {
+      db.execSync(
+        `ALTER TABLE providers ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0;`,
+      );
+    }
+  },
+
+  // 49: patient-scoped editable Safety profile. Safety Notes remain on patients.
+  `
+  CREATE TABLE IF NOT EXISTS patient_safety_profiles (
+    patient_id TEXT PRIMARY KEY,
+    emergency_contact_name TEXT,
+    emergency_contact_relationship TEXT,
+    emergency_contact_phone TEXT,
+    emergency_instructions TEXT,
+    emergency_disclaimer_accepted INTEGER,
+    updated_at TEXT NOT NULL
+  );
+  `,
 ];

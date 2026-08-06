@@ -90,6 +90,33 @@ export function getPatient(patientId: string): Patient | null {
   );
 }
 
+export function replacePatientSafetyNotesForPatient(
+  patientId: string,
+  safetyNotes: string | null,
+): Patient {
+  const scopedPatientId = patientId.trim();
+  if (!scopedPatientId) {
+    throw new Error('patientId is required for patient safety note operations.');
+  }
+
+  const existing = getPatient(scopedPatientId);
+  if (!existing) {
+    throw new Error(`Cannot update safety notes for missing patient: ${scopedPatientId}`);
+  }
+
+  const nextSafetyNotes = safetyNotes?.trim() || null;
+  const updatedAt = new Date().toISOString();
+  const db = getDatabase();
+  db.runSync(
+    `UPDATE patients SET safety_notes = ?, updated_at = ? WHERE patient_id = ?;`,
+    nextSafetyNotes,
+    updatedAt,
+    scopedPatientId,
+  );
+
+  return { ...existing, safetyNotes: nextSafetyNotes, updatedAt };
+}
+
 export function upsertCaregiver(caregiver: Caregiver): void {
   const db = getDatabase();
   db.runSync(

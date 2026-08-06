@@ -51,6 +51,8 @@ import {
   getConditionsForPatient,
   getPatient,
 } from './patientRepository';
+import { getPrimaryProviderForPatient } from './providerRepository';
+import { getPatientSafetyProfileForPatient } from './patientSafetyRepository';
 import { getRehabExerciseAssignments } from './rehabExerciseAssignmentRepository';
 import { getSymptomsForPatient } from './symptomRepository';
 import { getActiveThresholds } from './thresholdRepository';
@@ -210,7 +212,9 @@ export function setBundleStatus(patientId: string, status: BundleStatus): void {
 export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapshot {
   console.log(`[DB] Loading patient record snapshot for patientId=${patientId}...`);
   const patient = getPatient(patientId);
+  const safetyProfile = getPatientSafetyProfileForPatient(patientId);
   const caregiver = getCaregiverForPatient(patientId);
+  const primaryCareProvider = getPrimaryProviderForPatient(patientId);
   const conditions = getConditionsForPatient(patientId);
   const symptoms = getSymptomsForPatient(patientId);
   const wearable = getPrimaryWearableForPatient(patientId);
@@ -288,7 +292,22 @@ export function getPatientRecordSnapshot(patientId: string): PatientRecordSnapsh
   return {
     patient,
     safetyNotes: patient?.safetyNotes ?? '',
+    patientSafety: patient
+      ? {
+          patientId: patient.patientId,
+          safetyNotes: patient.safetyNotes ?? '',
+          emergencyContactName: safetyProfile?.emergencyContactName ?? null,
+          emergencyContactRelationship:
+            safetyProfile?.emergencyContactRelationship ?? null,
+          emergencyContactPhone: safetyProfile?.emergencyContactPhone ?? null,
+          emergencyInstructions: safetyProfile?.emergencyInstructions ?? null,
+          emergencyDisclaimerAccepted:
+            safetyProfile?.emergencyDisclaimerAccepted ?? null,
+          updatedAt: safetyProfile?.updatedAt ?? null,
+        }
+      : null,
     caregiver,
+    primaryCareProvider,
     conditions,
     comorbidities,
     primaryCondition,
