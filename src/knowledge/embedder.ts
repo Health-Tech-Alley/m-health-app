@@ -9,6 +9,11 @@
  */
 
 import { Platform } from 'react-native';
+import type {
+  TensorflowModelDelegate,
+  TfliteModel,
+} from 'react-native-fast-tflite';
+import { loadAndroidLiteRtEmbedderModel } from './android-litert-embedder';
 import type { Embedder } from './types';
 
 /** Query prefix required by leaf-ir for user/query strings only. */
@@ -16,6 +21,9 @@ const QUERY_PREFIX = 'Represent this sentence for searching relevant passages: '
 
 /** Max sequence length for the leaf-ir model. */
 const MAX_SEQ_LENGTH = 512;
+
+const LEAF_IR_INT8_BYTES = 59_145_520;
+const LEAF_IR_INT8_MD5 = 'da805c15669635120757594e631dcda4';
 
 /**
  * Default wait for first TFLite leaf-ir load (~59 MB INT8). 400ms was far too
@@ -38,22 +46,98 @@ function leafIrFp32Asset(): number {
   return require('../../assets/models/nlu/mdbr-leaf-ir.tflite') as number;
 }
 
-type DelegateList = readonly string[];
+type DelegateList = readonly TensorflowModelDelegate[];
+type Candidate = { label: string; source: number | string };
 
 /**
  * Leaf-ir is a full encoder-style graph. CoreML/Metal delegates often fail
  * createModel on device (unlike the tiny Alert autoencoder). Prefer CPU first.
  */
-function leafIrDelegateAttempts(): DelegateList[] {
+function leafIrDelegateAttempts(androidBundledOnly = false): DelegateList[] {
   const attempts: DelegateList[] = [[]]; // CPU always first
   if (Platform.OS === 'ios') {
     attempts.push(['core-ml']);
     attempts.push(['metal']);
-  } else if (Platform.OS === 'android') {
+  } else if (Platform.OS === 'android' && !androidBundledOnly) {
     attempts.push(['nnapi']);
     attempts.push(['android-gpu']);
   }
   return attempts;
+}
+
+function leafIrModelCandidates(modelPath?: string): Candidate[] {
+  if (modelPath) return [{ label: 'custom', source: modelPath }];
+  if (Platform.OS === 'android') {
+    // Android bundled loading is intentionally INT8-only; loading each asset
+    // copies full model bytes, so FP32/delegate probing can OOM before retry.
+    return [{ label: 'int8', source: leafIrInt8Asset() }];
+  }
+  // Prefer FP32 first off Android: weight-only INT8 has failed invoke on some iOS builds.
+  return [
+    { label: 'fp32', source: leafIrFp32Asset() },
+    { label: 'int8', source: leafIrInt8Asset() },
+  ];
+}
+
+function devTfliteLog(message: string, details?: unknown): void {
+  if (!__DEV__) return;
+  if (details === undefined) {
+    console.log(`[TfliteEmbedder] ${message}`);
+  } else {
+    console.log(`[TfliteEmbedder] ${message}`, details);
+  }
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function stripFileUri(uri: string): string {
+  return uri.startsWith('file://') ? uri.slice('file://'.length) : uri;
+}
+
+let androidInt8ModelFilePromise: Promise<string> | null = null;
+
+async function materializeAndroidInt8ModelFile(): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Asset } = require('expo-asset') as typeof import('expo-asset');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { File } = require('expo-file-system') as typeof import('expo-file-system');
+
+  const asset = Asset.fromModule(leafIrInt8Asset());
+  const downloaded = await asset.downloadAsync();
+  const localUri = downloaded.localUri ?? downloaded.uri;
+  if (!localUri || !localUri.startsWith('file://')) {
+    throw new Error('Android INT8 TFLite asset did not materialize to a local file');
+  }
+
+  const file = new File(localUri);
+  if (!file.exists) {
+    throw new Error('Android INT8 TFLite materialized file is missing');
+  }
+  if (file.size !== LEAF_IR_INT8_BYTES) {
+    throw new Error(
+      `Android INT8 TFLite materialized file has invalid size ${file.size}; expected ${LEAF_IR_INT8_BYTES}`,
+    );
+  }
+
+  const md5 = file.md5?.toLowerCase();
+  if (md5 !== LEAF_IR_INT8_MD5) {
+    throw new Error('Android INT8 TFLite materialized file failed integrity check');
+  }
+
+  return stripFileUri(localUri);
+}
+
+function getAndroidInt8ModelFile(): Promise<string> {
+  if (!androidInt8ModelFilePromise) {
+    const work = materializeAndroidInt8ModelFile();
+    androidInt8ModelFilePromise = work.catch((err) => {
+      androidInt8ModelFilePromise = null;
+      throw err;
+    });
+  }
+  return androidInt8ModelFilePromise;
 }
 
 /** Cosine similarity between two equal-length vectors. */
@@ -248,10 +332,11 @@ class BertTokenizer {
  */
 type TensorInfo = { name: string; dataType: string; shape: number[] };
 type TfliteModelHandle = {
-  inputs: TensorInfo[];
-  outputs: TensorInfo[];
-  run: (input: ArrayBuffer[]) => Promise<ArrayBuffer[]>;
+  readonly inputs: readonly TensorInfo[];
+  readonly outputs: readonly TensorInfo[];
   runSync?: (input: ArrayBuffer[]) => ArrayBuffer[];
+  run(input: ArrayBuffer[]): Promise<ArrayBuffer[]>;
+  dispose(): void;
 };
 
 type IntPackMode = 'i64_dataview' | 'i64_bigint' | 'i32';
@@ -319,6 +404,20 @@ function packTensorValues(
   return packInt64LE(values);
 }
 
+function disposeFailedModelHandle(
+  model: TfliteModelHandle,
+  label: string,
+): string | null {
+  try {
+    model.dispose();
+    return null;
+  } catch (err) {
+    const msg = errorMessage(err);
+    devTfliteLog('Failed-handle disposal failed', { label, error: msg });
+    return msg;
+  }
+}
+
 function parseOutputVector(buf: ArrayBuffer, dim: number): number[] {
   const raw = new Float32Array(buf);
   const vector =
@@ -378,32 +477,55 @@ export class TfliteEmbedder implements Embedder {
   private async probeRun(
     model: TfliteModelHandle,
     tokenizer: BertTokenizer,
+    label: string,
   ): Promise<IntPackMode> {
     const { inputIds, attentionMask } = tokenizer.encode('hello world');
     const modes: IntPackMode[] = ['i64_dataview', 'i64_bigint', 'i32'];
     const errors: string[] = [];
 
     for (const mode of modes) {
-      try {
-        // Skip i32 packing when tensors are int64-sized — wrong byte length.
-        const anyI64 = model.inputs.some((t) =>
-          (t.dataType || '').toLowerCase().includes('64'),
-        );
-        if (mode === 'i32' && anyI64) continue;
+      // Skip i32 packing when tensors are int64-sized — wrong byte length.
+      const anyI64 = model.inputs.some((t) =>
+        (t.dataType || '').toLowerCase().includes('64'),
+      );
+      if (mode === 'i32' && anyI64) continue;
 
-        const buffers = model.inputs.map((tensor) => {
+      let buffers: ArrayBuffer[];
+      try {
+        buffers = model.inputs.map((tensor) => {
           const values = valuesForTensor(tensor, inputIds, attentionMask);
           return packTensorValues(values, tensor.dataType, mode);
         });
+      } catch (err) {
+        const msg = errorMessage(err);
+        errors.push(`${mode}/input_prep: ${msg}`);
+        devTfliteLog('Probe input preparation failed', {
+          model: label,
+          packMode: mode,
+          error: msg,
+        });
+        continue;
+      }
+
+      try {
         const outputs = await this.runModel(model, buffers);
         if (!outputs?.[0]) throw new Error('empty output');
         const vec = parseOutputVector(outputs[0], this.dimensions);
         if (vec.length < 8) throw new Error(`short output ${vec.length}`);
-        console.log(`[TfliteEmbedder] Probe OK packMode=${mode}`);
         return mode;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`${mode}: ${msg}`);
+        const msg = errorMessage(err);
+        errors.push(`${mode}/invoke: ${msg}`);
+        devTfliteLog(
+          msg.includes('Failed to copy input tensor')
+            ? 'Probe input copy failed'
+            : 'Probe invocation failed',
+          {
+            model: label,
+            packMode: mode,
+            error: msg,
+          },
+        );
       }
     }
     throw new Error(`probe failed (${errors.join(' | ')})`);
@@ -416,51 +538,78 @@ export class TfliteEmbedder implements Embedder {
       this.tokenizer = new BertTokenizer();
       await this.tokenizer.load(tokenizerDir);
 
-      const { loadTensorflowModel } = require('react-native-fast-tflite') as {
-        loadTensorflowModel: (
-          source: number | string,
-          delegates?: readonly string[],
-        ) => Promise<TfliteModelHandle>;
-      };
-
-      type Candidate = { label: string; source: number | string };
-      // Prefer FP32 first — weight-only INT8 has failed invoke on some iOS builds.
-      const candidates: Candidate[] = modelPath
-        ? [{ label: 'custom', source: modelPath }]
-        : [
-            { label: 'fp32', source: leafIrFp32Asset() },
-            { label: 'int8', source: leafIrInt8Asset() },
-          ];
+      const candidates = leafIrModelCandidates(modelPath);
+      const androidBundledOnly = !modelPath && Platform.OS === 'android';
+      let loadTensorflowModel:
+        | ((
+            source: number | string,
+            delegates: TensorflowModelDelegate[],
+          ) => Promise<TfliteModel>)
+        | null = null;
+      if (!androidBundledOnly) {
+        ({ loadTensorflowModel } = require('react-native-fast-tflite') as {
+          loadTensorflowModel: (
+            source: number | string,
+            delegates: TensorflowModelDelegate[],
+          ) => Promise<TfliteModel>;
+        });
+      }
 
       const errors: string[] = [];
       for (const cand of candidates) {
-        for (const delegates of leafIrDelegateAttempts()) {
+        for (const delegates of leafIrDelegateAttempts(androidBundledOnly)) {
           const delLabel = delegates.length ? delegates.join('+') : 'cpu';
+          const label = `${cand.label}/${delLabel}`;
+          let model: TfliteModelHandle | null = null;
+          let stage: 'create' | 'probe' = 'create';
           try {
-            console.log(
-              `[TfliteEmbedder] Trying ${cand.label} delegates=[${delLabel}]…`,
-            );
-            const model = await loadTensorflowModel(cand.source, [...delegates]);
-            console.log('[TfliteEmbedder] Inputs:', model.inputs);
-            console.log('[TfliteEmbedder] Outputs:', model.outputs);
+            const fileBacked = androidBundledOnly && cand.label === 'int8';
+            model = fileBacked
+              ? await loadAndroidLiteRtEmbedderModel(
+                  await getAndroidInt8ModelFile(),
+                )
+              : await loadTensorflowModel!(cand.source, [...delegates]);
+            stage = 'probe';
+            devTfliteLog('Model candidate loaded', {
+              model: label,
+              pathType: fileBacked ? 'android-litert-mapped-file' : 'legacy',
+              inputs: model.inputs,
+              outputs: model.outputs,
+            });
 
-            const mode = await this.probeRun(model, this.tokenizer);
+            const mode = await this.probeRun(model, this.tokenizer, label);
             this.interpreter = model;
             this.packMode = mode;
-            this.modelLabel = `${cand.label}/${delLabel}`;
+            this.modelLabel = label;
             this.loaded = true;
-            console.log(
-              `[TfliteEmbedder] Ready leaf-ir ${this.modelLabel} ` +
-                `pack=${mode} 768-d in ${Date.now() - t0}ms`,
-            );
+            devTfliteLog('Ready leaf-ir', {
+              model: this.modelLabel,
+              packMode: mode,
+              dimensions: this.dimensions,
+              elapsedMs: Date.now() - t0,
+            });
             return;
           } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            errors.push(`${cand.label}/${delLabel}: ${msg}`);
-            console.warn(
-              `[TfliteEmbedder] ${cand.label}/${delLabel} failed:`,
-              msg,
-            );
+            const msg = errorMessage(err);
+            let detail = `${label} ${stage}: ${msg}`;
+            if (stage === 'create') {
+              devTfliteLog('Model creation failed', {
+                model: label,
+                pathType:
+                  androidBundledOnly && cand.label === 'int8'
+                    ? 'android-litert-mapped-file'
+                    : 'legacy',
+                error: msg,
+              });
+            }
+            if (model) {
+              const disposeError = disposeFailedModelHandle(model, label);
+              detail += disposeError
+                ? ` (failed-handle disposal failed: ${disposeError})`
+                : ' (failed handle disposed)';
+            }
+            errors.push(detail);
+            console.warn(`[TfliteEmbedder] ${label} failed:`, msg);
             this.interpreter = null;
             this.loaded = false;
           }
