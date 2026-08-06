@@ -87,6 +87,7 @@ const SLMContext = createContext<SLMContextValue | null>(null);
 export function SLMProvider({ children }: { children: ReactNode }) {
   const { settings } = useSettings();
   const dynamic = settings.dynamicSlmLoading !== false; // default ON
+  const simulateMissing = settings.simulateMissingOptionalFeatures === true;
   const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
   const [provider] = useState<InferenceProvider>(() => new LlamaRnProvider());
   const [loadStatus, setLoadStatus] = useState<SLMStatus>('idle');
@@ -167,6 +168,18 @@ export function SLMProvider({ children }: { children: ReactNode }) {
 
   const loadModel = useCallback(
     async (modelId: string) => {
+      // Developer testing mode: never load a model while the optional-feature
+      // surfaces are being simulated as missing (doc 26 §7.3).
+      if (simulateMissing) {
+        console.log('[SLM] Skipping loadModel — simulateMissingOptionalFeatures is on');
+        setLoadStatus('idle');
+        setCurrentModelId(null);
+        setLoadError(
+          'Concierge is disabled in developer testing mode (Simulate missing Concierge / knowledge).',
+        );
+        return;
+      }
+
       // Single-flight: concurrent acquire + ensureReady + explain must share one load.
       if (loadPromiseRef.current) {
         console.log('[SLM] Joining in-flight loadModel');
@@ -197,6 +210,17 @@ export function SLMProvider({ children }: { children: ReactNode }) {
       const entry = MODEL_CATALOG.find((m) => m.id === modelId);
       if (!entry) {
         const message = `Model not found: ${modelId}`;
+        setLoadError(message);
+        setLoadStatus('error');
+        hasLoadErrorRef.current = true;
+        throw new Error(message);
+      }
+
+      // Never attempt to load a model whose files are not actually
+      // downloaded — llama.rn would fail on a missing GGUF. Fail fast with
+      // the download prompt instead of touching the provider.
+      if (!isModelInstalled(entry)) {
+        const message = `Concierge model is not downloaded: ${entry.displayName}. Open Models to download it.`;
         setLoadError(message);
         setLoadStatus('error');
         hasLoadErrorRef.current = true;
@@ -283,7 +307,7 @@ export function SLMProvider({ children }: { children: ReactNode }) {
       });
       await loadPromiseRef.current;
     },
-    [provider, scheduleSingleOomRetry],
+    [provider, scheduleSingleOomRetry, simulateMissing],
   );
 
   // Keep the ref current so the OOM retry timer can call loadModel.
@@ -302,6 +326,18 @@ export function SLMProvider({ children }: { children: ReactNode }) {
     setLoadStatus('idle');
     setLoadError(null);
   }, [provider]);
+
+  // When developer testing mode is enabled, release any resident model so no
+  // SLM stays loaded while the optional-feature surfaces are simulated as
+  // missing. Deferred so the state update does not run synchronously within
+  // the effect (react-hooks/set-state-in-effect).
+  useEffect(() => {
+    if (!simulateMissing || provider.getModelInfo() === null) return;
+    const handle = setTimeout(() => {
+      void unloadModel();
+    }, 0);
+    return () => clearTimeout(handle);
+  }, [simulateMissing, provider, unloadModel]);
 
   // Create the task queue once.
   // eslint-disable react-hooks/refs
@@ -441,8 +477,15 @@ export function SLMProvider({ children }: { children: ReactNode }) {
   }, [dynamic, loadStatus, defaultModelId, loadModel, unloadModel, taskQueue]);
 
   const acquireSlm = useCallback(
-    (reason: SlmTaskReason) => taskQueue.acquire(reason),
-    [taskQueue],
+    (reason: SlmTaskReason) => {
+      if (simulateMissing) {
+        throw new Error(
+          'Concierge is disabled in developer testing mode (Simulate missing Concierge / knowledge).',
+        );
+      }
+      return taskQueue.acquire(reason);
+    },
+    [taskQueue, simulateMissing],
   );
 
   const chat = useCallback(
@@ -453,6 +496,11 @@ export function SLMProvider({ children }: { children: ReactNode }) {
       options?: GenerateOptions,
       onReasoningToken?: (token: string) => void,
     ): Promise<ChatResult> => {
+      if (simulateMissing) {
+        throw new Error(
+          'Concierge is disabled in developer testing mode (Simulate missing Concierge / knowledge).',
+        );
+      }
       if (provider.getModelInfo() === null && wasUnloadedRef.current && !hasLoadErrorRef.current) {
         const entry = MODEL_CATALOG.find((m) => m.id === defaultModelId);
         if (entry && isModelInstalled(entry)) {
@@ -462,7 +510,7 @@ export function SLMProvider({ children }: { children: ReactNode }) {
       }
       return provider.chat(messages, onToken, signal, options, onReasoningToken);
     },
-    [provider, defaultModelId, loadModel],
+    [provider, defaultModelId, loadModel, simulateMissing],
   );
 
   const value: SLMContextValue = {

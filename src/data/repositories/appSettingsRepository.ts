@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   liveClinicalFetch: true,
   carePlanMode: 'full',
   healthKitIntegrationEnabled: true,
+  simulateMissingOptionalFeatures: false,
 };
 
 export function getAppSettings(): AppSettings {
@@ -154,6 +155,13 @@ export function updateCarePlanMode(mode: CarePlanMode): AppSettings {
 export function updateHealthKitIntegrationEnabled(enabled: boolean): AppSettings {
   const current = getAppSettings();
   const updated = { ...current, healthKitIntegrationEnabled: enabled };
+  saveAppSettings(updated);
+  return updated;
+}
+
+export function updateSimulateMissingOptionalFeatures(enabled: boolean): AppSettings {
+  const current = getAppSettings();
+  const updated = { ...current, simulateMissingOptionalFeatures: enabled };
   saveAppSettings(updated);
   return updated;
 }

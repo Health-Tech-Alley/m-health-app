@@ -161,7 +161,8 @@ type ExpandableId =
   | 'knowledge-pack-runner'
   | 'live-clinical-fetch'
   | 'consent-adcp_backup'
-  | 'healthkit-integration';
+  | 'healthkit-integration'
+  | 'simulate-missing-optional-features';
 
 export function SettingsScreen() {
   return <PreferencesScreen />;
@@ -616,6 +617,7 @@ export function AdvancedDeveloperSettingsScreen() {
     setEvidenceDevelopmentFallback,
     setKnowledgeGraphExpansion,
     setLiveClinicalFetch,
+    setSimulateMissingOptionalFeatures,
   } = useSettings();
   const slm = useSLM();
   const modelQueue = useModelDownloadQueue();
@@ -1080,6 +1082,17 @@ export function AdvancedDeveloperSettingsScreen() {
                 onToggleExpand={toggleExpanded}
                 onValueChange={setEvidenceDevelopmentFallback}
                 accessibilityLabel="Development evidence fixtures"
+              />
+              <CompactToggleRow
+                id="simulate-missing-optional-features"
+                emoji=""
+                label="Simulate missing Concierge / knowledge"
+                value={settings.simulateMissingOptionalFeatures === true}
+                expanded={expandedId === 'simulate-missing-optional-features'}
+                explanation="Synthetically reports the on-device Concierge model and clinical knowledge cache as not downloaded, so the optional-feature prompt and greyed-out surfaces can be tested without removing any downloads."
+                onToggleExpand={toggleExpanded}
+                onValueChange={setSimulateMissingOptionalFeatures}
+                accessibilityLabel="Simulate missing Concierge and knowledge"
               />
               <CompactToggleRow
                 id="knowledge-graph-expansion"

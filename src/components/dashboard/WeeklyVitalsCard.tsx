@@ -5,7 +5,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { AppTheme } from "@/constants/theme";
 import { useSensor } from "@/contexts/sensor-context";
 import { getLatestHealthSample } from "@/data/repositories/healthSampleRepository";
-import type { HealthSampleType } from "@/data/types";
+import { getActiveThresholdsForVital } from "@/data/repositories/thresholdRepository";
+import type { HealthSampleType, NormalizedActivePatient } from "@/data/types";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { useAppSelector } from "@/store/hooks";
 import type { LiveVitalReading } from "@/store/reducers/vitalsSlice";
@@ -112,7 +113,89 @@ const METRIC_META: Record<
     label: "Coughing",
     helperText: "Coughing readings use the stored monitoring value.",
   },
+  calories_burned: {
+    tabIcon: "\u{1F525}",
+    label: "Calories Burned",
+    helperText: "Calories burned sums active energy from monitoring data.",
+  },
+  hrv_sdnn: {
+    tabIcon: "\u{1F30A}",
+    label: "Heart Rate Variability",
+    helperText: "HRV (SDNN) reflects recovery and stress from recent heart rate readings.",
+  },
+  resting_heart_rate: {
+    tabIcon: "\u{1F6D1}",
+    label: "Resting Heart Rate",
+    helperText: "Resting heart rate is measured while at rest.",
+  },
+  walking_steadiness: {
+    tabIcon: "\u{1F9CF}",
+    label: "Walking Steadiness",
+    helperText: "Walking steadiness estimates fall risk from gait data.",
+  },
+  walking_speed: {
+    tabIcon: "\u{1F6B6}",
+    label: "Walking Speed",
+    helperText: "Walking speed is measured from monitoring data.",
+  },
+  step_length: {
+    tabIcon: "\u{1F4AD}",
+    label: "Step Length",
+    helperText: "Step length measures average stride from monitoring data.",
+  },
+  walking_asymmetry: {
+    tabIcon: "\u{2696}\uFE0F",
+    label: "Walking Asymmetry",
+    helperText: "Walking asymmetry compares left vs right step timing.",
+  },
+  walking_double_support: {
+    tabIcon: "\u{23F1}\uFE0F",
+    label: "Double Support Time",
+    helperText: "Double support time shows time with both feet on the ground.",
+  },
+  vo2_max: {
+    tabIcon: "\u{1F3C3}",
+    label: "VO2 Max",
+    helperText: "VO2 max estimates cardiorespiratory fitness.",
+  },
+  six_minute_walk_distance: {
+    tabIcon: "\u{1F3C1}",
+    label: "Six-Minute Walk",
+    helperText: "Six-minute walk distance measures functional capacity.",
+  },
 };
+
+type MetricClass = "continuous" | "cumulative" | "spot" | "paired" | "sleep" | "event";
+
+const METRIC_CLASS_BY_TYPE: Record<HealthSampleType, MetricClass> = {
+  spo2: "continuous",
+  heart_rate: "continuous",
+  respiratory_rate: "continuous",
+  blood_pressure_systolic: "paired",
+  blood_pressure_diastolic: "paired",
+  temperature: "spot",
+  weight: "spot",
+  height: "spot",
+  bmi: "spot",
+  blood_glucose: "spot",
+  steps: "cumulative",
+  distance: "cumulative",
+  flights_climbed: "cumulative",
+  sleep: "sleep",
+  coughing: "event",
+  calories_burned: "cumulative",
+  hrv_sdnn: "continuous",
+  resting_heart_rate: "continuous",
+  walking_steadiness: "continuous",
+  walking_speed: "continuous",
+  step_length: "continuous",
+  walking_asymmetry: "continuous",
+  walking_double_support: "continuous",
+  vo2_max: "continuous",
+  six_minute_walk_distance: "spot",
+};
+
+type ChartBand = { value: number; tone: "warning" | "danger"; label: string };
 
 const PREFERRED_METRIC_ORDER: HealthSampleType[] = [
   "spo2",
@@ -122,6 +205,18 @@ const PREFERRED_METRIC_ORDER: HealthSampleType[] = [
   "temperature",
   "blood_glucose",
   "steps",
+  "distance",
+  "flights_climbed",
+  "calories_burned",
+  "hrv_sdnn",
+  "resting_heart_rate",
+  "walking_steadiness",
+  "walking_speed",
+  "step_length",
+  "walking_asymmetry",
+  "walking_double_support",
+  "vo2_max",
+  "six_minute_walk_distance",
 ];
 
 const DISPLAY_UNIT_OVERRIDE: Partial<Record<HealthSampleType, string>> = {
@@ -132,6 +227,16 @@ const DISPLAY_UNIT_OVERRIDE: Partial<Record<HealthSampleType, string>> = {
   flights_climbed: 'flights',
   blood_pressure_systolic: 'mmHg',
   blood_pressure_diastolic: 'mmHg',
+  calories_burned: 'kcal',
+  hrv_sdnn: 'ms',
+  resting_heart_rate: 'bpm',
+  walking_steadiness: '%',
+  walking_speed: 'm/s',
+  step_length: 'cm',
+  walking_asymmetry: '%',
+  walking_double_support: '%',
+  vo2_max: 'ml/kg/min',
+  six_minute_walk_distance: 'm',
 };
 
 function displayUnit(type: HealthSampleType, rawUnit: string): string {
@@ -141,9 +246,13 @@ function displayUnit(type: HealthSampleType, rawUnit: string): string {
 const CHART_HEIGHT = 88;
 const POINT_SIZE = 8;
 const RECENT_WINDOW_MS = 100 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function WeeklyVitalsCard() {
   const [selectedKey, setSelectedKey] = useState<HealthSampleType>("spo2");
+  const [selectedDayStart, setSelectedDayStart] = useState<number>(() =>
+    startOfLocalDay(Date.now()),
+  );
   const [timeDifferent, setTimeDifferent] = useState<string | null>("");
   const vitals = useAppSelector(selectLiveVitalsState);
   const activePatient = useActivePatientView();
@@ -172,6 +281,34 @@ export function WeeklyVitalsCard() {
   const selectedMetric =
     metrics.find((metric) => metric.key === selectedKey) ?? metrics[0] ?? null;
   const summaryMetrics = getSummaryMetrics(metrics, selectedMetric);
+  const selectedClass = selectedMetric
+    ? METRIC_CLASS_BY_TYPE[selectedMetric.key]
+    : null;
+
+  const diastolicReadings = useMemo(
+    () =>
+      productionReadings.filter(
+        (reading) =>
+          reading.patientId === activePatientId &&
+          reading.type === "blood_pressure_diastolic",
+      ),
+    [activePatientId, productionReadings],
+  );
+
+  const bands = useMemo(
+    () =>
+      buildBandsForMetric(
+        selectedMetric?.key ?? null,
+        activePatientId,
+        activePatient,
+      ),
+    [selectedMetric, activePatientId, activePatient],
+  );
+
+  const dayTotal = useMemo(() => {
+    if (!selectedMetric || selectedClass !== "cumulative") return null;
+    return sumReadingsForDay(selectedMetric.readings, selectedDayStart);
+  }, [selectedMetric, selectedClass, selectedDayStart]);
 
   if (vitals.status === "loading") {
     return (
@@ -228,14 +365,28 @@ export function WeeklyVitalsCard() {
       </View>
 
       <View style={styles.valueRow}>
-        <Text style={styles.mainValue}>{selectedMetric.value}</Text>
+        <Text style={styles.mainValue}>
+          {dayTotal !== null ? formatNumber(dayTotal) : selectedMetric.value}
+        </Text>
         <Text style={styles.unit}>{selectedMetric.unit}</Text>
         <Text style={[styles.status, styles.statusGood]}>
-          {selectedMetric.status}
+          {dayTotal !== null ? formatDayLabel(selectedDayStart) : selectedMetric.status}
         </Text>
       </View>
 
-      <TrendChart readings={selectedMetric.readings} />
+      {selectedClass === "cumulative" ? (
+        <HourlyBarChart
+          readings={selectedMetric.readings}
+          dayStart={selectedDayStart}
+          onDayChange={setSelectedDayStart}
+        />
+      ) : (
+        <TrendChart
+          readings={selectedMetric.readings}
+          secondaryReadings={selectedClass === "paired" ? diastolicReadings : undefined}
+          bands={bands}
+        />
+      )}
 
       {summaryMetrics.length > 0 ? (
         <>
@@ -364,16 +515,30 @@ function getSummaryMetrics(
     // .slice(0, 2);
 }
 
-function TrendChart({ readings }: { readings: LiveVitalReading[] }) {
+function TrendChart({
+  readings,
+  secondaryReadings,
+  bands = [],
+}: {
+  readings: LiveVitalReading[];
+  secondaryReadings?: LiveVitalReading[];
+  bands?: ChartBand[];
+}) {
   const [chartWidth, setChartWidth] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const values = readings.map((reading) => reading.value);
+  const secondaryValues =
+    secondaryReadings && secondaryReadings.length > 0
+      ? secondaryReadings.map((reading) => reading.value)
+      : null;
+  const bandValues = bands.map((band) => band.value);
 
   const points = useMemo(() => {
     if (chartWidth <= 0 || values.length === 0) return [];
 
-    const min = Math.min(...values);
-    const max = Math.max(...values);
+    const allValues = [...values, ...(secondaryValues ?? []), ...bandValues];
+    const min = Math.min(...allValues);
+    const max = Math.max(...allValues);
     const range = Math.max(max - min, 1);
 
     return values.map((value, index) => {
@@ -387,7 +552,41 @@ function TrendChart({ readings }: { readings: LiveVitalReading[] }) {
 
       return { x, y };
     });
-  }, [chartWidth, values]);
+  }, [chartWidth, values, secondaryValues, bandValues]);
+
+  const secondaryPoints = useMemo(() => {
+    if (!secondaryValues || chartWidth <= 0 || secondaryValues.length === 0) return null;
+
+    const allValues = [...values, ...secondaryValues, ...bandValues];
+    const min = Math.min(...allValues);
+    const max = Math.max(...allValues);
+    const range = Math.max(max - min, 1);
+
+    return secondaryValues.map((value, index) => {
+      const x =
+        secondaryValues.length === 1
+          ? chartWidth / 2
+          : (index / (secondaryValues.length - 1)) * chartWidth;
+      const normalized = (value - min) / range;
+      const y = CHART_HEIGHT - normalized * (CHART_HEIGHT - 12) - 6;
+      return { x, y };
+    });
+  }, [chartWidth, secondaryValues, values, bandValues]);
+
+  const bandLines = useMemo(() => {
+    if (chartWidth <= 0 || bandValues.length === 0 || values.length === 0) return [];
+
+    const allValues = [...values, ...(secondaryValues ?? []), ...bandValues];
+    const min = Math.min(...allValues);
+    const max = Math.max(...allValues);
+    const range = Math.max(max - min, 1);
+
+    return bands.map((band) => {
+      const normalized = (band.value - min) / range;
+      const y = CHART_HEIGHT - normalized * (CHART_HEIGHT - 12) - 6;
+      return { ...band, y };
+    });
+  }, [chartWidth, bands, bandValues, values, secondaryValues]);
 
   const firstReading = readings[0];
   const lastReading = readings[readings.length - 1];
@@ -397,8 +596,8 @@ function TrendChart({ readings }: { readings: LiveVitalReading[] }) {
   return (
     <View style={styles.chartWrap}>
       <View style={styles.yAxis}>
-        <Text style={styles.axisLabel}>{formatNumber(Math.max(...values))}</Text>
-        <Text style={styles.axisLabel}>{formatNumber(Math.min(...values))}</Text>
+        <Text style={styles.axisLabel}>{formatNumber(Math.max(...values, ...(secondaryValues ?? [])))}</Text>
+        <Text style={styles.axisLabel}>{formatNumber(Math.min(...values, ...(secondaryValues ?? [])))}</Text>
       </View>
 
       <View style={styles.chartArea}>
@@ -408,6 +607,54 @@ function TrendChart({ readings }: { readings: LiveVitalReading[] }) {
             setChartWidth(event.nativeEvent.layout.width);
           }}
         >
+          {bandLines.map((band) => (
+            <View
+              key={`band-${band.label}-${band.value}`}
+              pointerEvents="none"
+              style={[
+                styles.bandLine,
+                {
+                  top: band.y,
+                  borderColor: band.tone === "danger" ? AppTheme.colors.danger : AppTheme.colors.warning,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.bandLabel,
+                  { color: band.tone === "danger" ? AppTheme.colors.danger : AppTheme.colors.warning },
+                ]}
+              >
+                {band.label} {formatNumber(band.value)}
+              </Text>
+            </View>
+          ))}
+
+          {secondaryPoints
+            ? secondaryPoints.slice(0, -1).map((point, index) => {
+                const next = secondaryPoints[index + 1];
+                const dx = next.x - point.x;
+                const dy = next.y - point.y;
+                const length = Math.sqrt(dx * dx + dy * dy);
+                const angle = Math.atan2(dy, dx);
+
+                return (
+                  <View
+                    key={`segment-secondary-${index}`}
+                    style={[
+                      styles.lineSegmentSecondary,
+                      {
+                        width: length,
+                        left: point.x,
+                        top: point.y,
+                        transform: [{ rotate: `${angle}rad` }],
+                      },
+                    ]}
+                  />
+                );
+              })
+            : null}
+
           {points.map((point, index) => {
             if (index === points.length - 1) return null;
 
@@ -451,6 +698,21 @@ function TrendChart({ readings }: { readings: LiveVitalReading[] }) {
             />
           ))}
 
+          {secondaryPoints
+            ? secondaryPoints.map((point, index) => (
+                <View
+                  key={`point-secondary-${index}`}
+                  style={[
+                    styles.pointSecondary,
+                    {
+                      left: point.x - POINT_SIZE / 2,
+                      top: point.y - POINT_SIZE / 2,
+                    },
+                  ]}
+                />
+              ))
+            : null}
+
           {selectedPoint && selectedReading ? (
             <View
               pointerEvents="none"
@@ -479,6 +741,133 @@ function TrendChart({ readings }: { readings: LiveVitalReading[] }) {
           <Text style={styles.dayLabel}>
             {lastReading ? formatShortDate(lastReading.recordedAt) : ""}
           </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function HourlyBarChart({
+  readings,
+  dayStart,
+  onDayChange,
+}: {
+  readings: LiveVitalReading[];
+  dayStart: number;
+  onDayChange: (dayStartMs: number) => void;
+}) {
+  const [chartWidth, setChartWidth] = useState(0);
+  const [selectedHour, setSelectedHour] = useState<number | null>(null);
+
+  const buckets = useMemo(() => {
+    const totals = new Array(24).fill(0) as number[];
+    for (const reading of readings) {
+      const t = Date.parse(reading.recordedAt);
+      if (!Number.isFinite(t)) continue;
+      if (t < dayStart || t >= dayStart + DAY_MS) continue;
+      totals[new Date(t).getHours()] += reading.value;
+    }
+    return totals.map((total, hour) => ({ hour, total }));
+  }, [readings, dayStart]);
+
+  const maxTotal = Math.max(...buckets.map((bucket) => bucket.total), 1);
+  const selectedBucket =
+    selectedHour !== null ? buckets[selectedHour] : null;
+
+  const barWidth = chartWidth <= 0 ? 0 : chartWidth / 24;
+
+  return (
+    <View>
+      <View style={styles.hourBarHeader}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Previous day"
+          onPress={() => onDayChange(dayStart - DAY_MS)}
+          style={styles.dayChevron}
+        >
+          <Text style={styles.dayChevronText}>‹</Text>
+        </Pressable>
+        <Text style={styles.dayTitle}>{formatDayLabel(dayStart)}</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Next day"
+          onPress={() => onDayChange(dayStart + DAY_MS)}
+          style={styles.dayChevron}
+        >
+          <Text style={styles.dayChevronText}>›</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.chartWrap}>
+        <View style={styles.yAxis}>
+          <Text style={styles.axisLabel}>{formatNumber(maxTotal)}</Text>
+          <Text style={styles.axisLabel}>0</Text>
+        </View>
+
+        <View style={styles.chartArea}>
+          <View
+            style={[styles.plotArea, styles.hourPlotArea]}
+            onLayout={(event) => {
+              setChartWidth(event.nativeEvent.layout.width);
+            }}
+          >
+            {buckets.map((bucket) => {
+              const height =
+                bucket.total > 0
+                  ? Math.max(4, (bucket.total / maxTotal) * (CHART_HEIGHT - 12))
+                  : 2;
+              const selected = selectedHour === bucket.hour;
+
+              return (
+                <Pressable
+                  key={`hour-${bucket.hour}`}
+                  hitSlop={4}
+                  onPress={() =>
+                    setSelectedHour((current) =>
+                      current === bucket.hour ? null : bucket.hour,
+                    )
+                  }
+                  style={[
+                    styles.hourBar,
+                    {
+                      width: Math.max(barWidth - 2, 1),
+                      left: bucket.hour * barWidth,
+                      height,
+                    },
+                    selected && styles.hourBarSelected,
+                  ]}
+                />
+              );
+            })}
+
+            {selectedBucket ? (
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.valueBubble,
+                  {
+                    left: Math.max(
+                      0,
+                      Math.min(selectedBucket.hour * barWidth + barWidth / 2 - 24, chartWidth - 48),
+                    ),
+                    top: 4,
+                  },
+                ]}
+              >
+                <Text style={styles.valueBubbleText}>
+                  {formatNumber(selectedBucket.total)}, {formatHourLabel(selectedBucket.hour)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.hourAxis}>
+            {[0, 6, 12, 18].map((hour) => (
+              <Text key={hour} style={styles.hourAxisLabel}>
+                {formatHourLabel(hour)}
+              </Text>
+            ))}
+          </View>
         </View>
       </View>
     </View>
@@ -586,6 +975,86 @@ function isSameLocalDay(left: Date, right: Date): boolean {
     left.getMonth() === right.getMonth() &&
     left.getDate() === right.getDate()
   );
+}
+
+function startOfLocalDay(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function sumReadingsForDay(readings: LiveVitalReading[], dayStartMs: number): number {
+  let total = 0;
+  for (const reading of readings) {
+    const t = Date.parse(reading.recordedAt);
+    if (!Number.isFinite(t)) continue;
+    if (t < dayStartMs || t >= dayStartMs + DAY_MS) continue;
+    total += reading.value;
+  }
+  return total;
+}
+
+function formatDayLabel(dayStartMs: number): string {
+  const today = startOfLocalDay(Date.now());
+  if (dayStartMs === today) return "Today";
+  if (dayStartMs === today - DAY_MS) return "Yesterday";
+  return new Date(dayStartMs).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatHourLabel(hour: number): string {
+  if (hour === 0) return "12a";
+  if (hour === 12) return "12p";
+  return hour < 12 ? `${hour}a` : `${hour - 12}p`;
+}
+
+/**
+ * Build dotted threshold lines for a metric from the active-thresholds table
+ * plus patient baselines. Threshold rows take precedence (dedupe keeps the
+ * first occurrence); HR falls back to a baseline-relative band.
+ */
+function buildBandsForMetric(
+  metricKey: HealthSampleType | null,
+  patientId: string | null,
+  patient: NormalizedActivePatient | null,
+): ChartBand[] {
+  if (!metricKey || !patientId) return [];
+  const bands: ChartBand[] = [];
+
+  for (const threshold of getActiveThresholdsForVital(patientId, metricKey)) {
+    bands.push({
+      value: threshold.value,
+      tone: threshold.severity >= 3 ? "danger" : "warning",
+      label: threshold.direction === "below" ? "min" : "max",
+    });
+  }
+
+  if (metricKey === "spo2") {
+    const cutoff = Number.parseFloat(patient?.spo2Cutoff ?? "");
+    if (Number.isFinite(cutoff)) {
+      bands.push({ value: cutoff, tone: "danger", label: "cutoff" });
+    }
+  }
+
+  if (metricKey === "heart_rate") {
+    const baseline = Number.parseFloat(patient?.baselineHeartRate ?? "");
+    if (Number.isFinite(baseline)) {
+      bands.push(
+        { value: baseline + 30, tone: "warning", label: "max" },
+        { value: Math.max(40, baseline - 20), tone: "warning", label: "min" },
+      );
+    }
+  }
+
+  const seen = new Set<number>();
+  return bands.filter((band) => {
+    if (seen.has(band.value)) return false;
+    seen.add(band.value);
+    return true;
+  });
 }
 
 const styles = StyleSheet.create({
@@ -723,12 +1192,95 @@ const styles = StyleSheet.create({
     backgroundColor: AppTheme.colors.brand,
     transformOrigin: "left center",
   },
+  lineSegmentSecondary: {
+    position: "absolute",
+    height: 2,
+    borderRadius: 999,
+    backgroundColor: AppTheme.colors.textMuted,
+    opacity: 0.7,
+    transformOrigin: "left center",
+  },
   point: {
     position: "absolute",
     width: POINT_SIZE,
     height: POINT_SIZE,
     borderRadius: POINT_SIZE / 2,
     backgroundColor: AppTheme.colors.brand,
+  },
+  pointSecondary: {
+    position: "absolute",
+    width: POINT_SIZE - 2,
+    height: POINT_SIZE - 2,
+    borderRadius: (POINT_SIZE - 2) / 2,
+    backgroundColor: AppTheme.colors.textMuted,
+    opacity: 0.7,
+  },
+  bandLine: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 0,
+    borderTopWidth: 1,
+    borderStyle: "dashed",
+    opacity: 0.9,
+  },
+  bandLabel: {
+    position: "absolute",
+    right: 0,
+    top: -8,
+    fontSize: 9,
+    fontWeight: "800",
+  },
+  hourPlotArea: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+  },
+  hourBar: {
+    position: "absolute",
+    bottom: 0,
+    borderRadius: 3,
+    backgroundColor: AppTheme.colors.brand,
+    opacity: 0.75,
+  },
+  hourBarSelected: {
+    backgroundColor: AppTheme.colors.brandDark,
+    opacity: 1,
+  },
+  hourBarHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  dayTitle: {
+    color: AppTheme.colors.textSoft,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  dayChevron: {
+    minWidth: 36,
+    minHeight: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    backgroundColor: AppTheme.colors.softSurface,
+  },
+  dayChevronText: {
+    color: AppTheme.colors.brandDark,
+    fontSize: 18,
+    fontWeight: "900",
+    lineHeight: 20,
+  },
+  hourAxis: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+    paddingHorizontal: 2,
+  },
+  hourAxisLabel: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
   },
   dayRow: {
     marginTop: 12,

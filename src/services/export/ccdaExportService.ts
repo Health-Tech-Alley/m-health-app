@@ -55,6 +55,16 @@ const VITAL_TYPES: HealthSampleType[] = [
   'steps',
   'sleep',
   'coughing',
+  'calories_burned',
+  'hrv_sdnn',
+  'resting_heart_rate',
+  'walking_steadiness',
+  'walking_speed',
+  'step_length',
+  'walking_asymmetry',
+  'walking_double_support',
+  'vo2_max',
+  'six_minute_walk_distance',
 ];
 
 const EXPORT_WINDOW_HOURS = 24;

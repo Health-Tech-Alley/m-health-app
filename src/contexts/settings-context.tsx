@@ -21,6 +21,7 @@ import {
   updateKnowledgeGraphExpansion,
   updateLiveClinicalFetch,
   updateHealthKitIntegrationEnabled,
+  updateSimulateMissingOptionalFeatures,
   type AppSettings,
 } from '@/data';
 import type {
@@ -46,6 +47,7 @@ interface SettingsContextValue {
   setLiveClinicalFetch: (enabled: boolean) => void;
   setCarePlanMode: (mode: CarePlanMode) => void;
   setHealthKitIntegrationEnabled: (enabled: boolean) => void;
+  setSimulateMissingOptionalFeatures: (enabled: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -113,6 +115,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSettings(updated);
   }, []);
 
+  const setSimulateMissingOptionalFeatures = useCallback((enabled: boolean) => {
+    const updated = updateSimulateMissingOptionalFeatures(enabled);
+    setSettings(updated);
+  }, []);
+
   const value = useMemo<SettingsContextValue>(
     () => ({
       settings,
@@ -130,6 +137,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setLiveClinicalFetch,
       setCarePlanMode,
       setHealthKitIntegrationEnabled,
+      setSimulateMissingOptionalFeatures,
     }),
     [
       settings,
@@ -145,6 +153,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setLiveClinicalFetch,
       setCarePlanMode,
       setHealthKitIntegrationEnabled,
+      setSimulateMissingOptionalFeatures,
     ],
   );
 

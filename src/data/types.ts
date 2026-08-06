@@ -30,7 +30,17 @@ export type HealthSampleType =
   | 'distance'
   | 'flights_climbed'
   | 'sleep'
-  | 'coughing';
+  | 'coughing'
+  | 'calories_burned'
+  | 'hrv_sdnn'
+  | 'resting_heart_rate'
+  | 'walking_steadiness'
+  | 'walking_speed'
+  | 'step_length'
+  | 'walking_asymmetry'
+  | 'walking_double_support'
+  | 'vo2_max'
+  | 'six_minute_walk_distance';
 
 /**
  * Frozen list of `HealthSampleType` values for runtime membership checks
@@ -54,6 +64,16 @@ export const HEALTH_SAMPLE_TYPES: readonly HealthSampleType[] = [
   'flights_climbed',
   'sleep',
   'coughing',
+  'calories_burned',
+  'hrv_sdnn',
+  'resting_heart_rate',
+  'walking_steadiness',
+  'walking_speed',
+  'step_length',
+  'walking_asymmetry',
+  'walking_double_support',
+  'vo2_max',
+  'six_minute_walk_distance',
 ];
 
 export interface HealthSample {
@@ -893,6 +913,12 @@ export interface AppSettings {
    * constantly queried.
    */
   healthKitIntegrationEnabled: boolean;
+  /**
+   * Developer-only test flag: synthetically reports the Concierge SLM and
+   * knowledge cache as not downloaded, so the optional-feature prompt and
+   * grey-out surfaces (doc 26 §7) can be exercised without removing models.
+   */
+  simulateMissingOptionalFeatures: boolean;
 }
 
 // ---------------------------------------------------------------------------

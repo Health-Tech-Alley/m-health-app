@@ -29,12 +29,14 @@ import { ThinkingIndicator } from '@/components/concierge/ThinkingIndicator';
 import { AiSuggestsTagline } from '@/components/AiSuggestsTagline';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { CitationList } from '@/components/common/CitationList';
+import { OptionalFeaturePrompt } from '@/components/optional-feature-prompt';
 import {
   useOrchestrator,
   useOrchestratorPatientId,
 } from '@/contexts/orchestrator-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useSettings } from '@/contexts/settings-context';
+import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
 import { isModelInstalled } from '@/services/model-storage';
 import {
   getAlertById,
@@ -123,6 +125,7 @@ export default function SlmExplainScreen() {
   const router = useRouter();
   const orchestrator = useOrchestrator();
   const slm = useSLM();
+  const optionalGate = useOptionalFeatureGate('slm');
   const { settings } = useSettings();
   const patientId = useOrchestratorPatientId();
   const {
@@ -421,6 +424,22 @@ export default function SlmExplainScreen() {
     log('Caregiver confirmed the Concierge explanation.');
     setFeedback('Got it. The next step is in your hands.');
   }, [alert, patientId, log]);
+
+  if (!optionalGate.ready) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <View style={styles.topBar}>
+            <Pressable onPress={() => router.back()} hitSlop={12}>
+              <Text style={styles.backLink}>← Back</Text>
+            </Pressable>
+            <Text style={styles.topTitle}>Concierge</Text>
+          </View>
+          <OptionalFeaturePrompt requirement="slm" />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>

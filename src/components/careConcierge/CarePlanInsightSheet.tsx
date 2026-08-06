@@ -29,11 +29,13 @@ import {
 } from 'react-native';
 
 import { MarkdownRenderer } from '@/components/markdown-renderer';
+import { OptionalFeaturePrompt } from '@/components/optional-feature-prompt';
 import { AppTheme } from '@/constants/theme';
 import { CitationList } from '@/components/common/CitationList';
 import { useSLM } from '@/contexts/slm-context';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
+import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
 import {
   retrievePlanChunks,
   formatCitationsForPrompt,
@@ -73,6 +75,7 @@ export function CarePlanInsightSheet({
   intentArgs,
 }: CarePlanInsightSheetProps) {
   const slm = useSLM();
+  const optionalGate = useOptionalFeatureGate('both');
   const {
     acquireSlm,
     loadModel: slmLoadModel,
@@ -285,11 +288,14 @@ export function CarePlanInsightSheet({
   ]);
 
   // One auto-run per open+intent; StrictMode-safe via ranRef.
+  // Skipped entirely while the optional-feature gate reports missing
+  // SLM/knowledge (developer testing mode) — no model may load.
   useEffect(() => {
     if (!visible) {
       ranRef.current = false;
       return;
     }
+    if (!optionalGate.ready) return;
     if (ranRef.current) return;
     ranRef.current = true;
     const handle = setTimeout(() => {
@@ -297,7 +303,7 @@ export function CarePlanInsightSheet({
     }, 0);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, intent?.intentId]);
+  }, [visible, intent?.intentId, optionalGate.ready]);
 
   // When parent hides the sheet without handleClose (e.g. proposal resolve),
   // still abort work and drop the lease so the task queue can unload.
@@ -422,6 +428,27 @@ export function CarePlanInsightSheet({
   const statusLabel = deriveStatusLabel(phase, currentModelId, error);
   const statusTone = deriveStatusTone(phase);
   const inProgress = phase === 'loading' || phase === 'thinking' || phase === 'streaming';
+
+  if (!optionalGate.ready) {
+    return (
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
+        <View style={styles.overlay}>
+          <Pressable style={styles.backdrop} onPress={handleClose} />
+          <View style={[styles.sheet, styles.greyedSheet]}>
+            <View style={styles.header}>
+              <Text style={styles.title}>{intent?.caregiverLabel ?? 'Care Concierge'}</Text>
+              <Pressable style={styles.closeButton} onPress={handleClose} hitSlop={12}>
+                <Text style={styles.closeText}>×</Text>
+              </Pressable>
+            </View>
+            <View style={styles.greyedBody}>
+              <OptionalFeaturePrompt requirement="both" onDismiss={handleClose} />
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
@@ -601,6 +628,15 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     paddingTop: 12,
     paddingBottom: 24,
+  },
+  greyedSheet: {
+    minHeight: 260,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  greyedBody: {
+    paddingTop: 16,
   },
   handle: {
     width: 40,
