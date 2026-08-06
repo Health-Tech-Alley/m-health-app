@@ -4,8 +4,10 @@ import { Paths } from "expo-file-system";
  * Model family — drives chat-template behavior and generation sampling.
  * `gemma4` = Gemma 4 E2B (think-prefix channel, Google/Unsloth sampling).
  * `qwen3` = Qwen3-derived (Bonsai 8B, jinja-native `<think>` template).
+ * `lfm2` = Liquid LFM2.5 (hybrid conv+GQA, template-native `<think>`, low-temp
+ *          sampling; bounded-shallow FAST profile lives in concierge.ts).
  */
-export type ModelFamily = "gemma4" | "qwen3";
+export type ModelFamily = "gemma4" | "qwen3" | "lfm2";
 
 export type ThinkProfile =
   | { mode: "gemma4-prefix"; openTag?: string; closeTag?: string }
@@ -96,6 +98,30 @@ export const MODEL_CATALOG: ModelEntry[] = [
     think: { mode: "template-native", openTag: "<think>", closeTag: "</think>" },
     experimental: true,
   },
+  {
+    id: "lfm2-5-2-6b",
+    displayName: "LFM2.5 2.6B",
+    file: "LFM2.5-2.6B-Q4_K_M.gguf",
+    hfRepo: "LiquidAI/LFM2.5-2.6B-GGUF",
+    hfFile: "LFM2.5-2.6B-Q4_K_M.gguf",
+    sizeBytes: 1_674_454_848,
+    family: "lfm2",
+    tagline: "Agentic on-device model — best tool use & instruction following in class",
+    bullets: [
+      "~1.67 GB — smaller than Gemma, stronger tool use (BFCLv4 56.9 vs 37.0)",
+      "Hybrid LFM2 arch — fast CPU decode, small KV cache, 128K native context",
+      "Template-native <think> — pure reasoning model (bounded-shallow FAST tier)",
+      "Liquid-recommended sampling: temp 0.1 / top-k 50",
+    ],
+    preferredNCtx: 8192,
+    // LFM2 is a hybrid arch (conv blocks + GQA). Metal offload of hybrid
+    // state is unverified on device — start CPU-first until Track B smoke
+    // passes. ~30 tok/s CPU on phone per Liquid.
+    nGpuLayers: 0,
+    sampling: { temperature: 0.1, topP: 0.95, topK: 50 },
+    think: { mode: "template-native", openTag: "<think>", closeTag: "</think>" },
+    experimental: true,
+  },
 ];
 
 export function getModelEntry(modelId: string | null | undefined): ModelEntry | undefined {
@@ -131,4 +157,7 @@ export function resolveActiveModelId(
 export const KV_BYTES_PER_TOKEN: Record<ModelFamily, number> = {
   gemma4: 50 * 1024,
   qwen3: 144 * 1024,
+  // LFM2 hybrid: only 8 of 30 blocks are GQA attention (22 are conv blocks
+  // with small recurrent state), so KV is far below the full-GQA qwen3.
+  lfm2: 32 * 1024,
 };

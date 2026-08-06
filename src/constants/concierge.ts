@@ -81,6 +81,34 @@ export function getConciergeGeneration(
     };
   }
 
+  // LFM2.5 is also a template-native reasoning model (its chat template forces
+  // a <think> channel on every generation prompt), but unlike Bonsai it gets a
+  // BOUNDED-SHALLOW FAST tier: thinking still runs (it cannot be disabled by
+  // reasoningFormat), yet the answer budget is capped and the model is nudged
+  // toward a direct answer (see message-mapping.ts template-native branch).
+  // reasoningFormat 'none' keeps the nudge active while maxReasoningTokens
+  // reserves headroom so the forced think does not starve the answer.
+  if (entry?.family === 'lfm2') {
+    if (mode === 'fast') {
+      return {
+        maxTokens: CONCIERGE_GENERATION_FAST.maxTokens,
+        maxReasoningTokens: 64,
+        temperature: entry.sampling.temperature,
+        topP: entry.sampling.topP,
+        topK: entry.sampling.topK,
+        reasoningFormat: 'none',
+      };
+    }
+    return {
+      maxTokens: CONCIERGE_GENERATION_DEEP.maxTokens,
+      maxReasoningTokens: CONCIERGE_GENERATION_DEEP.maxReasoningTokens,
+      temperature: entry.sampling.temperature,
+      topP: entry.sampling.topP,
+      topK: entry.sampling.topK,
+      reasoningFormat: 'auto',
+    };
+  }
+
   if (mode === 'fast') {
     if (!modelId || modelId === DEFAULT_SLM_MODEL_ID) return CONCIERGE_GENERATION_FAST;
     return {

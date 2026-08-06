@@ -145,7 +145,8 @@ export function SlmModelCarousel({
                 ) : null}
               </View>
               <Text style={styles.meta}>
-                ~{formatBytes(item.sizeBytes)} · {item.family === 'qwen3' ? 'Qwen3' : 'Gemma 4'} ·
+                ~{formatBytes(item.sizeBytes)} ·{' '}
+                {item.family === 'qwen3' ? 'Qwen3' : item.family === 'lfm2' ? 'LFM2.5' : 'Gemma 4'} ·{' '}
                 {item.preferredNCtx >= 8192 ? ' 8K context' : ' 4K context'}
                 {item.nGpuLayers === 0 ? ' · CPU' : ''}
               </Text>

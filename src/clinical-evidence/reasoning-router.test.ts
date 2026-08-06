@@ -142,4 +142,49 @@ describe('selectChatGeneration', () => {
     expect(d.profile.maxTokens).toBe(-1);
     expect(d.profile.temperature).toBe(0.7);
   });
+
+  it('routes LFM2.5 FAST-eligible intents to the bounded-shallow FAST tier', () => {
+    const d = selectChatGeneration({
+      intent: makeIntent('caregiver_chat_general', 0.9),
+      modelId: 'lfm2-5-2-6b',
+    });
+    expect(d.reason).toBe('fast_intent:caregiver_chat_general');
+    expect(d.profile.maxTokens).toBe(256);
+    expect(d.profile.maxReasoningTokens).toBe(64);
+    expect(d.profile.temperature).toBe(0.1);
+    expect(d.profile.topK).toBe(50);
+  });
+
+  it('routes LFM2.5 clinical intents to DEEP even at high confidence', () => {
+    const d = selectChatGeneration({
+      intent: makeIntent('knowledge_qa', 0.99),
+      modelId: 'lfm2-5-2-6b',
+    });
+    expect(d.reason).toBe('always_deep_intent:knowledge_qa');
+    expect(d.profile.maxTokens).toBe(-1);
+    expect(d.profile.reasoningFormat).toBe('auto');
+    expect(d.profile.temperature).toBe(0.1);
+  });
+
+  it('routes LFM2.5 low-confidence turns to DEEP (fail-closed)', () => {
+    const d = selectChatGeneration({
+      intent: makeIntent('caregiver_chat_general', 0.4),
+      modelId: 'lfm2-5-2-6b',
+    });
+    expect(d.reason).toContain('low_confidence');
+    expect(d.profile.maxTokens).toBe(-1);
+  });
+
+  it('overrides LFM2.5 FAST to DEEP when 2+ clinical chunks present', () => {
+    const d = selectChatGeneration({
+      intent: makeIntent('caregiver_chat_general', 0.9),
+      message: 'What are the symptoms of autonomic dysreflexia?',
+      conditions: ['Spina bifida'],
+      meds: [],
+      citedChunkCount: 3,
+      modelId: 'lfm2-5-2-6b',
+    });
+    expect(d.reason).toBe('fast_intent_overridden_by_clinical_chunks');
+    expect(d.profile.maxTokens).toBe(-1);
+  });
 });

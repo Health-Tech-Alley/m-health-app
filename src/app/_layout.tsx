@@ -15,6 +15,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { CriticalAlertDialog } from "@/components/critical-alert-dialog";
+import { DeprecatedModelsGate } from "@/components/models/DeprecatedModelsGate";
 import { HypotheticalCriticalBanner } from "@/components/notifications/hypothetical-critical-banner";
 import { InAppBanner } from "@/components/notifications/in-app-banner";
 import { CriticalAlertProvider } from "@/contexts/critical-alert-context";
@@ -186,28 +187,30 @@ export default function RootLayout() {
     <Provider store={store}>
       <LoggerInit />
       <ThemeProvider value={DefaultTheme}>
-        <SettingsProvider>
-          <PatientRecordProvider>
-            <SLMProvider>
-              <SlmPolicySync />
-              <NotificationInit />
-              <NotificationResponseInit />
-              <SensorProvider>
-                <UC2RuntimeProvider>
-                  <OrchestratorProvider>
-                    <CriticalAlertProvider>
-                      <AnimatedSplashOverlay />
-                      <InAppBanner />
-                      <HypotheticalCriticalBanner />
-                      <CriticalAlertDialog />
-                      <Stack screenOptions={{ headerShown: false }} />
-                    </CriticalAlertProvider>
-                  </OrchestratorProvider>
-                </UC2RuntimeProvider>
-              </SensorProvider>
-            </SLMProvider>
-          </PatientRecordProvider>
-        </SettingsProvider>
+        <DeprecatedModelsGate>
+          <SettingsProvider>
+            <PatientRecordProvider>
+              <SLMProvider>
+                <SlmPolicySync />
+                <NotificationInit />
+                <NotificationResponseInit />
+                <SensorProvider>
+                  <UC2RuntimeProvider>
+                    <OrchestratorProvider>
+                      <CriticalAlertProvider>
+                        <AnimatedSplashOverlay />
+                        <InAppBanner />
+                        <HypotheticalCriticalBanner />
+                        <CriticalAlertDialog />
+                        <Stack screenOptions={{ headerShown: false }} />
+                      </CriticalAlertProvider>
+                    </OrchestratorProvider>
+                  </UC2RuntimeProvider>
+                </SensorProvider>
+              </SLMProvider>
+            </PatientRecordProvider>
+          </SettingsProvider>
+        </DeprecatedModelsGate>
       </ThemeProvider>
     </Provider>
   );
