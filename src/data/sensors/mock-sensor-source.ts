@@ -35,6 +35,16 @@ const PERSONA_BASELINES: Record<MockPersona, Record<string, { value: number; uni
     coughing: { value: 0, unit: 'count', variance: 0 },
     weight: { value: 70, unit: 'kg', variance: 0.5 },
     height: { value: 175, unit: 'cm', variance: 0 },
+    calories_burned: { value: 2200, unit: 'kcal', variance: 300 },
+    hrv_sdnn: { value: 55, unit: 'ms', variance: 8 },
+    resting_heart_rate: { value: 62, unit: 'bpm', variance: 3 },
+    walking_steadiness: { value: 95, unit: '%', variance: 2 },
+    walking_speed: { value: 1.4, unit: 'm/s', variance: 0.15 },
+    step_length: { value: 70, unit: 'cm', variance: 5 },
+    walking_asymmetry: { value: 5, unit: '%', variance: 2 },
+    walking_double_support: { value: 20, unit: '%', variance: 3 },
+    vo2_max: { value: 40, unit: 'ml/kg/min', variance: 2 },
+    six_minute_walk_distance: { value: 500, unit: 'm', variance: 40 },
   },
   'spina-bifida': {
     spo2: { value: 96, unit: '%', variance: 1.5 },
@@ -51,6 +61,16 @@ const PERSONA_BASELINES: Record<MockPersona, Record<string, { value: number; uni
     coughing: { value: 0, unit: 'count', variance: 0 },
     weight: { value: 45, unit: 'kg', variance: 0.5 },
     height: { value: 155, unit: 'cm', variance: 0 },
+    calories_burned: { value: 1200, unit: 'kcal', variance: 200 },
+    hrv_sdnn: { value: 45, unit: 'ms', variance: 8 },
+    resting_heart_rate: { value: 60, unit: 'bpm', variance: 3 },
+    walking_steadiness: { value: 60, unit: '%', variance: 5 },
+    walking_speed: { value: 0.6, unit: 'm/s', variance: 0.1 },
+    step_length: { value: 35, unit: 'cm', variance: 4 },
+    walking_asymmetry: { value: 15, unit: '%', variance: 3 },
+    walking_double_support: { value: 35, unit: '%', variance: 4 },
+    vo2_max: { value: 25, unit: 'ml/kg/min', variance: 2 },
+    six_minute_walk_distance: { value: 250, unit: 'm', variance: 30 },
   },
   'post-stroke': {
     spo2: { value: 96, unit: '%', variance: 1.5 },
@@ -67,6 +87,16 @@ const PERSONA_BASELINES: Record<MockPersona, Record<string, { value: number; uni
     coughing: { value: 0, unit: 'count', variance: 1 },
     weight: { value: 78, unit: 'kg', variance: 0.5 },
     height: { value: 170, unit: 'cm', variance: 0 },
+    calories_burned: { value: 1400, unit: 'kcal', variance: 250 },
+    hrv_sdnn: { value: 35, unit: 'ms', variance: 6 },
+    resting_heart_rate: { value: 66, unit: 'bpm', variance: 3 },
+    walking_steadiness: { value: 55, unit: '%', variance: 6 },
+    walking_speed: { value: 0.7, unit: 'm/s', variance: 0.12 },
+    step_length: { value: 40, unit: 'cm', variance: 5 },
+    walking_asymmetry: { value: 20, unit: '%', variance: 4 },
+    walking_double_support: { value: 40, unit: '%', variance: 5 },
+    vo2_max: { value: 22, unit: 'ml/kg/min', variance: 2 },
+    six_minute_walk_distance: { value: 220, unit: 'm', variance: 30 },
   },
   'copd-tbi': {
     spo2: { value: 91, unit: '%', variance: 2 },
@@ -81,6 +111,16 @@ const PERSONA_BASELINES: Record<MockPersona, Record<string, { value: number; uni
     coughing: { value: 1, unit: 'count', variance: 1 },
     weight: { value: 51.71, unit: 'kg', variance: 0.5 },
     height: { value: 149.9, unit: 'cm', variance: 0 },
+    calories_burned: { value: 1100, unit: 'kcal', variance: 200 },
+    hrv_sdnn: { value: 30, unit: 'ms', variance: 6 },
+    resting_heart_rate: { value: 78, unit: 'bpm', variance: 4 },
+    walking_steadiness: { value: 70, unit: '%', variance: 6 },
+    walking_speed: { value: 0.8, unit: 'm/s', variance: 0.12 },
+    step_length: { value: 45, unit: 'cm', variance: 5 },
+    walking_asymmetry: { value: 10, unit: '%', variance: 3 },
+    walking_double_support: { value: 30, unit: '%', variance: 4 },
+    vo2_max: { value: 18, unit: 'ml/kg/min', variance: 2 },
+    six_minute_walk_distance: { value: 180, unit: 'm', variance: 25 },
   },
 };
 
@@ -217,6 +257,36 @@ export class MockSensorSource implements SensorSource {
         break;
       case 'coughing':
         value = clamp(Math.round(jitter(base, variance)), 0, 50);
+        break;
+      case 'calories_burned':
+        value = clamp(Math.round(jitter(base, variance)), 0, 8000);
+        break;
+      case 'hrv_sdnn':
+        value = clamp(Math.round(jitter(base, variance)), 10, 150);
+        break;
+      case 'resting_heart_rate':
+        value = clamp(Math.round(jitter(base, variance)), 40, 120);
+        break;
+      case 'walking_steadiness':
+        value = clamp(jitter(base, variance), 0, 100);
+        break;
+      case 'walking_speed':
+        value = clamp(jitter(base, variance), 0.3, 2.5);
+        break;
+      case 'step_length':
+        value = clamp(jitter(base, variance), 20, 120);
+        break;
+      case 'walking_asymmetry':
+        value = clamp(jitter(base, variance), 0, 50);
+        break;
+      case 'walking_double_support':
+        value = clamp(jitter(base, variance), 0, 60);
+        break;
+      case 'vo2_max':
+        value = clamp(jitter(base, variance), 10, 60);
+        break;
+      case 'six_minute_walk_distance':
+        value = clamp(Math.round(jitter(base, variance)), 50, 900);
         break;
       default:
         value = jitter(base, variance);

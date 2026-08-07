@@ -69,6 +69,8 @@ export interface InferenceProvider {
   getContextSize?(): number;
   /** Catalog id of the loaded model, when known. */
   getLoadedModelId?(): string | null;
+  /** Set the Concierge reasoning mode ('auto' | 'off'). Optional — mocks may omit. */
+  setReasoningMode?(mode: 'auto' | 'off'): void;
   chat(
     messages: ChatMessage[],
     onToken: TokenCallback,

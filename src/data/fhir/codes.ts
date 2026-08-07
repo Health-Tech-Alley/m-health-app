@@ -52,6 +52,16 @@ export const VITAL_LOINC_MAP: Record<HealthSampleType, LoincVitalBinding | null>
   flights_climbed: null,
   sleep: { loinc: '93832-8', display: 'Sleep duration', unit: 'h', ucumCode: 'h' },
   coughing: { loinc: '8716-3', display: 'Coughing', unit: '1', ucumCode: '1' },
+  calories_burned: { loinc: '41981-2', display: 'Active energy burned', unit: 'kcal', ucumCode: 'kcal' },
+  hrv_sdnn: { loinc: '80404-7', display: 'Heart rate variability', unit: 'ms', ucumCode: 'ms' },
+  resting_heart_rate: { loinc: '40443-4', display: 'Resting heart rate', unit: '/min', ucumCode: '/min' },
+  walking_steadiness: { loinc: '93667-9', display: 'Walking steadiness', unit: '%', ucumCode: '%' },
+  walking_speed: { loinc: '41967-1', display: 'Walking speed', unit: 'm/s', ucumCode: 'm/s' },
+  step_length: { loinc: '41968-9', display: 'Walking step length', unit: 'cm', ucumCode: 'cm' },
+  walking_asymmetry: { loinc: '41969-7', display: 'Gait asymmetry', unit: '%', ucumCode: '%' },
+  walking_double_support: { loinc: '41970-5', display: 'Double support time', unit: '%', ucumCode: '%' },
+  vo2_max: { loinc: '38206-6', display: 'VO2 maximum', unit: 'ml/kg/min', ucumCode: 'ml/kg/min' },
+  six_minute_walk_distance: { loinc: '41979-6', display: 'Six minute walk distance', unit: 'm', ucumCode: 'm' },
 };
 
 export const COUGHING_SNOMED = { code: '49727002', display: 'Cough (finding)' };

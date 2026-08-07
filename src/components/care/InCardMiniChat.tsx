@@ -24,6 +24,7 @@ import {
 
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { ObservationPicker } from '@/components/ObservationPicker';
+import { OptionalFeaturePrompt } from '@/components/optional-feature-prompt';
 import { AppTheme } from '@/constants/theme';
 import { useOrchestratorRetriever } from '@/contexts/orchestrator-context';
 import {
@@ -32,7 +33,8 @@ import {
 } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
+import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
+import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
 import {
@@ -106,8 +108,12 @@ export function InCardMiniChat({
   } = slm;
   const { snapshot, patientId } = usePatientRecord();
   const { settings, isDeveloper } = useSettings();
+  const optionalGate = useOptionalFeatureGate('both');
   const retriever = useOrchestratorRetriever();
-  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
+  // Effective default — a single installed model is always the default.
+  const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
+    MODEL_CATALOG.some((m) => m.id === id && isModelInstalled(m)),
+  );
   const effectiveCacheTitle = cacheTitle ?? title;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -459,6 +465,35 @@ export function InCardMiniChat({
   if (!visible) return null;
 
   const visibleMessages = messages.filter((m) => !m.hidden);
+
+  if (!optionalGate.ready) {
+    return (
+      <View
+        style={[styles.card, embedded && styles.cardEmbedded]}
+        accessibilityLabel={title}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title} numberOfLines={2}>
+            {title}
+          </Text>
+          <Pressable
+            style={styles.closeButton}
+            onPress={requestClose}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Close mini Concierge"
+          >
+            <Text style={styles.closeText}>×</Text>
+          </Pressable>
+        </View>
+        <OptionalFeaturePrompt
+          requirement="both"
+          onDismiss={requestClose}
+          simulatedMissing={optionalGate.simulatedMissing}
+        />
+      </View>
+    );
+  }
 
   return (
     <View

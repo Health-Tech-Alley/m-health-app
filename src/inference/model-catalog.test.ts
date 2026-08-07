@@ -20,6 +20,21 @@ describe('model catalog (multi-model)', () => {
     expect(bonsai?.experimental).toBe(true);
   });
 
+  it('exposes LFM2.5-2.6B as an experimental lfm2-family model', () => {
+    const lfm2 = getModelEntry('lfm2-5-2-6b');
+    expect(lfm2).toBeDefined();
+    expect(lfm2?.family).toBe('lfm2');
+    expect(lfm2?.experimental).toBe(true);
+    expect(lfm2?.hfRepo).toBe('LiquidAI/LFM2.5-2.6B-GGUF');
+    expect(lfm2?.hfFile).toBe('LFM2.5-2.6B-Q4_K_M.gguf');
+    expect(lfm2?.sizeBytes).toBe(1_674_454_848);
+    // LFM2 Q4_K_M uses standard Metal kernels — GPU offload with CPU fallback.
+    expect(lfm2?.nGpuLayers).toBe(-1);
+    expect(lfm2?.think.mode).toBe('template-native');
+    expect(lfm2?.sampling.temperature).toBeLessThan(0.5);
+    expect(lfm2?.sampling.topK).toBe(50);
+  });
+
   it('carries per-family think and sampling profiles', () => {
     const gemma = getModelEntry('gemma-4-e2b')!;
     const bonsai = getModelEntry('bonsai-8b-1bit')!;
@@ -51,8 +66,29 @@ describe('model catalog (multi-model)', () => {
     expect(resolveActiveModelId(null, () => false)).toBe(DEFAULT_SLM_MODEL_ID);
   });
 
+  it('always returns the single installed model as default, ignoring the persisted preference', () => {
+    const installed = new Set(['lfm2-5-2-6b']);
+    const isInstalled = (id: string) => installed.has(id);
+
+    // Persisted default is a different model that is NOT installed.
+    expect(resolveActiveModelId('gemma-4-e2b', isInstalled)).toBe('lfm2-5-2-6b');
+    // Persisted default is the installed model — still resolves to it.
+    expect(resolveActiveModelId('lfm2-5-2-6b', isInstalled)).toBe('lfm2-5-2-6b');
+  });
+
+  it('respects the persisted preference when multiple models are installed', () => {
+    const installed = new Set(['gemma-4-e2b', 'bonsai-8b-1bit']);
+    const isInstalled = (id: string) => installed.has(id);
+
+    expect(resolveActiveModelId('bonsai-8b-1bit', isInstalled)).toBe('bonsai-8b-1bit');
+    expect(resolveActiveModelId(null, isInstalled)).toBe('gemma-4-e2b');
+  });
+
   it('provides KV-cache estimates for the RAM gate', () => {
     expect(KV_BYTES_PER_TOKEN.gemma4).toBeGreaterThan(0);
     expect(KV_BYTES_PER_TOKEN.qwen3).toBeGreaterThan(KV_BYTES_PER_TOKEN.gemma4);
+    // Hybrid LFM2 — only 8 of 30 blocks are GQA attention → small KV.
+    expect(KV_BYTES_PER_TOKEN.lfm2).toBeLessThan(KV_BYTES_PER_TOKEN.qwen3);
+    expect(KV_BYTES_PER_TOKEN.lfm2).toBeGreaterThan(0);
   });
 });

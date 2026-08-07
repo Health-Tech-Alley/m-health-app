@@ -9,8 +9,8 @@ It is a living document — update it as the UI evolves.
 > Markdown, see [`MARKDOWN_GUIDE.md`](./MARKDOWN_GUIDE.md).
 > For the high-level pitch, see the root [`README.md`](../README.md).
 >
-> **Last pass aligned to codebase:** 2026-07-31 (5-tab shell, multi-model catalog,
-> Care ADCP spine, NLU/safety refuses, knowledge-bundle runner, 34 repos).
+> **Last pass aligned to codebase:** 2026-08-06 (multi-model catalog incl. LFM2.5,
+> models-folder cleanup + startup gate, Care ADCP spine, NLU/safety refuses, knowledge pack).
 
 ---
 
@@ -101,7 +101,7 @@ Every tab uses the branded `ScreenHeader` (Health Tech Alley logo + title).
 | `secure-messaging.tsx` | Local encrypted messaging UI |
 | `select-fhir-profile.tsx` / `ehr-complete.tsx` | FHIR persona pick + post-import |
 | `profile.tsx` | Caregiver & patient profile (stack) |
-| `models.tsx` | Concierge Brain download manager (Gemma default / Bonsai 8B alternate) |
+| `models.tsx` | Concierge model manager (Gemma default / Bonsai 8B + LFM2.5 alternates) |
 | `care-management.tsx` / `health-monitor-demo.tsx` | Health Monitor harness |
 | `acute-anomaly.tsx` | Orchestration E2E demo (developer) |
 | `performance.tsx` | 1 Hz RAM dashboard |
@@ -248,7 +248,10 @@ the model itself without a queue lease, it unloads it on close (auto policy
 only — in Developer/manual policy the developer manages the model). In dynamic
 mode (doc 34), the model unloads **immediately** when the last lease ends
 (`autoUnloadMs = 0`). The default model is configurable in **Settings →
-Developer → Default SLM Model** (`demoDefaultModelId` in `app_settings`).
+Developer → Default SLM Model** (`demoDefaultModelId` in `app_settings`);
+**when exactly one model is installed it is always the effective default** —
+the persisted preference cannot point at a model that is not on-device
+(`resolveActiveModelId` in `model-catalog.ts`).
 
 ### Clinical knowledge pack (on-device)
 
@@ -375,7 +378,7 @@ Alerts can be swipe-dismissed (resolved) from the active list.
 
 ### Concierge chat (`slm.tsx`)
 
-On-device Concierge chat (Gemma 4 E2B). Also the **Concierge** tab
+On-device Concierge chat (Gemma 4 E2B default; Bonsai 8B / LFM2.5 alternates). Also the **Concierge** tab
 (`assistant.tsx`, `showBackButton={false}`). Standalone `/slm` keeps Back.
 Pipeline: **safety refuses** → **Pre-SLM NLU** (embedder + intent head +
 retrieval packet) → generation with care context + citations. Streaming,
@@ -410,14 +413,36 @@ control-token stripping, multiline input, Care Context card.
 
 ### Models (`src/app/models/`)
 
-- Catalog: **Gemma 4 E2B Instruct** (`gemma-4-e2b`, Q4_K_M, ~2.4 GB) is the default;
-  **Bonsai 8B (1-bit)** (`bonsai-8b-1bit`, `prism-ml/Bonsai-8B-gguf` Q1_0, ~1.15 GB) is an
-  experimental alternate — `src/inference/model-catalog.ts`. HealthGPT-Pro entries were removed.
+- Catalog: **Gemma 4 E2B Instruct** (`gemma-4-e2b`, Q4_K_M, ~2.9 GB) is the default;
+  **Bonsai 8B (1-bit)** (`bonsai-8b-1bit`, `prism-ml/Bonsai-8B-gguf` Q1_0, ~1.15 GB, Metal GPU) and
+  **LFM2.5 2.6B** (`lfm2-5-2-6b`, `LiquidAI/LFM2.5-2.6B-GGUF` Q4_K_M, ~1.67 GB, Metal GPU) are
+  experimental alternates — `src/inference/model-catalog.ts`. HealthGPT-Pro entries were removed.
+- LFM2.5 and Bonsai are template-native reasoning models: their GGUFs force
+  a `<think>` open on every generation prompt and ignore `reasoning_format`.
+  When **Concierge reasoning** is `auto` (default) the NLU decides per turn
+  via the same intent/confidence/clinical-chunk routing as Gemma: FAST-eligible
+  intents (`caregiver_chat_general`, `schedule_care`, `other`, high
+  confidence, no clinical chunks) get a **no-think chat template**
+  (`src/inference/no-think-templates.ts`) with an unlimited answer budget;
+  clinical / low-confidence / chunk-overridden turns keep reasoning on.
+- **Concierge reasoning toggle** (Settings → Developer → Runtime gates,
+  `conciergeReasoning` in `app_settings`, default `auto`): `off` forces direct
+  answers on every turn for every model — Gemma via `reasoning_format: none`,
+  LFM2.5 / Bonsai via the no-think chat-template override. Faster turns,
+  lower quality on complex clinical questions.
 - Download from Hugging Face with progress, cancel, delete; optional HF token
   in `expo-secure-store`.
 - Models live under the app documents `models/` directory (**git-ignored**).
 - Shared **`SlmModelCarousel` + `useModelDownloadQueue`** power Models, Settings,
   and onboarding Device setup (one SLM download app-wide).
+- **Clean models folder** button (Models screen): deletes any file in `models/`
+  that is not a complete download of a supported model (orphans from removed
+  catalog entries, interrupted downloads, stray temp files) — name + exact size
+  must match a catalog entry to be kept. Disabled while a download is running.
+- **Startup model-folder gate** (`DeprecatedModelsGate` in the root layout):
+  on app start the models folder is scanned before any app surface renders; if
+  deprecated/partial files are found, a blocking dialog with a single **Delete**
+  button is shown and the app appears only after the folder is clean.
 
 ### Care Management (`src/app/care-management/`)
 

@@ -11,6 +11,7 @@ import { MissingNativeModuleError } from './missing-native-module-error';
 import { File } from 'expo-file-system';
 import { getModelEntry } from './model-catalog';
 import { mapMessagesForModel } from './message-mapping';
+import { noThinkChatTemplateForFamily } from './no-think-templates';
 
 /**
  * Remove inline thinking blocks from a raw completion string.
@@ -43,6 +44,14 @@ export class LlamaRnProvider implements InferenceProvider {
   /** Single-flight lock — concurrent initLlama races crash native llama.rn. */
   private loadInflight: Promise<void> | null = null;
   private loadedPath: string | null = null;
+  /**
+   * Concierge reasoning mode ('auto' default).
+   * 'off' forces direct answers: Gemma disables thinking via reasoning_format,
+   * and template-native families (lfm2 / qwen3) get a no-think chat template
+   * override so their GGUF's forced <think> injection is skipped.
+   * Set by slm-context from app_settings (conciergeReasoning).
+   */
+  private reasoningMode: 'auto' | 'off' = 'auto';
   /** Catalog id of the loaded model (set via LoadOptions.modelId). */
   private loadedModelId: string | null = null;
   /** n_ctx of the successfully loaded context (prompt budgeting). */
@@ -171,6 +180,8 @@ export class LlamaRnProvider implements InferenceProvider {
     // GPU policy: `options.nGpuLayers` comes from the catalog.
     // - Gemma: -1 (Metal) with CPU fallback on the last rung.
     // - Bonsai 8B (1-bit Q1_0): -1 — Q1_0 has Metal kernels in llama.rn 0.12.x.
+    // - LFM2.5 (lfm2, Q4_K_M): -1 — standard Metal kernels (vendored lfm2.cpp
+    //   + hybrid memory); CPU fallback rung applies.
     // - A future CPU-only quant (e.g. TQ2_0 ternary, which has no Metal
     //   kernels and hard-crashes under Metal offload) must set nGpuLayers: 0.
     const preferredCtx = options?.nCtx ?? 4096;
@@ -206,6 +217,16 @@ export class LlamaRnProvider implements InferenceProvider {
           model: cleanPath,
           n_ctx: a.nCtx,
           n_gpu_layers: a.gpuLayers,
+          // Speed: flash attention (prefill) + q8_0 KV cache (decode + RAM).
+          // 'auto' enables FA where the backend supports it (Metal) and falls
+          // back silently otherwise; q8_0 KV is supported on all backends.
+          flash_attn_type: 'auto',
+          cache_type_k: 'q8_0',
+          cache_type_v: 'q8_0',
+          // Batch sizing: 1024/512 is the llama.rn-recommended prefill
+          // throughput point; larger batches speed up long RAG prompts.
+          n_batch: 1024,
+          n_ubatch: 512,
         });
         console.log(`[LlamaRnProvider] Model loaded successfully with ${a.label}`);
         lastErr = null;
@@ -261,6 +282,11 @@ export class LlamaRnProvider implements InferenceProvider {
 
   getModelInfo(): ModelInfo | null {
     return this.modelInfo;
+  }
+
+  /** Set the Concierge reasoning mode ('auto' | 'off'). See class docs. */
+  setReasoningMode(mode: 'auto' | 'off'): void {
+    this.reasoningMode = mode;
   }
 
   /** Context window size of the loaded model (tokens). */
@@ -400,13 +426,24 @@ export class LlamaRnProvider implements InferenceProvider {
 
       signal.addEventListener('abort', abortHandler);
 
-      const reasoningFormat = options?.reasoningFormat ?? 'none';
+      const reasoningOff = this.reasoningMode === 'off';
+      // 'off': force reasoning off for every model. In 'auto' the per-turn
+      // reasoningFormat comes from the NLU-decided profile (FAST → 'none',
+      // DEEP → 'auto').
+      const reasoningFormat = reasoningOff ? 'none' : options?.reasoningFormat ?? 'none';
       const enableThinking = reasoningFormat === 'auto';
       // Family-aware message mapping: Gemma 4 gets a <|think|> prefix on the
       // system turn when thinking; Qwen3-family (Bonsai) gets a direct-answer
       // nudge when thinking is off (its template forces <think> anyway).
       const entry = getModelEntry(this.loadedModelId);
       const mappedMessages = mapMessagesForModel(messages, entry, enableThinking);
+      // Template-native families (lfm2 / qwen3) get the no-think chat template
+      // whenever THIS turn runs without reasoning — either the global 'off'
+      // override or an NLU-decided FAST turn. Gemma honors 'none' natively.
+      const chatTemplate =
+        reasoningFormat === 'none'
+          ? noThinkChatTemplateForFamily(entry?.family)
+          : undefined;
 
       // Family-aware sampling defaults. When the caller leaves sampling at
       // the shared Gemma defaults (1.0 / 0.95 / 64) while a non-Gemma model
@@ -443,6 +480,7 @@ export class LlamaRnProvider implements InferenceProvider {
             jinja: true,
             enable_thinking: enableThinking,
             reasoning_format: reasoningFormat,
+            ...(chatTemplate ? { chat_template: chatTemplate } : {}),
           },
           (data: any) => {
             // Case (a): llama.rn already separated the reasoning channel.

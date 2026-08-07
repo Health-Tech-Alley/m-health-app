@@ -25,16 +25,18 @@ import {
 
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { ObservationPicker } from '@/components/ObservationPicker';
+import { OptionalFeaturePrompt } from '@/components/optional-feature-prompt';
 import { AppTheme } from '@/constants/theme';
 import { useCriticalAlert } from '@/contexts/critical-alert-context';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
+import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
 import type { NextStepActionId, PatientRecordSnapshot } from '@/data/types';
 import { executeNextStep } from '@/orchestration/next-steps';
 import { audit } from '@/services/audit/auditService';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
+import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
 import { getConciergeGeneration } from '@/constants/concierge';
@@ -114,9 +116,13 @@ export function CarePlanAskChat({
     currentModelId,
   } = slm;
   const { settings } = useSettings();
+  const optionalGate = useOptionalFeatureGate('both');
   const { refresh, patientId } = usePatientRecord();
   const { presentCaregiverReportedEmergency } = useCriticalAlert();
-  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
+  // Effective default — a single installed model is always the default.
+  const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
+    MODEL_CATALOG.some((m) => m.id === id && isModelInstalled(m)),
+  );
 
   const [composerText, setComposerText] = useState('');
   const [routingBusy, setRoutingBusy] = useState(false);
@@ -772,6 +778,23 @@ export function CarePlanAskChat({
   }, [proposalBusy, proposalIds, refresh]);
 
   const visibleMessages = messages.filter((m) => !m.hidden);
+
+  if (!optionalGate.ready) {
+    return (
+      <View style={styles.wrap} accessible accessibilityLabel="Ask about the care plan">
+        <View style={styles.card}>
+          <Text style={styles.title}>Ask about the plan</Text>
+          <Text style={styles.subtitle}>
+            The Concierge powers care-plan questions. It is not downloaded yet.
+          </Text>
+          <OptionalFeaturePrompt
+            requirement="both"
+            simulatedMissing={optionalGate.simulatedMissing}
+          />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.wrap} accessible accessibilityLabel="Ask about the care plan">

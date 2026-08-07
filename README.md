@@ -167,7 +167,7 @@ The caregiver's calendar view of the care plan in motion.
 ## Tech Stack
 
 - **Framework:** Expo SDK ~56.0.12 + React Native 0.85.3 + expo-router
-- **On-device Concierge:** llama.cpp via `llama.rn` — **Gemma-4-E2B-it Q4_K_M** default (`InferenceProvider`), Bonsai-8B 1-bit alternate (Metal GPU)
+- **On-device Concierge:** llama.cpp via `llama.rn` — **Gemma-4-E2B-it Q4_K_M** default (`InferenceProvider`), Bonsai-8B 1-bit + LFM2.5-2.6B alternates (experimental)
 - **Pre-SLM NLU:** TFLite leaf-ir embedder + chat/care intent heads (`src/nlu/`)
 - **Orchestration:** In-process MCP — 4 agents, CEP debounce, confidence router, prompt-budget guard
 - **Retrieval:** CachedFusedRetriever — BM25 → graph 1-hop → dense rerank over global pack ∪ patient overlay
@@ -339,7 +339,8 @@ npm run ios
 ## Concierge (chat)
 
 The **Concierge** tab (`src/app/(tabs)/assistant.tsx` → `src/app/slm.tsx`) is the full
-caregiver chat surface for on-device **Gemma 4 E2B**. Turns run Pre-SLM NLU and
+caregiver chat surface for the on-device SLM (Gemma 4 E2B default; Bonsai 8B 1-bit and
+LFM2.5-2.6B experimental alternates). Turns run Pre-SLM NLU and
 deterministic safety refuses before generation.
 
 - **Multiline, auto-growing input** — The chat box is a `TextInput` with a custom
@@ -419,7 +420,7 @@ end-to-end rather than being built one layer at a time.
 | L2 | App Services (Context + Redux, notifications, consent, audit, care-plan coaching) | All three pillars |
 | L3 | Event Bus — CEP + context aggregator | Care (anomaly CEP), Schedule |
 | L4 | MCP orchestration — 4 agents, fused tool-RAG + knowledge-RAG, FHIR adapter | All three pillars |
-| L5 | Decision Engine — Concierge (Gemma 4 E2B), Pre-SLM NLU, Health Monitor / UC2–4 | All three pillars |
+| L5 | Decision Engine — Concierge SLM (Gemma 4 E2B default; Bonsai / LFM2.5 alternates), Pre-SLM NLU, Health Monitor / UC2–4 | All three pillars |
 | L6 | Knowledge — on-device pack + hybrid RAG, clinical-evidence clients | Meds + Care |
 | L7 | Local Data — SQLite (34 repos), ADCP, Apple Health / mock sensors, FHIR fixtures | All three pillars |
 
@@ -458,7 +459,7 @@ m-health-app/
 │   ├── components/              # dashboard/, care/, careConcierge/, messaging/, …
 │   ├── contexts/                # settings, patient-record, slm, sensor, uc2, orchestrator, critical-alert
 │   ├── store/                   # Redux Toolkit slices
-│   ├── inference/               # InferenceProvider, llama.rn, model-catalog (Gemma default + Bonsai 8B)
+│   ├── inference/               # InferenceProvider, llama.rn, model-catalog (Gemma default + Bonsai/LFM2.5 alternates)
 │   ├── nlu/                     # Pre-SLM NLU, app-surfaces, intent heads
 │   ├── ml-models/               # UC2 / UC3 / UC4 + alert autoencoder
 │   ├── services/                # carePlan/, slm/, ml/, uc3/, uc4/, messaging/, …

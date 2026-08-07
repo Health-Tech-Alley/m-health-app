@@ -29,12 +29,14 @@ import {
 } from 'react-native';
 
 import { MarkdownRenderer } from '@/components/markdown-renderer';
+import { OptionalFeaturePrompt } from '@/components/optional-feature-prompt';
 import { AppTheme } from '@/constants/theme';
 import { CitationList } from '@/components/common/CitationList';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
+import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
+import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import type { SlmTaskReason, SlmTaskLease } from '@/services/slm/slm-task-queue';
 import { isModelInstalled } from '@/services/model-storage';
 import {
@@ -79,6 +81,7 @@ export function SlmInsightSheet({
   allowMinimize = true,
 }: SlmInsightSheetProps) {
   const slm = useSLM();
+  const optionalGate = useOptionalFeatureGate('slm');
   const {
     acquireSlm,
     provider,
@@ -91,7 +94,10 @@ export function SlmInsightSheet({
   const { snapshot, patientId } = usePatientRecord();
   const { settings, isDeveloper } = useSettings();
   const retriever = useOrchestratorRetriever();
-  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
+  // Effective default — a single installed model is always the default.
+  const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
+    MODEL_CATALOG.some((m) => m.id === id && isModelInstalled(m)),
+  );
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [answer, setAnswer] = useState('');
@@ -647,7 +653,7 @@ export function SlmInsightSheet({
       const handle = setTimeout(() => {
         setMounted(true);
         animateOpen();
-        if (!ranRef.current) {
+        if (!ranRef.current && optionalGate.ready) {
           ranRef.current = true;
           void runExplain();
         }
@@ -658,7 +664,7 @@ export function SlmInsightSheet({
       animateClose();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
+  }, [visible, optionalGate.ready]);
 
   useEffect(() => {
     if (!mounted || presentation !== 'full') return;
@@ -756,6 +762,42 @@ export function SlmInsightSheet({
   const isMini = presentation === 'mini';
 
   if (!mounted) return null;
+
+  if (!optionalGate.ready) {
+    const greyedOverlay = (
+      <View style={allowMinimize ? styles.miniHost : styles.overlay}>
+        <View style={[styles.sheet, styles.greyedSheet]}>
+          <View style={styles.header}>
+            <Text style={styles.title} numberOfLines={2}>
+              {title}
+            </Text>
+            <Pressable
+              style={styles.closeButton}
+              onPress={requestClose}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Close Concierge"
+            >
+              <Text style={styles.closeText}>×</Text>
+            </Pressable>
+          </View>
+          <View style={styles.greyedBody}>
+            <OptionalFeaturePrompt
+              requirement="slm"
+              onDismiss={requestClose}
+              simulatedMissing={optionalGate.simulatedMissing}
+            />
+          </View>
+        </View>
+      </View>
+    );
+    if (allowMinimize) return greyedOverlay;
+    return (
+      <Modal visible transparent animationType="none" onRequestClose={requestClose}>
+        {greyedOverlay}
+      </Modal>
+    );
+  }
 
   const sheetContent = (
     <Animated.View
@@ -1016,6 +1058,15 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: AppTheme.colors.border,
     ...AppTheme.shadow,
+  },
+  greyedSheet: {
+    minHeight: 260,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  greyedBody: {
+    paddingTop: 16,
   },
   miniHost: {
     ...StyleSheet.absoluteFill,

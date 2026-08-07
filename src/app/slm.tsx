@@ -37,6 +37,7 @@ import {
 import { MainTabHeader } from '@/components/MainTabHeader';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { CitationList, citationsToSources } from '@/components/common/CitationList';
+import { OptionalFeaturePrompt } from '@/components/optional-feature-prompt';
 import {
   ThinkingIndicator,
   shouldOfferTellMeMore,
@@ -47,6 +48,7 @@ import { getConciergeGeneration } from '@/constants/concierge';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import { CHAT_UNLOAD_GRACE_MS, useSLM } from '@/contexts/slm-context';
+import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
 import { useOrchestratorSafe, useOrchestratorRetriever, useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { useTheme } from '@/hooks/use-theme';
 import type { ChatMessage as ProviderChatMessage } from '@/inference/inference-provider';
@@ -541,6 +543,7 @@ export default function SLMScreen({
   showBackButton?: boolean;
 } = {}) {
   const slm = useSLM();
+  const optionalGate = useOptionalFeatureGate('slm');
   const theme = useTheme();
   const { settings, isDeveloper } = useSettings();
   const { snapshot, ready, error: patientRecordError } = usePatientRecord();
@@ -2015,6 +2018,30 @@ export default function SLMScreen({
   const patientRecordLoading = !ready;
   const isInputDisabled = slm.loadStatus !== 'ready' && slm.loadStatus !== 'idle';
 
+  if (!optionalGate.ready) {
+    return (
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: AppTheme.colors.screen }]}
+        edges={showBackButton ? ['top', 'bottom'] : ['top']}
+      >
+        {showBackButton ? (
+          <View style={styles.headerRow}>
+            <Pressable onPress={() => router.back()} style={styles.backButton}>
+              <Text style={styles.backText}>← Back</Text>
+            </Pressable>
+            <Text style={styles.headerTitle}>Concierge Support</Text>
+          </View>
+        ) : null}
+        <View style={styles.greyedBody}>
+          <OptionalFeaturePrompt
+            requirement="slm"
+            simulatedMissing={optionalGate.simulatedMissing}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: AppTheme.colors.screen }]}
@@ -2388,6 +2415,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 4,
+  },
+  headerTitle: {
+    color: AppTheme.colors.sectionText,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  greyedBody: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 24,
   },
   headerRowTab: {
     justifyContent: 'space-between',

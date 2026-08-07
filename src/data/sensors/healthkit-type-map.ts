@@ -16,6 +16,16 @@ export const HK_TYPE_BY_SAMPLE_TYPE: Record<HealthSampleType, string | null> = {
   flights_climbed: 'HKQuantityTypeIdentifierFlightsClimbed',
   sleep: 'HKCategoryTypeIdentifierSleepAnalysis',
   coughing: 'HKCategoryTypeIdentifierCoughing',
+  calories_burned: 'HKQuantityTypeIdentifierActiveEnergyBurned',
+  hrv_sdnn: 'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
+  resting_heart_rate: 'HKQuantityTypeIdentifierRestingHeartRate',
+  walking_steadiness: 'HKQuantityTypeIdentifierAppleWalkingSteadiness',
+  walking_speed: 'HKQuantityTypeIdentifierWalkingSpeed',
+  step_length: 'HKQuantityTypeIdentifierWalkingStepLength',
+  walking_asymmetry: 'HKQuantityTypeIdentifierWalkingAsymmetryPercentage',
+  walking_double_support: 'HKQuantityTypeIdentifierWalkingDoubleSupportPercentage',
+  vo2_max: 'HKQuantityTypeIdentifierVO2Max',
+  six_minute_walk_distance: 'HKQuantityTypeIdentifierSixMinuteWalkTestDistance',
 };
 
 export const SAMPLE_TYPE_BY_HK_TYPE: Record<string, HealthSampleType> = Object.entries(
@@ -31,6 +41,10 @@ export const ALL_HEALTHKIT_READ_TYPES: HealthSampleType[] = [
   'temperature', 'weight', 'height',
   'blood_glucose', 'steps', 'distance',
   'flights_climbed', 'sleep', 'coughing',
+  'calories_burned', 'hrv_sdnn', 'resting_heart_rate',
+  'walking_steadiness', 'walking_speed', 'step_length',
+  'walking_asymmetry', 'walking_double_support',
+  'vo2_max', 'six_minute_walk_distance',
 ];
 
 export const UNIT_BY_SAMPLE_TYPE: Record<HealthSampleType, string> = {
@@ -49,4 +63,14 @@ export const UNIT_BY_SAMPLE_TYPE: Record<HealthSampleType, string> = {
   flights_climbed: 'count',
   sleep: 'category',
   coughing: 'count',
+  calories_burned: 'kcal',
+  hrv_sdnn: 'ms',
+  resting_heart_rate: 'bpm',
+  walking_steadiness: '%',
+  walking_speed: 'm/s',
+  step_length: 'cm',
+  walking_asymmetry: '%',
+  walking_double_support: '%',
+  vo2_max: 'ml/kg/min',
+  six_minute_walk_distance: 'm',
 };

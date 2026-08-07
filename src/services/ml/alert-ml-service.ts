@@ -43,6 +43,8 @@ import type { OrchestrationEvent } from '@/orchestration/events';
 import { store } from '@/store';
 import {
   filterLiveVitalReadingsForPatient,
+  isProductionWearableSource,
+  selectProductionWearableReadingsForPatient,
   type LiveVitalReading,
 } from '@/store/reducers/vitalsSlice';
 import { normalizeSpo2Percent } from '@/utils/spo2';
@@ -69,6 +71,15 @@ function toUc2BodyTemperature(value: number, unit?: string): number {
   return value;
 }
 
+/**
+ * Deterministic sleep-quality score (0–100) from a sleep reading.
+ * Values are hours (mock/category duration convention); 9h maps to 100.
+ */
+function deriveSleepQuality(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((value / 9) * 100)));
+}
+
 type InputProvenance = MlRawVitalsInputEnvelope['provenance'];
 type ProvenanceSample = Pick<
   HealthSample,
@@ -90,7 +101,10 @@ type RuntimeInputField =
   | 'glucose_level'
   | 'body_temperature'
   | 'respiratory_rate'
-  | 'steps_count';
+  | 'steps_count'
+  | 'hrv_sdnn'
+  | 'calories_burned'
+  | 'sleep_quality';
 
 type TfliteCapableAlertModel = AlertMlModel & {
   readonly scalerParams: StandardScalerParams | null;
@@ -195,7 +209,7 @@ export class AlertMlService {
 
     const built = readings
       ? this.buildInputFromReadings(patientId, new Date(triggeringEvent.recordedAt), readings)
-      : this.buildInputFromRecentSamples(patientId, new Date(triggeringEvent.recordedAt));
+      : this.buildReduxOrSqliteInput(patientId, new Date(triggeringEvent.recordedAt), triggeringEvent.source);
     if (!built) return null;
     if (__DEV__) {
       console.log('[ML] Built UC2 input for patientId=', shortPatientId(patientId), 'input:', {
@@ -538,6 +552,26 @@ export class AlertMlService {
     return this.buildInputFromLatestSamples(patientId, timestamp, get, options);
   }
 
+  /**
+   * Redux-first input builder for the ambient path. Apple-health reads come
+   * from `vitalsSlice` (apple-health samples are not persisted to SQLite), so
+   * production-wearable sources resolve from Redux before any SQLite fallback.
+   * The SQLite path remains only for sources that do persist (mock/fhir/manual).
+   */
+  private buildReduxOrSqliteInput(
+    patientId: string,
+    timestamp: Date,
+    source: string | undefined,
+  ): BuiltMlInput | null {
+    if (source !== undefined && isProductionWearableSource(source as HealthSample['source'])) {
+      const readings = selectProductionWearableReadingsForPatient(store.getState(), patientId);
+      if (readings.length > 0) {
+        return this.buildInputFromReadings(patientId, timestamp, readings);
+      }
+    }
+    return this.buildInputFromRecentSamples(patientId, timestamp);
+  }
+
   private buildInputFromLatestSamples(
     patientId: string,
     timestamp: Date,
@@ -553,6 +587,9 @@ export class AlertMlService {
     const glucose = get('blood_glucose');
     const resp = get('respiratory_rate');
     const steps = get('steps');
+    const hrv = get('hrv_sdnn');
+    const calories = get('calories_burned');
+    const sleep = get('sleep');
 
     const qualifyingSamples: Array<[HealthSampleType, ProvenanceSample | null]> = [
       ['spo2', spo2],
@@ -628,14 +665,14 @@ export class AlertMlService {
       body_temperature: temp ? toUc2BodyTemperature(temp.value, temp.unit) : undefined,
       respiratory_rate: resp?.value ?? undefined,
       steps_count: steps?.value ?? undefined,
-      // Extended vitals not yet sourced from HealthKit — left undefined so the
-      // UC2 imputation path fills them with patient-profile / fallback defaults
-      // and tags them `imputed` in the feature-quality provenance.
+      hrv_sdnn: hrv?.value ?? undefined,
+      calories_burned: calories?.value ?? undefined,
+      sleep_quality: sleep ? deriveSleepQuality(sleep.value) : undefined,
+      // Remaining extended vitals not yet sourced — left undefined so the
+      // UC2 imputation path fills them with patient-profile / fallback
+      // defaults and tags them `imputed` in the feature-quality provenance.
       activity_level: undefined,
-      sleep_quality: undefined,
       stress_level: undefined,
-      hrv_sdnn: undefined,
-      calories_burned: undefined,
     };
 
     const provenanceEntries: Partial<Record<RuntimeInputField, InputProvenance[string]>> = {
@@ -651,6 +688,9 @@ export class AlertMlService {
       body_temperature: temp ? sampleProvenance(temp, 'temperature') : undefined,
       respiratory_rate: resp ? sampleProvenance(resp, 'respiratory_rate') : undefined,
       steps_count: steps ? sampleProvenance(steps, 'steps') : undefined,
+      hrv_sdnn: hrv ? sampleProvenance(hrv, 'hrv_sdnn') : undefined,
+      calories_burned: calories ? sampleProvenance(calories, 'calories_burned') : undefined,
+      sleep_quality: sleep ? sampleProvenance(sleep, 'sleep') : undefined,
     };
 
     const provenance = Object.fromEntries(

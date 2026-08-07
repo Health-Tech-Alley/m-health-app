@@ -9,6 +9,7 @@ import { MODEL_CATALOG, type ModelEntry } from '@/inference/model-catalog';
 import { downloadModel } from '@/services/model-download';
 import {
   clearAllModels,
+  cleanModelsFolder as cleanModelsFolderFiles,
   deleteModel,
   isModelInstalled,
 } from '@/services/model-storage';
@@ -231,6 +232,22 @@ export function removeAllDownloadedModels(): number {
   return n;
 }
 
+/**
+ * Delete every file in the models folder that is not a complete file of a
+ * supported model (orphans from removed catalog entries, partial downloads,
+ * stray temp files). Installed models are untouched. Active downloads are
+ * cancelled first so a partial file is not deleted mid-write.
+ * Returns the number of removed items.
+ */
+export function cleanModelsFolder(): number {
+  for (const id of [...cancelHandles.keys()]) {
+    cancelModelDownload(id);
+  }
+  const n = cleanModelsFolderFiles();
+  refreshInstalled();
+  return n;
+}
+
 export function useModelDownloadQueue() {
   const snap = useSyncExternalStore(
     subscribeModelDownloadQueue,
@@ -256,6 +273,8 @@ export function useModelDownloadQueue() {
 
   const clearAll = useCallback(() => removeAllDownloadedModels(), []);
 
+  const cleanFolder = useCallback(() => cleanModelsFolder(), []);
+
   const anyDownloading = snap.activeModelId != null;
   const anyInstalled = snap.rows.some((r) => r.status === 'installed');
 
@@ -268,6 +287,7 @@ export function useModelDownloadQueue() {
     cancelDownload,
     removeModel,
     clearAll,
+    cleanFolder,
     refresh: refreshInstalled,
   };
 }

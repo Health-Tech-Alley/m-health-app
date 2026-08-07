@@ -2,7 +2,6 @@ import { useRouter } from "expo-router";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -18,9 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { DeviceSetupStep } from "@/components/models/DeviceSetupStep";
 import { AppTheme } from "@/constants/theme";
-import { isPackReady } from "@/clinical-evidence/pack";
-import { useModelDownloadQueue } from "@/hooks/useModelDownloadQueue";
-import { useKnowledgePackInstall } from "@/hooks/useKnowledgePackInstall";
+import { useSettings } from "@/contexts/settings-context";
 import {
   refreshPatientRecord,
   selectPatientRecord,
@@ -417,6 +414,7 @@ export default function OnboardingScreen() {
   const existingProfile = getOnboardingProfile();
   const { snapshot, ready } = usePatientRecord();
   const { importBundledEhrProfile } = useBundledEhrImport();
+  const { setSimulateMissingOptionalFeatures } = useSettings();
 
   const [stepIndex, setStepIndex] = useState(0);
   const [expandedSelect, setExpandedSelect] = useState<ExpandedSelect>(null);
@@ -786,15 +784,6 @@ export default function OnboardingScreen() {
   const isDeviceSetupStep = stepIndex === 6;
   const isFinalStep = isDeviceSetupStep;
   const formStepNumber = Math.max(stepIndex, 1);
-  const packInstall = useKnowledgePackInstall();
-  const modelQueue = useModelDownloadQueue();
-  const knowledgeReady = packInstall.isReady || (() => {
-    try {
-      return isPackReady();
-    } catch {
-      return false;
-    }
-  })();
 
   const deviceSetupRunnerOptions = useMemo(() => {
     const conditions = patientConditions
@@ -842,20 +831,10 @@ export default function OnboardingScreen() {
   }
 
   async function finishOnboardingFromDeviceSetup() {
-    if (!knowledgeReady) {
-      Alert.alert(
-        "Clinical knowledge required",
-        "Clinical knowledge must finish downloading first.",
-      );
-      return;
-    }
-    if (!modelQueue.anyInstalled) {
-      Alert.alert(
-        "Concierge model required",
-        "Download at least one Concierge model to finish setup. The Concierge needs an on-device model for chat, explanations, and care-plan support.",
-      );
-      return;
-    }
+    // First-run guard: never leave the developer "Simulate missing Concierge /
+    // knowledge" flag on after onboarding — it would hide the SLM from a
+    // caregiver even when a model is installed.
+    setSimulateMissingOptionalFeatures(false);
     router.replace("/dashboard");
   }
 
@@ -1019,6 +998,9 @@ export default function OnboardingScreen() {
           setStepIndex(6);
           return;
         }
+        // First-run guard: clear the developer "Simulate missing" flag so the
+        // SLM is never hidden from a freshly onboarded caregiver.
+        setSimulateMissingOptionalFeatures(false);
         router.replace("/dashboard");
       } catch (error) {
         console.error("Failed to complete onboarding for imported patient", error);
@@ -1038,6 +1020,9 @@ export default function OnboardingScreen() {
       setStepIndex(6);
       return;
     }
+    // First-run guard: clear the developer "Simulate missing" flag so the SLM
+    // is never hidden from a freshly onboarded caregiver.
+    setSimulateMissingOptionalFeatures(false);
     router.replace("/dashboard");
   }
 
@@ -1725,7 +1710,21 @@ export default function OnboardingScreen() {
             ) : null}
 
             {stepIndex === 6 ? (
-              <DeviceSetupStep runnerOptions={deviceSetupRunnerOptions} />
+              <>
+                <DeviceSetupStep runnerOptions={deviceSetupRunnerOptions} />
+                <View style={styles.optionalFeatureBlock}>
+                  <Text style={styles.optionalFeatureTitle}>Optional Feature</Text>
+                  <Text style={styles.optionalFeatureBody}>
+                    The Concierge (on-device AI) and Clinical Knowledge are
+                    optional downloads. They enhance the app with explanations
+                    of alerts, medication checks, care-plan support, and
+                    grounded answers with citations. You can skip them now and
+                    download later from Settings → Models and Clinical
+                    Knowledge. All health monitoring and care-planning
+                    features work without them.
+                  </Text>
+                </View>
+              </>
             ) : null}
 
             {stepIndex === 5 ? (
@@ -1803,9 +1802,7 @@ export default function OnboardingScreen() {
             <Pressable
               style={[
                 styles.primaryButton,
-                isFinalStep && !knowledgeReady && styles.primaryButtonDisabled,
               ]}
-              disabled={isFinalStep && !knowledgeReady}
               onPress={goNext}
             >
               <Text style={styles.primaryButtonText}>
@@ -1816,11 +1813,6 @@ export default function OnboardingScreen() {
                     : "Continue"}
               </Text>
             </Pressable>
-            {isFinalStep && !knowledgeReady ? (
-              <Text style={styles.footerHint}>
-                Clinical knowledge must finish downloading first.
-              </Text>
-            ) : null}
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -3091,6 +3083,27 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "600",
   },
+  optionalFeatureBlock: {
+    backgroundColor: AppTheme.colors.softSurface,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    padding: 16,
+    marginBottom: 8,
+    gap: 6,
+  },
+  optionalFeatureTitle: {
+    color: AppTheme.colors.brandDark,
+    fontSize: 14,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+  },
+  optionalFeatureBody: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "600",
+  },
 
   deviceCard: {
     borderRadius: AppTheme.radius.card,
@@ -3194,15 +3207,6 @@ const styles = StyleSheet.create({
     backgroundColor: AppTheme.colors.screen,
     borderTopWidth: 1,
     borderTopColor: AppTheme.colors.border,
-  },
-  primaryButtonDisabled: {
-    opacity: 0.45,
-  },
-  footerHint: {
-    marginTop: 8,
-    textAlign: "center",
-    fontSize: 13,
-    color: AppTheme.colors.textMuted,
   },
   primaryButton: {
     minHeight: 58,

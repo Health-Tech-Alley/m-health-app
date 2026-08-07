@@ -44,4 +44,16 @@ describe('mapMessagesForModel', () => {
     const second = mapMessagesForModel(first, getModelEntry('bonsai-8b-1bit'), false);
     expect(second[0].content).toBe(first[0].content);
   });
+
+  it('does not prefix <|think|> for LFM2.5 with thinking on (template-native)', () => {
+    const mapped = mapMessagesForModel(messages, getModelEntry('lfm2-5-2-6b'), true);
+    expect(mapped[0].content).toBe('You are the Concierge.');
+  });
+
+  it('appends a direct-answer nudge for LFM2.5 with thinking off (bounded shallow)', () => {
+    const mapped = mapMessagesForModel(messages, getModelEntry('lfm2-5-2-6b'), false);
+    expect(mapped[0].content).toContain('Answer directly and briefly');
+    expect(mapped[0].content).toContain('Do not include a thinking block');
+    expect(mapped[1]).toEqual(user);
+  });
 });

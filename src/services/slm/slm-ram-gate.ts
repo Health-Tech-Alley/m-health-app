@@ -34,8 +34,8 @@ export type RamGateResult =
 export function checkSlmRamGate(modelId: string, nCtx?: number): RamGateResult {
   const entry = MODEL_CATALOG.find((m) => m.id === modelId);
   const modelMB = entry
-    ? (entry.sizeBytes ?? 2.4e9) / (1024 * 1024)
-    : 2400;
+    ? (entry.sizeBytes ?? 3.1e9) / (1024 * 1024)
+    : 3100;
   const ctxTokens = nCtx ?? entry?.preferredNCtx ?? 4096;
   const kvMB = entry
     ? ((KV_BYTES_PER_TOKEN[entry.family] ?? KV_BYTES_PER_TOKEN.gemma4) * ctxTokens) / (1024 * 1024)

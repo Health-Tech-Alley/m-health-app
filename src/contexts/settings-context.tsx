@@ -12,6 +12,7 @@ import {
   getAppSettings,
   updateAppMode,
   updateCarePlanMode,
+  updateConciergeReasoning,
   updateTheme,
   updateNotificationPreferences,
   updateDemoDefaultModelId,
@@ -21,11 +22,13 @@ import {
   updateKnowledgeGraphExpansion,
   updateLiveClinicalFetch,
   updateHealthKitIntegrationEnabled,
+  updateSimulateMissingOptionalFeatures,
   type AppSettings,
 } from '@/data';
 import type {
   AppMode,
   CarePlanMode,
+  ConciergeReasoningMode,
   ThemePreference,
   NotificationPreferences,
 } from '@/data/types';
@@ -46,6 +49,8 @@ interface SettingsContextValue {
   setLiveClinicalFetch: (enabled: boolean) => void;
   setCarePlanMode: (mode: CarePlanMode) => void;
   setHealthKitIntegrationEnabled: (enabled: boolean) => void;
+  setSimulateMissingOptionalFeatures: (enabled: boolean) => void;
+  setConciergeReasoning: (mode: ConciergeReasoningMode) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -113,6 +118,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSettings(updated);
   }, []);
 
+  const setSimulateMissingOptionalFeatures = useCallback((enabled: boolean) => {
+    const updated = updateSimulateMissingOptionalFeatures(enabled);
+    setSettings(updated);
+  }, []);
+
+  const setConciergeReasoning = useCallback((mode: ConciergeReasoningMode) => {
+    const updated = updateConciergeReasoning(mode);
+    setSettings(updated);
+  }, []);
+
   const value = useMemo<SettingsContextValue>(
     () => ({
       settings,
@@ -130,6 +145,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setLiveClinicalFetch,
       setCarePlanMode,
       setHealthKitIntegrationEnabled,
+      setSimulateMissingOptionalFeatures,
+      setConciergeReasoning,
     }),
     [
       settings,
@@ -145,6 +162,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setLiveClinicalFetch,
       setCarePlanMode,
       setHealthKitIntegrationEnabled,
+      setSimulateMissingOptionalFeatures,
+      setConciergeReasoning,
     ],
   );
 

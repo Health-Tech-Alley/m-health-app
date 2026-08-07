@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,11 +13,11 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { SlmModelCarousel } from '@/components/models/SlmModelCarousel';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { AppTheme, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useSettings } from '@/contexts/settings-context';
 import { useTheme } from '@/hooks/use-theme';
 import { useModelDownloadQueue } from '@/hooks/useModelDownloadQueue';
-import { MODEL_CATALOG, DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
+import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import type { ModelsState } from './types';
 
 type ModelsViewProps = {
@@ -28,10 +29,13 @@ type ModelsViewProps = {
 export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
   const theme = useTheme();
   const { settings, setDemoDefaultModelId } = useSettings();
-  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
+  const queue = useModelDownloadQueue();
+  // Effective default — a single installed model is always the default.
+  const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
+    queue.rows.some((r) => r.id === id && r.status === 'installed'),
+  );
   const [tokenInput, setTokenInput] = useState('');
   const [tokenSectionOpen, setTokenSectionOpen] = useState(false);
-  const queue = useModelDownloadQueue();
 
   useEffect(() => {
     const tag = 'models-screen-download';
@@ -49,6 +53,28 @@ export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
     const action = await controller.saveHfToken(tokenInput);
     dispatch(action);
   }, [controller, tokenInput, dispatch]);
+
+  const handleCleanModelsFolder = useCallback(() => {
+    Alert.alert(
+      'Clean models folder',
+      'Removes any file in the models folder that is not a complete download of a supported model (orphaned files, interrupted downloads, leftover temp files). Installed models are kept.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clean',
+          style: 'destructive',
+          onPress: () => {
+            const removed = queue.cleanFolder();
+            const detail =
+              removed > 0
+                ? `Removed ${removed} file${removed === 1 ? '' : 's'}.`
+                : 'The models folder is already clean.';
+            Alert.alert('Models folder cleaned', detail);
+          },
+        },
+      ],
+    );
+  }, [queue]);
 
   return (
     <ThemedView style={styles.container}>
@@ -109,6 +135,34 @@ export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
           )}
 
           <SlmModelCarousel showDelete />
+
+          <ThemedView type="backgroundElement" style={styles.defaultSection}>
+            <ThemedText type="smallBold">Model storage</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Delete leftover files that are not complete downloads of supported
+              models (e.g. files left behind after removing a model).
+            </ThemedText>
+            <Pressable
+              onPress={handleCleanModelsFolder}
+              disabled={queue.anyDownloading}
+              style={[
+                styles.actionButton,
+                {
+                  backgroundColor: AppTheme.colors.dangerSoft,
+                  alignSelf: 'flex-start',
+                  opacity: queue.anyDownloading ? 0.5 : 1,
+                },
+              ]}>
+              <ThemedText style={{ color: '#ffffff', fontWeight: '600' }}>
+                Clean models folder
+              </ThemedText>
+            </Pressable>
+            {queue.anyDownloading ? (
+              <ThemedText type="small" themeColor="textSecondary">
+                Cleaning is disabled while a model is downloading.
+              </ThemedText>
+            ) : null}
+          </ThemedView>
 
           <ThemedView type="backgroundElement" style={styles.defaultSection}>
             <ThemedText type="smallBold">Default Concierge model</ThemedText>

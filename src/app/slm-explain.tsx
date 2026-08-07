@@ -29,12 +29,14 @@ import { ThinkingIndicator } from '@/components/concierge/ThinkingIndicator';
 import { AiSuggestsTagline } from '@/components/AiSuggestsTagline';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { CitationList } from '@/components/common/CitationList';
+import { OptionalFeaturePrompt } from '@/components/optional-feature-prompt';
 import {
   useOrchestrator,
   useOrchestratorPatientId,
 } from '@/contexts/orchestrator-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useSettings } from '@/contexts/settings-context';
+import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
 import { isModelInstalled } from '@/services/model-storage';
 import {
   getAlertById,
@@ -43,7 +45,7 @@ import {
   insertCaregiverAction,
 } from '@/data';
 import type { NextStepActionId } from '@/data/types';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
+import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import type { AgentProposal } from '@/orchestration';
 import { executeNextStep, type NextStepExecutionResult } from '@/orchestration/next-steps';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
@@ -89,7 +91,7 @@ function formatLoadFailureMessage(raw: string): string {
     return (
       `${raw}\n\n` +
       'Tips: close other apps, unload Concierge from Models/Settings if it is half-loaded, ' +
-      'then retry. Prefer Gemma-4-E2B (~2.4 GB) if a larger model is selected.'
+      'then retry. Prefer Gemma-4-E2B (~2.9 GB) if a larger model is selected.'
     );
   }
   if (lower.includes('not installed') || lower.includes('not found')) {
@@ -102,15 +104,15 @@ function formatLoadFailureMessage(raw: string): string {
 }
 
 /**
- * Resolve the model to load for an explain: the persisted default when it is
- * installed, otherwise the first installed catalog model (multi-model).
+ * Resolve the model to load for an explain: a single installed model is always
+ * the default; otherwise the persisted default when it is installed, otherwise
+ * the first installed catalog model (multi-model).
  */
 function resolveExplainModelId(
   demoDefault: string | null | undefined,
   installed: (id: string) => boolean,
 ): string {
-  if (demoDefault && installed(demoDefault)) return demoDefault;
-  return DEFAULT_SLM_MODEL_ID;
+  return resolveActiveModelId(demoDefault, installed);
 }
 
 type ExplanationTarget =
@@ -123,6 +125,7 @@ export default function SlmExplainScreen() {
   const router = useRouter();
   const orchestrator = useOrchestrator();
   const slm = useSLM();
+  const optionalGate = useOptionalFeatureGate('slm');
   const { settings } = useSettings();
   const patientId = useOrchestratorPatientId();
   const {
@@ -421,6 +424,25 @@ export default function SlmExplainScreen() {
     log('Caregiver confirmed the Concierge explanation.');
     setFeedback('Got it. The next step is in your hands.');
   }, [alert, patientId, log]);
+
+  if (!optionalGate.ready) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <View style={styles.topBar}>
+            <Pressable onPress={() => router.back()} hitSlop={12}>
+              <Text style={styles.backLink}>← Back</Text>
+            </Pressable>
+            <Text style={styles.topTitle}>Concierge</Text>
+          </View>
+          <OptionalFeaturePrompt
+            requirement="slm"
+            simulatedMissing={optionalGate.simulatedMissing}
+          />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>

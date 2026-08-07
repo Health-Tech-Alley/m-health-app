@@ -30,7 +30,17 @@ export type HealthSampleType =
   | 'distance'
   | 'flights_climbed'
   | 'sleep'
-  | 'coughing';
+  | 'coughing'
+  | 'calories_burned'
+  | 'hrv_sdnn'
+  | 'resting_heart_rate'
+  | 'walking_steadiness'
+  | 'walking_speed'
+  | 'step_length'
+  | 'walking_asymmetry'
+  | 'walking_double_support'
+  | 'vo2_max'
+  | 'six_minute_walk_distance';
 
 /**
  * Frozen list of `HealthSampleType` values for runtime membership checks
@@ -54,6 +64,16 @@ export const HEALTH_SAMPLE_TYPES: readonly HealthSampleType[] = [
   'flights_climbed',
   'sleep',
   'coughing',
+  'calories_burned',
+  'hrv_sdnn',
+  'resting_heart_rate',
+  'walking_steadiness',
+  'walking_speed',
+  'step_length',
+  'walking_asymmetry',
+  'walking_double_support',
+  'vo2_max',
+  'six_minute_walk_distance',
 ];
 
 export interface HealthSample {
@@ -852,6 +872,8 @@ export interface NotificationPreferences {
 export type AppMode = 'demo' | 'developer';
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type CarePlanMode = 'full' | 'read_only';
+/** Concierge reasoning mode. 'auto' = model uses its think channel; 'off' = force direct answers (template-native models get a no-think chat template). */
+export type ConciergeReasoningMode = 'auto' | 'off';
 
 export interface AppSettings {
   mode: AppMode;
@@ -893,6 +915,20 @@ export interface AppSettings {
    * constantly queried.
    */
   healthKitIntegrationEnabled: boolean;
+  /**
+   * Developer-only test flag: synthetically reports the Concierge SLM and
+   * knowledge cache as not downloaded, so the optional-feature prompt and
+   * grey-out surfaces (doc 26 §7) can be exercised without removing models.
+   */
+  simulateMissingOptionalFeatures: boolean;
+  /**
+   * Concierge reasoning mode. 'auto' (default): models use their think channel
+   * (Gemma 4 via reasoning_format; LFM2.5 / Bonsai via template-forced think).
+   * 'off': force direct answers — Gemma disables thinking via reasoning_format,
+   * and template-native models (lfm2 / qwen3) get a no-think chat template
+   * override so their GGUF's forced <think> injection is skipped.
+   */
+  conciergeReasoning: ConciergeReasoningMode;
 }
 
 // ---------------------------------------------------------------------------

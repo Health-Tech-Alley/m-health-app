@@ -2,7 +2,7 @@
 
 > **Status:** `InferenceProvider` interface + `LlamaRnProvider` (Track B) implemented.
 
-**What lives here:** the `InferenceProvider` interface, the **llama.rn / llama.cpp** adapter (`llama-rn-provider.ts`), the **GGUF model loader**, the model catalog (`model-catalog.ts`: **Gemma-4-E2B-it Q4_K_M** default + **Bonsai-8B Q1_0 1-bit** experimental alternate), and the cold-start benchmark hooks (notebook 01).
+**What lives here:** the `InferenceProvider` interface, the **llama.rn / llama.cpp** adapter (`llama-rn-provider.ts`), the **GGUF model loader**, the model catalog (`model-catalog.ts`: **Gemma-4-E2B-it Q4_K_M** default + **Bonsai-8B Q1_0 1-bit** and **LFM2.5-2.6B Q4_K_M** experimental alternates), and the cold-start benchmark hooks (notebook 01).
 
 **Two-track providers (provider-swap rule):**
 - **`MockInferenceProvider`** — Track A (Expo Go). Returns canned/templated responses so the full UI + flow
