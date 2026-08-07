@@ -31,7 +31,7 @@ export default function AssistantTab() {
             context.
           </Text>
         </View>
-        <OptionalFeaturePrompt requirement="slm" />
+        <OptionalFeaturePrompt requirement="slm" simulatedMissing={gate.simulatedMissing} />
         <Text style={styles.hint}>
           The Concierge chat unlocks after the on-device model is downloaded.
         </Text>

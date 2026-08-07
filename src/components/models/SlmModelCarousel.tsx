@@ -22,7 +22,7 @@ import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { useSettings } from '@/contexts/settings-context';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
+import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import {
   getInstalledModelIds,
   useModelDownloadQueue,
@@ -55,7 +55,10 @@ export function SlmModelCarousel({
 }: SlmModelCarouselProps) {
   const queue = useModelDownloadQueue();
   const { settings, setDemoDefaultModelId } = useSettings();
-  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
+  // Effective default — a single installed model is always the default.
+  const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
+    queue.rows.some((r) => r.id === id && r.status === 'installed'),
+  );
   const [page, setPage] = useState(0);
   // Actual width of the carousel viewport, measured at layout. The carousel
   // lives inside padded screens, so the window width is NOT the page width —
@@ -229,7 +232,8 @@ export function SlmModelCarousel({
           ))}
         </View>
         <Text style={styles.footerText}>
-          Active default: {defaultModelId === DEFAULT_SLM_MODEL_ID ? 'Gemma 4 E2B' : MODEL_CATALOG.find((m) => m.id === defaultModelId)?.displayName ?? 'Gemma 4 E2B'}
+          Active default:{' '}
+          {MODEL_CATALOG.find((m) => m.id === defaultModelId)?.displayName ?? 'Gemma 4 E2B'}
         </Text>
       </View>
     </View>

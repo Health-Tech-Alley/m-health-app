@@ -3,6 +3,7 @@ import { getDatabase } from '@/data/db';
 import {
   clearActivePatientId,
   getActivePatientId,
+  resetDeveloperTestFlags,
 } from '@/data/repositories/appSettingsRepository';
 import { ensureDefaultNotificationPreferences } from '@/data/repositories/notificationRepository';
 import {
@@ -492,6 +493,11 @@ export async function completeOnboardingProfile(
   saveOnboardingProfile(profile);
   const patientId = seedDatabaseFromProfile(getOnboardingProfile());
 
+  // First-run guard: a stale "Simulate missing Concierge / knowledge" flag
+  // from a previous dev session must not survive onboarding — it would hide
+  // the SLM from the caregiver even though a model is installed.
+  resetDeveloperTestFlags();
+
   return {
     savedInMemory: true,
     seededDatabase: true,
@@ -528,6 +534,10 @@ export async function completeOnboardingProfileForImportedPatient(
     });
   });
   saveOnboardingProfile(profileForSave);
+
+  // First-run guard: clear any stale developer "Simulate missing" flag so a
+  // freshly onboarded user never sees the SLM hidden by a dev-testing state.
+  resetDeveloperTestFlags();
 
   // App-owned UC3 default exercises (source 'developer_uc3_v2') for
   // UC3-eligible imported patients (e.g. post-stroke demo presets). This is an

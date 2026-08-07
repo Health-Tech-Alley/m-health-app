@@ -18,7 +18,12 @@ import type {
   ModelInfo,
 } from '@/inference/inference-provider';
 import { LlamaRnProvider } from '@/inference/llama-rn-provider';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG, getModelEntry, resolveModelPath } from '@/inference/model-catalog';
+import {
+  MODEL_CATALOG,
+  getModelEntry,
+  resolveActiveModelId,
+  resolveModelPath,
+} from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import { useSettings } from '@/contexts/settings-context';
 import { checkSlmRamGate } from '@/services/slm/slm-ram-gate';
@@ -88,8 +93,22 @@ export function SLMProvider({ children }: { children: ReactNode }) {
   const { settings } = useSettings();
   const dynamic = settings.dynamicSlmLoading !== false; // default ON
   const simulateMissing = settings.simulateMissingOptionalFeatures === true;
-  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
+  // Effective default: when exactly one model is installed it is always the
+  // default, regardless of the persisted preference (which may point at a
+  // model that is no longer on-device). resolveActiveModelId encodes this.
+  const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) => {
+    const entry = MODEL_CATALOG.find((m) => m.id === id);
+    return entry ? isModelInstalled(entry) : false;
+  });
   const [provider] = useState<InferenceProvider>(() => new LlamaRnProvider());
+
+  // Sync the Concierge reasoning mode (app_settings) into the provider.
+  // 'off' forces direct answers — template-native models get a no-think chat
+  // template override inside LlamaRnProvider.chat().
+  useEffect(() => {
+    const mode = settings.conciergeReasoning === 'off' ? 'off' : 'auto';
+    provider.setReasoningMode?.(mode);
+  }, [provider, settings.conciergeReasoning]);
   const [loadStatus, setLoadStatus] = useState<SLMStatus>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);

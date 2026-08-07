@@ -36,7 +36,7 @@ import type { AdcpProposalIntentId } from '@/data/adcp/types';
 import type { NextStepActionId, PatientRecordSnapshot } from '@/data/types';
 import { executeNextStep } from '@/orchestration/next-steps';
 import { audit } from '@/services/audit/auditService';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
+import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
 import { getConciergeGeneration } from '@/constants/concierge';
@@ -119,7 +119,10 @@ export function CarePlanAskChat({
   const optionalGate = useOptionalFeatureGate('both');
   const { refresh, patientId } = usePatientRecord();
   const { presentCaregiverReportedEmergency } = useCriticalAlert();
-  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
+  // Effective default — a single installed model is always the default.
+  const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
+    MODEL_CATALOG.some((m) => m.id === id && isModelInstalled(m)),
+  );
 
   const [composerText, setComposerText] = useState('');
   const [routingBusy, setRoutingBusy] = useState(false);
@@ -784,7 +787,10 @@ export function CarePlanAskChat({
           <Text style={styles.subtitle}>
             The Concierge powers care-plan questions. It is not downloaded yet.
           </Text>
-          <OptionalFeaturePrompt requirement="both" />
+          <OptionalFeaturePrompt
+            requirement="both"
+            simulatedMissing={optionalGate.simulatedMissing}
+          />
         </View>
       </View>
     );

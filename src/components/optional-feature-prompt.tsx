@@ -13,38 +13,29 @@ import { router } from 'expo-router';
 
 import { AppTheme } from '@/constants/theme';
 import type { OptionalFeatureRequirements } from '@/hooks/useOptionalFeatureGate';
-
-const COPY: Record<
-  OptionalFeatureRequirements,
-  { title: string; body: string }
-> = {
-  slm: {
-    title: 'Concierge is not downloaded yet',
-    body: 'The Concierge needs an on-device AI model for chat, explanations, and medication checks. Download it from Models to enable this feature — everything else in the app works without it.',
-  },
-  knowledge: {
-    title: 'Clinical knowledge is not downloaded yet',
-    body: 'Clinical evidence packs power grounded, cited answers in Concierge flows. Download them from Settings → Clinical knowledge to enable this feature — everything else in the app works without it.',
-  },
-  both: {
-    title: 'Concierge is not downloaded yet',
-    body: 'The Concierge uses an on-device AI model plus clinical knowledge packs to explain alerts, check medications, and support the care plan with cited answers. Both are optional — download them from Models and Settings → Clinical knowledge. Everything else in the app works without them.',
-  },
-};
+import { getPromptCopy } from './optional-feature-prompt-copy';
 
 export function OptionalFeaturePrompt({
   requirement,
   onDismiss,
+  simulatedMissing = false,
 }: {
   requirement: OptionalFeatureRequirements;
   /** When provided, Dismiss calls this (e.g. close a modal sheet) instead of hiding the prompt in place. */
   onDismiss?: () => void;
+  /**
+   * When true, the developer flag "Simulate missing Concierge / knowledge"
+   * is masking a real download — say so instead of telling the user to
+   * download a model that is already installed.
+   */
+  simulatedMissing?: boolean;
 }) {
   const [dismissed, setDismissed] = useState(false);
   if (dismissed) return null;
 
-  const copy = COPY[requirement];
+  const copy = getPromptCopy(requirement, simulatedMissing);
   const handleDismiss = onDismiss ?? (() => setDismissed(true));
+  const primaryLabel = simulatedMissing ? 'Open Settings' : 'Download';
 
   return (
     <View style={styles.prompt}>
@@ -60,10 +51,18 @@ export function OptionalFeaturePrompt({
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          onPress={() => router.push(requirement === 'knowledge' ? '/settings' : '/models')}
+          onPress={() =>
+            router.push(
+              simulatedMissing
+                ? '/settings'
+                : requirement === 'knowledge'
+                  ? '/settings'
+                  : '/models',
+            )
+          }
           style={[styles.button, styles.buttonPrimary]}
         >
-          <Text style={styles.buttonPrimaryText}>Download</Text>
+          <Text style={styles.buttonPrimaryText}>{primaryLabel}</Text>
         </Pressable>
       </View>
     </View>

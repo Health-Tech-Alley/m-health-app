@@ -23,7 +23,6 @@ import {
   CONCIERGE_GENERATION_FAST,
   getConciergeGeneration,
 } from '@/constants/concierge';
-import { getModelEntry } from '@/inference/model-catalog';
 import { CONFIDENCE_THRESHOLD } from '@/nlu/intent-labels';
 import type { NluIntent, NluIntentLabel } from '@/nlu/types';
 import { messageHasClinicalKeywords } from './retrieval-helper';
@@ -97,16 +96,12 @@ export function selectChatGeneration(args: {
     reason,
   });
 
-  // Qwen3-family models (Bonsai) always think — their chat template forces a
-  // <think> channel — so FAST is never applicable to them; always DEEP.
-  // LFM2.5 is also template-native but gets a bounded-shallow FAST tier via
-  // getConciergeGeneration('lfm2-5-2-6b', 'fast'), so it is NOT blanketed
-  // here: it flows through the normal intent/confidence logic below and the
-  // family-aware profile keeps thinking budgeted instead of disabled.
-  if (args.modelId && getModelEntry(args.modelId)?.family === 'qwen3') {
-    return deep('qwen3_always_deep');
-  }
-
+  // Template-native families (LFM2.5 / Bonsai) flow through the same NLU
+  // intent/confidence/chunk logic as Gemma. The family-aware profiles in
+  // getConciergeGeneration carry the difference: FAST for these families
+  // means reasoningFormat 'none' with an UNLIMITED answer budget, and the
+  // provider swaps in a no-think chat template — so skipping the think pass
+  // is the only 'fast' lever and answers are never starved.
   if (args.forceDeep) {
     return deep('forceDeep');
   }

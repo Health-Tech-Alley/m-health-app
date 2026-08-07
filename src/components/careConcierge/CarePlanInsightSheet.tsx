@@ -42,7 +42,7 @@ import {
   buildRetrievalQuery,
   type RetrievedCitation,
 } from '@/clinical-evidence/retrieval-helper';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
+import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
 import { stripControlTokens } from '@/utils/stripControlTokens';
@@ -86,7 +86,10 @@ export function CarePlanInsightSheet({
   } = slm;
   const { settings } = useSettings();
   const { snapshot: liveSnapshot } = usePatientRecord();
-  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
+  // Effective default — a single installed model is always the default.
+  const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
+    MODEL_CATALOG.some((m) => m.id === id && isModelInstalled(m)),
+  );
   const [phase, setPhase] = useState<Phase>('idle');
   const [answer, setAnswer] = useState('');
   const [finalText, setFinalText] = useState<string | null>(null);
@@ -442,7 +445,11 @@ export function CarePlanInsightSheet({
               </Pressable>
             </View>
             <View style={styles.greyedBody}>
-              <OptionalFeaturePrompt requirement="both" onDismiss={handleClose} />
+              <OptionalFeaturePrompt
+                requirement="both"
+                onDismiss={handleClose}
+                simulatedMissing={optionalGate.simulatedMissing}
+              />
             </View>
           </View>
         </View>

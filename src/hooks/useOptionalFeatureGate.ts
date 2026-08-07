@@ -22,6 +22,13 @@ export type OptionalFeatureGate = {
   slmReady: boolean;
   knowledgeReady: boolean;
   requirement: OptionalFeatureRequirements;
+  /**
+   * True when the developer flag "Simulate missing Concierge / knowledge"
+   * (Settings → Runtime gates) is ON. When on, ready is forced false even if
+   * a model IS installed — the optional-feature prompt should say so instead
+   * of telling the user to download a model that already exists.
+   */
+  simulatedMissing: boolean;
 };
 
 export function useOptionalFeatureGate(
@@ -42,5 +49,5 @@ export function useOptionalFeatureGate(
         ? knowledgeReady
         : slmReady && knowledgeReady;
 
-  return { ready, slmReady, knowledgeReady, requirement };
+  return { ready, slmReady, knowledgeReady, requirement, simulatedMissing: simulateMissing };
 }

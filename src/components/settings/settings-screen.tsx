@@ -29,7 +29,7 @@ import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { usePatientRecord } from '@/contexts/patient-record-context';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
+import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import { KnowledgePackProgressCard } from '@/components/models/KnowledgePackProgressCard';
 import { SlmModelCarousel } from '@/components/models/SlmModelCarousel';
 import { useModelDownloadQueue } from '@/hooks/useModelDownloadQueue';
@@ -155,6 +155,7 @@ type ExpandableId =
   | 'consent'
   | 'developer-mode'
   | 'dynamic-slm-loading'
+  | 'concierge-reasoning'
   | 'nlu-development-fallback'
   | 'evidence-development-fallback'
   | 'knowledge-graph-expansion'
@@ -613,6 +614,7 @@ export function AdvancedDeveloperSettingsScreen() {
     toggleMode,
     setDemoDefaultModelId,
     setDynamicSlmLoading,
+    setConciergeReasoning,
     setNluDevelopmentFallback,
     setEvidenceDevelopmentFallback,
     setKnowledgeGraphExpansion,
@@ -621,6 +623,10 @@ export function AdvancedDeveloperSettingsScreen() {
   } = useSettings();
   const slm = useSLM();
   const modelQueue = useModelDownloadQueue();
+  // Effective default — a single installed model is always the default.
+  const effectiveDefaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
+    modelQueue.rows.some((r) => r.id === id && r.status === 'installed'),
+  );
   const memoryInfo = useMemoryInfo(2000);
   const hasNativeMemory = isNativeMemoryAvailable();
   const patientId = useOrchestratorPatientId();
@@ -1031,11 +1037,12 @@ export function AdvancedDeveloperSettingsScreen() {
               <Text style={[styles.devLabel, { marginTop: 8 }]}>Default Concierge model (Demo auto-load)</Text>
               <Text style={styles.devInfo}>
                 The model auto-loaded when a transient task acquires a lease in Demo
-                mode. Currently: {settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID}
+                mode. A single installed model is always the default. Currently:{' '}
+                {effectiveDefaultModelId}
               </Text>
               <View style={styles.modelActions}>
                 {MODEL_CATALOG.map((m) => {
-                  const active = (settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID) === m.id;
+                  const active = effectiveDefaultModelId === m.id;
                   return (
                     <Pressable
                       key={m.id}
@@ -1060,6 +1067,17 @@ export function AdvancedDeveloperSettingsScreen() {
                 onToggleExpand={toggleExpanded}
                 onValueChange={setDynamicSlmLoading}
                 accessibilityLabel="Dynamic SLM loading"
+              />
+              <CompactToggleRow
+                id="concierge-reasoning"
+                emoji=""
+                label="Concierge reasoning"
+                value={settings.conciergeReasoning !== 'off'}
+                expanded={expandedId === 'concierge-reasoning'}
+                explanation="ON: the NLU decides per turn — simple intents answer directly (no-think), clinical or uncertain turns reason first (LFM2.5 / Bonsai get a no-think chat template on fast turns; Gemma toggles its think channel). OFF: force direct answers on every turn — faster, but lower quality on complex clinical questions."
+                onToggleExpand={toggleExpanded}
+                onValueChange={(enabled) => setConciergeReasoning(enabled ? 'auto' : 'off')}
+                accessibilityLabel="Concierge reasoning"
               />
               <CompactToggleRow
                 id="nlu-development-fallback"

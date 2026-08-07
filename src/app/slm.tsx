@@ -2033,7 +2033,10 @@ export default function SLMScreen({
           </View>
         ) : null}
         <View style={styles.greyedBody}>
-          <OptionalFeaturePrompt requirement="slm" />
+          <OptionalFeaturePrompt
+            requirement="slm"
+            simulatedMissing={optionalGate.simulatedMissing}
+          />
         </View>
       </SafeAreaView>
     );

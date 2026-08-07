@@ -9,6 +9,7 @@ import type {
   AppSettings,
   AppMode,
   CarePlanMode,
+  ConciergeReasoningMode,
   ThemePreference,
   NotificationPreferences,
 } from '../types';
@@ -39,6 +40,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   carePlanMode: 'full',
   healthKitIntegrationEnabled: true,
   simulateMissingOptionalFeatures: false,
+  conciergeReasoning: 'auto',
 };
 
 export function getAppSettings(): AppSettings {
@@ -162,6 +164,29 @@ export function updateHealthKitIntegrationEnabled(enabled: boolean): AppSettings
 export function updateSimulateMissingOptionalFeatures(enabled: boolean): AppSettings {
   const current = getAppSettings();
   const updated = { ...current, simulateMissingOptionalFeatures: enabled };
+  saveAppSettings(updated);
+  return updated;
+}
+
+/**
+ * Reset developer-only test flags to their shipped defaults. Called at
+ * onboarding completion so a stale `simulateMissingOptionalFeatures: true`
+ * persisted from a previous dev session cannot survive a fresh onboarding —
+ * the Simulate-missing flag must be off for first-run users.
+ */
+export function resetDeveloperTestFlags(): AppSettings {
+  const current = getAppSettings();
+  if (current.simulateMissingOptionalFeatures === false) {
+    return current;
+  }
+  const updated = { ...current, simulateMissingOptionalFeatures: false };
+  saveAppSettings(updated);
+  return updated;
+}
+
+export function updateConciergeReasoning(mode: ConciergeReasoningMode): AppSettings {
+  const current = getAppSettings();
+  const updated = { ...current, conciergeReasoning: mode };
   saveAppSettings(updated);
   return updated;
 }

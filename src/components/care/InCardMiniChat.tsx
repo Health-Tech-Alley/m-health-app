@@ -34,7 +34,7 @@ import {
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
+import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
 import {
@@ -110,7 +110,10 @@ export function InCardMiniChat({
   const { settings, isDeveloper } = useSettings();
   const optionalGate = useOptionalFeatureGate('both');
   const retriever = useOrchestratorRetriever();
-  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
+  // Effective default — a single installed model is always the default.
+  const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
+    MODEL_CATALOG.some((m) => m.id === id && isModelInstalled(m)),
+  );
   const effectiveCacheTitle = cacheTitle ?? title;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -483,7 +486,11 @@ export function InCardMiniChat({
             <Text style={styles.closeText}>×</Text>
           </Pressable>
         </View>
-        <OptionalFeaturePrompt requirement="both" onDismiss={requestClose} />
+        <OptionalFeaturePrompt
+          requirement="both"
+          onDismiss={requestClose}
+          simulatedMissing={optionalGate.simulatedMissing}
+        />
       </View>
     );
   }

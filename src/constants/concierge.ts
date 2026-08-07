@@ -66,46 +66,21 @@ export function getConciergeGeneration(
 ): Required<GenerateOptions> {
   const entry = modelId ? getModelEntry(modelId) : undefined;
 
-  // Qwen3-family models (Bonsai) always think: their GGUF chat template
-  // injects <think> on EVERY generation prompt, so FAST has no meaning there.
-  // Force DEEP thinking mode with the model's sampling so answers are never
-  // starved by a shared FAST budget.
-  if (entry?.family === 'qwen3') {
+  // Template-native families (LFM2.5 / Bonsai) force a <think> channel via
+  // their GGUF templates — reasoning_format alone cannot disable it. The NLU
+  // router decides per turn: FAST-eligible intents get reasoningFormat 'none'
+  // (the provider swaps in a no-think chat template), DEEP keeps the
+  // forced-think template. Both profiles keep an UNLIMITED answer budget —
+  // skipping reasoning is the only 'fast' lever; a capped budget starves
+  // answers (why the earlier bounded-shallow tier failed).
+  if (entry?.family === 'qwen3' || entry?.family === 'lfm2') {
     return {
       maxTokens: CONCIERGE_GENERATION_DEEP.maxTokens,
       maxReasoningTokens: CONCIERGE_GENERATION_DEEP.maxReasoningTokens,
       temperature: entry.sampling.temperature,
       topP: entry.sampling.topP,
       topK: entry.sampling.topK,
-      reasoningFormat: 'auto',
-    };
-  }
-
-  // LFM2.5 is also a template-native reasoning model (its chat template forces
-  // a <think> channel on every generation prompt), but unlike Bonsai it gets a
-  // BOUNDED-SHALLOW FAST tier: thinking still runs (it cannot be disabled by
-  // reasoningFormat), yet the answer budget is capped and the model is nudged
-  // toward a direct answer (see message-mapping.ts template-native branch).
-  // reasoningFormat 'none' keeps the nudge active while maxReasoningTokens
-  // reserves headroom so the forced think does not starve the answer.
-  if (entry?.family === 'lfm2') {
-    if (mode === 'fast') {
-      return {
-        maxTokens: CONCIERGE_GENERATION_FAST.maxTokens,
-        maxReasoningTokens: 64,
-        temperature: entry.sampling.temperature,
-        topP: entry.sampling.topP,
-        topK: entry.sampling.topK,
-        reasoningFormat: 'none',
-      };
-    }
-    return {
-      maxTokens: CONCIERGE_GENERATION_DEEP.maxTokens,
-      maxReasoningTokens: CONCIERGE_GENERATION_DEEP.maxReasoningTokens,
-      temperature: entry.sampling.temperature,
-      topP: entry.sampling.topP,
-      topK: entry.sampling.topK,
-      reasoningFormat: 'auto',
+      reasoningFormat: mode === 'fast' ? 'none' : 'auto',
     };
   }
 

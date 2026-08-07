@@ -17,7 +17,7 @@ import { AppTheme, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useSettings } from '@/contexts/settings-context';
 import { useTheme } from '@/hooks/use-theme';
 import { useModelDownloadQueue } from '@/hooks/useModelDownloadQueue';
-import { MODEL_CATALOG, DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
+import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import type { ModelsState } from './types';
 
 type ModelsViewProps = {
@@ -29,10 +29,13 @@ type ModelsViewProps = {
 export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
   const theme = useTheme();
   const { settings, setDemoDefaultModelId } = useSettings();
-  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
+  const queue = useModelDownloadQueue();
+  // Effective default — a single installed model is always the default.
+  const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
+    queue.rows.some((r) => r.id === id && r.status === 'installed'),
+  );
   const [tokenInput, setTokenInput] = useState('');
   const [tokenSectionOpen, setTokenSectionOpen] = useState(false);
-  const queue = useModelDownloadQueue();
 
   useEffect(() => {
     const tag = 'models-screen-download';

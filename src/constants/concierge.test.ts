@@ -16,23 +16,22 @@ describe('getConciergeGeneration', () => {
     expect(deep.topP).toBe(0.95);
   });
 
-  it('forces DEEP for Bonsai even when FAST is requested (template always thinks)', () => {
+  it('gives Bonsai a no-think FAST profile with unlimited answer budget', () => {
     const fast = getConciergeGeneration('bonsai-8b-1bit', 'fast');
     expect(fast.maxTokens).toBe(-1);
-    expect(fast.reasoningFormat).toBe('auto');
+    expect(fast.maxReasoningTokens).toBe(0);
+    expect(fast.reasoningFormat).toBe('none');
     expect(fast.temperature).toBe(0.7);
     expect(fast.topK).toBe(20);
   });
 
-  it('gives LFM2.5 a bounded-shallow FAST tier (budgeted thinking, low temp)', () => {
+  it('gives LFM2.5 a no-think FAST profile with unlimited answer budget', () => {
     const fast = getConciergeGeneration('lfm2-5-2-6b', 'fast');
-    expect(fast.maxTokens).toBe(256);
-    expect(fast.maxReasoningTokens).toBe(64);
-    // 'none' keeps the template-native direct-answer nudge active.
+    expect(fast.maxTokens).toBe(-1);
+    expect(fast.maxReasoningTokens).toBe(0);
     expect(fast.reasoningFormat).toBe('none');
     expect(fast.temperature).toBe(0.1);
     expect(fast.topK).toBe(50);
-    expect(fast.topP).toBe(0.95);
   });
 
   it('gives LFM2.5 an unlimited DEEP profile with low-temp sampling', () => {

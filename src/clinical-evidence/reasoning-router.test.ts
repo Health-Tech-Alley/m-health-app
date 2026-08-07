@@ -132,30 +132,33 @@ describe('selectChatGeneration', () => {
     expect(d.reason).toContain('default_deep');
   });
 
-  it('always routes Bonsai (Qwen3) to DEEP even for FAST-eligible intents', () => {
+  it('routes Bonsai (Qwen3) FAST-eligible intents to the no-think FAST tier', () => {
     const d = selectChatGeneration({
       intent: makeIntent('caregiver_chat_general', 0.9),
       modelId: 'bonsai-8b-1bit',
     });
-    expect(d.mode).toBe('auto');
-    expect(d.reason).toBe('qwen3_always_deep');
+    expect(d.mode).toBe('none');
+    expect(d.reason).toBe('fast_intent:caregiver_chat_general');
+    expect(d.profile.reasoningFormat).toBe('none');
     expect(d.profile.maxTokens).toBe(-1);
     expect(d.profile.temperature).toBe(0.7);
   });
 
-  it('routes LFM2.5 FAST-eligible intents to the bounded-shallow FAST tier', () => {
+  it('routes LFM2.5 FAST-eligible intents to the no-think FAST tier', () => {
     const d = selectChatGeneration({
       intent: makeIntent('caregiver_chat_general', 0.9),
       modelId: 'lfm2-5-2-6b',
     });
+    expect(d.mode).toBe('none');
     expect(d.reason).toBe('fast_intent:caregiver_chat_general');
-    expect(d.profile.maxTokens).toBe(256);
-    expect(d.profile.maxReasoningTokens).toBe(64);
+    expect(d.profile.reasoningFormat).toBe('none');
+    expect(d.profile.maxTokens).toBe(-1);
+    expect(d.profile.maxReasoningTokens).toBe(0);
     expect(d.profile.temperature).toBe(0.1);
     expect(d.profile.topK).toBe(50);
   });
 
-  it('routes LFM2.5 clinical intents to DEEP even at high confidence', () => {
+  it('routes LFM2.5 clinical intents to DEEP (reasoning on) even at high confidence', () => {
     const d = selectChatGeneration({
       intent: makeIntent('knowledge_qa', 0.99),
       modelId: 'lfm2-5-2-6b',
@@ -172,6 +175,7 @@ describe('selectChatGeneration', () => {
       modelId: 'lfm2-5-2-6b',
     });
     expect(d.reason).toContain('low_confidence');
+    expect(d.profile.reasoningFormat).toBe('auto');
     expect(d.profile.maxTokens).toBe(-1);
   });
 
@@ -185,6 +189,7 @@ describe('selectChatGeneration', () => {
       modelId: 'lfm2-5-2-6b',
     });
     expect(d.reason).toBe('fast_intent_overridden_by_clinical_chunks');
+    expect(d.profile.reasoningFormat).toBe('auto');
     expect(d.profile.maxTokens).toBe(-1);
   });
 });

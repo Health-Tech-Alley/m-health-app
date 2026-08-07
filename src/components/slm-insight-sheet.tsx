@@ -36,7 +36,7 @@ import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
-import { DEFAULT_SLM_MODEL_ID, MODEL_CATALOG } from '@/inference/model-catalog';
+import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import type { SlmTaskReason, SlmTaskLease } from '@/services/slm/slm-task-queue';
 import { isModelInstalled } from '@/services/model-storage';
 import {
@@ -94,7 +94,10 @@ export function SlmInsightSheet({
   const { snapshot, patientId } = usePatientRecord();
   const { settings, isDeveloper } = useSettings();
   const retriever = useOrchestratorRetriever();
-  const defaultModelId = settings.demoDefaultModelId ?? DEFAULT_SLM_MODEL_ID;
+  // Effective default — a single installed model is always the default.
+  const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
+    MODEL_CATALOG.some((m) => m.id === id && isModelInstalled(m)),
+  );
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [answer, setAnswer] = useState('');
@@ -779,7 +782,11 @@ export function SlmInsightSheet({
             </Pressable>
           </View>
           <View style={styles.greyedBody}>
-            <OptionalFeaturePrompt requirement="slm" onDismiss={requestClose} />
+            <OptionalFeaturePrompt
+              requirement="slm"
+              onDismiss={requestClose}
+              simulatedMissing={optionalGate.simulatedMissing}
+            />
           </View>
         </View>
       </View>

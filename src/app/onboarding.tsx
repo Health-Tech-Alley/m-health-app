@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { DeviceSetupStep } from "@/components/models/DeviceSetupStep";
 import { AppTheme } from "@/constants/theme";
+import { useSettings } from "@/contexts/settings-context";
 import {
   refreshPatientRecord,
   selectPatientRecord,
@@ -413,6 +414,7 @@ export default function OnboardingScreen() {
   const existingProfile = getOnboardingProfile();
   const { snapshot, ready } = usePatientRecord();
   const { importBundledEhrProfile } = useBundledEhrImport();
+  const { setSimulateMissingOptionalFeatures } = useSettings();
 
   const [stepIndex, setStepIndex] = useState(0);
   const [expandedSelect, setExpandedSelect] = useState<ExpandedSelect>(null);
@@ -829,6 +831,10 @@ export default function OnboardingScreen() {
   }
 
   async function finishOnboardingFromDeviceSetup() {
+    // First-run guard: never leave the developer "Simulate missing Concierge /
+    // knowledge" flag on after onboarding — it would hide the SLM from a
+    // caregiver even when a model is installed.
+    setSimulateMissingOptionalFeatures(false);
     router.replace("/dashboard");
   }
 
@@ -992,6 +998,9 @@ export default function OnboardingScreen() {
           setStepIndex(6);
           return;
         }
+        // First-run guard: clear the developer "Simulate missing" flag so the
+        // SLM is never hidden from a freshly onboarded caregiver.
+        setSimulateMissingOptionalFeatures(false);
         router.replace("/dashboard");
       } catch (error) {
         console.error("Failed to complete onboarding for imported patient", error);
@@ -1011,6 +1020,9 @@ export default function OnboardingScreen() {
       setStepIndex(6);
       return;
     }
+    // First-run guard: clear the developer "Simulate missing" flag so the SLM
+    // is never hidden from a freshly onboarded caregiver.
+    setSimulateMissingOptionalFeatures(false);
     router.replace("/dashboard");
   }
 
