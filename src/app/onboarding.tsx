@@ -24,7 +24,6 @@ import {
   selectPatientRecord,
   usePatientRecord,
 } from "@/contexts/patient-record-context";
-import { useSettings } from "@/contexts/settings-context";
 import patientProfiles from "@/data/fhir/patient-profiles";
 import { AppleHealthSource } from "@/data/sensors/apple-health-source";
 import { ALL_HEALTHKIT_READ_TYPES } from "@/data/sensors/healthkit-type-map";
