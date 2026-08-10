@@ -1,6 +1,7 @@
 // src/app/logs.tsx
 import { Directory, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -31,6 +32,7 @@ function formatBytes(bytes: number) {
 }
 
 export default function LogsScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const { t, locale } = useTranslation();
@@ -127,6 +129,13 @@ export default function LogsScreen() {
     // });
   };
 
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/more" as never);
+  }, [router]);
 
   return (
     <View
@@ -136,6 +145,18 @@ export default function LogsScreen() {
         { paddingTop: insets.top, paddingBottom: insets.bottom },
       ]}
     >
+      <View style={[styles.topBar, themedStyles.header]}>
+        <Pressable
+          onPress={handleBack}
+          hitSlop={12}
+          style={styles.backButton}
+          accessibilityRole="button"
+          accessibilityLabel={t("logs.backA11y")}
+        >
+          <Text style={[styles.backText, themedStyles.backText]}>{"\u2190"} {t("common.back")}</Text>
+        </Pressable>
+      </View>
+
       <View style={[styles.header, themedStyles.header]}>
         <View>
           <Text style={[styles.title, themedStyles.title]}>{t("logs.title")}</Text>
@@ -247,6 +268,9 @@ function createThemedStyles(theme: ReturnType<typeof useTheme>) {
     subtitle: {
       color: isDark ? theme.appTextMuted : "#888",
     },
+    backText: {
+      color: isDark ? AppTheme.colors.brand : "#0E6F68",
+    },
     deleteAllButton: {
       backgroundColor: isDark ? theme.appControlSurface : "#FDECEC",
       borderColor: isDark ? AppTheme.colors.danger : "transparent",
@@ -287,6 +311,23 @@ const styles = StyleSheet.create({
     backgroundColor: "#F7F7F8",
   },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  topBar: {
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
+  backButton: {
+    alignSelf: "flex-start",
+    minHeight: 44,
+    justifyContent: "center",
+    paddingRight: 12,
+  },
+  backText: {
+    color: "#0E6F68",
+    fontSize: 14,
+    fontWeight: "900",
+  },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",

@@ -24,9 +24,10 @@ type ModelsViewProps = {
   state: ModelsState;
   dispatch: (action: import('./types').ModelsAction) => void;
   controller: ReturnType<typeof import('./models-controller').createModelsController>;
+  onBack: () => void;
 };
 
-export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
+export function ModelsView({ state, dispatch, controller, onBack }: ModelsViewProps) {
   const theme = useTheme();
   const { settings, setDemoDefaultModelId } = useSettings();
   const queue = useModelDownloadQueue();
@@ -80,6 +81,17 @@ export function ModelsView({ state, dispatch, controller }: ModelsViewProps) {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          <Pressable
+            onPress={onBack}
+            hitSlop={12}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel="Back to Concierge">
+            <ThemedText type="smallBold" themeColor="textSecondary" style={styles.backText}>
+              ← Back
+            </ThemedText>
+          </Pressable>
+
           <ThemedText type="subtitle" style={styles.title}>
             Models
           </ThemedText>
@@ -209,6 +221,15 @@ const styles = StyleSheet.create({
     maxWidth: MaxContentWidth,
     width: '100%',
     alignSelf: 'center',
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingRight: 12,
+  },
+  backText: {
+    fontWeight: '900',
   },
   title: { marginBottom: Spacing.two },
   tokenToggle: {

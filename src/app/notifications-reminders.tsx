@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useRouter } from 'expo-router';
 import {
   Pressable,
   ScrollView,
@@ -36,6 +37,7 @@ function loadNotificationPreferences(): NotificationPreferences {
 }
 
 export default function NotificationsRemindersScreen() {
+  const router = useRouter();
   const theme = useTheme();
   const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
@@ -105,6 +107,13 @@ export default function NotificationsRemindersScreen() {
     setExpandedId((current) => (current === sectionId ? null : sectionId));
   };
 
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/settings' as never);
+  }, [router]);
 
   const savePreference = (
     nextPreference: Pick<
@@ -212,6 +221,15 @@ export default function NotificationsRemindersScreen() {
         contentContainerStyle={[styles.content, themedStyles.content]}
         showsVerticalScrollIndicator={false}
       >
+        <Pressable
+          style={styles.backButton}
+          onPress={handleBack}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel={t('notifications.backA11y')}>
+          <Text style={[styles.backText, themedStyles.backText]}>{'\u2190'} {t('common.back')}</Text>
+        </Pressable>
+
         <MainTabHeader title={t('notifications.title')} eyebrow={t('common.appName')} icon="bell" />
 
         <ExpandableSection
@@ -556,6 +574,7 @@ function createThemedStyles(theme: ReturnType<typeof useTheme>) {
     sectionBody: { borderTopColor: theme.appBorder },
     helperText: { color: theme.appTextSupporting },
     mutedText: { color: theme.appTextSupporting },
+    backText: { color: AppTheme.colors.brand },
     modeButton: {
       backgroundColor: theme.appControlSurface,
       borderColor: theme.appBorder,
@@ -602,6 +621,17 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 124,
     gap: 14,
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingRight: 12,
+  },
+  backText: {
+    color: AppTheme.colors.brand,
+    fontSize: 14,
+    fontWeight: '900',
   },
   sectionCard: {
     backgroundColor: AppTheme.colors.surface,

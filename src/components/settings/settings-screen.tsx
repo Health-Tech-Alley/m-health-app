@@ -209,6 +209,13 @@ export function PreferencesScreen() {
     key: 'settings.status.backupConsentDefault',
   });
 
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/more' as never);
+  }, [router]);
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -486,6 +493,18 @@ export function PreferencesScreen() {
   return (
     <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={['top', 'bottom']}>
       <ScrollView style={themedStyles.safeArea} contentContainerStyle={[styles.content, themedStyles.content]}>
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={handleBack}
+            hitSlop={12}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel={t('settings.backToMenuA11y')}>
+            <Text style={styles.backText}>{t('settings.backToMenu')}</Text>
+          </Pressable>
+          <View style={styles.topBarSpacer} />
+        </View>
+
         <View style={styles.header}>
           <View style={styles.logoCircle}>
             <Image
@@ -1041,6 +1060,13 @@ export function AdvancedDeveloperSettingsScreen() {
     setExpandedId((current) => (current === id ? null : id));
   }, []);
 
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/more' as never);
+  }, [router]);
 
   useEffect(() => {
     if (!isDeveloper || !patientId) {
@@ -1114,6 +1140,18 @@ export function AdvancedDeveloperSettingsScreen() {
         style={themedStyles.safeArea}
         contentContainerStyle={[styles.content, themedStyles.content]}
       >
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={handleBack}
+            hitSlop={12}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel="Back to settings menu">
+            <Text style={styles.backText}>← Back</Text>
+          </Pressable>
+          <View style={styles.topBarSpacer} />
+        </View>
+
         <ScreenHeader eyebrow="Caregiver Concierge" title="Advanced Developer Settings" />
 
         <Section title="Existing demo controls">
@@ -3086,6 +3124,10 @@ function createThemedStyles(theme: ReturnType<typeof useTheme>) {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: AppTheme.colors.screen },
   content: { padding: 24, paddingBottom: 40, gap: 18 },
+  topBar: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  topBarSpacer: { width: 72 },
+  backButton: { minHeight: 44, justifyContent: 'center', paddingRight: 12 },
+  backText: { color: teal, fontSize: 14, fontWeight: '900' },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 4 },
   logoCircle: { width: 48, height: 48, borderRadius: 14, backgroundColor: teal, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   logoImage: { width: 36, height: 36 },

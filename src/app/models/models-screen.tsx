@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useRouter } from 'expo-router';
 
 import { createModelsController } from './models-controller';
 import type { ModelsAction, ModelsState } from './types';
@@ -116,6 +117,7 @@ function reducer(state: ModelsState, action: ModelsAction): ModelsState {
 }
 
 export function ModelsScreen() {
+  const router = useRouter();
   const [state, dispatch] = useReducer(reducer, initialState);
   const controller = useMemo(() => createModelsController(), []);
 
@@ -133,5 +135,13 @@ export function ModelsScreen() {
     [],
   );
 
-  return <ModelsView state={state} dispatch={wrappedDispatch} controller={controller} />;
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)/assistant' as never);
+  }, [router]);
+
+  return <ModelsView state={state} dispatch={wrappedDispatch} controller={controller} onBack={handleBack} />;
 }

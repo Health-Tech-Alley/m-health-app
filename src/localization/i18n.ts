@@ -1313,6 +1313,7 @@ const ENGLISH_TRANSLATIONS = {
   "observation.code.notSure": "Not sure",
   "logs.shareUnavailable": "Sharing not available on this device",
   "logs.deleteAllDialog.title": "Delete all log files?",
+  "logs.backA11y": "Back to settings menu",
   "logs.title": "Log Files",
   "logs.fileCount.one": "{count} file",
   "logs.fileCount.many": "{count} files",
@@ -1327,6 +1328,7 @@ const ENGLISH_TRANSLATIONS = {
   "logs.shareFileA11y": "Share log file {name}",
   "logs.sendByEmail": "Send logs by email",
   "logs.sendByEmailA11y": "Send logs by email",
+  "notifications.backA11y": "Back to preferences",
   "notifications.title": "Notifications & reminders",
   "notifications.section.health": "Health alerts",
   "notifications.section.medications": "Medications",
@@ -1974,6 +1976,8 @@ const ENGLISH_TRANSLATIONS = {
   "more.about.disclaimer":
     "This app is a caregiver support prototype and does not replace emergency care or professional medical advice.",
 
+  "settings.backToMenu": "← Back",
+  "settings.backToMenuA11y": "Back to settings menu",
   "settings.eyebrow": "Caregiver Concierge",
   "settings.title.preferences": "Preferences",
   "settings.section.notifications": "Notifications",
@@ -3422,6 +3426,7 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "observation.code.notSure": "No estoy seguro",
   "logs.shareUnavailable": "Compartir no está disponible en este dispositivo",
   "logs.deleteAllDialog.title": "¿Eliminar todos los archivos de registro?",
+  "logs.backA11y": "Volver al menú de configuración",
   "logs.title": "Archivos de registro",
   "logs.fileCount.one": "{count} archivo",
   "logs.fileCount.many": "{count} archivos",
@@ -3436,6 +3441,7 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "logs.shareFileA11y": "Compartir archivo de registro {name}",
   "logs.sendByEmail": "Enviar registros por correo",
   "logs.sendByEmailA11y": "Enviar registros por correo",
+  "notifications.backA11y": "Volver a preferencias",
   "notifications.title": "Notificaciones y recordatorios",
   "notifications.section.health": "Alertas de salud",
   "notifications.section.medications": "Medicamentos",
@@ -4089,6 +4095,8 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "more.about.disclaimer":
     "Esta app es un prototipo de apoyo para cuidadores y no reemplaza la atención de emergencia ni el consejo médico profesional.",
 
+  "settings.backToMenu": "← Atrás",
+  "settings.backToMenuA11y": "Volver al menú de configuración",
   "settings.eyebrow": "Asistente para cuidadores",
   "settings.title.preferences": "Preferencias",
   "settings.section.notifications": "Notificaciones",
