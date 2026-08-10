@@ -2173,14 +2173,19 @@ function WelcomeStep({
 
       <View style={styles.heroLogoCard}>
         <Image
-          source={require("@/assets/images/hta-logo.png")}
+          source={require("@/assets/images/access-dp-adaptive-foreground.png")}
           style={styles.heroLogoImage}
           resizeMode="contain"
+          accessible={false}
+          accessibilityIgnoresInvertColors
         />
       </View>
 
-      <Text style={styles.welcomeEyebrow}>{t("onboarding.welcome.eyebrow")}</Text>
-      <Text style={styles.welcomeTitle}>ACCESS-DP</Text>
+      <Text style={styles.welcomeTitle} accessibilityLabel="ACCESS-DP">
+        <Text style={styles.welcomeTitlePrimary}>ACCESS</Text>
+        <Text style={styles.welcomeTitleAccent}>-DP</Text>
+      </Text>
+      <Text style={styles.welcomeTagline}>{t("common.productTagline")}</Text>
 
       <Text style={styles.welcomeSubtitle}>
         {t("onboarding.welcome.subtitle")}
@@ -2853,33 +2858,40 @@ function createThemedStyles(theme: ReturnType<typeof useTheme>) {
     paddingTop: 12,
   },
   heroLogoCard: {
-    width: 116,
-    height: 116,
-    borderRadius: 34,
-    backgroundColor: AppTheme.colors.brand,
+    width: 160,
+    height: 132,
+    borderRadius: 28,
+    backgroundColor: isDark ? AppTheme.colors.white : "transparent",
+    borderWidth: isDark ? 1 : 0,
+    borderColor: isDark ? "rgba(255, 255, 255, 0.18)" : "transparent",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 22,
-    ...AppTheme.shadow,
+    marginBottom: 6,
+    overflow: "hidden",
   },
   heroLogoImage: {
-    width: 86,
-    height: 86,
-  },
-  welcomeEyebrow: {
-    color: AppTheme.colors.brand,
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 1.6,
-    textTransform: "uppercase",
-    marginBottom: 8,
+    width: 153,
+    height: 153,
   },
   welcomeTitle: {
-    color: colors.text,
     fontSize: 38,
     fontWeight: "900",
-    letterSpacing: -0.5,
-    marginBottom: 12,
+    letterSpacing: 0,
+    marginBottom: 2,
+  },
+  welcomeTitlePrimary: {
+    color: isDark ? colors.text : "#002868",
+  },
+  welcomeTitleAccent: {
+    color: "#0090A0",
+  },
+  welcomeTagline: {
+    color: isDark ? colors.textSoft : "#52638F",
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 14,
   },
   welcomeSubtitle: {
     color: colors.textSoft,

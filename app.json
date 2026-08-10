@@ -4,11 +4,11 @@
     "slug": "m-health-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/access-dp-app-icon.png",
     "scheme": "mhealthapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/access-dp-app-icon.png",
       "bundleIdentifier": "com.rahalcloud.mhealthapp",
       "buildNumber": "5",
       "infoPlist": {
@@ -17,10 +17,9 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/images/access-dp-adaptive-foreground.png",
+        "monochromeImage": "./assets/images/access-dp-adaptive-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.rahalcloud.mhealthapp",

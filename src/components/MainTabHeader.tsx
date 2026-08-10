@@ -12,6 +12,8 @@ type MainTabHeaderProps = {
   eyebrow?: string;
   icon?: AppIconName;
   logoSource?: ImageSourcePropType;
+  brandText?: string;
+  brandSubtitle?: string;
   rightContent?: ReactNode;
 };
 
@@ -21,17 +23,34 @@ export function MainTabHeader({
   eyebrow,
   icon,
   logoSource,
+  brandText,
+  brandSubtitle,
   rightContent,
 }: MainTabHeaderProps) {
   const theme = useTheme();
   const themedStyles = useMemo(() => createStyles(theme), [theme]);
+  const showBrandText = Boolean(brandText && logoSource);
 
   return (
     <View style={[styles.header, themedStyles.header]}>
       <View style={styles.topRow}>
         {logoSource ? (
-          <View style={[styles.logoCircle, themedStyles.logoCircle]}>
-            <Image source={logoSource} style={styles.logoImage} resizeMode="contain" />
+          <View
+            style={[
+              styles.logoCircle,
+              themedStyles.logoCircle,
+              showBrandText && styles.brandLogoCircle,
+              showBrandText && themedStyles.brandLogoCircle,
+            ]}
+            accessible={false}
+          >
+            <Image
+              source={logoSource}
+              style={[styles.logoImage, showBrandText && styles.brandLogoImage]}
+              resizeMode="contain"
+              accessible={false}
+              accessibilityIgnoresInvertColors
+            />
           </View>
         ) : icon ? (
           <View style={[styles.iconCircle, themedStyles.iconCircle]}>
@@ -40,10 +59,43 @@ export function MainTabHeader({
         ) : null}
 
         <View style={styles.textBlock}>
-          {eyebrow ? <Text style={[styles.eyebrow, themedStyles.eyebrow]}>{eyebrow}</Text> : null}
-          <Text style={[styles.title, themedStyles.title]} numberOfLines={2}>
-            {title}
-          </Text>
+          {showBrandText ? (
+            <View style={styles.brandTextBlock}>
+              <Text
+                style={styles.brandText}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.78}
+                accessibilityLabel={brandText}
+              >
+                {brandText === "ACCESS-DP" ? (
+                  <>
+                    <Text style={[styles.brandTextPrimary, themedStyles.brandTextPrimary]}>ACCESS</Text>
+                    <Text style={styles.brandTextAccent}>-DP</Text>
+                  </>
+                ) : (
+                  <Text style={themedStyles.brandTextPrimary}>{brandText}</Text>
+                )}
+              </Text>
+              {brandSubtitle ? (
+                <Text
+                  style={[styles.brandSubtitle, themedStyles.brandSubtitle]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.78}
+                >
+                  {brandSubtitle}
+                </Text>
+              ) : null}
+            </View>
+          ) : (
+            <>
+              {eyebrow ? <Text style={[styles.eyebrow, themedStyles.eyebrow]}>{eyebrow}</Text> : null}
+              <Text style={[styles.title, themedStyles.title]} numberOfLines={2}>
+                {title}
+              </Text>
+            </>
+          )}
         </View>
 
         {rightContent ? (
@@ -66,12 +118,19 @@ export function MainTabHeader({
 }
 
 function createStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === "#000000";
+
   return StyleSheet.create({
     header: {
       backgroundColor: theme.appBackground,
     },
     logoCircle: {
       backgroundColor: AppTheme.colors.brand,
+    },
+    brandLogoCircle: {
+      backgroundColor: isDark ? AppTheme.colors.white : "transparent",
+      borderColor: isDark ? "rgba(255, 255, 255, 0.18)" : "transparent",
+      borderWidth: isDark ? 1 : 0,
     },
     iconCircle: {
       backgroundColor: AppTheme.colors.brand,
@@ -81,6 +140,12 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     },
     title: {
       color: theme.appText,
+    },
+    brandTextPrimary: {
+      color: isDark ? theme.appText : "#002868",
+    },
+    brandSubtitle: {
+      color: isDark ? theme.appTextSupporting : "#52638F",
     },
     subtitle: {
       color: theme.appTextSupporting,
@@ -108,9 +173,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "hidden",
   },
+  brandLogoCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 14,
+    borderWidth: 1,
+    backgroundColor: "transparent",
+  },
   logoImage: {
     width: 40,
     height: 40,
+  },
+  brandLogoImage: {
+    width: 56,
+    height: 56,
   },
   iconCircle: {
     width: 54,
@@ -123,6 +199,10 @@ const styles = StyleSheet.create({
   textBlock: {
     flex: 1,
     minWidth: 0,
+  },
+  brandTextBlock: {
+    minWidth: 0,
+    justifyContent: "center",
   },
   eyebrow: {
     color: AppTheme.colors.brand,
@@ -137,6 +217,23 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 23,
     fontWeight: "900",
+  },
+  brandText: {
+    fontSize: 18,
+    lineHeight: 21,
+    fontWeight: "900",
+  },
+  brandTextPrimary: {
+    color: "#002868",
+  },
+  brandTextAccent: {
+    color: "#0090A0",
+  },
+  brandSubtitle: {
+    color: "#52638F",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
   },
   subtitle: {
     marginTop: 18,

@@ -86,12 +86,13 @@ export default function DashboardRoute() {
         >
           <MainTabHeader
             title={t("dashboard.header.title")}
-            eyebrow={t("dashboard.header.eyebrow")}
+            brandText="ACCESS-DP"
+            brandSubtitle={t("common.productTagline")}
             subtitle={`${greeting}. ${t("dashboard.header.subtitle", {
               patientName: patientFirstName,
               patientStatusOwner,
             })}`}
-            logoSource={require("@/assets/images/hta-logo.png")}
+            logoSource={require("@/assets/images/access-dp-adaptive-foreground.png")}
             rightContent={
               <>
                 <Pressable
