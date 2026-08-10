@@ -35,6 +35,16 @@ import { KnowledgePackProgressCard } from '@/components/models/KnowledgePackProg
 import { SlmModelCarousel } from '@/components/models/SlmModelCarousel';
 import { useModelDownloadQueue } from '@/hooks/useModelDownloadQueue';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import {
+  SUPPORTED_APP_LANGUAGE_PREFERENCES,
+  languagePreferenceLabel,
+  normalizeSupportedLanguagePreference,
+  type SupportedAppLanguagePreference,
+  type TranslateFn,
+  type TranslationKey,
+  type TranslationParams,
+} from '@/localization/i18n';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import {
   clearKnowledgeCache,
@@ -99,40 +109,40 @@ const dangerRed = '#B42318';
 const RECORD_CONSENT_OPTIONS: {
   scope: RecordConsentScope;
   emoji: string;
-  title: string;
-  subtitle: string;
+  titleKey: TranslationKey;
+  subtitleKey: TranslationKey;
 }[] = [
   {
     scope: 'ccda_export',
     emoji: '📤',
-    title: 'Health record export consent',
-    subtitle: 'Allow exporting a care summary for care coordination.',
+    titleKey: 'settings.consent.healthExport.title',
+    subtitleKey: 'settings.consent.healthExport.subtitle',
   },
   {
     scope: 'fhir-share',
     emoji: '🔗',
-    title: 'Health record share consent',
-    subtitle: 'Allow sharing structured records with approved care systems.',
+    titleKey: 'settings.consent.healthShare.title',
+    subtitleKey: 'settings.consent.healthShare.subtitle',
   },
   {
     scope: 'pharmacy-communicator',
     emoji: '💊',
-    title: 'Pharmacy communicator consent',
-    subtitle: 'Allow medication-related communication with pharmacy tools.',
+    titleKey: 'settings.consent.pharmacy.title',
+    subtitleKey: 'settings.consent.pharmacy.subtitle',
   },
   {
     scope: 'provider-message',
     emoji: '💬',
-    title: 'Provider message consent',
-    subtitle: 'Allow sending care context to provider messaging tools.',
+    titleKey: 'settings.consent.providerMessage.title',
+    subtitleKey: 'settings.consent.providerMessage.subtitle',
   },
 ];
 
 const ADCP_BACKUP_CONSENT = {
   scope: 'adcp_backup' as const,
   emoji: '💾',
-  title: 'Care plan backup consent',
-  subtitle: 'Allow exporting and restoring a care plan backup file.',
+  titleKey: 'settings.consent.carePlanBackup.title' as const,
+  subtitleKey: 'settings.consent.carePlanBackup.subtitle' as const,
 };
 
 const initialRecordConsentState: Record<RecordConsentScope | 'adcp_backup', boolean> = {
@@ -145,6 +155,10 @@ const initialRecordConsentState: Record<RecordConsentScope | 'adcp_backup', bool
 };
 
 const EMPTY_CONDITIONS: PatientCondition[] = [];
+const SETTINGS_LANGUAGE_OPTIONS = SUPPORTED_APP_LANGUAGE_PREFERENCES;
+type LocalizedMessage =
+  | { key: TranslationKey; params?: TranslationParams }
+  | { text: string };
 
 type ExpandableId =
   | 'anomaly'
@@ -153,6 +167,7 @@ type ExpandableId =
   | 'care-task'
   | 'timing'
   | 'appearance'
+  | 'language'
   | 'accessibility'
   | 'consent'
   | 'developer-mode'
@@ -173,20 +188,27 @@ export function SettingsScreen() {
 
 export function PreferencesScreen() {
   const router = useRouter();
-  const { settings, setTheme, setHealthKitIntegrationEnabled } = useSettings();
+  const {
+    settings,
+    setTheme,
+    setHealthKitIntegrationEnabled,
+    setLanguagePreference,
+  } = useSettings();
   const theme = useTheme();
+  const { locale, t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const patientId = useOrchestratorPatientId();
   const { refresh: refreshPatientRecord } = usePatientRecord();
   const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
   const [recordConsentGranted, setRecordConsentGranted] =
     useState<Record<RecordConsentScope, boolean>>(initialRecordConsentState);
-  const [recordExportStatus, setRecordExportStatus] = useState(
-    'Consent required before export',
-  );
-  const [adcpBackupStatus, setAdcpBackupStatus] = useState(
-    'Backup consent enabled by default',
-  );
+  const [recordExportStatus, setRecordExportStatus] = useState<LocalizedMessage>({
+    key: 'settings.status.consentRequiredBeforeExport',
+  });
+  const [adcpBackupStatus, setAdcpBackupStatus] = useState<LocalizedMessage>({
+    key: 'settings.status.backupConsentDefault',
+  });
+
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -209,13 +231,13 @@ export function PreferencesScreen() {
       setRecordConsentGranted(nextConsentState);
       setRecordExportStatus(
         nextConsentState.ccda_export
-          ? 'Consent granted for health record export'
-          : 'Consent required before export',
+          ? { key: 'settings.status.consentGrantedForExport' }
+          : { key: 'settings.status.consentRequiredBeforeExport' },
       );
       setAdcpBackupStatus(
         nextConsentState.adcp_backup
-          ? 'Backup consent enabled'
-          : 'Consent required before backup',
+          ? { key: 'settings.status.backupConsentEnabled' }
+          : { key: 'settings.status.consentRequiredBeforeBackup' },
       );
     }, 0);
 
@@ -225,6 +247,16 @@ export function PreferencesScreen() {
   const toggleExpanded = useCallback((id: ExpandableId) => {
     setExpandedId((current) => (current === id ? null : id));
   }, []);
+
+  const selectedLanguagePreference = normalizeSupportedLanguagePreference(
+    settings.languagePreference,
+  );
+
+  const handleLanguagePreferenceChange = useCallback((nextPreference: SupportedAppLanguagePreference) => {
+    setLanguagePreference(normalizeSupportedLanguagePreference(nextPreference));
+  }, [
+    setLanguagePreference,
+  ]);
 
   const handleRecordConsentToggle = useCallback((scope: RecordConsentScope) => {
     const nextGranted = !recordConsentGranted[scope];
@@ -239,8 +271,8 @@ export function PreferencesScreen() {
     if (scope === 'ccda_export') {
       setRecordExportStatus(
         consent.granted
-          ? 'Consent granted for health record export'
-          : 'Consent required before export',
+          ? { key: 'settings.status.consentGrantedForExport' }
+          : { key: 'settings.status.consentRequiredBeforeExport' },
       );
     }
   }, [patientId, recordConsentGranted]);
@@ -249,8 +281,8 @@ export function PreferencesScreen() {
     const result = exportPatientCcda(patientId);
 
     if (result.status === 'queued') {
-      setRecordExportStatus('Health record export queued for sync');
-      Alert.alert('Export queued', result.message);
+      setRecordExportStatus({ key: 'settings.status.healthRecordExportQueued' });
+      Alert.alert(t('settings.alert.exportQueued'), result.message);
       return;
     }
 
@@ -259,17 +291,17 @@ export function PreferencesScreen() {
         ...current,
         ccda_export: false,
       }));
-      setRecordExportStatus('Consent required before export');
+      setRecordExportStatus({ key: 'settings.status.consentRequiredBeforeExport' });
       Alert.alert(
-        'Consent required',
-        'Please turn on record export consent before exporting a health record.',
+        t('settings.alert.consentRequired'),
+        t('settings.alert.enableRecordExportConsent'),
       );
       return;
     }
 
-    setRecordExportStatus('Health record export failed');
-    Alert.alert('Export failed', result.message);
-  }, [patientId]);
+    setRecordExportStatus({ key: 'settings.status.healthRecordExportFailed' });
+    Alert.alert(t('settings.alert.exportFailed'), result.message);
+  }, [patientId, t]);
 
   // ADCP plan backup handlers (planning/39 §7.5 P5)
   // -------------------------------------------------------------------------
@@ -292,15 +324,18 @@ export function PreferencesScreen() {
       });
       if (!result.ok || !result.json || !result.filename) {
         if (result.consentRequired) {
-          setAdcpBackupStatus('Consent required before export.');
-          Alert.alert('Consent required', 'Enable Care plan backup consent, then try again.');
+          setAdcpBackupStatus({ key: 'settings.status.consentRequiredBeforeBackup' });
+          Alert.alert(t('settings.alert.consentRequired'), t('settings.alert.enableBackupConsent'));
           return;
         }
-        setAdcpBackupStatus('Nothing to export.');
-        Alert.alert('No plan to export', result.reason ?? 'No active care plan revision.');
+        setAdcpBackupStatus({ key: 'settings.status.nothingToExport' });
+        Alert.alert(t('settings.alert.noPlanToExport'), result.reason ?? t('settings.alert.noActiveCarePlan'));
         return;
       }
-      setAdcpBackupStatus(`Backup ready (${result.bundleSize ?? 0} bytes) — exporting…`);
+      setAdcpBackupStatus({
+        key: 'settings.status.backupReady',
+        params: { bytes: result.bundleSize ?? 0 },
+      });
 
       // Prefer Share on devices; fall back to in-app preview only.
       try {
@@ -313,22 +348,26 @@ export function PreferencesScreen() {
         await file.write(result.json);
         await Sharing.shareAsync(file.uri, {
           mimeType: 'application/json',
-          dialogTitle: 'Care plan backup',
+          dialogTitle: t('settings.action.exportCarePlanBackup'),
         });
-        setAdcpBackupStatus(`Exported ${result.filename} — ${result.bundleSize ?? 0} bytes.`);
+        setAdcpBackupStatus({
+          key: 'settings.status.exportedBackup',
+          params: { filename: result.filename, bytes: result.bundleSize ?? 0 },
+        });
       } catch (shareErr) {
         // Expo Go (Track A) lacks `expo-sharing`; surface as preview only.
         console.warn('[adcpExport] share unavailable, preview only:', shareErr);
-        setAdcpBackupStatus(
-          `${result.filename} ready (${result.bundleSize ?? 0} bytes). Track-A preview — copy from logs if needed.`,
-        );
+        setAdcpBackupStatus({
+          key: 'settings.status.backupPreview',
+          params: { filename: result.filename, bytes: result.bundleSize ?? 0 },
+        });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setAdcpBackupStatus(`Export failed: ${msg}`);
-      Alert.alert('Export failed', msg);
+      setAdcpBackupStatus({ key: 'settings.status.exportFailed', params: { message: msg } });
+      Alert.alert(t('settings.alert.exportFailed'), msg);
     }
-  }, [patientId, recordConsentGranted.adcp_backup]);
+  }, [patientId, recordConsentGranted.adcp_backup, t]);
 
   const handleAdcpBundleRestore = useCallback(async () => {
     try {
@@ -342,7 +381,7 @@ export function PreferencesScreen() {
       }
       const asset = result.assets[0];
       if (!asset?.uri) {
-        Alert.alert('Restore failed', 'No file URI returned from picker.');
+        Alert.alert(t('settings.alert.restoreFailed'), t('settings.alert.noFileUri'));
         return;
       }
 
@@ -363,24 +402,29 @@ export function PreferencesScreen() {
       });
 
       if (outcome.ok) {
-        setAdcpBackupStatus(
-          `Restored as care plan v${outcome.newPlanVersion}. Care tab updated.`,
-        );
+        const restoredVersion = outcome.newPlanVersion ?? '';
+        setAdcpBackupStatus({
+          key: 'settings.status.restoreComplete',
+          params: { version: restoredVersion },
+        });
         refreshPatientRecord();
         Alert.alert(
-          'Restore complete',
-          `Care plan restored as v${outcome.newPlanVersion}.`,
+          t('settings.alert.restoreComplete'),
+          t('settings.alert.restoreCompleteBody', { version: restoredVersion }),
         );
       } else {
-        setAdcpBackupStatus(`Restore rejected: ${outcome.reason}`);
-        Alert.alert('Restore rejected', outcome.reason ?? 'Bundle invalid.');
+        setAdcpBackupStatus({
+          key: 'settings.status.restoreRejected',
+          params: { reason: outcome.reason ?? t('settings.alert.bundleInvalid') },
+        });
+        Alert.alert(t('settings.alert.restoreRejected'), outcome.reason ?? t('settings.alert.bundleInvalid'));
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setAdcpBackupStatus(`Restore failed: ${msg}`);
-      Alert.alert('Restore failed', msg);
+      setAdcpBackupStatus({ key: 'settings.status.restoreFailed', params: { message: msg } });
+      Alert.alert(t('settings.alert.restoreFailed'), msg);
     }
-  }, [patientId, refreshPatientRecord]);
+  }, [patientId, refreshPatientRecord, t]);
 
   /** P5b — lossy FHIR Bundle share (dev / handoff demo). */
   const handleAdcpFhirExport = useCallback(async () => {
@@ -423,16 +467,18 @@ export function PreferencesScreen() {
           mimeType: 'application/fhir+json',
           dialogTitle: 'Care plan FHIR Bundle',
         });
-        setAdcpBackupStatus(
-          `FHIR Bundle shared (${json.length} bytes)${warningCount ? ` · ${warningCount} warnings` : ''}.`,
-        );
+        setAdcpBackupStatus({
+          text: `FHIR Bundle shared (${json.length} bytes)${warningCount ? ` · ${warningCount} warnings` : ''}.`,
+        });
       } catch (shareErr) {
         console.warn('[adcpFhirExport] share unavailable:', shareErr);
-        setAdcpBackupStatus(`FHIR Bundle ready (${json.length} bytes) — share unavailable on Track A.`);
+        setAdcpBackupStatus({
+          text: `FHIR Bundle ready (${json.length} bytes) — share unavailable on Track A.`,
+        });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setAdcpBackupStatus(`FHIR export failed: ${msg}`);
+      setAdcpBackupStatus({ text: `FHIR export failed: ${msg}` });
       Alert.alert('FHIR export failed', msg);
     }
   }, [patientId]);
@@ -449,119 +495,170 @@ export function PreferencesScreen() {
             />
           </View>
           <View style={styles.headerTextBlock}>
-            <Text style={styles.headerEyebrow}>Caregiver Concierge</Text>
-            <Text style={[styles.headerTitle, themedStyles.headerText]}>Preferences</Text>
+            <Text style={styles.headerEyebrow}>{t('settings.eyebrow')}</Text>
+            <Text style={[styles.headerTitle, themedStyles.headerText]}>{t('settings.title.preferences')}</Text>
           </View>
         </View>
 
-        <Section title="🔔 Notifications">
+        <Section title={`🔔 ${t('settings.section.notifications')}`}>
           <CompactActionRow
             id="timing"
             emoji="⏰"
-            label="Notifications & reminders"
+            label={t('settings.notifications.label')}
             expanded={expandedId === 'timing'}
-            explanation="Manage alert, medication, appointment, and care-task reminder delivery preferences."
+            explanation={t('settings.notifications.explanation')}
             onToggleExpand={toggleExpanded}
+            localizeAccessibility
           >
             <Pressable
               style={styles.actionButton}
               onPress={() => router.push('/notifications-reminders')}
               accessibilityRole="button"
-              accessibilityLabel="Open Notifications and reminders">
-              <Text style={styles.actionButtonText}>Open Notifications & reminders</Text>
+              accessibilityLabel={t('settings.notifications.openA11y')}>
+              <Text style={styles.actionButtonText}>{t('settings.notifications.open')}</Text>
             </Pressable>
           </CompactActionRow>
         </Section>
 
-        <Section title="🎨 Appearance">
+        <Section title={`🎨 ${t('settings.section.appearance')}`}>
           <CompactActionRow
             id="appearance"
             emoji="🎨"
-            label="Appearance"
+            label={t('settings.appearance.label')}
             expanded={expandedId === 'appearance'}
-            explanation="Choose whether the app uses light, dark, or system display preference."
+            explanation={t('settings.appearance.explanation')}
             onToggleExpand={toggleExpanded}
+            localizeAccessibility
           >
             <View style={[styles.segmented, themedStyles.segmented]}>
-              {(['light', 'dark', 'system'] as const).map((t) => (
+              {(['light', 'dark', 'system'] as const).map((themeOption) => {
+                const label =
+                  themeOption === 'light'
+                    ? t('onboarding.appearance.light')
+                    : themeOption === 'dark'
+                      ? t('onboarding.appearance.dark')
+                      : t('onboarding.appearance.system');
+                return (
                 <Pressable
-                  key={t}
+                  key={themeOption}
                   style={[
                     styles.segButton,
                     themedStyles.segment,
-                    settings.theme === t && styles.segButtonActive,
+                    settings.theme === themeOption && styles.segButtonActive,
                   ]}
-                  onPress={() => setTheme(t)}
+                  onPress={() => setTheme(themeOption)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Use ${t} theme`}
-                  accessibilityState={{ selected: settings.theme === t }}>
-                  <Text style={[styles.segText, themedStyles.secondaryText, settings.theme === t && styles.segTextActive]}>
-                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  accessibilityLabel={t('settings.appearance.useTheme', { label })}
+                  accessibilityState={{ selected: settings.theme === themeOption }}>
+                  <Text style={[styles.segText, themedStyles.secondaryText, settings.theme === themeOption && styles.segTextActive]}>
+                    {label}
                   </Text>
                 </Pressable>
-              ))}
+                );
+              })}
             </View>
           </CompactActionRow>
         </Section>
 
-        <Section title="♿ Accessibility">
+        <Section title={`🌐 ${t('settings.section.language')}`}>
+          <CompactActionRow
+            id="language"
+            emoji="🌐"
+            label={t('settings.language.label')}
+            expanded={expandedId === 'language'}
+            explanation={t('settings.language.explanation')}
+            onToggleExpand={toggleExpanded}
+            localizeAccessibility
+          >
+            <View style={[styles.segmented, themedStyles.segmented]}>
+              {SETTINGS_LANGUAGE_OPTIONS.map((languageOption) => {
+                const label = languagePreferenceLabel(languageOption, t);
+                const selected = selectedLanguagePreference === languageOption;
+                return (
+                  <Pressable
+                    key={languageOption}
+                    style={[
+                      styles.segButton,
+                      themedStyles.segment,
+                      selected && styles.segButtonActive,
+                    ]}
+                    onPress={() => handleLanguagePreferenceChange(languageOption)}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('settings.language.useLanguage', { label })}
+                    accessibilityHint={t('settings.language.hint')}
+                    accessibilityState={{ selected }}>
+                    <Text style={[styles.segText, themedStyles.secondaryText, selected && styles.segTextActive]}>
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </CompactActionRow>
+        </Section>
+
+        <Section title={`♿ ${t('settings.section.accessibility')}`}>
           <CompactActionRow
             id="accessibility"
             emoji="♿"
-            label="Accessibility"
+            label={t('settings.accessibility.label')}
             expanded={expandedId === 'accessibility'}
-            explanation="Rows, controls, and labels are designed for large touch targets and screen-reader clarity. Emoji are decorative and are not the only label."
+            explanation={t('settings.accessibility.explanation')}
             onToggleExpand={toggleExpanded}
+            localizeAccessibility
           />
         </Section>
 
-        <Section title="⌚ Wearables">
+        <Section title={`⌚ ${t('settings.section.wearables')}`}>
           <CompactToggleRow
             id="healthkit-integration"
             emoji="❤️"
-            label="Apple Health integration"
+            label={t('settings.wearables.appleHealth')}
             value={settings.healthKitIntegrationEnabled !== false}
             expanded={expandedId === 'healthkit-integration'}
-            explanation="When off, the app will not connect to or poll Apple Health / HealthKit. Turn this off if you are not using a wearable. On by default."
+            explanation={t('settings.wearables.appleHealthExplanation')}
             onToggleExpand={toggleExpanded}
             onValueChange={(enabled) => setHealthKitIntegrationEnabled(enabled)}
-            accessibilityLabel="Apple Health integration"
-            accessibilityHint="When off, the app will not connect to or poll Apple Health / HealthKit."
+            accessibilityLabel={t('settings.wearables.appleHealth')}
+            accessibilityHint={t('settings.wearables.appleHealthExplanation')}
+            localizeAccessibility
           />
         </Section>
 
-        <Section title="🛡️ Privacy & Consent">
+        <Section title={`🛡️ ${t('settings.section.privacyConsent')}`}>
           <CompactActionRow
             id="consent"
             emoji="🛡️"
-            label="Consent Manager"
+            label={t('settings.privacy.consentManager')}
             expanded={expandedId === 'consent'}
-            explanation="Review record-sharing permissions and consent tokens used by care workflows."
+            explanation={t('settings.privacy.consentExplanation')}
             onToggleExpand={toggleExpanded}
+            localizeAccessibility
           >
             <View style={styles.subsection}>
-              <Text style={[styles.subsectionTitle, themedStyles.primaryText]}>Record sharing</Text>
+              <Text style={[styles.subsectionTitle, themedStyles.primaryText]}>{t('settings.privacy.recordSharing')}</Text>
               {RECORD_CONSENT_OPTIONS.map((option) => (
                 <View key={option.scope}>
                   <CompactToggleRow
                     id={`consent-${option.scope}` as ExpandableId}
                     emoji={option.emoji}
-                    label={option.title}
+                    label={t(option.titleKey)}
                     value={recordConsentGranted[option.scope]}
                     expanded={false}
                     onToggleExpand={() => {}}
                     onValueChange={() => handleRecordConsentToggle(option.scope)}
-                    accessibilityLabel={option.title}
-                    accessibilityHint={option.subtitle}
+                    accessibilityLabel={t(option.titleKey)}
+                    accessibilityHint={t(option.subtitleKey)}
+                    localizeAccessibility
                   />
 
                   {option.scope === 'ccda_export' && recordConsentGranted.ccda_export ? (
                     <PlainActionRow
                       emoji="📄"
-                      label="Export health record"
-                      description={recordExportStatus}
+                      label={t('settings.action.exportHealthRecord')}
+                      description={formatLocalizedMessage(recordExportStatus, t)}
                       onPress={handlePatientCcdaExport}
-                      accessibilityLabel="Export health record"
+                      accessibilityLabel={t('settings.action.exportHealthRecord')}
                     />
                   ) : null}
                 </View>
@@ -572,32 +669,33 @@ export function PreferencesScreen() {
                 <CompactToggleRow
                   id="consent-adcp_backup"
                   emoji={ADCP_BACKUP_CONSENT.emoji}
-                  label={ADCP_BACKUP_CONSENT.title}
+                  label={t(ADCP_BACKUP_CONSENT.titleKey)}
                   value={recordConsentGranted.adcp_backup}
                   expanded={false}
                   onToggleExpand={() => {}}
                   onValueChange={() => handleRecordConsentToggle(ADCP_BACKUP_CONSENT.scope)}
-                  accessibilityLabel={ADCP_BACKUP_CONSENT.title}
-                  accessibilityHint={ADCP_BACKUP_CONSENT.subtitle}
+                  accessibilityLabel={t(ADCP_BACKUP_CONSENT.titleKey)}
+                  accessibilityHint={t(ADCP_BACKUP_CONSENT.subtitleKey)}
+                  localizeAccessibility
                 />
 
                 {recordConsentGranted.adcp_backup ? (
                   <PlainActionRow
                     emoji="💾"
-                    label="Export care plan backup"
-                    description={adcpBackupStatus}
+                    label={t('settings.action.exportCarePlanBackup')}
+                    description={formatLocalizedMessage(adcpBackupStatus, t)}
                     onPress={handleAdcpBundleExport}
-                    accessibilityLabel="Export care plan backup"
+                    accessibilityLabel={t('settings.action.exportCarePlanBackup')}
                   />
                 ) : null}
 
                 {recordConsentGranted.adcp_backup ? (
                   <PlainActionRow
                     emoji="📥"
-                    label="Restore care plan backup"
-                    description="Pick a JSON backup file from Files to restore."
+                    label={t('settings.action.restoreCarePlanBackup')}
+                    description={t('settings.action.restoreCarePlanBackupDescription')}
                     onPress={handleAdcpBundleRestore}
-                    accessibilityLabel="Restore care plan backup"
+                    accessibilityLabel={t('settings.action.restoreCarePlanBackup')}
                   />
                 ) : null}
 
@@ -614,13 +712,13 @@ export function PreferencesScreen() {
             </View>
 
             <View style={styles.subsection}>
-              <Text style={[styles.subsectionTitle, themedStyles.primaryText]}>Consent tokens</Text>
+              <Text style={[styles.subsectionTitle, themedStyles.primaryText]}>{t('settings.privacy.consentTokens')}</Text>
               <ConsentManagement patientId={patientId} />
             </View>
           </CompactActionRow>
         </Section>
 
-        <YourDecisionsSection patientId={patientId} />
+        <YourDecisionsSection patientId={patientId} locale={locale} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -942,6 +1040,7 @@ export function AdvancedDeveloperSettingsScreen() {
   const toggleExpanded = useCallback((id: ExpandableId) => {
     setExpandedId((current) => (current === id ? null : id));
   }, []);
+
 
   useEffect(() => {
     if (!isDeveloper || !patientId) {
@@ -1987,6 +2086,7 @@ function DemoMedicationConfirmationSettings({
 }
 
 function ConsentManagement({ patientId }: { patientId: string }) {
+  const { t } = useTranslation();
   const [consents, setConsents] = useState<ConsentToken[]>(() => getActiveConsents(patientId));
   const consentScopes = ['location_access'] as const;
 
@@ -2008,12 +2108,13 @@ function ConsentManagement({ patientId }: { patientId: string }) {
             key={scope}
             id={`consent-${scope}` as ExpandableId}
             emoji="📍"
-            label={scope.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+            label={t('settings.consent.locationAccess')}
             value={active}
             expanded={false}
             onToggleExpand={() => {}}
             onValueChange={(v) => handleToggle(scope, v)}
-            accessibilityHint="Allow location-aware support when a care workflow requests it."
+            accessibilityHint={t('settings.consent.locationAccessHint')}
+            localizeAccessibility
           />
         );
       })}
@@ -2021,8 +2122,14 @@ function ConsentManagement({ patientId }: { patientId: string }) {
   );
 }
 
-function YourDecisionsSection({ patientId }: { patientId: string }) {
+function formatLocalizedMessage(message: LocalizedMessage, t: TranslateFn): string {
+  if ('text' in message) return message.text;
+  return t(message.key, message.params);
+}
+
+function YourDecisionsSection({ patientId, locale }: { patientId: string; locale: string }) {
   const themedStyles = createThemedStyles(useTheme());
+  const { t } = useTranslation();
   const [decisions, setDecisions] = useState<AuditLogEntry[]>(() => {
     if (!patientId) return [];
     try {
@@ -2048,20 +2155,20 @@ function YourDecisionsSection({ patientId }: { patientId: string }) {
   if (decisions.length === 0) return null;
 
   return (
-    <Section title="Your Decisions">
+    <Section title={t('settings.decisions.title')}>
       <View style={styles.subsection}>
         {decisions.map((d, i) => (
           <View key={`${d.resourceId ?? d.auditId}-${i}`} style={[styles.decisionRow, themedStyles.divider]}>
             <Text style={[styles.decisionAction, themedStyles.primaryText]}>
               {d.action === 'override'
-                ? 'You overrode'
+                ? t('settings.decisions.youOverrode')
                 : d.action === 'confirm'
-                  ? 'You confirmed'
-                  : `You ${d.action}`}
+                  ? t('settings.decisions.youConfirmed')
+                  : t('settings.decisions.youAction', { action: d.action })}
             </Text>
             <Text style={[styles.decisionTime, themedStyles.secondaryText]}>
               {d.createdAt
-                ? new Date(d.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                ? new Date(d.createdAt).toLocaleDateString(locale, { month: 'short', day: 'numeric' })
                 : ''}
             </Text>
           </View>
@@ -2698,6 +2805,7 @@ function CompactToggleRow({
   onValueChange,
   accessibilityLabel,
   accessibilityHint,
+  localizeAccessibility = false,
 }: {
   id: ExpandableId;
   emoji: string;
@@ -2709,9 +2817,12 @@ function CompactToggleRow({
   onValueChange: (v: boolean) => void;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  localizeAccessibility?: boolean;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = createThemedStyles(theme);
+  const effectiveLabel = accessibilityLabel ?? label;
 
   return (
     <View style={[styles.compactWrap, themedStyles.divider]}>
@@ -2720,8 +2831,21 @@ function CompactToggleRow({
           style={styles.compactPressArea}
           onPress={() => onToggleExpand(id)}
           accessibilityRole="button"
-          accessibilityLabel={`${accessibilityLabel ?? label} details`}
-          accessibilityHint={expanded ? 'Collapse explanation' : accessibilityHint ?? 'Expand explanation'}
+          accessibilityLabel={
+            localizeAccessibility
+              ? t('settings.a11y.details', { label: effectiveLabel })
+              : `${effectiveLabel} details`
+          }
+          accessibilityHint={
+            expanded
+              ? localizeAccessibility
+                ? t('settings.a11y.collapseExplanation')
+                : 'Collapse explanation'
+              : accessibilityHint ??
+                (localizeAccessibility
+                  ? t('settings.a11y.expandExplanation')
+                  : 'Expand explanation')
+          }
           accessibilityState={{ expanded }}
         >
           {emoji ? (
@@ -2737,7 +2861,7 @@ function CompactToggleRow({
           trackColor={{ false: theme.appBorder, true: AppTheme.colors.brandSoft }}
           thumbColor={value ? AppTheme.colors.brand : theme.appSurface}
           accessibilityRole="switch"
-          accessibilityLabel={accessibilityLabel ?? label}
+          accessibilityLabel={effectiveLabel}
           accessibilityHint={accessibilityHint}
           accessibilityState={{ checked: value }}
         />
@@ -2749,9 +2873,15 @@ function CompactToggleRow({
             style={[styles.closeExplanation, themedStyles.softSurface]}
             onPress={() => onToggleExpand(id)}
             accessibilityRole="button"
-            accessibilityLabel={`Close ${label} explanation`}
+            accessibilityLabel={
+              localizeAccessibility
+                ? t('settings.a11y.closeExplanation', { label })
+                : `Close ${label} explanation`
+            }
           >
-            <Text style={[styles.closeExplanationText, themedStyles.secondaryText]}>Close</Text>
+            <Text style={[styles.closeExplanationText, themedStyles.secondaryText]}>
+              {localizeAccessibility ? t('common.close') : 'Close'}
+            </Text>
           </Pressable>
         </View>
       ) : null}
@@ -2767,6 +2897,7 @@ function CompactActionRow({
   explanation,
   onToggleExpand,
   children,
+  localizeAccessibility = false,
 }: {
   id: ExpandableId;
   emoji: string;
@@ -2775,7 +2906,9 @@ function CompactActionRow({
   explanation?: string;
   onToggleExpand: (id: ExpandableId) => void;
   children?: React.ReactNode;
+  localizeAccessibility?: boolean;
 }) {
+  const { t } = useTranslation();
   const themedStyles = createThemedStyles(useTheme());
 
   return (
@@ -2784,8 +2917,20 @@ function CompactActionRow({
         style={styles.actionCompactRow}
         onPress={() => onToggleExpand(id)}
         accessibilityRole="button"
-        accessibilityLabel={`${label} details`}
-        accessibilityHint={expanded ? 'Collapse details' : 'Expand details'}
+        accessibilityLabel={
+          localizeAccessibility
+            ? t('settings.a11y.details', { label })
+            : `${label} details`
+        }
+        accessibilityHint={
+          expanded
+            ? localizeAccessibility
+              ? t('settings.a11y.collapseDetails')
+              : 'Collapse details'
+            : localizeAccessibility
+              ? t('settings.a11y.expandDetails')
+              : 'Expand details'
+        }
         accessibilityState={{ expanded }}
       >
         <Text style={[styles.rowEmoji, themedStyles.primaryText]} accessibilityElementsHidden importantForAccessibility="no">
@@ -2801,9 +2946,15 @@ function CompactActionRow({
             style={[styles.closeExplanation, themedStyles.softSurface]}
             onPress={() => onToggleExpand(id)}
             accessibilityRole="button"
-            accessibilityLabel={`Close ${label} details`}
+            accessibilityLabel={
+              localizeAccessibility
+                ? t('settings.a11y.closeDetails', { label })
+                : `Close ${label} details`
+            }
           >
-            <Text style={[styles.closeExplanationText, themedStyles.secondaryText]}>Close</Text>
+            <Text style={[styles.closeExplanationText, themedStyles.secondaryText]}>
+              {localizeAccessibility ? t('common.close') : 'Close'}
+            </Text>
           </Pressable>
         </View>
       ) : null}

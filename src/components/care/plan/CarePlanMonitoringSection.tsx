@@ -8,6 +8,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 import { createThemedSectionStyles } from './carePlanSectionStyles';
 import type { Threshold } from '@/data/types';
 
@@ -23,16 +25,6 @@ export interface CarePlanMonitoringSectionProps {
   baselines?: CarePlanMonitoringBaselines | null;
 }
 
-const VITAL_LABEL: Record<string, string> = {
-  spo2: 'Oxygen (SpO₂)',
-  heart_rate: 'Heart rate',
-  respiratory_rate: 'Breathing rate',
-  blood_pressure_systolic: 'Blood pressure (top number)',
-  blood_pressure_diastolic: 'Blood pressure (bottom number)',
-  temperature: 'Temperature',
-  blood_glucose: 'Blood glucose',
-};
-
 const VITAL_UNIT: Record<string, string> = {
   spo2: '%',
   heart_rate: ' bpm',
@@ -45,28 +37,10 @@ const VITAL_UNIT: Record<string, string> = {
 
 type SeverityBucket = 1 | 2 | 3;
 
-const SEVERITY_META: Record<
-  SeverityBucket,
-  { title: string; subtitle: string; tone: 'emergency' | 'watch' | 'info' }
-> = {
-  3: {
-    title: 'Emergency cutoffs',
-    subtitle:
-      'If readings cross these lines, treat it as urgent — follow your emergency plan and call for help when needed.',
-    tone: 'emergency',
-  },
-  2: {
-    title: 'Watch closely',
-    subtitle:
-      'These levels mean you should check on the person, log what you see, and be ready to contact the care team.',
-    tone: 'watch',
-  },
-  1: {
-    title: 'Gentle heads-up',
-    subtitle:
-      'Small drifts worth noticing. Usually means keep monitoring and note anything unusual.',
-    tone: 'info',
-  },
+const SEVERITY_TONE: Record<SeverityBucket, 'emergency' | 'watch' | 'info'> = {
+  3: 'emergency',
+  2: 'watch',
+  1: 'info',
 };
 
 function severityBucket(severity: number): SeverityBucket {
@@ -75,54 +49,105 @@ function severityBucket(severity: number): SeverityBucket {
   return 1;
 }
 
-function sourceLabel(source: Threshold['source'] | string): string {
+function vitalLabel(vitalType: string, t: TranslateFn): string {
+  switch (vitalType) {
+    case 'spo2':
+      return t('care.monitoring.vital.spo2');
+    case 'heart_rate':
+      return t('care.monitoring.vital.heartRate');
+    case 'respiratory_rate':
+      return t('care.monitoring.vital.respiratoryRate');
+    case 'blood_pressure_systolic':
+      return t('care.monitoring.vital.bpSystolic');
+    case 'blood_pressure_diastolic':
+      return t('care.monitoring.vital.bpDiastolic');
+    case 'temperature':
+      return t('care.monitoring.vital.temperature');
+    case 'blood_glucose':
+      return t('care.monitoring.vital.bloodGlucose');
+    default:
+      return vitalType.replace(/_/g, ' ');
+  }
+}
+
+function severityTitle(severity: SeverityBucket, t: TranslateFn): string {
+  switch (severity) {
+    case 3:
+      return t('care.monitoring.severity.emergency.title');
+    case 2:
+      return t('care.monitoring.severity.watch.title');
+    case 1:
+      return t('care.monitoring.severity.info.title');
+  }
+}
+
+function severitySubtitle(severity: SeverityBucket, t: TranslateFn): string {
+  switch (severity) {
+    case 3:
+      return t('care.monitoring.severity.emergency.subtitle');
+    case 2:
+      return t('care.monitoring.severity.watch.subtitle');
+    case 1:
+      return t('care.monitoring.severity.info.subtitle');
+  }
+}
+
+function sourceLabel(source: Threshold['source'] | string, t: TranslateFn): string {
   switch (source) {
     case 'pcp_careplan':
-      return 'From the care plan / care team';
+      return t('care.monitoring.source.carePlan');
     case 'caregiver_override':
-      return 'Adjusted by you';
+      return t('care.monitoring.source.caregiver');
     case 'ml_baseline':
-      return 'From usual readings (app baseline)';
+      return t('care.monitoring.source.baseline');
     default:
-      return 'Configured in the app';
+      return t('care.monitoring.source.app');
   }
 }
 
-function plainMeaning(t: Threshold): string {
-  const vital = VITAL_LABEL[t.vitalType] ?? t.vitalType.replace(/_/g, ' ');
-  const unit = VITAL_UNIT[t.vitalType] ?? '';
-  const value = `${t.value}${unit}`;
-  if (t.direction === 'below') {
-    return `Alert when ${vital.toLowerCase()} falls under ${value}.`;
+function plainMeaning(threshold: Threshold, t: TranslateFn): string {
+  const vital = vitalLabel(threshold.vitalType, t).toLowerCase();
+  const unit = VITAL_UNIT[threshold.vitalType] ?? '';
+  const value = `${threshold.value}${unit}`;
+  if (threshold.direction === 'below') {
+    return t('care.monitoring.meaning.below', { vital, value });
   }
-  if (t.direction === 'above') {
-    return `Alert when ${vital.toLowerCase()} rises over ${value}.`;
+  if (threshold.direction === 'above') {
+    return t('care.monitoring.meaning.above', { vital, value });
   }
-  return `Alert when ${vital.toLowerCase()} is at ${value}.`;
+  return t('care.monitoring.meaning.at', { vital, value });
 }
 
-function headline(t: Threshold): string {
-  const vital = VITAL_LABEL[t.vitalType] ?? t.vitalType;
-  const unit = VITAL_UNIT[t.vitalType] ?? '';
-  const dir =
-    t.direction === 'below' ? 'under' : t.direction === 'above' ? 'over' : 'at';
-  return `${vital} ${dir} ${t.value}${unit}`;
+function headline(threshold: Threshold, t: TranslateFn): string {
+  const vital = vitalLabel(threshold.vitalType, t);
+  const unit = VITAL_UNIT[threshold.vitalType] ?? '';
+  const value = `${threshold.value}${unit}`;
+  if (threshold.direction === 'below') {
+    return t('care.monitoring.headline.below', { vital, value });
+  }
+  if (threshold.direction === 'above') {
+    return t('care.monitoring.headline.above', { vital, value });
+  }
+  return t('care.monitoring.headline.at', { vital, value });
 }
 
-function baselineRows(baselines: CarePlanMonitoringBaselines | null | undefined): {
+function baselineRows(
+  baselines: CarePlanMonitoringBaselines | null | undefined,
+  t: TranslateFn,
+): {
   label: string;
   value: string;
 }[] {
   if (!baselines) return [];
   const rows: { label: string; value: string }[] = [];
   const spo2 = baselines.spo2Cutoff?.trim() || baselines.baselineBloodOxygen?.trim();
-  if (spo2) rows.push({ label: 'Usual SpO₂ cutoff', value: spo2 });
+  if (spo2) rows.push({ label: t('care.monitoring.baseline.spo2'), value: spo2 });
   if (baselines.baselineHeartRate?.trim()) {
-    rows.push({ label: 'Usual heart rate range', value: baselines.baselineHeartRate.trim() });
+    rows.push({ label: t('care.monitoring.baseline.heartRate'), value: baselines.baselineHeartRate.trim() });
   }
   if (baselines.baselineRespiratoryRate?.trim()) {
     rows.push({
-      label: 'Usual breathing rate',
+      label: t('care.monitoring.baseline.respiratoryRate'),
       value: baselines.baselineRespiratoryRate.trim(),
     });
   }
@@ -134,11 +159,12 @@ export function CarePlanMonitoringSection({
   baselines,
 }: CarePlanMonitoringSectionProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [howMonitorExpanded, setHowMonitorExpanded] = useState(false);
-  const baseline = useMemo(() => baselineRows(baselines), [baselines]);
+  const baseline = useMemo(() => baselineRows(baselines, t), [baselines, t]);
 
   const grouped = useMemo(() => {
     const map = new Map<SeverityBucket, Threshold[]>();
@@ -151,16 +177,20 @@ export function CarePlanMonitoringSection({
     return ([3, 2, 1] as SeverityBucket[])
       .map((severity) => ({
         severity: severity,
-        meta: SEVERITY_META[severity],
+        meta: {
+          title: severityTitle(severity, t),
+          subtitle: severitySubtitle(severity, t),
+          tone: SEVERITY_TONE[severity],
+        },
         items: map.get(severity) ?? [],
       }))
       .filter((g) => g.items.length > 0);
-  }, [thresholds]);
+  }, [thresholds, t]);
 
   return (
-    <View style={sectionStyles.card} accessible accessibilityLabel="Monitoring">
+    <View style={sectionStyles.card} accessible accessibilityLabel={t('care.monitoring.accessibilityLabel')}>
       <View style={sectionStyles.headerRow}>
-        <Text style={sectionStyles.title}>Monitoring & alert cutoffs</Text>
+        <Text style={sectionStyles.title}>{t('care.monitoring.title')}</Text>
         <View style={sectionStyles.pill}>
           <Text style={sectionStyles.pillText}>{thresholds.length}</Text>
         </View>
@@ -168,7 +198,9 @@ export function CarePlanMonitoringSection({
 
       {baseline.length > 0 ? (
         <View style={[styles.baselineCard, themedStyles.baselineCard]}>
-          <Text style={[styles.baselineTitle, themedStyles.mutedText]}>From onboarding / care plan</Text>
+          <Text style={[styles.baselineTitle, themedStyles.mutedText]}>
+            {t('care.monitoring.fromOnboarding')}
+          </Text>
           {baseline.map((row) => (
             <View key={row.label} style={styles.baselineRow}>
               <Text style={[styles.baselineLabel, themedStyles.supportingText]}>{row.label}</Text>
@@ -196,24 +228,24 @@ export function CarePlanMonitoringSection({
             >
               <Text style={[styles.groupTitle, themedStyles.primaryText]}>{group.meta.title}</Text>
               <Text style={[styles.groupSubtitle, themedStyles.supportingText]}>{group.meta.subtitle}</Text>
-              {group.items.map((t) => {
-                const open = expandedId === t.thresholdId;
+              {group.items.map((threshold) => {
+                const open = expandedId === threshold.thresholdId;
                 return (
                   <Pressable
-                    key={t.thresholdId}
+                    key={threshold.thresholdId}
                     style={[styles.ruleRow, themedStyles.ruleRow]}
                     onPress={() =>
                       setExpandedId((current) =>
-                        current === t.thresholdId ? null : t.thresholdId,
+                        current === threshold.thresholdId ? null : threshold.thresholdId,
                       )
                     }
                     accessibilityRole="button"
                     accessibilityState={{ expanded: open }}
-                    accessibilityLabel={headline(t)}
+                    accessibilityLabel={headline(threshold, t)}
                   >
                     <View style={styles.ruleHeader}>
                       <Text style={[styles.ruleHeadline, themedStyles.primaryText]}>
-                        {headline(t)}
+                        {headline(threshold, t)}
                       </Text>
                       <Text style={[styles.ruleChevron, themedStyles.mutedText]}>
                         {open ? '▾' : '▸'}
@@ -221,12 +253,16 @@ export function CarePlanMonitoringSection({
                     </View>
                     {open ? (
                       <View style={styles.ruleBody}>
-                        <Text style={[styles.ruleMeaning, themedStyles.supportingText]}>{plainMeaning(t)}</Text>
-                        <Text style={[styles.ruleSource, themedStyles.actionText]}>{sourceLabel(t.source)}</Text>
-                        <Text style={[styles.ruleSeverity, themedStyles.mutedText]}>Urgency level {severityBucket(t.severity)} of 3</Text>
+                        <Text style={[styles.ruleMeaning, themedStyles.supportingText]}>{plainMeaning(threshold, t)}</Text>
+                        <Text style={[styles.ruleSource, themedStyles.actionText]}>{sourceLabel(threshold.source, t)}</Text>
+                        <Text style={[styles.ruleSeverity, themedStyles.mutedText]}>
+                          {t('care.monitoring.urgency', { level: severityBucket(threshold.severity) })}
+                        </Text>
                       </View>
                     ) : (
-                      <Text style={[styles.ruleHint, themedStyles.mutedText]} numberOfLines={1}>{plainMeaning(t)}</Text>
+                      <Text style={[styles.ruleHint, themedStyles.mutedText]} numberOfLines={1}>
+                        {plainMeaning(threshold, t)}
+                      </Text>
                     )}
                   </Pressable>
                 );
@@ -241,9 +277,15 @@ export function CarePlanMonitoringSection({
             onPress={() => setHowMonitorExpanded((v) => !v)}
             accessibilityRole="button"
             accessibilityState={{ expanded: howMonitorExpanded }}
-            accessibilityLabel={`How Health Monitor works${howMonitorExpanded ? ' — collapse' : ' — expand'}`}
+            accessibilityLabel={
+              howMonitorExpanded
+                ? t('care.monitoring.howA11yCollapse')
+                : t('care.monitoring.howA11yExpand')
+            }
           >
-            <Text style={[styles.howMonitorTitle, themedStyles.primaryText]}>How Health Monitor works</Text>
+            <Text style={[styles.howMonitorTitle, themedStyles.primaryText]}>
+              {t('care.monitoring.howTitle')}
+            </Text>
             <Text style={[styles.ruleChevron, themedStyles.mutedText]}>
               {howMonitorExpanded ? '▾' : '▸'}
             </Text>
@@ -251,30 +293,25 @@ export function CarePlanMonitoringSection({
           {howMonitorExpanded ? (
             <View style={styles.howMonitorBody}>
               <Text style={[styles.howMonitorText, themedStyles.supportingText]}>
-                1. Ask a vitals or what-if question in Concierge (e.g. “What if SpO₂ is
-                86% and heart rate is 118?”).
+                {t('care.monitoring.how1')}
               </Text>
               <Text style={[styles.howMonitorText, themedStyles.supportingText]}>
-                2. When vitals are detected, you’ll see “activating Health Monitor”
-                and it runs right away.
+                {t('care.monitoring.how2')}
               </Text>
               <Text style={[styles.howMonitorText, themedStyles.supportingText]}>
-                3. Severity 1–2 may ask for observations. In developer mode, it may
-                also offer a local demo follow-up appointment.
+                {t('care.monitoring.how3')}
               </Text>
               <Text style={[styles.howMonitorText, themedStyles.supportingText]}>
-                4. After you finish, Concierge explains with that context. Severity 3
-                skips review/scheduling and may show a critical banner — never
-                auto-calls 911.
+                {t('care.monitoring.how4')}
               </Text>
               <Text style={[styles.howMonitorFootnote, themedStyles.actionText]}>
-                SpO₂ is percent (86, not 0.86). Pure med/schedule questions skip Health
-                Monitor. Personalized cutoffs from the care plan appear above when
-                available.
+                {t('care.monitoring.footnote')}
               </Text>
             </View>
           ) : (
-            <Text style={[styles.howMonitorHint, themedStyles.mutedText]}>Tap to learn how Health Monitor uses vitals and what-if questions.</Text>
+            <Text style={[styles.howMonitorHint, themedStyles.mutedText]}>
+              {t('care.monitoring.hint')}
+            </Text>
           )}
         </View>
       )}

@@ -13,6 +13,7 @@ import { router } from 'expo-router';
 
 import { AppTheme } from '@/constants/theme';
 import type { OptionalFeatureRequirements } from '@/hooks/useOptionalFeatureGate';
+import { useTranslation } from '@/hooks/use-translation';
 import { getPromptCopy } from './optional-feature-prompt-copy';
 
 export function OptionalFeaturePrompt({
@@ -30,12 +31,15 @@ export function OptionalFeaturePrompt({
    */
   simulatedMissing?: boolean;
 }) {
+  const { t } = useTranslation();
   const [dismissed, setDismissed] = useState(false);
   if (dismissed) return null;
 
-  const copy = getPromptCopy(requirement, simulatedMissing);
+  const copy = getPromptCopy(requirement, simulatedMissing, t);
   const handleDismiss = onDismiss ?? (() => setDismissed(true));
-  const primaryLabel = simulatedMissing ? 'Open Settings' : 'Download';
+  const primaryLabel = simulatedMissing
+    ? t('optionalFeaturePrompt.openSettings')
+    : t('optionalFeaturePrompt.download');
 
   return (
     <View style={styles.prompt}>
@@ -44,13 +48,15 @@ export function OptionalFeaturePrompt({
       <View style={styles.actions}>
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel={t('common.dismiss')}
           onPress={handleDismiss}
           style={[styles.button, styles.buttonGhost]}
         >
-          <Text style={styles.buttonGhostText}>Dismiss</Text>
+          <Text style={styles.buttonGhostText}>{t('common.dismiss')}</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel={primaryLabel}
           onPress={() =>
             router.push(
               simulatedMissing

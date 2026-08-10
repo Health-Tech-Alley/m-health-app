@@ -15,7 +15,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
+import { useTranslation } from '@/hooks/use-translation';
 import type { PlanPulseAttention } from '@/services/carePlan/planPulseService';
+import type { TranslationKey } from '@/localization/i18n';
 
 const SEGMENTS = 36;
 const RING_SIZE = 72;
@@ -29,19 +31,19 @@ const BREATH_HALF_MS = 1600;
 const ARC_COLOR = AppTheme.colors.heroAccent;
 const ARC_TRACK = AppTheme.colors.heroAccentSoft;
 
-const FILL_LABELS: { max: number; label: string }[] = [
-  { max: 15, label: 'lightly filled' },
-  { max: 40, label: 'partly filled' },
-  { max: 70, label: 'well filled' },
-  { max: 100, label: 'richly filled' },
+const FILL_LABELS: { max: number; labelKey: TranslationKey }[] = [
+  { max: 15, labelKey: 'care.planPulse.fill.lightly' },
+  { max: 40, labelKey: 'care.planPulse.fill.partly' },
+  { max: 70, labelKey: 'care.planPulse.fill.well' },
+  { max: 100, labelKey: 'care.planPulse.fill.richly' },
 ];
 
-function fillLabel(score: number): string {
+function fillLabelKey(score: number): TranslationKey {
   const s = Math.max(0, Math.min(100, score));
   for (const row of FILL_LABELS) {
-    if (s <= row.max) return row.label;
+    if (s <= row.max) return row.labelKey;
   }
-  return 'richly filled';
+  return 'care.planPulse.fill.richly';
 }
 
 export interface PlanPulseRingProps {
@@ -61,6 +63,7 @@ export function PlanPulseRing({
   playEntrance = false,
   reduceMotion = false,
 }: PlanPulseRingProps) {
+  const { t } = useTranslation();
   const clampedScore = Math.max(0, Math.min(100, Math.round(score)));
 
   const playSweep = playEntrance && !reduceMotion;
@@ -158,7 +161,9 @@ export function PlanPulseRing({
       style={[styles.wrap, { opacity: glow }]}
       accessible
       accessibilityRole="image"
-      accessibilityLabel={`Care plan ${fillLabel(clampedScore)}`}
+      accessibilityLabel={t('care.planPulse.accessibilityLabel', {
+        fill: t(fillLabelKey(clampedScore)),
+      })}
     >
       <View style={styles.ringWrap}>{ticks}</View>
     </Animated.View>

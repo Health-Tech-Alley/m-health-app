@@ -19,6 +19,8 @@ import { MainTabHeader } from "@/components/MainTabHeader";
 import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
+import type { AppLocale, TranslateFn } from "@/localization/i18n";
 import {
   deleteAppointment,
   insertAppointment,
@@ -102,16 +104,16 @@ function toAthenaDate(isoDate: string): string {
   return `${month}/${day}/${year}`;
 }
 
-/** Converts a 24-hour "HH:MM" (or "H:MM") time string to "h:mm AM/PM". */
-function to12Hour(time24: string): string {
+function formatTimeForDisplay(time24: string, locale: AppLocale): string {
   const match = time24.match(/^(\d{1,2}):(\d{2})/);
   if (!match) return time24;
-  let hours = parseInt(match[1], 10);
-  const minutes = match[2];
-  const period = hours >= 12 ? "PM" : "AM";
-  hours = hours % 12;
-  if (hours === 0) hours = 12;
-  return `${hours}:${minutes} ${period}`;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return time24;
+  return new Date(2000, 0, 1, hours, minutes).toLocaleTimeString(locale, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 interface OpenSlot {
@@ -180,13 +182,19 @@ async function cancelAthenaAppointment(appointmentId: string, reason?: string): 
   });
 }
 
-function formatSlotLabel(slot: OpenSlot): string {
-  const [month, day, year] = slot.date.split("/");
-  const parsed = new Date(`${year}-${month}-${day}T00:00:00`);
-  const dateLabel = Number.isNaN(parsed.getTime())
-    ? slot.date
-    : parsed.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-  return `${dateLabel} · ${to12Hour(slot.starttime)}`;
+function formatDateLabel(date: string, locale: AppLocale): string {
+  const parsed = new Date(`${normalizeAppointmentDate(date)}T00:00:00`);
+  return Number.isNaN(parsed.getTime())
+    ? date
+    : parsed.toLocaleDateString(locale, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      });
+}
+
+function formatSlotLabel(slot: OpenSlot, locale: AppLocale): string {
+  return `${formatDateLabel(slot.date, locale)} · ${formatTimeForDisplay(slot.starttime, locale)}`;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -195,8 +203,12 @@ const appointmentTypes = [
   "Primary care",
 ];
 
-function formatAppointmentTypeLabel(type: string): string {
-  return type === "Primary care" ? "Primary Care" : type;
+function formatAppointmentTypeLabel(type: string, t: TranslateFn): string {
+  return type === "Primary care" ? t("schedule.appointmentType.primaryCare") : type;
+}
+
+function formatAppointmentDisplayType(appt: Appointment, t: TranslateFn): string {
+  return appt.patientappointmenttypename?.trim() || formatAppointmentTypeLabel(appt.type, t);
 }
 
 const reminderOptions = [
@@ -205,6 +217,21 @@ const reminderOptions = [
   "1 day before",
   "1 week before",
 ];
+
+function formatReminderOptionLabel(option: string, t: TranslateFn): string {
+  switch (option) {
+    case "15 min before":
+      return t("schedule.reminder.15min");
+    case "1 hour before":
+      return t("schedule.reminder.1hour");
+    case "1 day before":
+      return t("schedule.reminder.1day");
+    case "1 week before":
+      return t("schedule.reminder.1week");
+    default:
+      return option;
+  }
+}
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
@@ -228,6 +255,7 @@ function emptyForm(profile: ReturnType<typeof getOnboardingProfile>) {
 
 export default function ScheduleScreen() {
   const theme = useTheme();
+  const { locale, t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const isDark = theme.appBackground === "#000000";
   const actionAccent = isDark ? AppTheme.colors.brandPale : AppTheme.colors.brand;
@@ -320,10 +348,10 @@ export default function ScheduleScreen() {
       const results = await searchOpenSlots(rangeStart, rangeEnd);
       setSlots(results);
       if (results.length === 0) {
-        Alert.alert("No open times", "No available slots in that date range. Try a wider range.");
+        Alert.alert(t("schedule.alert.noOpenTimes.title"), t("schedule.alert.noOpenTimes.body"));
       }
     } catch (err) {
-      Alert.alert("Couldn't load times", err instanceof Error ? err.message : String(err));
+      Alert.alert(t("schedule.alert.loadTimesFailed"), err instanceof Error ? err.message : String(err));
       setSlots([]);
     } finally {
       setSearchingSlots(false);
@@ -338,8 +366,8 @@ export default function ScheduleScreen() {
       await dispatchImmediate({
           patientId: patientId,
           scope: 'anomaly',
-          title: "Appointment Requested",
-          body: 'Appointment requested with athenahealth',
+          title: t("schedule.notification.requested.title"),
+          body: t("schedule.notification.requested.body"),
           severity: 1,
         });
       const response = await bookSlot(selectedSlot.appointmentid, athenaPatientId);
@@ -347,8 +375,8 @@ export default function ScheduleScreen() {
         await dispatchImmediate({
           patientId: patientId,
           scope: 'anomaly',
-          title: "Appointment booked",
-          body: 'Appointment booked with athenahealth',
+          title: t("schedule.notification.booked.title"),
+          body: t("schedule.notification.booked.body"),
           severity: 1,
         });
       }
@@ -379,7 +407,7 @@ export default function ScheduleScreen() {
       setSlots([]);
       setSelectedSlot(null);
     } catch (err) {
-      Alert.alert("Couldn't book appointment", err instanceof Error ? err.message : String(err));
+      Alert.alert(t("schedule.alert.bookFailed"), err instanceof Error ? err.message : String(err));
     } finally {
       setBooking(false);
     }
@@ -422,13 +450,17 @@ export default function ScheduleScreen() {
   const handleDelete = (appt: Appointment) => {
     if (!patientId) return;
     const appointmentId = appt.appointmentid ?? appt.appointmentId;
+    const appointmentType = formatAppointmentDisplayType(appt, t);
     Alert.alert(
-      "Delete appointment",
-      `Delete the ${appt.patientappointmenttypename} appointment on ${appt.date}?`,
+      t("schedule.deleteDialog.title"),
+      t("schedule.deleteDialog.body", {
+        type: appointmentType,
+        date: formatDateLabel(appt.date, locale),
+      }),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
-          text: "Delete",
+          text: t("common.delete"),
           style: "destructive",
           onPress: async () => {
             setCancelingId(appointmentId);
@@ -436,8 +468,10 @@ export default function ScheduleScreen() {
               await cancelAthenaAppointment(appointmentId);
             } catch (err) {
               Alert.alert(
-                "Couldn't cancel with athenahealth",
-                `${err instanceof Error ? err.message : String(err)}\n\nRemoving it locally anyway.`,
+                t("schedule.alert.cancelAthenaFailed.title"),
+                t("schedule.alert.cancelAthenaFailed.body", {
+                  error: err instanceof Error ? err.message : String(err),
+                }),
               );
             }
             deleteAppointment(appointmentId);
@@ -466,9 +500,9 @@ export default function ScheduleScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <MainTabHeader
-            title="Schedule"
-            eyebrow="Caregiver Concierge"
-            subtitle="Create doctor appointments and caregiver reminders."
+            title={t("schedule.header.title")}
+            eyebrow={t("schedule.header.eyebrow")}
+            subtitle={t("schedule.header.subtitle")}
             icon="schedule"
           />
 
@@ -478,31 +512,61 @@ export default function ScheduleScreen() {
             </View>
 
             <View style={styles.nextAppointmentTextBlock}>
-              <Text style={[styles.nextAppointmentLabel, themedStyles.heroLabelText]}>NEXT APPOINTMENT</Text>
-              <Text style={[styles.nextAppointmentTitle, themedStyles.heroStrongText]}>Primary Care</Text>
+              <Text style={[styles.nextAppointmentLabel, themedStyles.heroLabelText]}>
+                {t("schedule.next.label")}
+              </Text>
+              <Text style={[styles.nextAppointmentTitle, themedStyles.heroStrongText]}>
+                {nextAppointment
+                  ? formatAppointmentTypeLabel(nextAppointment.type, t)
+                  : t("schedule.appointmentType.primaryCare")}
+              </Text>
               <Text style={[styles.nextAppointmentTime, themedStyles.heroSupportingText]}>
                 {nextAppointment
-                  ? formatAppointmentDateTime(nextAppointment.date, getAppointmentTime(nextAppointment))
-                  : "No upcoming appointment scheduled"}
+                  ? formatAppointmentDateTime(
+                      nextAppointment.date,
+                      getAppointmentTime(nextAppointment),
+                      locale,
+                      t,
+                    )
+                  : t("schedule.next.empty")}
               </Text>
             </View>
 
             <View style={[styles.nextAppointmentBadge, themedStyles.heroSoftSurface]}>
-              <Text style={[styles.nextAppointmentBadgeText, themedStyles.heroStrongText]}>SCHEDULED / NEXT</Text>
+              <Text style={[styles.nextAppointmentBadgeText, themedStyles.heroStrongText]}>
+                {t("schedule.status.scheduledNext")}
+              </Text>
             </View>
           </View>
 
           <View style={[styles.card, themedStyles.card]}>
-            <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Scheduled appointments</Text>
+            <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>
+              {t("schedule.section.scheduledAppointments")}
+            </Text>
 
             {appointmentLoadError ? (
-              <Text style={[styles.emptyText, themedStyles.secondaryText]}>Appointments unavailable</Text>
+              <Text style={[styles.emptyText, themedStyles.secondaryText]}>
+                {t("schedule.error.appointmentsUnavailable")}
+              </Text>
             ) : sortedUpcoming.length === 0 ? (
-              <Text style={[styles.emptyText, themedStyles.secondaryText]}>No upcoming appointments.</Text>
+              <Text style={[styles.emptyText, themedStyles.secondaryText]}>
+                {t("schedule.empty.noUpcoming")}
+              </Text>
             ) : (
               sortedUpcoming.map((appt) => {
-                const statusLabel = appt.date === todayIso ? "TODAY" : "SCHEDULED";
-                const dateTimeLabel = formatAppointmentDateTime(appt.date, getAppointmentTime(appt));
+                const isToday = appt.date === todayIso;
+                const statusLabel = isToday
+                  ? t("schedule.status.today")
+                  : t("schedule.status.scheduled");
+                const appointmentType = formatAppointmentTypeLabel(appt.type, t);
+                const appointmentDisplayType = formatAppointmentDisplayType(appt, t);
+                const appointmentDateLabel = formatDateLabel(appt.date, locale);
+                const dateTimeLabel = formatAppointmentDateTime(
+                  appt.date,
+                  getAppointmentTime(appt),
+                  locale,
+                  t,
+                );
                 const isCanceling = cancelingId === appt.appointmentid;
 
                 return (
@@ -513,27 +577,30 @@ export default function ScheduleScreen() {
                       style={styles.appointmentMain}
                       onPress={() => openEdit(appt)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Edit ${appt.type} appointment on ${appt.date}`}
+                      accessibilityLabel={t("schedule.action.editA11y", {
+                        type: appointmentDisplayType,
+                        date: appointmentDateLabel,
+                      })}
                     >
                       <View style={styles.appointmentTextBlock}>
                         <View style={styles.appointmentTitleRow}>
                           <Text style={[styles.appointmentType, themedStyles.primaryText]} numberOfLines={1}>
-                            {formatAppointmentTypeLabel(appt.type)}
+                            {appointmentType}
                           </Text>
                           <View
                             style={[
                               styles.statusBadge,
                               themedStyles.statusBadge,
-                              statusLabel === "TODAY" && styles.statusBadgeToday,
-                              statusLabel === "TODAY" && themedStyles.statusBadgeToday,
+                              isToday && styles.statusBadgeToday,
+                              isToday && themedStyles.statusBadgeToday,
                             ]}
                           >
                             <Text
                               style={[
                                 styles.statusBadgeText,
                                 themedStyles.statusBadgeText,
-                                statusLabel === "TODAY" && styles.statusBadgeTextToday,
-                                statusLabel === "TODAY" && themedStyles.statusBadgeTextToday,
+                                isToday && styles.statusBadgeTextToday,
+                                isToday && themedStyles.statusBadgeTextToday,
                               ]}
                             >
                               {statusLabel}
@@ -566,10 +633,15 @@ export default function ScheduleScreen() {
                             onPress={() => openEdit(appt)}
                             hitSlop={8}
                             accessibilityRole="button"
-                            accessibilityLabel={`Edit ${appt.type} appointment on ${appt.date}`}
+                            accessibilityLabel={t("schedule.action.editA11y", {
+                              type: appointmentDisplayType,
+                              date: appointmentDateLabel,
+                            })}
                           >
                             <AppIcon name="edit" size={13} color={actionAccent} />
-                            <Text style={[styles.editLink, themedStyles.actionText]}>Edit</Text>
+                            <Text style={[styles.editLink, themedStyles.actionText]}>
+                              {t("schedule.action.edit")}
+                            </Text>
                           </Pressable>
                           <Pressable
                             style={[
@@ -581,11 +653,16 @@ export default function ScheduleScreen() {
                             hitSlop={8}
                             disabled={isCanceling}
                             accessibilityRole="button"
-                            accessibilityLabel={`Delete ${appt.type} appointment on ${appt.date}`}
+                            accessibilityLabel={t("schedule.action.deleteA11y", {
+                              type: appointmentDisplayType,
+                              date: appointmentDateLabel,
+                            })}
                           >
                             <AppIcon name="delete" size={13} color={dangerAccent} />
                             <Text style={[styles.deleteLink, themedStyles.dangerText]}>
-                              {isCanceling ? "Canceling…" : "Delete"}
+                              {isCanceling
+                                ? t("schedule.action.canceling")
+                                : t("schedule.action.delete")}
                             </Text>
                           </Pressable>
                         </View>
@@ -602,21 +679,29 @@ export default function ScheduleScreen() {
             onPress={() => setIsCreateAppointmentVisible((visible) => !visible)}
             accessibilityRole="button"
             accessibilityState={{ expanded: isCreateAppointmentVisible }}
+            accessibilityLabel={t("schedule.action.createAppointmentA11y")}
           >
-            <Text style={[styles.createAppointmentButtonText, themedStyles.actionText]}>Create appointment</Text>
+            <Text style={[styles.createAppointmentButtonText, themedStyles.actionText]}>
+              {t("schedule.action.createAppointment")}
+            </Text>
           </Pressable>
 
           {isCreateAppointmentVisible ? (
             <View style={[styles.card, themedStyles.card]}>
-              <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Create appointment</Text>
+              <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>
+                {t("schedule.section.createAppointment")}
+              </Text>
 
               <Pressable
                 style={[styles.collapseRow, themedStyles.controlSurface]}
                 onPress={() => setIsAppointmentDetailsOpen((open) => !open)}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: isAppointmentDetailsOpen }}
+                accessibilityLabel={t("schedule.section.appointmentDetails")}
               >
-                <Text style={[styles.collapseRowText, themedStyles.actionText]}>Appointment details</Text>
+                <Text style={[styles.collapseRowText, themedStyles.actionText]}>
+                  {t("schedule.section.appointmentDetails")}
+                </Text>
                 <AppIcon
                   name="chevronRight"
                   size={22}
@@ -626,7 +711,9 @@ export default function ScheduleScreen() {
 
               {isAppointmentDetailsOpen ? (
                 <View style={[styles.collapsibleContent, themedStyles.collapsibleContent]}>
-                  <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Appointment type</Text>
+                  <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>
+                    {t("schedule.section.appointmentType")}
+                  </Text>
 
                   <View style={styles.chipRow}>
                     {appointmentTypes.map((type) => {
@@ -636,9 +723,11 @@ export default function ScheduleScreen() {
                           key={type}
                           style={[styles.chip, themedStyles.chip, selected && styles.chipSelected]}
                           onPress={() => setForm({ ...form, appointmentType: type })}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
                         >
                           <Text style={[styles.chipText, themedStyles.secondaryText, selected && styles.chipTextSelected]}>
-                            {formatAppointmentTypeLabel(type)}
+                            {formatAppointmentTypeLabel(type, t)}
                           </Text>
                         </Pressable>
                       );
@@ -646,43 +735,47 @@ export default function ScheduleScreen() {
                   </View>
 
                   <Field
-                    label="Provider"
+                    label={t("schedule.field.provider")}
                     value={form.providerName}
                     onChangeText={(v) => setForm({ ...form, providerName: v })}
-                    placeholder="Dr. Adam Bricker"
+                    placeholder={t("schedule.placeholder.provider")}
                   />
 
                   <Field
-                    label="Location"
+                    label={t("schedule.field.location")}
                     value={form.location}
                     onChangeText={(v) => setForm({ ...form, location: v })}
-                    placeholder="Clinic name or address"
+                    placeholder={t("schedule.placeholder.location")}
                   />
 
                   <LargeField
-                    label="Reason for visit"
+                    label={t("schedule.field.reasonForVisit")}
                     value={form.reason}
                     onChangeText={(v) => setForm({ ...form, reason: v })}
-                    placeholder="What should the provider review?"
+                    placeholder={t("schedule.placeholder.reasonForVisit")}
                   />
 
-                  <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Find a time</Text>
-                  <Text style={[styles.helperText, themedStyles.secondaryText]}>Search open slots within a date range, then pick one.</Text>
+                  <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>
+                    {t("schedule.section.findTime")}
+                  </Text>
+                  <Text style={[styles.helperText, themedStyles.secondaryText]}>
+                    {t("schedule.helper.findTime")}
+                  </Text>
 
                   <View style={styles.twoColumnFields}>
                     <Field
                       containerStyle={styles.twoColumnField}
-                      label="From"
+                      label={t("schedule.field.from")}
                       value={rangeStart}
                       onChangeText={setRangeStart}
-                      placeholder="YYYY-MM-DD"
+                      placeholder={t("schedule.placeholder.date")}
                     />
                     <Field
                       containerStyle={styles.twoColumnField}
-                      label="To"
+                      label={t("schedule.field.to")}
                       value={rangeEnd}
                       onChangeText={setRangeEnd}
-                      placeholder="YYYY-MM-DD"
+                      placeholder={t("schedule.placeholder.date")}
                     />
                   </View>
 
@@ -690,9 +783,13 @@ export default function ScheduleScreen() {
                     style={[styles.scheduleButton, searchingSlots && styles.scheduleButtonDisabled]}
                     onPress={handleFindTimes}
                     disabled={searchingSlots}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("schedule.action.findAvailableTimesA11y")}
                   >
                     <Text style={styles.scheduleButtonText}>
-                      {searchingSlots ? "Searching…" : "Find available times"}
+                      {searchingSlots
+                        ? t("schedule.action.searching")
+                        : t("schedule.action.findAvailableTimes")}
                     </Text>
                   </Pressable>
 
@@ -705,9 +802,14 @@ export default function ScheduleScreen() {
                             key={slot.appointmentid}
                             style={[styles.slotRow, themedStyles.controlSurface, selected && styles.slotRowSelected]}
                             onPress={() => setSelectedSlot(slot)}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected }}
+                            accessibilityLabel={t("schedule.slots.selectA11y", {
+                              slot: formatSlotLabel(slot, locale),
+                            })}
                           >
                             <Text style={[styles.slotRowText, themedStyles.primaryText, selected && styles.slotRowTextSelected]}>
-                              {formatSlotLabel(slot)}
+                              {formatSlotLabel(slot, locale)}
                             </Text>
                             {selected ? <AppIcon name="edit" size={14} color={AppTheme.colors.white} /> : null}
                           </Pressable>
@@ -723,8 +825,11 @@ export default function ScheduleScreen() {
                 onPress={() => setIsReminderOpen((open) => !open)}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: isReminderOpen }}
+                accessibilityLabel={t("schedule.section.reminder")}
               >
-                <Text style={[styles.collapseRowText, themedStyles.actionText]}>Reminder</Text>
+                <Text style={[styles.collapseRowText, themedStyles.actionText]}>
+                  {t("schedule.section.reminder")}
+                </Text>
                 <AppIcon
                   name="chevronRight"
                   size={22}
@@ -734,19 +839,25 @@ export default function ScheduleScreen() {
 
               {isReminderOpen ? (
                 <View style={[styles.collapsibleContent, themedStyles.collapsibleContent]}>
-                  <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Reminder</Text>
+                  <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>
+                    {t("schedule.section.reminder")}
+                  </Text>
 
                   <View style={styles.chipRow}>
                     {reminderOptions.map((option) => {
                       const selected = form.reminder === option;
+                      const optionLabel = formatReminderOptionLabel(option, t);
                       return (
                         <Pressable
                           key={option}
                           style={[styles.chip, themedStyles.chip, selected && styles.chipSelected]}
                           onPress={() => setForm({ ...form, reminder: option })}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          accessibilityLabel={optionLabel}
                         >
                           <Text style={[styles.chipText, themedStyles.secondaryText, selected && styles.chipTextSelected]}>
-                            {option}
+                            {optionLabel}
                           </Text>
                         </Pressable>
                       );
@@ -762,13 +873,17 @@ export default function ScheduleScreen() {
                 ]}
                 onPress={handleSchedule}
                 disabled={!selectedSlot || booking}
+                accessibilityRole="button"
+                accessibilityLabel={t("schedule.action.bookAppointmentA11y")}
               >
                 <Text style={styles.scheduleButtonText}>
                   {booking
-                    ? "Booking…"
+                    ? t("schedule.action.booking")
                     : selectedSlot
-                      ? `Book ${formatSlotLabel(selectedSlot)}`
-                      : "Pick a time above first"}
+                      ? t("schedule.action.bookSlot", {
+                          slot: formatSlotLabel(selectedSlot, locale),
+                        })
+                      : t("schedule.action.pickTime")}
                 </Text>
               </Pressable>
 
@@ -777,9 +892,11 @@ export default function ScheduleScreen() {
                   styles.scheduleButton
                 ]}
                 onPress={reload}
+                accessibilityRole="button"
+                accessibilityLabel={t("schedule.action.reloadAppointmentsA11y")}
               >
                 <Text style={styles.scheduleButtonText}>
-                  {"Reload Appointments"}
+                  {t("schedule.action.reloadAppointments")}
                 </Text>
               </Pressable>
             </View>
@@ -800,7 +917,9 @@ export default function ScheduleScreen() {
         {editing ? (
           <View style={[styles.modalOverlay, themedStyles.modalOverlay]}>
             <View style={[styles.modalSheet, themedStyles.modalSheet]}>
-              <Text style={[styles.modalTitle, themedStyles.primaryText]}>Edit appointment</Text>
+              <Text style={[styles.modalTitle, themedStyles.primaryText]}>
+                {t("schedule.modal.editTitle")}
+              </Text>
 
               <ScrollView
                 style={styles.modalScroll}
@@ -808,7 +927,9 @@ export default function ScheduleScreen() {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
-                <Text style={[styles.modalLabel, themedStyles.sectionTitle]}>Type</Text>
+                <Text style={[styles.modalLabel, themedStyles.sectionTitle]}>
+                  {t("schedule.modal.type")}
+                </Text>
                 <View style={styles.modalChipRow}>
                   {appointmentTypes.map((type) => {
                     const selected = editForm.appointmentType === type;
@@ -817,9 +938,11 @@ export default function ScheduleScreen() {
                         key={type}
                         style={[styles.chip, themedStyles.chip, selected && styles.chipSelected]}
                         onPress={() => setEditForm({ ...editForm, appointmentType: type })}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
                       >
                         <Text style={[styles.chipText, themedStyles.secondaryText, selected && styles.chipTextSelected]}>
-                          {formatAppointmentTypeLabel(type)}
+                          {formatAppointmentTypeLabel(type, t)}
                         </Text>
                       </Pressable>
                     );
@@ -827,25 +950,25 @@ export default function ScheduleScreen() {
                 </View>
 
                 <Field
-                  label="Provider"
+                  label={t("schedule.field.provider")}
                   value={editForm.providerName}
                   onChangeText={(v) => setEditForm({ ...editForm, providerName: v })}
-                  placeholder="Dr. Smith"
+                  placeholder={t("schedule.placeholder.providerShort")}
                 />
                 <Field
-                  label="Location"
+                  label={t("schedule.field.location")}
                   value={editForm.location}
                   onChangeText={(v) => setEditForm({ ...editForm, location: v })}
-                  placeholder="Clinic name or address"
+                  placeholder={t("schedule.placeholder.location")}
                 />
                 <LargeField
-                  label="Reason"
+                  label={t("schedule.field.reason")}
                   value={editForm.reason}
                   onChangeText={(v) => setEditForm({ ...editForm, reason: v })}
-                  placeholder="Reason for visit"
+                  placeholder={t("schedule.placeholder.reason")}
                 />
                 <Text style={[styles.helperText, themedStyles.secondaryText]}>
-                  To change the date/time, delete this appointment and book a new slot instead.
+                  {t("schedule.modal.helper")}
                 </Text>
               </ScrollView>
 
@@ -853,11 +976,20 @@ export default function ScheduleScreen() {
                 <Pressable
                   style={[styles.modalButton, styles.modalCancel, themedStyles.modalCancel]}
                   onPress={() => setEditing(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("common.cancel")}
                 >
-                  <Text style={[styles.modalCancelText, themedStyles.secondaryText]}>Cancel</Text>
+                  <Text style={[styles.modalCancelText, themedStyles.secondaryText]}>
+                    {t("common.cancel")}
+                  </Text>
                 </Pressable>
-                <Pressable style={styles.modalButton} onPress={saveEdit}>
-                  <Text style={styles.modalSaveText}>Save</Text>
+                <Pressable
+                  style={styles.modalButton}
+                  onPress={saveEdit}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("common.save")}
+                >
+                  <Text style={styles.modalSaveText}>{t("common.save")}</Text>
                 </Pressable>
               </View>
             </View>
@@ -892,6 +1024,7 @@ function Field({
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={theme.appTextMuted}
+        accessibilityLabel={label}
       />
     </View>
   );
@@ -921,6 +1054,7 @@ function LargeField({
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={theme.appTextMuted}
+        accessibilityLabel={label}
         multiline
         textAlignVertical="top"
       />
@@ -928,21 +1062,19 @@ function LargeField({
   );
 }
 
-function formatAppointmentDateTime(date: string, time?: string): string {
-  // athenahealth-returned dates are MM/DD/YYYY; locally-created ones may be
-  // YYYY-MM-DD, so handle both.
-  const isoLike = date.includes("/")
-    ? date.replace(/^(\d{2})\/(\d{2})\/(\d{4})$/, "$3-$1-$2")
-    : date;
-  const parsed = new Date(`${isoLike}T00:00:00`);
-  const dateLabel = Number.isNaN(parsed.getTime())
-    ? date
-    : parsed.toLocaleDateString(undefined, {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-      });
-  return time ? `${dateLabel} at ${to12Hour(time)}` : dateLabel;
+function formatAppointmentDateTime(
+  date: string,
+  time: string | undefined,
+  locale: AppLocale,
+  t: TranslateFn,
+): string {
+  const dateLabel = formatDateLabel(date, locale);
+  return time
+    ? t("schedule.dateTimeAt", {
+        date: dateLabel,
+        time: formatTimeForDisplay(time, locale),
+      })
+    : dateLabel;
 }
 
 function getAppointmentTime(appt: Appointment): string | undefined {

@@ -14,6 +14,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { CareConciergeIntentsCard } from '@/components/careConcierge/CareConciergeIntentsCard';
 import { AppTheme } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
 import { isMutatingIntent } from '@/services/carePlan/carePlanMode';
 import { intentCatalogList } from '@/services/carePlan/intentRouter';
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
@@ -38,6 +39,7 @@ export function CareAskRegion({
   children,
 }: CareAskRegionProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const allIntents = useMemo(() => intentCatalogList(), []);
@@ -49,18 +51,18 @@ export function CareAskRegion({
   );
 
   return (
-    <View style={styles.region} accessible accessibilityLabel="Care Concierge">
+    <View style={styles.region} accessible accessibilityLabel={t('care.ask.regionLabel')}>
       {!writable ? (
         <View
           style={[styles.banner, themedStyles.banner]}
           accessible
-          accessibilityLabel="Read-only mode banner"
+          accessibilityLabel={t('care.ask.readOnlyBanner')}
         >
           <Text style={[styles.bannerTitle, themedStyles.primaryText]}>
-            Care plan is in view-only mode
+            {t('care.ask.viewOnlyTitle')}
           </Text>
           <Text style={[styles.bannerBody, themedStyles.supportingText]}>
-            Concierge can still explain using your plan. Turn on Living care plan updates in More to make changes.
+            {t('care.ask.viewOnlyBody')}
           </Text>
         </View>
       ) : null}
@@ -75,10 +77,8 @@ export function CareAskRegion({
         />
       ) : (
         <View style={sectionStyles.card}>
-          <Text style={sectionStyles.title}>Care Concierge</Text>
-          <Text style={sectionStyles.bodyMuted}>
-            No intents are available in view-only mode. Turn on Living care plan updates in More to ask Concierge about your plan.
-          </Text>
+          <Text style={sectionStyles.title}>{t('care.intents.title')}</Text>
+          <Text style={sectionStyles.bodyMuted}>{t('care.ask.noIntents')}</Text>
         </View>
       )}
     </View>

@@ -1,40 +1,65 @@
 import { dispatchImmediate } from "@/services/notifications/notificationService";
+import { useTranslation } from "@/hooks/use-translation";
+import { useTheme } from "@/hooks/use-theme";
+import type { TranslateFn } from "@/localization/i18n";
 import { simplePrompt } from '@sbaiahmed1/react-native-biometrics';
 import { router } from "expo-router";
+import { useMemo } from "react";
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 
 const AppFailedAuthentication = () => {
+  const { t } = useTranslation();
+  const theme = useTheme();
+  const themedStyles = useMemo(
+    () => StyleSheet.create({
+      container: { backgroundColor: theme.appBackground },
+      errorHeader: { color: theme.appText },
+      errorMessage: { color: theme.appTextSupporting },
+      secondaryButton: {
+        backgroundColor: theme.appSurface,
+        borderColor: '#0E6F68',
+      },
+    }),
+    [theme],
+  );
 
-    return (
+  return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.container}>
-        <Text style={styles.errorHeader}>Authentication Failed</Text>
-        <Text style={styles.errorMessage}>
-          You have failed to authenticate. Please try again.
+      <SafeAreaView style={[styles.container, themedStyles.container]}>
+        <Text
+          style={[styles.errorHeader, themedStyles.errorHeader]}
+          accessibilityRole="header">
+          {t("auth.failed.title")}
+        </Text>
+        <Text style={[styles.errorMessage, themedStyles.errorMessage]}>
+          {t("auth.failed.message")}
         </Text>
         <Pressable
-            style={[styles.button, styles.secondaryButton]}
-            onPress={() => authenticateUsingBioMetrics()}>
-            <Text style={styles.secondaryButtonText}>Retry Authentication</Text>
+          style={[styles.button, styles.secondaryButton, themedStyles.secondaryButton]}
+          onPress={() => authenticateUsingBioMetrics(t)}
+          accessibilityRole="button"
+          accessibilityLabel={t("auth.failed.retryA11y")}
+          accessibilityHint={t("auth.failed.retryHint")}>
+          <Text style={styles.secondaryButtonText}>{t("auth.failed.retry")}</Text>
         </Pressable>
       </SafeAreaView>
     </SafeAreaProvider>
   );
 };
 
-function authenticateUsingBioMetrics() {
+function authenticateUsingBioMetrics(t: TranslateFn) {
   try {
-  simplePrompt('Authenticate')
+  simplePrompt(t("auth.biometric.prompt"))
     .then((result) => {
       if (result) {
         console.log("Biometric authentication successful.");
         dispatchImmediate({
           patientId: '1234',
           scope: 'anomaly',
-          title: "User Authenticated",
-          body: 'Authentication successful with biometrics',
+          title: t("auth.notification.success.title"),
+          body: t("auth.notification.success.body"),
           severity: 1,
         });
         router.push('/dashboard' as never);
@@ -43,8 +68,8 @@ function authenticateUsingBioMetrics() {
         dispatchImmediate({
           patientId: '1234',
           scope: 'anomaly',
-          title: "Authentication Failed",
-          body: 'Biometric authentication failed or was canceled',
+          title: t("auth.notification.failed.title"),
+          body: t("auth.notification.failed.body"),
           severity: 1,
         });
       }
@@ -54,8 +79,8 @@ function authenticateUsingBioMetrics() {
       dispatchImmediate({
         patientId: '1234',
         scope: 'anomaly',
-        title: "Authentication Error",
-        body: 'Error during biometric authentication',
+        title: t("auth.notification.error.title"),
+        body: t("auth.notification.error.body"),
         severity: 1,
       });
     });
@@ -64,8 +89,8 @@ function authenticateUsingBioMetrics() {
     dispatchImmediate({
       patientId: '1234',
       scope: 'anomaly',
-      title: "Authentication Error",
-      body: 'Error during biometric authentication',
+      title: t("auth.notification.error.title"),
+      body: t("auth.notification.error.body"),
       severity: 1,
     });
   }

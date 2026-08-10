@@ -8,6 +8,7 @@ import { YourDecisionsSection } from "@/components/concierge/YourDecisionsSectio
 import { AppTheme } from "@/constants/theme";
 import { useSettings } from "@/contexts/settings-context";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 import { useActivePatientView } from '@/hooks/useActivePatientView';
@@ -32,6 +33,7 @@ export default function MoreScreen() {
   const [importing] = useState(false);
   const { settings, setCarePlanMode } = useSettings();
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   useEffect(() => {
@@ -66,11 +68,11 @@ export default function MoreScreen() {
             hitSlop={12}
             style={styles.backButton}
             accessibilityRole="button"
-            accessibilityLabel="Back"
+            accessibilityLabel={t("common.back")}
           >
-            <Text style={styles.backText}>← Back</Text>
+            <Text style={styles.backText}>{t("more.back")}</Text>
           </Pressable>
-          <Text style={[styles.topTitle, themedStyles.primaryText]}>Settings</Text>
+          <Text style={[styles.topTitle, themedStyles.primaryText]}>{t("more.title")}</Text>
           <View style={styles.topBarSpacer} />
         </View>
 
@@ -81,7 +83,7 @@ export default function MoreScreen() {
           contentContainerStyle={styles.content}
         >
           <Text style={[styles.screenSubtitle, themedStyles.secondaryText]}>
-            Profile, preferences, and data-source settings.
+            {t("more.subtitle")}
           </Text>
 
           <View style={[styles.profileCard, themedStyles.card]}>
@@ -94,112 +96,118 @@ export default function MoreScreen() {
             <View style={styles.profileTextBlock}>
               <Text style={[styles.profileName, themedStyles.primaryText]}>{caregiverName}</Text>
               <Text style={[styles.profileRole, themedStyles.secondaryText]}>
-                Caregiver {"\u2022"} {caregiverRole}
+                {t("more.profile.role", { role: caregiverRole })}
               </Text>
               <Text style={styles.profilePatient}>
-                Caring for {patientName}, {patientAge}
+                {t("more.profile.patient", { patientName, patientAge })}
               </Text>
             </View>
           </View>
 
-          <SettingsSection title="Profile">
+          <SettingsSection title={t("more.section.profile")}>
             <SettingsRow
               icon="profile"
-              title="Profiles"
-              subtitle="Caregiver and patient details"
+              title={t("more.row.profiles.title")}
+              subtitle={t("more.row.profiles.subtitle")}
               onPress={() => router.push("/profile" as never)}
-              accessibilityLabel="Open patient and caregiver profiles"
+              accessibilityLabel={t("more.row.profiles.a11y")}
+              soonLabel={t("more.row.soon")}
             />
           </SettingsSection>
 
-          <SettingsSection title="Care plan">
+          <SettingsSection title={t("more.section.carePlan")}>
             <CarePlanModeToggle
               mode={settings.carePlanMode ?? 'full'}
               onChange={setCarePlanMode}
             />
           </SettingsSection>
 
-          <SettingsSection title="Preferences">
+          <SettingsSection title={t("more.section.preferences")}>
             <SettingsRow
               icon="settings"
-              title="Preferences"
-              subtitle="Alerts, reminders, appearance, accessibility, and consent"
+              title={t("more.row.preferences.title")}
+              subtitle={t("more.row.preferences.subtitle")}
               onPress={() => router.push("/settings" as never)}
-              accessibilityLabel="Open Preferences"
+              accessibilityLabel={t("more.row.preferences.a11y")}
+              soonLabel={t("more.row.soon")}
             />
 
             <SettingsRow
               emoji={"\u{1F6E0}\u{FE0F}"}
-              title="Advanced Developer Settings"
-              subtitle="Developer mode, demos, models, API keys, and diagnostics"
+              title={t("more.row.advanced.title")}
+              subtitle={t("more.row.advanced.subtitle")}
               onPress={() => router.push("/advanced-developer-settings" as never)}
-              accessibilityLabel="Open Advanced Developer Settings"
+              accessibilityLabel={t("more.row.advanced.a11y")}
+              soonLabel={t("more.row.soon")}
             />
           </SettingsSection>
 
-          <SettingsSection title="Communication">
+          <SettingsSection title={t("more.section.communication")}>
             <SettingsRow
               icon="messages"
-              title="Secure Messages"
-              subtitle="Prototype care-team messaging scaffold"
+              title={t("more.row.secureMessages.title")}
+              subtitle={t("more.row.secureMessages.subtitle")}
               onPress={() => router.push("/secure-messaging" as never)}
-              accessibilityLabel="Open secure messaging"
+              accessibilityLabel={t("more.row.secureMessages.a11y")}
+              soonLabel={t("more.row.soon")}
             />
           </SettingsSection>
           <SettingsSection
-            title="Future integrations"
+            title={t("more.section.futureIntegrations")}
             onLayout={(event) => {
               ehrImportYRef.current = event.nativeEvent.layout.y;
             }}
           >
             <SettingsRow
               icon="plus"
-              title="Import from health record"
-              subtitle={importing ? "Importing health record..." : "Import a FHIR JSON, a single CDA JSON, or a zip of CDA JSONs"}
+              title={t("more.row.import.title")}
+              subtitle={importing ? t("more.row.import.importing") : t("more.row.import.subtitle")}
               onPress={handleOpenEHRImport}
+              soonLabel={t("more.row.soon")}
             />
 
             <SettingsRow
               icon="note"
-              title="View Logs"
-              subtitle="View app logs for debugging and diagnostics"
+              title={t("more.row.logs.title")}
+              subtitle={t("more.row.logs.subtitle")}
               onPress={handleOpenLogs}
+              soonLabel={t("more.row.soon")}
             />
 
             <SettingsRow
               icon="doctor"
-              title="Care team and provider settings"
+              title={t("more.row.providerSettings.title")}
               subtitle={profile.primaryCareProvider.name}
               disabled
+              soonLabel={t("more.row.soon")}
             />
           </SettingsSection>
 
-          <SettingsSection title="Your activity">
+          <SettingsSection title={t("more.section.yourActivity")}>
             <YourDecisionsSection
               patientFirstName={getFirstName(patientName)}
               limit={20}
             />
           </SettingsSection>
 
-          <SettingsSection title="About">
+          <SettingsSection title={t("more.section.about")}>
             <View style={styles.aboutContent}>
               <Text style={[styles.aboutText, themedStyles.primaryText]}>Caregiver Concierge: ACCESS-DP</Text>
               <Pressable
                 onLongPress={() => router.push("/advanced-developer-settings" as never)}
                 delayLongPress={3000}
                 accessibilityRole="button"
-                accessibilityLabel="Hold to open developer tools"
+                accessibilityLabel={t("more.about.developerA11y")}
               >
                 <Text style={[styles.aboutText, themedStyles.primaryText]}>
                   Health Tech Alley {"\u2022"} v1.0.0
                 </Text>
                 <Text style={[styles.aboutMuted, themedStyles.secondaryText]}>
-                  Press and hold the version number for 3 seconds to open developer tools.
+                  {t("more.about.developerHint")}
                 </Text>
               </Pressable>
               <Text style={[styles.aboutMuted, themedStyles.secondaryText]}>
-                This app is a caregiver support prototype and does not replace
-                emergency care or professional medical advice.
+                {t("more.about.disclaimer")}
               </Text>
             </View>
           </SettingsSection>
@@ -236,6 +244,7 @@ function SettingsRow({
   onPress,
   disabled,
   accessibilityLabel,
+  soonLabel,
 }: {
   icon?: AppIconName;
   emoji?: string;
@@ -244,6 +253,7 @@ function SettingsRow({
   onPress?: () => void;
   disabled?: boolean;
   accessibilityLabel?: string;
+  soonLabel?: string;
 }) {
   const themedStyles = createThemedStyles(useTheme());
 
@@ -270,7 +280,7 @@ function SettingsRow({
         <Text style={[styles.settingsSubtitle, themedStyles.secondaryText]}>{subtitle}</Text>
       </View>
 
-      <Text style={[styles.chevron, themedStyles.secondaryText]}>{disabled ? "Soon" : ">"}</Text>
+      <Text style={[styles.chevron, themedStyles.secondaryText]}>{disabled ? soonLabel : ">"}</Text>
     </Pressable>
   );
 }
@@ -294,6 +304,7 @@ function CarePlanModeToggle({
 }) {
   const isFull = mode === 'full';
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = createThemedStyles(theme);
 
   return (
@@ -301,15 +312,15 @@ function CarePlanModeToggle({
       style={styles.carePlanModeRow}
       accessible
       accessibilityRole="switch"
-      accessibilityLabel="Living care plan updates"
+      accessibilityLabel={t("more.carePlan.a11y")}
       accessibilityState={{ checked: isFull }}
     >
       <View style={styles.carePlanModeText}>
-        <Text style={[styles.carePlanModeTitle, themedStyles.primaryText]}>Living care plan updates</Text>
+        <Text style={[styles.carePlanModeTitle, themedStyles.primaryText]}>{t("more.carePlan.title")}</Text>
         <Text style={[styles.carePlanModeSubtitle, themedStyles.secondaryText]}>
           {isFull
-            ? "Concierge can suggest plan changes for your review."
-            : "Care plan stays as imported or last saved. Concierge can still explain using your plan."}
+            ? t("more.carePlan.enabled")
+            : t("more.carePlan.disabled")}
         </Text>
       </View>
       <Switch
@@ -317,7 +328,7 @@ function CarePlanModeToggle({
         onValueChange={(next) => onChange(next ? 'full' : 'read_only')}
         trackColor={{ false: theme.appBorder, true: AppTheme.colors.brand }}
         thumbColor={isFull ? AppTheme.colors.white : theme.appSurface}
-        accessibilityLabel="Toggle living care plan updates"
+        accessibilityLabel={t("more.carePlan.toggleA11y")}
       />
     </View>
   );

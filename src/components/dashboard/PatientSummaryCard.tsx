@@ -18,11 +18,17 @@ import {
   getPatientDisplayName,
   getPrimaryDiagnosisDisplay,
   NOT_AVAILABLE,
+  NOT_PROVIDED,
+  PENDING_CONFIRMATION,
+  UNKNOWN_PATIENT,
 } from '@/utils/patientDisplay';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn, TranslationKey } from '@/localization/i18n';
 
 export function PatientSummaryCard() {
   const theme = useTheme();
+  const { locale, t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const router = useRouter();
   const { snapshot, ready, error, refresh } = usePatientRecord();
@@ -44,7 +50,7 @@ export function PatientSummaryCard() {
   if (!ready) {
     return (
       <View style={[styles.card, themedStyles.card]}>
-        <Text style={[styles.loadingText, themedStyles.secondaryText]}>Loading patient record…</Text>
+        <Text style={[styles.loadingText, themedStyles.secondaryText]}>{t('dashboard.patient.loadingRecord')}</Text>
       </View>
     );
   }
@@ -52,75 +58,87 @@ export function PatientSummaryCard() {
   if (!snapshot) {
     return (
       <View style={[styles.card, themedStyles.card]}>
-        <Text style={[styles.unavailableTitle, themedStyles.primaryText]}>Patient record unavailable</Text>
+        <Text style={[styles.unavailableTitle, themedStyles.primaryText]}>{t('dashboard.patient.unavailable.title')}</Text>
         <Text style={[styles.unavailableText, themedStyles.secondaryText]}>
           {error
-            ? 'The patient record could not be loaded. Try again or return to onboarding.'
-            : 'No patient record is available yet. Complete onboarding to create one.'}
+            ? t('dashboard.patient.unavailable.loadFailed')
+            : t('dashboard.patient.unavailable.noneYet')}
         </Text>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Retry loading patient record"
+          accessibilityLabel={t('dashboard.patient.retryA11y')}
           onPress={refresh}
           style={styles.retryButton}
         >
-          <Text style={styles.retryButtonText}>Retry</Text>
+          <Text style={styles.retryButtonText}>{t('common.retry')}</Text>
         </Pressable>
       </View>
     );
   }
 
   const patientName = getPatientDisplayName(activePatient);
+  const patientNameLabel = formatDashboardValue(patientName, t);
   const patientAge = getPatientAgeDisplay(activePatient);
+  const patientAgeLabel = formatDashboardValue(patientAge, t);
   const caregiverName = getCaregiverDisplay(activePatient);
+  const caregiverNameLabel = formatDashboardValue(caregiverName, t);
   const primaryCondition = activePatient?.primaryDiagnosis ?? null;
   const comorbidities = activePatient?.comorbidities ?? [];
   const sourceCount = countKnowledgeSources(snapshot.knowledgeStats.bySource);
-  const cacheSummary = formatKnowledgeCacheSummary(snapshot.knowledgeStats.total, sourceCount);
+  const cacheSummary = formatKnowledgeCacheSummary(snapshot.knowledgeStats.total, sourceCount, t);
   const sourceBreakdown = formatKnowledgeSourceBreakdown(
     snapshot.knowledgeStats.bySource,
+    t,
   );
   // Global pack (new system) is the primary clinical knowledge surface;
   // patient overlay counts are the secondary detail.
   const packSummary =
     packUi.status === 'ready' && packUi.chunksInstalled > 0
-      ? `Clinical knowledge · ${packUi.chunksInstalled.toLocaleString()} references on device`
+      ? t('dashboard.patient.referencesOnDevice', {
+          count: packUi.chunksInstalled.toLocaleString(locale),
+        })
       : null;
 
   const primaryDisplay = primaryCondition
     ? `${primaryCondition.icd10 ? `${primaryCondition.icd10} · ` : ''}${primaryCondition.name}`
     : getPrimaryDiagnosisDisplay(activePatient);
+  const primaryDisplayLabel = formatDashboardValue(primaryDisplay, t);
   const needsClinicalImport = primaryDisplay === NOT_AVAILABLE;
+  const bundlePhaseLabel = snapshot.bundleStatus.phase
+    ? localizeBundlePhase(snapshot.bundleStatus.phase, t)
+    : null;
 
   return (
     <View style={[styles.card, themedStyles.card]}>
       <View style={styles.headerRow}>
         <View style={[styles.avatar, themedStyles.brandSoftSurface]}>
-          <Text style={[styles.avatarText, themedStyles.accentText]}>{getInitials(patientName)}</Text>
+          <Text style={[styles.avatarText, themedStyles.accentText]}>{getInitials(patientNameLabel)}</Text>
         </View>
 
         <View style={styles.patientTextBlock}>
           <View style={styles.nameRow}>
-            <Text style={[styles.patientName, themedStyles.primaryText]}>{patientName}</Text>
+            <Text style={[styles.patientName, themedStyles.primaryText]}>{patientNameLabel}</Text>
 
             {comorbidities.length > 0 ? (
               <View style={[styles.comorbidityBadge, themedStyles.warningSurface]}>
                 <Text style={styles.comorbidityBadgeText}>
-                  {comorbidities.length} Comorbidit{comorbidities.length === 1 ? 'y' : 'ies'}
+                  {t(comorbidities.length === 1 ? 'dashboard.patient.comorbidityOne' : 'dashboard.patient.comorbidityMany', {
+                    count: comorbidities.length,
+                  })}
                 </Text>
               </View>
             ) : null}
           </View>
 
           <Text style={[styles.patientMeta, themedStyles.secondaryText]}>
-            Age {patientAge} · {caregiverName}
+            {t('dashboard.patient.age', { age: patientAgeLabel })} · {caregiverNameLabel}
           </Text>
         </View>
       </View>
 
       <View style={[styles.diagnosisBox, themedStyles.controlSurface]}>
-        <Text style={[styles.diagnosisLabel, themedStyles.sectionText]}>Primary diagnosis</Text>
-        <Text style={[styles.diagnosisText, themedStyles.primaryText]}>{primaryDisplay}</Text>
+        <Text style={[styles.diagnosisLabel, themedStyles.sectionText]}>{t('dashboard.patient.primaryDiagnosis')}</Text>
+        <Text style={[styles.diagnosisText, themedStyles.primaryText]}>{primaryDisplayLabel}</Text>
         {primaryCondition?.category ? (
           <Text style={[styles.categoryText, themedStyles.secondaryText]}>{primaryCondition.category}</Text>
         ) : null}
@@ -131,9 +149,9 @@ export function PatientSummaryCard() {
           style={[styles.importBanner, themedStyles.importBanner]}
           onPress={() => router.push({ pathname: '/more', params: { focus: 'ehr-import' } } as never)}
         >
-          <Text style={[styles.importBannerTitle, themedStyles.importBannerTitle]}>Latest clinical details not available</Text>
+          <Text style={[styles.importBannerTitle, themedStyles.importBannerTitle]}>{t('dashboard.patient.latestClinicalUnavailable.title')}</Text>
           <Text style={[styles.importBannerText, themedStyles.secondaryText]}>
-            Import the latest EHR from Settings to refresh diagnoses and visit data.
+            {t('dashboard.patient.latestClinicalUnavailable.body')}
           </Text>
         </Pressable>
       ) : null}
@@ -144,7 +162,7 @@ export function PatientSummaryCard() {
           onPress={() => setExpanded((e) => !e)}
         >
           <Text style={[styles.comorbidityToggle, themedStyles.accentText]}>
-            {expanded ? '▼' : '▶'} Comorbidities ({comorbidities.length})
+            {expanded ? '▼' : '▶'} {t('dashboard.patient.comorbidities', { count: comorbidities.length })}
           </Text>
           {expanded ? (
             <View style={styles.comorbidityList}>
@@ -157,16 +175,16 @@ export function PatientSummaryCard() {
       ) : null}
 
       <View style={styles.infoGrid}>
-        <InfoBox label="SpO₂ cutoff" value={displayClinical(activePatient?.spo2Cutoff)} />
-        <InfoBox label="Baseline HR" value={displayEntered(activePatient?.baselineHeartRate)} />
+        <InfoBox label={t('dashboard.patient.spo2Cutoff')} value={formatDashboardValue(displayClinical(activePatient?.spo2Cutoff), t)} />
+        <InfoBox label={t('dashboard.patient.baselineHr')} value={formatDashboardValue(displayEntered(activePatient?.baselineHeartRate), t)} />
       </View>
 
       {snapshot.bundleStatus.state === 'in_flight' ? (
         <View style={[styles.bundlePendingPill, themedStyles.bundlePendingPill]}>
-          <Text style={styles.bundlePendingText}>Updating clinical knowledge</Text>
-          {snapshot.bundleStatus.phase ? (
+          <Text style={styles.bundlePendingText}>{t('dashboard.patient.updatingClinicalKnowledge')}</Text>
+          {bundlePhaseLabel ? (
             <Text style={[styles.bundlePendingDetail, themedStyles.secondaryText]} numberOfLines={2}>
-              {snapshot.bundleStatus.phase}
+              {bundlePhaseLabel}
             </Text>
           ) : null}
           <View style={[styles.bundleProgressTrack, themedStyles.progressTrack]}>
@@ -185,16 +203,19 @@ export function PatientSummaryCard() {
             {typeof snapshot.bundleStatus.completedSteps === 'number' &&
             typeof snapshot.bundleStatus.totalSteps === 'number' &&
             snapshot.bundleStatus.totalSteps > 0
-              ? `${snapshot.bundleStatus.completedSteps} of ${snapshot.bundleStatus.totalSteps} steps`
-              : cacheSummary ?? 'Downloading references…'}
+              ? t('dashboard.patient.bundleSteps', {
+                  completed: snapshot.bundleStatus.completedSteps,
+                  total: snapshot.bundleStatus.totalSteps,
+                })
+              : cacheSummary ?? t('dashboard.patient.downloadingReferences')}
             {snapshot.bundleStatus.chunksAdded > 0
-              ? ` · ${snapshot.bundleStatus.chunksAdded} cached`
+              ? ` · ${t('dashboard.patient.cachedChunks', { count: snapshot.bundleStatus.chunksAdded })}`
               : ''}
           </Text>
         </View>
       ) : snapshot.bundleStatus.state === 'failed' ? (
         <View style={[styles.bundleFailedPill, themedStyles.bundleFailedPill]}>
-          <Text style={[styles.bundleFailedText, themedStyles.bundleFailedText]}>Clinical knowledge update incomplete — using offline knowledge</Text>
+          <Text style={[styles.bundleFailedText, themedStyles.bundleFailedText]}>{t('dashboard.patient.clinicalKnowledgeUpdateIncomplete')}</Text>
           {cacheSummary ? (
             <Text style={[styles.bundleFailedDetail, themedStyles.secondaryText]}>{cacheSummary}</Text>
           ) : null}
@@ -205,14 +226,17 @@ export function PatientSummaryCard() {
           onPress={() => setReferencesOpen((v) => !v)}
           accessibilityRole="button"
           accessibilityState={{ expanded: referencesOpen }}
-          accessibilityLabel={`${(packSummary ?? cacheSummary) ?? 'Clinical knowledge'}. ${referencesOpen ? 'Hide' : 'Show'} sources.`}
+          accessibilityLabel={t('dashboard.patient.sourcesA11y', {
+            summary: (packSummary ?? cacheSummary) ?? t('dashboard.patient.clinicalKnowledge'),
+            action: referencesOpen ? t('common.hide') : t('common.show'),
+          })}
         >
           <Text style={[styles.knowledgeStatsText, themedStyles.knowledgeStatsText]}>{packSummary ?? cacheSummary}</Text>
           {sourceBreakdown && !referencesOpen ? (
             <Text style={[styles.knowledgeStatsDetail, themedStyles.secondaryText]}>{sourceBreakdown}</Text>
           ) : null}
           <Text style={[styles.knowledgeStatsHint, themedStyles.knowledgeStatsHint]}>
-            {referencesOpen ? 'Hide sources ▴' : 'Tap to view sources ▾'}
+            {referencesOpen ? `${t('dashboard.patient.hideSources')} ▴` : `${t('dashboard.patient.showSources')} ▾`}
           </Text>
           {referencesOpen ? (
             <CitationList
@@ -220,7 +244,7 @@ export function PatientSummaryCard() {
                 .filter(([, count]) => count > 0)
                 .sort((a, b) => b[1] - a[1])
                 .map(([src, count]) => ({
-                  label: formatSourceLabel(src),
+                  label: formatSourceLabel(src, t),
                   count,
                 }))}
               collapsible={false}
@@ -272,32 +296,93 @@ function countKnowledgeSources(bySource: Record<string, number>): number {
 export function formatKnowledgeCacheSummary(
   total: number,
   sourceCount: number,
+  t: TranslateFn,
 ): string | null {
   if (total <= 0) return null;
-  const referenceLabel = total === 1 ? 'reference' : 'references';
-  const sourceLabel = sourceCount === 1 ? 'source' : 'sources';
-  return `${total} cached ${referenceLabel} from ${sourceCount} ${sourceLabel}`;
+  return t('dashboard.patient.cacheSummary', {
+    total,
+    referenceLabel: t(total === 1 ? 'dashboard.patient.referenceOne' : 'dashboard.patient.referenceMany'),
+    sourceCount,
+    sourceLabel: t(sourceCount === 1 ? 'dashboard.patient.sourceOne' : 'dashboard.patient.sourceMany'),
+  });
 }
 
-const SOURCE_LABELS: Record<string, string> = {
-  pubmed: 'Medical literature',
-  medlineplus: 'Health topic summary',
-  rxnorm: 'Drug information',
-  dailymed: 'Drug label',
-  openfda: 'Drug safety data',
-  adcp_plan: 'Care plan',
-  'care-plan': 'Care plan',
-  'patient-plan': 'Care plan',
-  synthetic: 'Sample guidance',
-  'local-fixture': 'Sample guidance',
+const SOURCE_LABEL_KEYS: Record<string, TranslationKey> = {
+  pubmed: 'dashboard.patient.source.medicalLiterature',
+  medlineplus: 'dashboard.patient.source.healthTopicSummary',
+  rxnorm: 'dashboard.patient.source.drugInformation',
+  dailymed: 'dashboard.patient.source.drugLabel',
+  openfda: 'dashboard.patient.source.drugSafetyData',
+  adcp_plan: 'dashboard.patient.source.carePlan',
+  'care-plan': 'dashboard.patient.source.carePlan',
+  'patient-plan': 'dashboard.patient.source.carePlan',
+  synthetic: 'dashboard.patient.source.sampleGuidance',
+  'local-fixture': 'dashboard.patient.source.sampleGuidance',
 };
 
-function formatSourceLabel(source: string): string {
-  return SOURCE_LABELS[source] ?? source.replace(/[_-]/g, ' ');
+const PACK_SECTION_PHASE_KEYS: Record<string, TranslationKey> = {
+  'Core · care gaps and emergency cards': 'onboarding.knowledge.section.spine',
+  'Guidelines · text summaries': 'onboarding.knowledge.section.cpg',
+  'Conditions · MedlinePlus': 'onboarding.knowledge.section.medlineplus',
+  'Rare disease · Orphanet': 'onboarding.knowledge.section.orphanet',
+  'Public health · CDC/NINDS/NHLBI': 'onboarding.knowledge.section.publicHealth',
+  'Medications · patient labels': 'onboarding.knowledge.section.medsBase',
+  'Interactions · practical pairs': 'onboarding.knowledge.section.ddi',
+  'Medication safety · OpenFDA adverse events/recalls': 'onboarding.knowledge.section.openfda',
+  'Devices · complex home care': 'onboarding.knowledge.section.dme',
+  'Literature · PubMed summaries': 'onboarding.knowledge.section.litLite',
+  'Local health context · optional': 'onboarding.knowledge.section.sdoh',
+  'Indexing · evidence graph': 'onboarding.knowledge.section.graph',
+  'Indexing · dense vectors': 'onboarding.knowledge.section.embeds',
+};
+
+const BUNDLE_PHASE_KEYS: Record<string, TranslationKey> = {
+  Conditions: 'dashboard.patient.bundlePhase.conditions',
+  'Updating medication clinical knowledge…': 'dashboard.patient.bundlePhase.updatingMedicationKnowledge',
+  'Updating medication clinical knowledge...': 'dashboard.patient.bundlePhase.updatingMedicationKnowledge',
+  'Installing on-device clinical knowledge pack…': 'dashboard.patient.bundlePhase.installingDeviceKnowledge',
+  'Installing on-device clinical knowledge pack...': 'dashboard.patient.bundlePhase.installingDeviceKnowledge',
+  'Installing clinical knowledge…': 'dashboard.patient.bundlePhase.installingKnowledge',
+  'Installing clinical knowledge...': 'dashboard.patient.bundlePhase.installingKnowledge',
+  'Clinical knowledge pack ready': 'dashboard.patient.bundlePhase.packReady',
+  'Medication clinical knowledge updated': 'dashboard.patient.bundlePhase.medicationKnowledgeUpdated',
+  'Pack install incomplete': 'dashboard.patient.bundlePhase.packInstallIncomplete',
+  'Clinical knowledge pack failed': 'dashboard.patient.bundlePhase.packFailed',
+  'Community context · skipped': 'dashboard.patient.bundlePhase.communityContextSkipped',
+  'Community context · done': 'dashboard.patient.bundlePhase.communityContextDone',
+  'Conditions · offline packs': 'dashboard.patient.bundlePhase.offlinePacks',
+};
+
+function formatSourceLabel(source: string, t: TranslateFn): string {
+  const key = SOURCE_LABEL_KEYS[source];
+  return key ? t(key) : source.replace(/[_-]/g, ' ');
+}
+
+function localizeBundlePhase(phase: string, t: TranslateFn): string {
+  const exactKey = BUNDLE_PHASE_KEYS[phase];
+  if (exactKey) return t(exactKey);
+
+  const sectionKey = PACK_SECTION_PHASE_KEYS[phase];
+  if (sectionKey) return t(sectionKey);
+
+  const condition = phase.match(/^Conditions\s+·\s+(.+)$/);
+  if (condition) {
+    return t('dashboard.patient.bundlePhase.conditionsDetail', { detail: condition[1] });
+  }
+
+  const communityContext = phase.match(/^Community context\s+·\s+(.+)$/);
+  if (communityContext) {
+    return t('dashboard.patient.bundlePhase.communityContextDetail', {
+      detail: communityContext[1],
+    });
+  }
+
+  return phase;
 }
 
 function formatKnowledgeSourceBreakdown(
   bySource: Record<string, number>,
+  t: TranslateFn,
 ): string | null {
   const entries = Object.entries(bySource)
     .filter(([, count]) => count > 0)
@@ -305,7 +390,15 @@ function formatKnowledgeSourceBreakdown(
 
   if (entries.length === 0) return null;
 
-  return entries.map(([source, count]) => `${source}: ${count}`).join(', ');
+  return entries.map(([source, count]) => `${formatSourceLabel(source, t)}: ${count}`).join(', ');
+}
+
+function formatDashboardValue(value: string, t: TranslateFn): string {
+  if (value === UNKNOWN_PATIENT) return t('dashboard.value.unknown');
+  if (value === NOT_PROVIDED) return t('dashboard.value.notProvided');
+  if (value === NOT_AVAILABLE) return t('dashboard.value.notAvailable');
+  if (value === PENDING_CONFIRMATION) return t('dashboard.value.pendingConfirmation');
+  return value;
 }
 
 function getInitials(name: string): string {

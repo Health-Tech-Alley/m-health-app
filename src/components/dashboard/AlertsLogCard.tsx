@@ -31,6 +31,8 @@ import { AppTheme } from '@/constants/theme';
 import { severityColor } from '@/constants/user-terms';
 import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn, TranslationKey } from '@/localization/i18n';
 import { getEventBus } from '@/orchestration/event-bus';
 import { audit } from '@/services/audit/auditService';
 import {
@@ -41,28 +43,29 @@ import {
 
 const ACTIVE_STATUSES = new Set(['open', 'acknowledged']);
 
-const STATUS_LABEL: Record<CareAlert['status'], string> = {
-  open: 'Active',
-  acknowledged: 'Acknowledged',
-  resolved: 'Resolved',
-  escalated: 'Escalated',
-  dismissed: 'Dismissed',
-  removed: 'Removed',
+const STATUS_LABEL_KEYS: Record<CareAlert['status'], TranslationKey> = {
+  open: 'dashboard.alertsLog.status.open',
+  acknowledged: 'dashboard.alertsLog.status.acknowledged',
+  resolved: 'dashboard.alertsLog.status.resolved',
+  escalated: 'dashboard.alertsLog.status.escalated',
+  dismissed: 'dashboard.alertsLog.status.dismissed',
+  removed: 'dashboard.alertsLog.status.removed',
 };
 
-function formatRelativeTime(iso: string): string {
+function formatRelativeTime(iso: string, t: TranslateFn): string {
   const ts = new Date(iso).getTime();
-  if (!Number.isFinite(ts)) return 'Recent';
+  if (!Number.isFinite(ts)) return t('dashboard.time.recent');
   const minutes = Math.max(0, Math.round((Date.now() - ts) / 60000));
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return t('dashboard.time.justNow');
+  if (minutes < 60) return t('dashboard.time.minutesAgoShort', { count: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+  if (hours < 24) return t('dashboard.time.hoursAgoShort', { count: hours });
+  return t('dashboard.time.daysAgoShort', { count: Math.round(hours / 24) });
 }
 
 export function AlertsLogCard() {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const router = useRouter();
   const patientId = useOrchestratorPatientId();
@@ -102,12 +105,12 @@ export function AlertsLogCard() {
 
   function handleRemove(alert: CareAlert) {
     Alert.alert(
-      'Remove from log?',
-      'This hides the alert from your alerts log. The record is kept for the audit trail.',
+      t('dashboard.alertsLog.removeDialog.title'),
+      t('dashboard.alertsLog.removeDialog.body'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Remove',
+          text: t('common.remove'),
           style: 'destructive',
           onPress: () => {
             removeCareAlert(alert.alertId);
@@ -134,11 +137,10 @@ export function AlertsLogCard() {
       <View style={[styles.card, themedStyles.card]}>
         <View style={styles.headerRow}>
           <AppIcon name="bell" size={18} color={theme.appTextMuted} />
-          <Text style={[styles.title, themedStyles.title]}>Alerts Log</Text>
+          <Text style={[styles.title, themedStyles.title]}>{t('dashboard.alertsLog.title')}</Text>
         </View>
         <Text style={[styles.emptyText, themedStyles.mutedText]}>
-          No alerts recorded yet. Alerts from the ML care analysis demo will
-          appear here, grouped by active and inactive.
+          {t('dashboard.alertsLog.empty')}
         </Text>
       </View>
     );
@@ -148,17 +150,20 @@ export function AlertsLogCard() {
     <View style={[styles.card, themedStyles.card]}>
       <View style={styles.headerRow}>
         <AppIcon name="bell" size={18} color={theme.appTextMuted} />
-        <Text style={[styles.title, themedStyles.title]}>Alerts Log</Text>
+        <Text style={[styles.title, themedStyles.title]}>{t('dashboard.alertsLog.title')}</Text>
         <Text style={[styles.count, themedStyles.count]}>{alerts.length}</Text>
       </View>
 
       {active.length > 0 && (
         <View style={styles.section}>
-          <Text style={[styles.sectionLabel, themedStyles.sectionLabel]}>Active · {active.length}</Text>
+          <Text style={[styles.sectionLabel, themedStyles.sectionLabel]}>
+            {t('dashboard.alertsLog.activeCount', { count: active.length })}
+          </Text>
           {active.map((a) => (
             <AlertRow
               key={a.alertId}
               alert={a}
+              t={t}
               onOpen={() =>
                 router.push({ pathname: '/alert-detail', params: { alertId: a.alertId } })
               }
@@ -171,13 +176,14 @@ export function AlertsLogCard() {
       {inactive.length > 0 && (
         <View style={styles.section}>
           <Text style={[styles.sectionLabel, themedStyles.sectionLabel, styles.sectionLabelInactive]}>
-            Inactive · {inactive.length}
+            {t('dashboard.alertsLog.inactiveCount', { count: inactive.length })}
           </Text>
           {inactive.map((a) => (
             <AlertRow
               key={a.alertId}
               alert={a}
               inactive
+              t={t}
               onOpen={() =>
                 router.push({ pathname: '/alert-detail', params: { alertId: a.alertId } })
               }
@@ -193,11 +199,13 @@ export function AlertsLogCard() {
 function AlertRow({
   alert,
   inactive,
+  t,
   onOpen,
   onRemove,
 }: {
   alert: CareAlert;
   inactive?: boolean;
+  t: TranslateFn;
   onOpen: () => void;
   onRemove: () => void;
 }) {
@@ -208,6 +216,8 @@ function AlertRow({
     <Pressable
       style={[styles.row, themedStyles.row, inactive && styles.rowInactive]}
       onPress={onOpen}
+      accessibilityRole="button"
+      accessibilityLabel={t('dashboard.alertsLog.openA11y', { title: alert.title })}
     >
       <View style={[styles.dot, { backgroundColor: color }]} />
       <View style={styles.rowBody}>
@@ -215,7 +225,7 @@ function AlertRow({
           {alert.title}
         </Text>
         <Text style={[styles.rowSub, themedStyles.mutedText]} numberOfLines={1}>
-          {STATUS_LABEL[alert.status]} · Severity {alert.severity} · {formatRelativeTime(alert.createdAt)}
+          {t(STATUS_LABEL_KEYS[alert.status])} · {t('dashboard.alertsLog.severity', { severity: alert.severity })} · {formatRelativeTime(alert.createdAt, t)}
         </Text>
       </View>
       <Pressable
@@ -223,7 +233,7 @@ function AlertRow({
         hitSlop={12}
         onPress={onRemove}
         accessibilityRole="button"
-        accessibilityLabel="Remove alert from log"
+        accessibilityLabel={t('dashboard.alertsLog.removeA11y')}
       >
         <Text style={[styles.removeText, themedStyles.mutedText]}>×</Text>
       </Pressable>

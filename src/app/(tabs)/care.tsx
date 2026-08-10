@@ -66,6 +66,7 @@ import { AppTheme } from "@/constants/theme";
 import { useCriticalAlert } from "@/contexts/critical-alert-context";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
 import {
   type DailyCareEntry,
   type Threshold,
@@ -113,6 +114,7 @@ let careEntrancePlayedThisSession = false;
 
 export default function CareScreen() {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const { patientId, snapshot, refresh } = usePatientRecord();
   const { focus } = useLocalSearchParams<{ focus?: string }>();
@@ -376,44 +378,49 @@ export default function CareScreen() {
     (cardId: string) => {
       const card = uc4PriorityCards.find((candidate) => candidate.cardId === cardId);
       if (!card) return;
-      openExplain('Explain this care focus', buildUc4CardExplainPrompt(card));
+      openExplain(t("care.explain.careFocus"), buildUc4CardExplainPrompt(card));
     },
-    [uc4PriorityCards, openExplain],
+    [uc4PriorityCards, openExplain, t],
   );
 
   const handleExplainTimeline = useCallback(() => {
-    openExplain('Explain this timeline', buildTimelineExplainPrompt(prioritiesView.timeline));
-  }, [openExplain, prioritiesView.timeline]);
+    openExplain(t("care.explain.timeline"), buildTimelineExplainPrompt(prioritiesView.timeline));
+  }, [openExplain, prioritiesView.timeline, t]);
 
   const handleExplainGoalItem = useCallback(
     (request: GoalExplainRequest) => {
       openExplain(
-        request.kind === 'goal' ? 'Explain this goal' : 'Explain this activity',
+        request.kind === 'goal' ? t("care.explain.goal") : t("care.explain.activity"),
         buildGoalOrActivityExplainPrompt(request),
       );
     },
-    [openExplain],
+    [openExplain, t],
   );
 
   const handleExplainCategory = useCallback(
     (request: CategoryExplainRequest) => {
-      openExplain(`Explain ${request.categoryLabel}`, buildCategoryExplainPrompt(request));
+      openExplain(
+        t("care.explain.category", {
+          category: request.displayCategoryLabel ?? request.categoryLabel,
+        }),
+        buildCategoryExplainPrompt(request),
+      );
     },
-    [openExplain],
+    [openExplain, t],
   );
 
   const handleExplainConsideration = useCallback(
     (text: string) => {
-      openExplain('Discuss this with Concierge', buildConsiderationExplainPrompt(text));
+      openExplain(t("care.explain.consideration"), buildConsiderationExplainPrompt(text));
     },
-    [openExplain],
+    [openExplain, t],
   );
 
   const handleExplainWatchArea = useCallback(
     (area: MedicationWatchArea) => {
-      openExplain('Explain areas to watch', buildWatchAreaExplainPrompt(area));
+      openExplain(t("care.explain.watchAreas"), buildWatchAreaExplainPrompt(area));
     },
-    [openExplain],
+    [openExplain, t],
   );
 
   const handleAddWatchAreaToPlan = useCallback(
@@ -422,18 +429,18 @@ export default function CareScreen() {
       const proposal = proposeMedicationWatchArea({ patientId, area });
       if (proposal) {
         Alert.alert(
-          'Added to your review',
-          `Watch areas for ${area.medicationName} are waiting for your confirmation in the review section.`,
+          t("care.alert.addedReview.title"),
+          t("care.alert.addedReview.body", { medicationName: area.medicationName }),
         );
         refresh();
       } else {
         Alert.alert(
-          'Already covered',
-          `Watch areas for ${area.medicationName} are already on the care plan or awaiting your review.`,
+          t("care.alert.alreadyCovered.title"),
+          t("care.alert.alreadyCovered.body", { medicationName: area.medicationName }),
         );
       }
     },
-    [patientId, refresh],
+    [patientId, refresh, t],
   );
 
   const handleConfirmPendingProposal = useCallback(
@@ -441,11 +448,11 @@ export default function CareScreen() {
       if (!patientId) return;
       const result = caregiverConfirmProposalForUi(proposalId);
       if (result.blocked) {
-        Alert.alert("Care plan is in view-only mode", result.blockMessage);
+        Alert.alert(t("care.alert.viewOnly.title"), result.blockMessage);
       }
       refresh();
     },
-    [patientId, refresh],
+    [patientId, refresh, t],
   );
   const handleRejectPendingProposal = useCallback(
     (proposalId: string, reason: string) => {
@@ -505,8 +512,8 @@ export default function CareScreen() {
         >
           <View style={styles.headerBleed}>
             <MainTabHeader
-              title="Care"
-              eyebrow="Caregiver Concierge"
+              title={t("care.header.title")}
+              eyebrow={t("care.header.eyebrow")}
               icon="care"
             />
           </View>
@@ -629,7 +636,7 @@ export default function CareScreen() {
                 lines={safetyAlwaysNever}
                 onExplainLine={(line) =>
                   openExplain(
-                    'Explain this safety rule',
+                    t("care.explain.safetyRule"),
                     buildConsiderationExplainPrompt(
                       `${line.kind === 'always' ? 'Always' : 'Never'}: ${line.text}`,
                     ),
@@ -694,7 +701,7 @@ export default function CareScreen() {
         <SlmInsightSheet
           visible={explainRequest !== null}
           onClose={() => setExplainRequest(null)}
-          title={explainRequest?.title ?? "Concierge explanation"}
+          title={explainRequest?.title ?? t("care.explain.conciergeExplanation")}
           reason="care_explain"
           prompt={explainRequest?.prompt ?? ""}
           allowMinimize

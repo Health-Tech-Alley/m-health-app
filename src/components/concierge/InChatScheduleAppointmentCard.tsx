@@ -15,6 +15,8 @@ import {
 import { AppTheme } from '@/constants/theme';
 import { insertAppointment } from '@/data';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 import { audit } from '@/services/audit/auditService';
 import { getOnboardingProfile } from '@/services/onboarding/onboardingService';
 
@@ -57,6 +59,32 @@ function addDaysIso(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function appointmentTypeLabel(type: string, t: TranslateFn): string {
+  switch (type) {
+    case 'Primary care':
+      return t('assistant.scheduleCard.type.primaryCare');
+    case 'Urgent follow-up':
+      return t('assistant.scheduleCard.type.urgentFollowup');
+    default:
+      return type;
+  }
+}
+
+function reminderLabel(option: string, t: TranslateFn): string {
+  switch (option) {
+    case '15 min before':
+      return t('assistant.scheduleCard.reminder.15min');
+    case '1 hour before':
+      return t('assistant.scheduleCard.reminder.1hour');
+    case '1 day before':
+      return t('assistant.scheduleCard.reminder.1day');
+    case '1 week before':
+      return t('assistant.scheduleCard.reminder.1week');
+    default:
+      return option;
+  }
+}
+
 export function InChatScheduleAppointmentCard({
   patientId,
   defaultReason,
@@ -64,6 +92,7 @@ export function InChatScheduleAppointmentCard({
   onComplete,
 }: Props) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const profile = useMemo(() => getOnboardingProfile(), []);
   const [appointmentType, setAppointmentType] = useState<string>('Primary care');
@@ -128,20 +157,19 @@ export function InChatScheduleAppointmentCard({
         reminder: appt.reminder,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save local demo appointment.');
+      setError(err instanceof Error ? err.message : t('assistant.scheduleCard.errorSave'));
       setBusy(false);
     }
   };
 
   return (
     <View style={[styles.card, themedStyles.card]}>
-      <Text style={[styles.title, themedStyles.title]}>Local demo appointment</Text>
+      <Text style={[styles.title, themedStyles.title]}>{t('assistant.scheduleCard.title')}</Text>
       <Text style={[styles.body, themedStyles.supportingText]}>
-        Health Monitor suggests professional follow-up (not an emergency). Save
-        a local demo follow-up, or dismiss to continue without saving one.
+        {t('assistant.scheduleCard.body')}
       </Text>
 
-      <Text style={[styles.label, themedStyles.supportingText]}>Appointment type</Text>
+      <Text style={[styles.label, themedStyles.supportingText]}>{t('assistant.scheduleCard.appointmentType')}</Text>
       <View style={styles.chipRow}>
         {APPOINTMENT_TYPES.map((type) => {
           const selected = appointmentType === type;
@@ -153,7 +181,7 @@ export function InChatScheduleAppointmentCard({
               style={[styles.chip, themedStyles.chip, selected && styles.chipSelected]}
             >
               <Text style={[styles.chipText, themedStyles.chipText, selected && styles.chipTextSelected]}>
-                {type}
+                {appointmentTypeLabel(type, t)}
               </Text>
             </Pressable>
           );
@@ -161,15 +189,15 @@ export function InChatScheduleAppointmentCard({
       </View>
 
       <Field
-        label="Provider"
+        label={t('assistant.scheduleCard.provider')}
         value={providerName}
         onChangeText={setProviderName}
-        placeholder="Provider name"
+        placeholder={t('assistant.scheduleCard.providerPlaceholder')}
         editable={enabled && !busy}
       />
       <View style={styles.row}>
         <Field
-          label="Date (YYYY-MM-DD)"
+          label={t('assistant.scheduleCard.date')}
           value={date}
           onChangeText={setDate}
           placeholder={todayIsoDate()}
@@ -177,7 +205,7 @@ export function InChatScheduleAppointmentCard({
           style={styles.half}
         />
         <Field
-          label="Time"
+          label={t('assistant.scheduleCard.time')}
           value={time}
           onChangeText={setTime}
           placeholder="10:00"
@@ -186,22 +214,22 @@ export function InChatScheduleAppointmentCard({
         />
       </View>
       <Field
-        label="Location"
+        label={t('assistant.scheduleCard.location')}
         value={location}
         onChangeText={setLocation}
-        placeholder="Clinic name or address"
+        placeholder={t('assistant.scheduleCard.locationPlaceholder')}
         editable={enabled && !busy}
       />
       <Field
-        label="Reason for visit"
+        label={t('assistant.scheduleCard.reason')}
         value={reason}
         onChangeText={setReason}
-        placeholder="What should the provider review?"
+        placeholder={t('assistant.scheduleCard.reasonPlaceholder')}
         editable={enabled && !busy}
         multiline
       />
 
-      <Text style={[styles.label, themedStyles.supportingText]}>Reminder</Text>
+      <Text style={[styles.label, themedStyles.supportingText]}>{t('assistant.scheduleCard.reminder')}</Text>
       <View style={styles.chipRow}>
         {REMINDER_OPTIONS.map((option) => {
           const selected = reminder === option;
@@ -213,7 +241,7 @@ export function InChatScheduleAppointmentCard({
               style={[styles.chip, themedStyles.chip, selected && styles.chipSelected]}
             >
               <Text style={[styles.chipText, themedStyles.chipText, selected && styles.chipTextSelected]}>
-                {option}
+                {reminderLabel(option, t)}
               </Text>
             </Pressable>
           );
@@ -227,19 +255,23 @@ export function InChatScheduleAppointmentCard({
           style={[styles.button, styles.buttonPrimary, !canSubmit && styles.buttonDisabled]}
           onPress={handleSchedule}
           disabled={!canSubmit}
+          accessibilityRole="button"
+          accessibilityLabel={t('assistant.scheduleCard.saveA11y')}
         >
           {busy ? (
             <ActivityIndicator color={AppTheme.colors.white} />
           ) : (
-            <Text style={styles.buttonPrimaryText}>Save demo follow-up</Text>
+            <Text style={styles.buttonPrimaryText}>{t('assistant.scheduleCard.save')}</Text>
           )}
         </Pressable>
         <Pressable
           style={[styles.button, styles.buttonSecondary, themedStyles.buttonSecondary]}
           onPress={() => onComplete({ action: 'dismissed' })}
           disabled={!enabled || busy}
+          accessibilityRole="button"
+          accessibilityLabel={t('assistant.scheduleCard.notNowA11y')}
         >
-          <Text style={[styles.buttonSecondaryText, themedStyles.buttonSecondaryText]}>Not now</Text>
+          <Text style={[styles.buttonSecondaryText, themedStyles.buttonSecondaryText]}>{t('assistant.scheduleCard.notNow')}</Text>
         </Pressable>
       </View>
     </View>

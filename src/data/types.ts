@@ -911,6 +911,11 @@ export interface AppSettings {
   mode: AppMode;
   demoDefaultModelId: string;
   theme: ThemePreference;
+  /**
+   * Application UI language preference. Caregiver language is legacy metadata
+   * for frozen SLM paths and must not control app localization.
+   */
+  languagePreference: string;
   notifications: NotificationPreferences;
   /**
    * When true (default): on-demand SLM load/unload (doc 34 dynamic path).

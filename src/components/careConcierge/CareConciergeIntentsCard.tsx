@@ -16,29 +16,62 @@ import { AppIcon } from '@/components/AppIcon';
 import { createThemedSectionStyles } from '@/components/care/plan/carePlanSectionStyles';
 import { AppTheme } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 import { intentCatalogList } from '@/services/carePlan/intentRouter';
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
 
 type IntentListItem = ReturnType<typeof intentCatalogList>[number];
 
-const INTENT_DESCRIPTION: Partial<Record<AdcpProposalIntentId, string>> = {
-  review_monitoring_contract:
-    'Inspect active thresholds and queue personalized updates for your review.',
-  propose_therapy_contract_patch:
-    'Today\u2019s rehab check-in and therapy metrics inform a queued plan update.',
-  explain_uc4_card:
-    'Plain-language explanation of why a care-focus item surfaced now.',
-  promote_uc4_to_plan_task:
-    'Add a care-focus item to the durable care plan after your review.',
-  suggest_todays_logging:
-    'Metric-tied checklist based on plan gaps and what to log today.',
-  weekly_care_plan_review:
-    'Multi-section review of the last 7 days; queues plan proposals with rationale.',
-  handoff_summary:
-    'Narrative summary suitable for a backup caregiver and the audit trail.',
-  explain_uc3_result: 'Explain the latest rehabilitation progress result.',
-  explain_uc2_alert: 'Open an explanation of a Health Monitor alert.',
-};
+function intentDescription(intent: AdcpProposalIntentId, fallback: string, t: TranslateFn): string {
+  switch (intent) {
+    case 'review_monitoring_contract':
+      return t('care.intents.reviewMonitoring');
+    case 'propose_therapy_contract_patch':
+      return t('care.intents.therapyPatch');
+    case 'explain_uc4_card':
+      return t('care.intents.explainUc4');
+    case 'promote_uc4_to_plan_task':
+      return t('care.intents.promoteUc4');
+    case 'suggest_todays_logging':
+      return t('care.intents.todaysLogging');
+    case 'weekly_care_plan_review':
+      return t('care.intents.weeklyReview');
+    case 'handoff_summary':
+      return t('care.intents.handoff');
+    case 'explain_uc3_result':
+      return t('care.intents.explainUc3');
+    case 'explain_uc2_alert':
+      return t('care.intents.explainUc2');
+    default:
+      return fallback;
+  }
+}
+
+function intentLabel(intent: AdcpProposalIntentId, fallback: string, t: TranslateFn): string {
+  switch (intent) {
+    case 'review_monitoring_contract':
+      return t('care.intents.label.reviewMonitoring');
+    case 'propose_therapy_contract_patch':
+      return t('care.intents.label.therapyPatch');
+    case 'explain_uc4_card':
+      return t('care.intents.label.explainUc4');
+    case 'promote_uc4_to_plan_task':
+      return t('care.intents.label.promoteUc4');
+    case 'suggest_todays_logging':
+      return t('care.intents.label.todaysLogging');
+    case 'weekly_care_plan_review':
+      return t('care.intents.label.weeklyReview');
+    case 'handoff_summary':
+      return t('care.intents.label.handoff');
+    case 'explain_uc3_result':
+      return t('care.intents.label.explainUc3');
+    case 'explain_uc2_alert':
+      return t('care.intents.label.explainUc2');
+    default:
+      return fallback;
+  }
+}
 
 export interface CareConciergeIntentsCardProps {
   patientId: string | null;
@@ -54,6 +87,7 @@ export function CareConciergeIntentsCard({
 }: CareConciergeIntentsCardProps) {
   const intents = intentsProp ?? intentCatalogList();
   const theme = useTheme();
+  const { t } = useTranslation();
   const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const isDark = theme.appBackground === '#000000';
@@ -67,28 +101,29 @@ export function CareConciergeIntentsCard({
     <View style={sectionStyles.card}>
       <View style={sectionStyles.headerRow}>
         <AppIcon name="care" size={18} color={iconColor} />
-        <Text style={sectionStyles.title}>Care Concierge</Text>
+        <Text style={sectionStyles.title}>{t('care.intents.title')}</Text>
       </View>
-      <Text style={sectionStyles.subtitle}>
-        Pick a plan-aware question. Concierge waits for your review before any change is applied.
-      </Text>
-      {intents.map((intent) => (
-        <Pressable
-          key={intent.intent}
-          style={sectionStyles.listRow}
-          onPress={() => handlePress(intent.intent)}
-          accessibilityRole="button"
-          accessibilityLabel={`Run intent ${intent.caregiverLabel}`}
-        >
-          <View style={styles.rowLeft}>
-            <Text style={sectionStyles.listText}>{intent.caregiverLabel}</Text>
-            <Text style={[styles.rowSub, themedStyles.mutedText]}>
-              {INTENT_DESCRIPTION[intent.intent] ?? intent.description}
-            </Text>
-          </View>
-          <AppIcon name="chevronRight" size={20} color={theme.appTextMuted} />
-        </Pressable>
-      ))}
+      <Text style={sectionStyles.subtitle}>{t('care.intents.subtitle')}</Text>
+      {intents.map((intent) => {
+        const label = intentLabel(intent.intent, intent.caregiverLabel, t);
+        return (
+          <Pressable
+            key={intent.intent}
+            style={sectionStyles.listRow}
+            onPress={() => handlePress(intent.intent)}
+            accessibilityRole="button"
+            accessibilityLabel={t('care.intents.runA11y', { label })}
+          >
+            <View style={styles.rowLeft}>
+              <Text style={sectionStyles.listText}>{label}</Text>
+              <Text style={[styles.rowSub, themedStyles.mutedText]}>
+                {intentDescription(intent.intent, intent.description, t)}
+              </Text>
+            </View>
+            <AppIcon name="chevronRight" size={20} color={theme.appTextMuted} />
+          </Pressable>
+        );
+      })}
     </View>
   );
 }

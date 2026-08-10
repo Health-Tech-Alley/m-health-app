@@ -51,6 +51,8 @@ import { CHAT_UNLOAD_GRACE_MS, useSLM } from '@/contexts/slm-context';
 import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
 import { useOrchestratorSafe, useOrchestratorRetriever, useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import { languagePreferenceLabel, type TranslateFn } from '@/localization/i18n';
 import type { ChatMessage as ProviderChatMessage } from '@/inference/inference-provider';
 import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
 import {
@@ -239,6 +241,80 @@ function getPromptInputHeight(text: string): number {
   );
 }
 
+function expandCollapseState(expanded: boolean, t: TranslateFn): string {
+  return expanded ? t('common.collapse') : t('common.expand');
+}
+
+function formatAssistantMessageForDisplay(text: string, t: TranslateFn): string {
+  if (
+    text ===
+    'This may be an emergency. If someone is in immediate danger, call 911 or go to the ER. Concierge does not replace emergency care.'
+  ) {
+    return t('assistant.emergencyMessage');
+  }
+  if (text === 'Running Health Monitor…' || text === 'Running Health Monitor...') {
+    return t('assistant.chatDisplay.runningMonitor');
+  }
+  const healthMonitor = text.match(
+    /^Health Monitor result \((.+)\)\.\n\nAdd anything you observed below, then continue [—-] or skip review to use the monitor result only\.$/s,
+  );
+  if (healthMonitor) {
+    return t('assistant.chatDisplay.healthMonitorResult', { summary: healthMonitor[1] });
+  }
+  const followUp = text.match(
+    /^Professional follow-up recommended \((.+)\)\.\n\nSave a local demo follow-up below, or choose Not now [—-] then I.ll wrap up with guidance\.$/s,
+  );
+  if (followUp) {
+    return t('assistant.chatDisplay.professionalFollowup', { summary: followUp[1] });
+  }
+  return text;
+}
+
+function formatAssistantErrorForDisplay(error: string | null, t: TranslateFn): string {
+  if (!error) return t('common.unknownError');
+  if (error === 'Concierge reasoning is still loading. Please retry once the native model is ready.') {
+    return t('assistant.error.reasoningLoading');
+  }
+  const unavailable = error.match(/^Concierge reasoning is temporarily unavailable: (.+)$/s);
+  if (unavailable) {
+    return t('assistant.error.reasoningUnavailableWithDetail', { detail: unavailable[1] });
+  }
+  if (error === 'Concierge reasoning is temporarily unavailable.') {
+    return t('assistant.error.reasoningUnavailable');
+  }
+  if (
+    error ===
+    'Concierge reasoning is temporarily unavailable because no native model is loaded. Load the Concierge model and retry.'
+  ) {
+    return t('assistant.error.noNativeModel');
+  }
+  if (error === 'Something went wrong while streaming the response.') {
+    return t('assistant.error.streamingFailed');
+  }
+  if (error === 'Health Monitor did not return a result. Try again or rephrase the vitals.') {
+    return t('assistant.error.healthMonitorNoResult');
+  }
+  if (error === 'Health Monitor failed. You can still ask Concierge without it.') {
+    return t('assistant.error.healthMonitorFailed');
+  }
+  if (error === 'Failed to finish explanation.') {
+    return t('assistant.error.finishExplanationFailed');
+  }
+  if (error === 'Health Monitor re-run failed after caregiver review.') {
+    return t('assistant.error.reviewRerunFailed');
+  }
+  if (error === 'Caregiver review failed.') {
+    return t('assistant.error.caregiverReviewFailed');
+  }
+  if (error === 'Failed to finish after scheduling.') {
+    return t('assistant.error.finishSchedulingFailed');
+  }
+  if (error === 'Something went wrong.') {
+    return t('common.unknownError');
+  }
+  return error;
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -291,6 +367,7 @@ type ChatAction =
         sourceUserText?: string;
         /** Sources for display (not embedded in text) */
         sources?: { label: string; count?: number }[];
+        emptyFallback?: string;
       };
     }
   | { type: 'send-stopped'; payload: { assistantId: string } }
@@ -352,7 +429,8 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
       const answer =
         parsed.answer ||
         (existing?.text?.trim() ? existing.text : '') ||
-        'I ran out of room before finishing that thought. Tap "Ask" again or try a shorter question.';
+        action.payload.emptyFallback ||
+        '';
 
       return {
         ...state,
@@ -545,6 +623,7 @@ export default function SLMScreen({
   const slm = useSLM();
   const optionalGate = useOptionalFeatureGate('slm');
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const isDarkTheme = theme.appBackground === '#000000';
   const { settings, isDeveloper } = useSettings();
@@ -803,6 +882,7 @@ export default function SLMScreen({
             reasoningContent: null,
             pendingHealthMonitor: null,
             sourceUserText: trimmed,
+            emptyFallback: t('assistant.responseFallback'),
           },
         });
         return;
@@ -836,6 +916,7 @@ export default function SLMScreen({
             reasoningContent: null,
             pendingHealthMonitor: null,
             sourceUserText: trimmed,
+            emptyFallback: t('assistant.responseFallback'),
           },
         });
         return;
@@ -851,6 +932,7 @@ export default function SLMScreen({
             reasoningContent: null,
             pendingHealthMonitor: null,
             sourceUserText: trimmed,
+            emptyFallback: t('assistant.responseFallback'),
           },
         });
         return;
@@ -996,7 +1078,7 @@ export default function SLMScreen({
         { collapsedSources: true },
       );
       finalText = withFootnotes.displayText;
-      const sources = citationsToSources(prepared.citationChunks);
+      const sources = citationsToSources(prepared.citationChunks, t);
 
       dispatch({
         type: 'send-success',
@@ -1007,6 +1089,7 @@ export default function SLMScreen({
           pendingHealthMonitor: null,
           sourceUserText: trimmed,
           sources,
+          emptyFallback: t('assistant.responseFallback'),
         },
       });
 
@@ -1078,6 +1161,7 @@ export default function SLMScreen({
     retriever,
     orchestrator,
     allowDevelopmentNluFallback,
+    t,
   ]);
 
   const handleStop = useCallback(() => {
@@ -1224,10 +1308,11 @@ export default function SLMScreen({
           reasoningContent: finalReasoning,
           pendingCaregiverReview: null,
           pendingScheduleFollowUp: null,
+          emptyFallback: t('assistant.responseFallback'),
         },
       });
     },
-    [caregiverContext, slm],
+    [caregiverContext, slm, t],
   );
 
   /**
@@ -1831,6 +1916,7 @@ export default function SLMScreen({
             assistantId: assistantMessage.id,
             finalText: result.text,
             reasoningContent: result.reasoningContent,
+            emptyFallback: t('assistant.responseFallback'),
           },
         });
       } catch (error) {
@@ -1849,7 +1935,7 @@ export default function SLMScreen({
         abortControllerRef.current = null;
       }
     },
-    [caregiverContext, inputText, slm, state.messages, state.runStatus],
+    [caregiverContext, inputText, slm, state.messages, state.runStatus, t],
   );
 
   const renderMessage: ListRenderItem<ChatMessage> = ({ item }) => {
@@ -1867,9 +1953,10 @@ export default function SLMScreen({
     const isExpanded = expandedMessageIds.has(item.id);
     const reasoning = item.thinking;
     const showReasoningToggle = isDeveloper && Boolean(reasoning && reasoning.trim());
-    const displayText = isExpanded || !item.finalText
+    const rawDisplayText = isExpanded || !item.finalText
       ? item.finalText ?? item.text
       : truncateForQuickAnswer(item.finalText ?? item.text);
+    const displayText = formatAssistantMessageForDisplay(rawDisplayText, t);
     return (
       <View style={[styles.assistantBubble, themedStyles.assistantBubble]}>
         {item.status === 'streaming' && !item.answerStarted && (
@@ -1907,12 +1994,14 @@ export default function SLMScreen({
                     }}
                     disabled={state.runStatus === 'streaming'}
                   >
-                    <Text style={[styles.tellMeMoreText, themedStyles.accentText]}>Tell me more</Text>
+                    <Text style={[styles.tellMeMoreText, themedStyles.accentText]}>{t('assistant.tellMeMore')}</Text>
                   </Pressable>
                 ) : null}
               </View>
             ) : (
-              <Text style={[styles.answerText, themedStyles.primaryText]}>{item.text}</Text>
+              <Text style={[styles.answerText, themedStyles.primaryText]}>
+                {formatAssistantMessageForDisplay(item.text, t)}
+              </Text>
             )}
 
             {item.sources && item.sources.length > 0 && item.status === 'done' ? (
@@ -1928,11 +2017,14 @@ export default function SLMScreen({
             {item.pendingCaregiverReview && item.status === 'done' ? (
               <View style={[styles.healthMonitorConfirmCard, themedStyles.healthMonitorConfirmCard]}>
                 <Text style={[styles.healthMonitorConfirmTitle, themedStyles.primaryText]}>
-                  Caregiver review (severity {item.pendingCaregiverReview.severity})
+                  {t('assistant.review.title', {
+                    severity: item.pendingCaregiverReview.severity,
+                  })}
                 </Text>
                 <Text style={[styles.healthMonitorConfirmBody, themedStyles.supportingText]}>
-                  {item.pendingCaregiverReview.summaryLine}. Select anything you
-                  observed, then continue. Severity 3 emergencies skip this step.
+                  {t('assistant.review.body', {
+                    summary: item.pendingCaregiverReview.summaryLine,
+                  })}
                 </Text>
                 <ObservationPicker
                   selected={reviewCodesByMessage[item.id] ?? []}
@@ -1948,7 +2040,7 @@ export default function SLMScreen({
                     disabled={state.runStatus === 'streaming'}
                   >
                     <Text style={styles.healthMonitorButtonPrimaryText}>
-                      Apply review & continue
+                      {t('assistant.review.apply')}
                     </Text>
                   </Pressable>
                   <Pressable
@@ -1957,7 +2049,7 @@ export default function SLMScreen({
                     disabled={state.runStatus === 'streaming'}
                   >
                     <Text style={[styles.healthMonitorButtonSecondaryText, themedStyles.accentText]}>
-                      Skip review
+                      {t('assistant.review.skip')}
                     </Text>
                   </Pressable>
                 </View>
@@ -1975,7 +2067,7 @@ export default function SLMScreen({
             {item.pendingScheduleFollowUp && item.status === 'done' && !patientId ? (
               <View style={[styles.healthMonitorConfirmCard, themedStyles.healthMonitorConfirmCard]}>
                 <Text style={[styles.healthMonitorConfirmBody, themedStyles.supportingText]}>
-                  No active patient — open a profile, then ask again to schedule.
+                  {t('assistant.schedule.noActivePatient')}
                 </Text>
                 <Pressable
                   style={[styles.healthMonitorButton, styles.healthMonitorButtonSecondary, themedStyles.secondaryAction]}
@@ -1983,7 +2075,7 @@ export default function SLMScreen({
                     void handleScheduleFollowUpComplete(item, { action: 'dismissed' })
                   }
                 >
-                  <Text style={[styles.healthMonitorButtonSecondaryText, themedStyles.accentText]}>Continue without scheduling</Text>
+                  <Text style={[styles.healthMonitorButtonSecondaryText, themedStyles.accentText]}>{t('assistant.schedule.continueWithoutScheduling')}</Text>
                 </Pressable>
               </View>
             ) : null}
@@ -1992,7 +2084,7 @@ export default function SLMScreen({
               <View style={styles.reasoningSection}>
                 <Pressable onPress={() => toggleReasoning(item.id)}>
                   <Text style={[styles.reasoningToggle, themedStyles.supportingText]}>
-                    {reasoningOpen ? '▾' : '▸'} Show reasoning
+                    {reasoningOpen ? '▾' : '▸'} {reasoningOpen ? t('assistant.reasoning.hide') : t('assistant.reasoning.show')}
                   </Text>
                 </Pressable>
                 {reasoningOpen ? (
@@ -2006,10 +2098,14 @@ export default function SLMScreen({
             ) : null}
 
             {item.status === 'error' ? (
-              <Text style={[styles.errorText, themedStyles.errorText]}>Error: {item.finalText ?? 'Unknown error'}</Text>
+              <Text style={[styles.errorText, themedStyles.errorText]}>
+                {t('assistant.error.withDetail', {
+                  error: formatAssistantErrorForDisplay(item.finalText, t),
+                })}
+              </Text>
             ) : null}
             {item.status === 'stopped' ? (
-              <Text style={[styles.stoppedHint, themedStyles.mutedText]}>· stopped</Text>
+              <Text style={[styles.stoppedHint, themedStyles.mutedText]}>· {t('assistant.status.stopped')}</Text>
             ) : null}
           </>
         )}
@@ -2019,6 +2115,7 @@ export default function SLMScreen({
 
   const patientRecordLoading = !ready;
   const isInputDisabled = slm.loadStatus !== 'ready' && slm.loadStatus !== 'idle';
+  const notProvided = t('common.notProvided');
 
   if (!optionalGate.ready) {
     return (
@@ -2029,9 +2126,9 @@ export default function SLMScreen({
         {showBackButton ? (
           <View style={styles.headerRow}>
             <Pressable onPress={() => router.back()} style={styles.backButton}>
-              <Text style={styles.backText}>← Back</Text>
+              <Text style={styles.backText}>← {t('common.back')}</Text>
             </Pressable>
-            <Text style={styles.headerTitle}>Concierge Support</Text>
+            <Text style={styles.headerTitle}>{t('assistant.header.title')}</Text>
           </View>
         ) : null}
         <View style={styles.greyedBody}>
@@ -2056,25 +2153,25 @@ export default function SLMScreen({
         {showBackButton ? (
           <View style={styles.headerRow}>
             <Pressable onPress={() => router.back()} style={styles.backButton}>
-              <Text style={[styles.backText, themedStyles.accentText]}>← Back</Text>
+              <Text style={[styles.backText, themedStyles.accentText]}>← {t('common.back')}</Text>
             </Pressable>
           </View>
         ) : null}
 
         <ScrollView style={[styles.scrollView, themedStyles.container]} contentContainerStyle={styles.scrollContent}>
           <MainTabHeader
-            title="Concierge Support"
-            eyebrow="Caregiver Concierge"
-            subtitle="Ask practical questions using the caregiver profile and patient context."
+            title={t('assistant.header.title')}
+            eyebrow={t('assistant.header.eyebrow')}
+            subtitle={t('assistant.header.subtitle')}
             icon="assistant"
             rightContent={
               <Pressable
                 onPress={handleNewConversation}
                 style={[styles.newConvButton, themedStyles.outlineAction]}
                 accessibilityRole="button"
-                accessibilityLabel="New conversation"
+                accessibilityLabel={t('assistant.newConversation')}
               >
-                <Text style={[styles.newConvButtonText, themedStyles.accentText]} numberOfLines={1}>New</Text>
+                <Text style={[styles.newConvButtonText, themedStyles.accentText]} numberOfLines={1}>{t('assistant.newConversationShort')}</Text>
               </Pressable>
             }
           />
@@ -2085,15 +2182,19 @@ export default function SLMScreen({
               onPress={() => setCareContextExpanded((v) => !v)}
               accessibilityRole="button"
               accessibilityState={{ expanded: careContextExpanded }}
-              accessibilityLabel={`Care Context${careContextExpanded ? ' — collapse' : ' — expand'}`}
+              accessibilityLabel={t('assistant.context.a11y', {
+                state: expandCollapseState(careContextExpanded, t),
+              })}
             >
               <View style={styles.collapsibleCardHeaderText}>
-                <Text style={[styles.cardTitle, themedStyles.primaryText]}>Care Context</Text>
+                <Text style={[styles.cardTitle, themedStyles.primaryText]}>{t('assistant.context.title')}</Text>
                 {!careContextExpanded ? (
                   <Text style={[styles.collapsibleCardSummary, themedStyles.supportingText]} numberOfLines={1}>
                     {snapshot?.patient
-                      ? `${snapshot.patient.preferredName?.trim() || snapshot.patient.name} · tap to expand`
-                      : 'Tap to expand patient and care details'}
+                      ? t('assistant.context.patientSummary', {
+                          name: snapshot.patient.preferredName?.trim() || snapshot.patient.name,
+                        })
+                      : t('assistant.context.tapToExpand')}
                   </Text>
                 ) : null}
               </View>
@@ -2103,45 +2204,60 @@ export default function SLMScreen({
             {careContextExpanded ? (
               <>
                 {patientRecordLoading ? (
-                  <Text style={[styles.contextText, themedStyles.supportingText]}>Loading patient record...</Text>
+                  <Text style={[styles.contextText, themedStyles.supportingText]}>{t('assistant.context.loading')}</Text>
                 ) : patientRecordError ? (
                   <Text style={[styles.errorText, themedStyles.errorText]}>
-                    Patient record unavailable: {patientRecordError.message}
+                    {t('assistant.context.unavailable', { message: patientRecordError.message })}
                   </Text>
                 ) : !snapshot?.patient ? (
                   <Text style={[styles.contextText, themedStyles.supportingText]}>
-                    No persisted patient record is available. Import or create a patient record before asking the Concierge.
+                    {t('assistant.context.noRecord')}
                   </Text>
                 ) : (
                   <>
                     <CollapsibleCareSection
                       id="patient"
-                      title="Patient"
-                      summary={`${snapshot.patient.preferredName?.trim() || snapshot.patient.name} · age ${caregiverContext?.patientAge ?? 'Not provided'}`}
+                      title={t('assistant.context.patient')}
+                      summary={t('assistant.context.patientSummaryAge', {
+                        name: snapshot.patient.preferredName?.trim() || snapshot.patient.name,
+                        age: caregiverContext?.patientAge ?? notProvided,
+                      })}
                       expanded={expandedCareSections.has('patient')}
                       onToggle={toggleCareSection}
                     >
                       <Text style={[styles.contextText, themedStyles.supportingText]}>
-                        Conditions: {snapshot.conditions.map((condition: PatientCondition) => condition.name).filter(Boolean).join(', ') || 'No conditions provided'}
+                        {t('assistant.context.conditions', {
+                          value:
+                            snapshot.conditions.map((condition: PatientCondition) => condition.name).filter(Boolean).join(', ') ||
+                            t('assistant.context.noConditions'),
+                        })}
                       </Text>
                       <Text style={[styles.contextText, themedStyles.supportingText]}>
-                        Medications: {medicationNames.join(', ') || 'No medications provided'}
+                        {t('assistant.context.medications', {
+                          value: medicationNames.join(', ') || t('assistant.context.noMedications'),
+                        })}
                       </Text>
                       <Text style={[styles.contextText, themedStyles.supportingText]}>
-                        Baseline routine: {snapshot.patient.baselineDailyRoutine ?? 'Not provided'}
+                        {t('assistant.context.baselineRoutine', {
+                          value: snapshot.patient.baselineDailyRoutine ?? notProvided,
+                        })}
                       </Text>
                       <Text style={[styles.contextText, themedStyles.supportingText]}>
-                        SpO2 cutoff: {snapshot.patient.spo2Cutoff ?? 'Not provided'} · Baseline HR: {snapshot.patient.baselineHeartRate ?? 'Not provided'}
+                        {t('assistant.context.spo2Cutoff', {
+                          value: snapshot.patient.spo2Cutoff ?? notProvided,
+                        })} · {t('assistant.context.baselineHr', {
+                          value: snapshot.patient.baselineHeartRate ?? notProvided,
+                        })}
                       </Text>
                     </CollapsibleCareSection>
 
                     <CollapsibleCareSection
                       id="caregiver"
-                      title="Caregiver"
+                      title={t('assistant.context.caregiver')}
                       summary={
                         snapshot.caregiver
-                          ? `${snapshot.caregiver.name} (${snapshot.caregiver.relationship ?? 'N/A'})`
-                          : 'Not provided'
+                          ? `${snapshot.caregiver.name} (${snapshot.caregiver.relationship ?? notProvided})`
+                          : notProvided
                       }
                       expanded={expandedCareSections.has('caregiver')}
                       onToggle={toggleCareSection}
@@ -2149,68 +2265,100 @@ export default function SLMScreen({
                       {snapshot.caregiver ? (
                         <>
                           <Text style={[styles.contextText, themedStyles.supportingText]}>
-                            {snapshot.caregiver.name} ({snapshot.caregiver.relationship ?? 'relationship not provided'}) · {snapshot.caregiver.experience ?? 'experience not provided'} · {snapshot.caregiver.availability ?? 'availability not provided'}
+                            {snapshot.caregiver.name} ({snapshot.caregiver.relationship ?? t('assistant.context.relationshipNotProvided')}) · {snapshot.caregiver.experience ?? t('assistant.context.experienceNotProvided')} · {snapshot.caregiver.availability ?? t('assistant.context.availabilityNotProvided')}
                           </Text>
                           <Text style={[styles.contextText, themedStyles.supportingText]}>
-                            Language: {snapshot.caregiver.languagePreference ?? 'Not provided'} · Comfort: {snapshot.caregiver.medicalComfortLevel ?? 'Not provided'}
+                            {t('assistant.context.language', {
+                              value: languagePreferenceLabel(snapshot.caregiver.languagePreference, t) || notProvided,
+                            })} · {t('assistant.context.comfort', {
+                              value: snapshot.caregiver.medicalComfortLevel ?? notProvided,
+                            })}
                           </Text>
                           <Text style={[styles.contextText, themedStyles.supportingText]}>
-                            Active concern: {snapshot.caregiver.mainConcern ?? 'Not provided'}
+                            {t('assistant.context.activeConcern', {
+                              value: snapshot.caregiver.mainConcern ?? notProvided,
+                            })}
                           </Text>
                           <Text style={[styles.contextText, themedStyles.supportingText]}>
-                            Backup: {snapshot.caregiver.backupCaregiver ?? 'Not provided'}
+                            {t('assistant.context.backup', {
+                              value: snapshot.caregiver.backupCaregiver ?? notProvided,
+                            })}
                           </Text>
                         </>
                       ) : (
-                        <Text style={[styles.contextText, themedStyles.supportingText]}>No caregiver information was provided.</Text>
+                        <Text style={[styles.contextText, themedStyles.supportingText]}>{t('assistant.context.noCaregiver')}</Text>
                       )}
                     </CollapsibleCareSection>
 
                     <CollapsibleCareSection
                       id="care-team"
-                      title="Care Team"
-                      summary={`PCP: ${caregiverContext?.primaryCareProviderName ?? 'Not provided'}`}
+                      title={t('assistant.context.careTeam')}
+                      summary={t('assistant.context.pcp', {
+                        value: caregiverContext?.primaryCareProviderName ?? notProvided,
+                      })}
                       expanded={expandedCareSections.has('care-team')}
                       onToggle={toggleCareSection}
                     >
                       <Text style={[styles.contextText, themedStyles.supportingText]}>
-                        PCP: {caregiverContext?.primaryCareProviderName ?? 'Not provided'}
+                        {t('assistant.context.pcp', {
+                          value: caregiverContext?.primaryCareProviderName ?? notProvided,
+                        })}
                         {caregiverContext?.primaryCareProviderPhone ? ` · ${caregiverContext.primaryCareProviderPhone}` : ''}
                       </Text>
                       {caregiverContext?.primaryCareProviderEmail ? (
                         <Text style={[styles.contextText, themedStyles.supportingText]}>
-                          Email: {caregiverContext.primaryCareProviderEmail}
+                          {t('assistant.context.email', {
+                            value: caregiverContext.primaryCareProviderEmail,
+                          })}
                         </Text>
                       ) : null}
                     </CollapsibleCareSection>
 
                     <CollapsibleCareSection
                       id="safety"
-                      title="Safety"
-                      summary={`Emergency: ${caregiverContext?.emergencyContact ?? 'Not provided'}`}
+                      title={t('assistant.context.safety')}
+                      summary={t('assistant.context.emergency', {
+                        value: caregiverContext?.emergencyContact ?? notProvided,
+                      })}
                       expanded={expandedCareSections.has('safety')}
                       onToggle={toggleCareSection}
                     >
                       <Text style={[styles.contextText, themedStyles.supportingText]}>
-                        Emergency contact: {caregiverContext?.emergencyContact ?? 'Not provided'}
+                        {t('assistant.context.emergencyContact', {
+                          value: caregiverContext?.emergencyContact ?? notProvided,
+                        })}
                       </Text>
                       <Text style={[styles.contextText, themedStyles.supportingText]}>
-                        Safety notes: {caregiverContext?.safetyNotes ?? 'Not provided'}
+                        {t('assistant.context.safetyNotes', {
+                          value: caregiverContext?.safetyNotes ?? notProvided,
+                        })}
                       </Text>
                     </CollapsibleCareSection>
 
                     <CollapsibleCareSection
                       id="clinical"
-                      title="Clinical"
-                      summary={`${dedupedSymptoms.length} symptom${dedupedSymptoms.length === 1 ? '' : 's'} · ${snapshot.thresholds.length} active threshold${snapshot.thresholds.length === 1 ? '' : 's'}`}
+                      title={t('assistant.context.clinical')}
+                      summary={`${dedupedSymptoms.length} ${
+                        dedupedSymptoms.length === 1
+                          ? t('assistant.context.symptom.one')
+                          : t('assistant.context.symptom.many')
+                      } · ${snapshot.thresholds.length} ${
+                        snapshot.thresholds.length === 1
+                          ? t('assistant.context.threshold.one')
+                          : t('assistant.context.threshold.many')
+                      }`}
                       expanded={expandedCareSections.has('clinical')}
                       onToggle={toggleCareSection}
                     >
                       <Text style={[styles.contextText, themedStyles.supportingText]}>
-                        Symptoms: {dedupedSymptoms.join(', ') || 'No symptoms provided'}
+                        {t('assistant.context.symptoms', {
+                          value: dedupedSymptoms.join(', ') || t('assistant.context.noSymptoms'),
+                        })}
                       </Text>
                       <Text style={[styles.contextText, themedStyles.supportingText]}>
-                        Active thresholds: {snapshot.thresholds.length}
+                        {t('assistant.context.activeThresholds', {
+                          count: snapshot.thresholds.length,
+                        })}
                       </Text>
                     </CollapsibleCareSection>
                   </>
@@ -2219,11 +2367,13 @@ export default function SLMScreen({
                   style={[styles.editProfilesButton, themedStyles.softAction]}
                   onPress={() => router.push('/profile' as never)}
                   accessibilityRole="button"
-                  accessibilityLabel="Open edit profiles"
+                  accessibilityLabel={t('assistant.context.editProfilesA11y')}
                 >
-                  <Text style={[styles.editProfilesButtonText, themedStyles.accentText]}>Edit profiles</Text>
+                  <Text style={[styles.editProfilesButtonText, themedStyles.accentText]}>{t('assistant.context.editProfiles')}</Text>
                 </Pressable>
-                <Text style={[styles.tagline, themedStyles.mutedText]}>The Concierge suggests. You decide.</Text>
+                <Text style={[styles.tagline, themedStyles.mutedText]}>
+                  {t('assistant.tagline', { source: t('assistant.term.concierge') })}
+                </Text>
               </>
             ) : null}
           </View>
@@ -2244,27 +2394,29 @@ export default function SLMScreen({
                   onPress={() => setHowMonitorExpanded((v) => !v)}
                   accessibilityRole="button"
                   accessibilityState={{ expanded: howMonitorExpanded }}
-                  accessibilityLabel={`How Health Monitor works${howMonitorExpanded ? ' — collapse' : ' — expand'}`}
+                  accessibilityLabel={t('assistant.howMonitor.a11y', {
+                    state: expandCollapseState(howMonitorExpanded, t),
+                  })}
                 >
-                  <Text style={[styles.howToTitle, themedStyles.primaryText]}>How Health Monitor works in chat</Text>
+                  <Text style={[styles.howToTitle, themedStyles.primaryText]}>{t('assistant.howMonitor.title')}</Text>
                   <Text style={[styles.collapsibleChevron, themedStyles.supportingText]}>{howMonitorExpanded ? '▾' : '▸'}</Text>
                 </Pressable>
                 {howMonitorExpanded ? (
                   <>
                     <Text style={[styles.howToBody, themedStyles.supportingText]}>
-                      1. Ask a vitals or what-if question (e.g. “What if SpO2 is 86% and heart rate is 118?”).
+                      {t('assistant.howMonitor.step1')}
                     </Text>
                     <Text style={[styles.howToBody, themedStyles.supportingText]}>
-                      2. When vitals are detected, you’ll see “activating Health Monitor” and it runs right away.
+                      {t('assistant.howMonitor.step2')}
                     </Text>
                     <Text style={[styles.howToBody, themedStyles.supportingText]}>
-                      3. Severity 1-2 may ask for observations. In developer mode, it may also offer a local demo follow-up appointment.
+                      {t('assistant.howMonitor.step3')}
                     </Text>
                     <Text style={[styles.howToBody, themedStyles.supportingText]}>
-                      4. After you finish, Concierge explains with that context. Severity 3 skips review/scheduling and may show a critical banner — never auto-calls 911.
+                      {t('assistant.howMonitor.step4')}
                     </Text>
                     <Text style={[styles.howToFootnote, themedStyles.accentText]}>
-                      SpO2 is percent (86, not 0.86). Pure med/schedule questions skip Health Monitor.
+                      {t('assistant.howMonitor.footnote')}
                     </Text>
                   </>
                 ) : null}
@@ -2285,8 +2437,7 @@ export default function SLMScreen({
 
           <View style={[styles.safetyCard, themedStyles.safetyCard]}>
             <Text style={[styles.safetyNote, themedStyles.safetyNote]}>
-              Concierge is a caregiver support prototype and does not replace emergency care
-              or professional medical advice.
+              {t('assistant.safetyNote')}
             </Text>
           </View>
         </ScrollView>
@@ -2295,11 +2446,12 @@ export default function SLMScreen({
           <TextInput
             value={inputText}
             onChangeText={handleInputChange}
-            placeholder="Ask the Concierge..."
+            placeholder={t('assistant.input.placeholder')}
             placeholderTextColor={isDarkTheme ? theme.appTextMuted : '#8A9A9A'}
             multiline
             maxLength={4000}
             editable={!isInputDisabled}
+            accessibilityLabel={t('assistant.input.a11y')}
             style={[
               styles.textInput,
               themedStyles.textInput,
@@ -2309,13 +2461,20 @@ export default function SLMScreen({
             scrollEnabled={inputHeight >= PROMPT_INPUT_MAX_HEIGHT - 1}
           />
           {state.runStatus === 'streaming' ? (
-            <Pressable onPress={handleStop} style={[styles.sendButton, styles.stopButton]}>
-              <Text style={styles.sendButtonText}>Stop</Text>
+            <Pressable
+              onPress={handleStop}
+              style={[styles.sendButton, styles.stopButton]}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.stop')}
+            >
+              <Text style={styles.sendButtonText}>{t('common.stop')}</Text>
             </Pressable>
           ) : (
             <Pressable
               onPress={() => void handleAskAssistant()}
               disabled={!inputText.trim() || isInputDisabled}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.ask')}
               style={[
                 styles.sendButton,
                 {
@@ -2332,7 +2491,7 @@ export default function SLMScreen({
                   color: inputText.trim() && !isInputDisabled ? '#FFFFFF' : theme.appTextMuted,
                   fontWeight: '600',
                 }}>
-                Ask
+                {t('common.ask')}
               </Text>
             </Pressable>
           )}
@@ -2373,6 +2532,7 @@ function CollapsibleCareSection({
   children: ReactNode;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   return (
@@ -2382,7 +2542,7 @@ function CollapsibleCareSection({
         onPress={() => onToggle(id)}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
-        accessibilityLabel={`${title}${expanded ? ' — collapse' : ' — expand'}`}
+        accessibilityLabel={`${title} - ${expandCollapseState(expanded, t)}`}
       >
         <Text style={[styles.contextSection, themedStyles.accentText]}>{title}</Text>
         <Text style={[styles.careSectionChevron, themedStyles.accentText]}>{expanded ? '▾' : '▸'}</Text>

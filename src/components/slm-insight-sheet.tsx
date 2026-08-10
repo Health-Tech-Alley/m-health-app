@@ -37,6 +37,8 @@ import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import type { SlmTaskReason, SlmTaskLease } from '@/services/slm/slm-task-queue';
 import { isModelInstalled } from '@/services/model-storage';
@@ -82,6 +84,7 @@ export function SlmInsightSheet({
   allowMinimize = true,
 }: SlmInsightSheetProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const slm = useSLM();
   const optionalGate = useOptionalFeatureGate('slm');
@@ -189,7 +192,7 @@ export function SlmInsightSheet({
     if (installed.length === 0) {
       return {
         lease: null,
-        errorDetail: 'No Concierge model is installed. Open Models to download one.',
+        errorDetail: t('slmSheet.error.noModelInstalled'),
       };
     }
     const preferred = installed.find((m) => m.id === defaultModelId) ?? installed[0];
@@ -225,7 +228,7 @@ export function SlmInsightSheet({
         lease: null,
         errorDetail:
           slm.loadError ??
-          'Model load finished but the native runtime is not ready yet. Tap Retry.',
+          t('slmSheet.error.runtimeNotReady'),
       };
     }
 
@@ -245,6 +248,7 @@ export function SlmInsightSheet({
     waitForProviderReady,
     slm.loadStatus,
     slm.loadError,
+    t,
   ]);
 
   const runExplain = useCallback(async () => {
@@ -307,8 +311,8 @@ export function SlmInsightSheet({
           : '';
       setError(
         installed.length === 0
-          ? 'Concierge is unavailable — no model is installed. Open Models to download one, then retry.'
-          : `Concierge could not load a model.${detail} Free memory, then tap Retry Concierge load.`,
+          ? t('slmSheet.error.unavailableNoModel')
+          : t('slmSheet.error.loadFailed', { detail }),
       );
       setPhase('error');
       return;
@@ -375,12 +379,12 @@ export function SlmInsightSheet({
         // Last resort: if the model only emitted a thinking channel, surface a
         // short note rather than a blank sheet (Regenerate still available).
         (fromReasoning
-          ? 'Concierge finished internal reasoning but did not return a caregiver answer. Tap Regenerate to try again.'
+          ? t('slmSheet.error.noCaregiverAnswer')
           : '');
 
       if (!resolved) {
         setError(
-          'Concierge finished without producing text. Tap Retry Concierge load or Regenerate.',
+          t('slmSheet.error.noText'),
         );
         setPhase('error');
         return;
@@ -436,6 +440,7 @@ export function SlmInsightSheet({
     isDeveloper,
     settings.nluDevelopmentFallback,
     slm.loadError,
+    t,
   ]);
 
   const handleRegenerate = useCallback(() => {
@@ -625,17 +630,17 @@ export function SlmInsightSheet({
       phaseRef.current === 'streaming';
     if (inProgress) {
       Alert.alert(
-        'Stop Concierge?',
-        'Concierge is still generating. Closing now will cancel this explanation.',
+        t('slmSheet.stopDialog.title'),
+        t('slmSheet.stopDialog.body'),
         [
-          { text: 'Keep going', style: 'cancel' },
-          { text: 'Stop', style: 'destructive', onPress: performClose },
+          { text: t('slmSheet.stopDialog.keepGoing'), style: 'cancel' },
+          { text: t('slmSheet.stopDialog.stop'), style: 'destructive', onPress: performClose },
         ],
       );
       return;
     }
     performClose();
-  }, [performClose]);
+  }, [performClose, t]);
 
   const minimize = useCallback(() => {
     if (!allowMinimize) {
@@ -758,6 +763,7 @@ export function SlmInsightSheet({
     activeModelId,
     currentModelId,
     error,
+    t,
   );
   const statusTone = deriveStatusTone(phase, source, theme);
   const inProgress =
@@ -779,7 +785,7 @@ export function SlmInsightSheet({
               onPress={requestClose}
               hitSlop={12}
               accessibilityRole="button"
-              accessibilityLabel="Close Concierge"
+              accessibilityLabel={t('slmSheet.closeA11y')}
             >
               <Text style={[styles.closeText, themedStyles.iconButtonText]}>×</Text>
             </Pressable>
@@ -837,7 +843,7 @@ export function SlmInsightSheet({
                 onPress={minimize}
                 hitSlop={12}
                 accessibilityRole="button"
-                accessibilityLabel="Minimize Concierge"
+                accessibilityLabel={t('slmSheet.minimizeA11y')}
               >
                 <Text style={[styles.iconButtonText, themedStyles.iconButtonText]}>–</Text>
               </Pressable>
@@ -848,7 +854,7 @@ export function SlmInsightSheet({
                 onPress={expand}
                 hitSlop={12}
                 accessibilityRole="button"
-                accessibilityLabel="Expand Concierge"
+                accessibilityLabel={t('slmSheet.expandA11y')}
               >
                 <Text style={[styles.iconButtonText, themedStyles.iconButtonText]}>▴</Text>
               </Pressable>
@@ -858,7 +864,7 @@ export function SlmInsightSheet({
               onPress={requestClose}
               hitSlop={12}
               accessibilityRole="button"
-              accessibilityLabel="Close Concierge"
+              accessibilityLabel={t('slmSheet.closeA11y')}
             >
               <Text style={[styles.closeText, themedStyles.iconButtonText]}>×</Text>
             </Pressable>
@@ -892,12 +898,14 @@ export function SlmInsightSheet({
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator
         >
-          <Text style={[styles.answerLabel, themedStyles.answerLabel]}>Concierge response</Text>
+          <Text style={[styles.answerLabel, themedStyles.answerLabel]}>
+            {t('slmSheet.answerLabel')}
+          </Text>
 
           {phase === 'error' ? (
             <View>
               <Text style={[styles.errorText, themedStyles.errorText]}>
-                Couldn&apos;t generate an explanation: {error}
+                {t('slmSheet.error.generateFailed', { error: error ?? '' })}
               </Text>
               <Pressable
                 style={styles.retryButton}
@@ -905,15 +913,17 @@ export function SlmInsightSheet({
                   void handleRetryLoad();
                 }}
                 accessibilityRole="button"
-                accessibilityLabel="Retry loading Concierge"
+                accessibilityLabel={t('slmSheet.retryLoadA11y')}
               >
-                <Text style={styles.retryButtonText}>Retry Concierge load</Text>
+                <Text style={styles.retryButtonText}>{t('slmSheet.retryLoad')}</Text>
               </Pressable>
             </View>
           ) : null}
 
           {(phase === 'loading' || phase === 'thinking') && source !== 'cache' ? (
-            <Text style={[styles.thinkingText, themedStyles.mutedText]}>Thinking…</Text>
+            <Text style={[styles.thinkingText, themedStyles.mutedText]}>
+              {t('slmSheet.thinking')}
+            </Text>
           ) : null}
 
           {phase === 'streaming' ? (
@@ -926,7 +936,9 @@ export function SlmInsightSheet({
             ) : answer ? (
               <Text style={[styles.answerText, themedStyles.primaryText]}>{answer}</Text>
             ) : (
-              <Text style={[styles.emptyText, themedStyles.mutedText]}>No response.</Text>
+              <Text style={[styles.emptyText, themedStyles.mutedText]}>
+                {t('slmSheet.noResponse')}
+              </Text>
             )
           ) : null}
 
@@ -943,10 +955,10 @@ export function SlmInsightSheet({
               style={[styles.regenerateButton, themedStyles.regenerateButton]}
               onPress={handleRegenerate}
               accessibilityRole="button"
-              accessibilityLabel="Regenerate explanation"
+              accessibilityLabel={t('slmSheet.regenerateA11y')}
             >
               <Text style={[styles.regenerateButtonText, themedStyles.regenerateButtonText]}>
-                Regenerate
+                {t('slmSheet.regenerate')}
               </Text>
             </Pressable>
           ) : null}
@@ -955,8 +967,8 @@ export function SlmInsightSheet({
         {phase === 'streaming' || phase === 'done' ? (
           <Text style={[styles.footnote, themedStyles.mutedText]}>
             {source === 'cache'
-              ? 'Saved explanation — still guidance, not a diagnosis. Confirm with the care team.'
-              : 'Concierge guidance — not a diagnosis. Confirm with the care team.'}
+              ? t('slmSheet.footnote.cache')
+              : t('slmSheet.footnote.guidance')}
           </Text>
         ) : null}
       </Animated.View>
@@ -1001,25 +1013,30 @@ function deriveStatusLabel(
   activeModelId: string | null,
   currentModelId: string | null,
   error: string | null,
+  t: TranslateFn,
 ): string {
   if (source === 'cache' && phase === 'done') {
-    return 'Saved explanation · unchanged since last run';
+    return t('slmSheet.status.saved');
   }
   const modelId = activeModelId ?? currentModelId;
   const modelTag = modelId ? ` · ${modelId}` : '';
   switch (phase) {
     case 'idle':
-      return 'Preparing…';
+      return t('slmSheet.status.preparing');
     case 'loading':
-      return modelId ? `Loading model · ${modelId}…` : 'Loading Concierge…';
+      return modelId
+        ? t('slmSheet.status.loadingModel', { modelId })
+        : t('slmSheet.status.loadingConcierge');
     case 'thinking':
-      return `Thinking${modelTag}…`;
+      return t('slmSheet.status.thinking', { modelTag });
     case 'streaming':
-      return `Generating${modelTag}…`;
+      return t('slmSheet.status.generating', { modelTag });
     case 'done':
-      return `Complete${modelTag}`;
+      return t('slmSheet.status.complete', { modelTag });
     case 'error':
-      return `Error: ${error ?? 'unknown'}`;
+      return t('slmSheet.status.error', {
+        error: error ?? t('slmSheet.status.unknown'),
+      });
     default:
       return '';
   }

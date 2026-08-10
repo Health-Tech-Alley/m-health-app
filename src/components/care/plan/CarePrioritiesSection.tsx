@@ -17,6 +17,8 @@ import { Uc4PriorityCard } from '@/components/care/Uc4PriorityCard';
 import { AppTheme } from '@/constants/theme';
 import type { LatestUc4PriorityCardSummary } from '@/data/types';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 import { UC4_RULE_REGISTRY } from '@/ml-models/uc4-micro-priorities/uc4RuleRegistry';
 import type { Uc4CardResponseAction } from '@/services/uc4/uc4EvaluationService';
 import type {
@@ -26,8 +28,8 @@ import type {
   CareTimelineBucketKey,
   MedicationWatchArea,
 } from '@/services/carePlan/carePrioritiesService';
+import type { CareCategoryKey } from '@/services/carePlan/careCategories';
 import {
-  CARE_TIMELINE_BUCKET_LABELS,
   CARE_TIMELINE_BUCKET_ORDER,
   humanizeMedicationWatchCode,
 } from '@/services/carePlan/carePrioritiesService';
@@ -59,6 +61,77 @@ function toggle(set: Record<string, boolean>, key: string): Record<string, boole
   return { ...set, [key]: !set[key] };
 }
 
+function formatTimelineBucketLabel(key: CareTimelineBucketKey, t: TranslateFn): string {
+  switch (key) {
+    case 'now':
+      return t('care.timeline.now');
+    case 'next':
+      return t('care.timeline.next');
+    case 'later':
+      return t('care.timeline.later');
+    case 'ongoing':
+      return t('care.timeline.ongoing');
+  }
+}
+
+function formatCareCategoryLabel(key: CareCategoryKey, t: TranslateFn): string {
+  switch (key) {
+    case 'medication':
+      return t('care.category.medication');
+    case 'skin_pressure':
+      return t('care.category.skinPressure');
+    case 'mobility_transfers':
+      return t('care.category.mobilityTransfers');
+    case 'breathing':
+      return t('care.category.breathing');
+    case 'bowel_bladder':
+      return t('care.category.bowelBladder');
+    case 'feeding_hydration':
+      return t('care.category.feedingHydration');
+    case 'sleep_fatigue':
+      return t('care.category.sleepFatigue');
+    case 'therapy':
+      return t('care.category.therapy');
+    case 'pain_comfort':
+      return t('care.category.painComfort');
+    case 'responsiveness':
+      return t('care.category.responsiveness');
+    case 'caregiver_support':
+      return t('care.category.caregiverSupport');
+    case 'other':
+      return t('care.category.other');
+  }
+}
+
+function formatWatchCodeLabel(code: string, t: TranslateFn): string {
+  switch (code) {
+    case 'SLEEPINESS_FATIGUE':
+      return t('care.watch.sleepinessFatigue');
+    case 'DIZZINESS_OR_LIGHTHEADEDNESS':
+      return t('care.watch.dizziness');
+    case 'WEAKNESS_OR_LOW_TONE_CONCERN':
+      return t('care.watch.weaknessLowTone');
+    case 'MOOD_BEHAVIOR_CHANGE':
+      return t('care.watch.moodBehavior');
+    case 'APPETITE_OR_HYDRATION_CHANGE':
+      return t('care.watch.appetiteHydration');
+    case 'BOWEL_CHANGE':
+      return t('care.watch.bowel');
+    case 'BREATHING_CONCERN':
+      return t('care.watch.breathing');
+    case 'HEART_RATE_OR_BP_CONCERN':
+      return t('care.watch.heartRateBp');
+    case 'SKIN_RASH_OR_ALLERGY_CONCERN':
+      return t('care.watch.skinRash');
+    case 'MISSED_OR_DELAYED_DOSE':
+      return t('care.watch.missedDose');
+    case 'MEDICATION_TIMING_CONTEXT_NEEDED':
+      return t('care.watch.timingContext');
+    default:
+      return humanizeMedicationWatchCode(code);
+  }
+}
+
 export function CarePrioritiesSection({
   view,
   onExplainCard,
@@ -72,6 +145,7 @@ export function CarePrioritiesSection({
   const [openBucket, setOpenBucket] = useState<CareTimelineBucketKey | null>(null);
   const [watchAreasExpanded, setWatchAreasExpanded] = useState(false);
   const theme = useTheme();
+  const { t } = useTranslation();
   const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
@@ -91,9 +165,10 @@ export function CarePrioritiesSection({
     [view.watchAreas],
   );
   const watchAreaMedicationCount = view.watchAreas.length;
-  const watchAreaCountLabel = `${watchAreaMedicationCount} ${
-    watchAreaMedicationCount === 1 ? 'medication' : 'medications'
-  }`;
+  const watchAreaCountLabel =
+    watchAreaMedicationCount === 1
+      ? t('care.priorities.medicationCount.one')
+      : t('care.priorities.medicationCount.many', { count: watchAreaMedicationCount });
 
   useEffect(() => {
     // Defer so the state update does not run synchronously within the effect
@@ -103,34 +178,38 @@ export function CarePrioritiesSection({
   }, [watchAreaListKey]);
 
   return (
-    <View style={sectionStyles.card} accessible accessibilityLabel="Your priorities">
+    <View style={sectionStyles.card} accessible accessibilityLabel={t('care.priorities.title')}>
       <View style={sectionStyles.headerRow}>
-        <Text style={sectionStyles.title}>Your priorities</Text>
+        <Text style={sectionStyles.title}>{t('care.priorities.title')}</Text>
         <View style={sectionStyles.pill}>
           <Text style={sectionStyles.pillText}>{view.totalPriorities}</Text>
         </View>
       </View>
       <Text style={sectionStyles.subtitle}>
-        What to pay attention to, grouped so it is easier to scan. Tap anything to see more.
+        {t('care.priorities.subtitle')}
       </Text>
 
       {view.totalPriorities === 0 && !hasTimeline && view.watchAreas.length === 0 ? (
         <Text style={sectionStyles.bodyMuted}>
-          No priorities right now. Concierge will surface one when something needs your review.
+          {t('care.priorities.empty')}
         </Text>
       ) : null}
 
       {hasTimeline ? (
         <View style={styles.timelineBlock}>
           <View style={styles.timelineHeader}>
-            <Text style={[styles.subTitle, themedStyles.mutedText]}>Care timeline</Text>
+            <Text style={[styles.subTitle, themedStyles.mutedText]}>
+              {t('care.priorities.timeline')}
+            </Text>
             {onExplainTimeline ? (
               <Pressable
                 onPress={onExplainTimeline}
                 accessibilityRole="button"
-                accessibilityLabel="Explain this timeline with Concierge"
+                accessibilityLabel={t('care.priorities.explainTimelineA11y')}
               >
-                <Text style={[styles.explainLink, themedStyles.actionText]}>Explain</Text>
+                <Text style={[styles.explainLink, themedStyles.actionText]}>
+                  {t('care.priorities.explain')}
+                </Text>
               </Pressable>
             ) : null}
           </View>
@@ -138,6 +217,9 @@ export function CarePrioritiesSection({
             {CARE_TIMELINE_BUCKET_ORDER.map((key) => {
               const count = timelineCounts.get(key) ?? 0;
               const active = openBucket === key;
+              const label = formatTimelineBucketLabel(key, t);
+              const itemLabel =
+                count === 1 ? t('care.priorities.item.one') : t('care.priorities.item.many');
               return (
                 <Pressable
                   key={key}
@@ -145,10 +227,14 @@ export function CarePrioritiesSection({
                   onPress={() => setOpenBucket(active ? null : key)}
                   accessibilityRole="button"
                   accessibilityState={{ expanded: active }}
-                  accessibilityLabel={`${CARE_TIMELINE_BUCKET_LABELS[key]}, ${count} items`}
+                  accessibilityLabel={t('care.priorities.bucketA11y', {
+                    label,
+                    count,
+                    itemLabel,
+                  })}
                 >
                   <Text style={[styles.bucketChipText, themedStyles.supportingText, active && styles.bucketChipTextActive, active && themedStyles.actionText]}>
-                    {CARE_TIMELINE_BUCKET_LABELS[key]} · {count}
+                    {label} · {count}
                   </Text>
                 </Pressable>
               );
@@ -167,7 +253,9 @@ export function CarePrioritiesSection({
             </View>
           ) : null}
           {openBucket && openBucketItems.length === 0 ? (
-            <Text style={[styles.bucketEmpty, themedStyles.mutedText]}>Nothing here yet.</Text>
+            <Text style={[styles.bucketEmpty, themedStyles.mutedText]}>
+              {t('care.priorities.nothingHere')}
+            </Text>
           ) : null}
         </View>
       ) : null}
@@ -193,9 +281,13 @@ export function CarePrioritiesSection({
             onPress={() => setWatchAreasExpanded((current) => !current)}
             accessibilityRole="button"
             accessibilityState={{ expanded: watchAreasExpanded }}
-            accessibilityLabel={`Medication areas to watch, ${watchAreaCountLabel}`}
+            accessibilityLabel={t('care.priorities.medicationAreasA11y', {
+              countLabel: watchAreaCountLabel,
+            })}
           >
-            <Text style={[styles.watchHeaderTitle, themedStyles.mutedText]}>Medication areas to watch</Text>
+            <Text style={[styles.watchHeaderTitle, themedStyles.mutedText]}>
+              {t('care.priorities.medicationAreas')}
+            </Text>
             <View style={styles.watchHeaderMeta}>
               <Text style={[styles.watchCount, themedStyles.mutedText]}>{watchAreaCountLabel}</Text>
               <Text style={[styles.chevron, themedStyles.mutedText]}>{watchAreasExpanded ? 'v' : '>'}</Text>
@@ -239,8 +331,14 @@ function PriorityGroupBlock({
   onRespond?: CarePrioritiesSectionProps['onRespond'];
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const groupLabel = formatCareCategoryLabel(group.category, t);
+  const priorityLabel =
+    group.rows.length === 1
+      ? t('care.priorities.priority.one')
+      : t('care.priorities.priority.many');
 
   return (
     <View style={[styles.groupBlock, themedStyles.dividerTop]}>
@@ -249,13 +347,17 @@ function PriorityGroupBlock({
         onPress={onToggle}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
-        accessibilityLabel={`${group.label}, ${group.rows.length} priorities`}
+        accessibilityLabel={t('care.priorities.groupA11y', {
+          label: groupLabel,
+          count: group.rows.length,
+          priorityLabel,
+        })}
       >
         <View style={styles.groupHeaderText}>
-          <Text style={[styles.groupTitle, themedStyles.primaryText]}>{group.label}</Text>
+          <Text style={[styles.groupTitle, themedStyles.primaryText]}>{groupLabel}</Text>
           {relatedNames.length > 0 ? (
             <Text style={[styles.relatedText, themedStyles.mutedText]} numberOfLines={1}>
-              Related: {relatedNames.join(', ')}
+              {t('care.priorities.related', { names: relatedNames.join(', ') })}
             </Text>
           ) : null}
         </View>
@@ -297,6 +399,7 @@ function PriorityRowBlock({
   onRespond?: CarePrioritiesSectionProps['onRespond'];
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const whyLines = row.card
@@ -331,12 +434,16 @@ function PriorityRowBlock({
           ) : null}
 
           {row.kind === 'plan_priority' ? (
-            <Text style={[styles.planPriorityNote, themedStyles.mutedText]}>On your care plan.</Text>
+            <Text style={[styles.planPriorityNote, themedStyles.mutedText]}>
+              {t('care.priorities.onCarePlan')}
+            </Text>
           ) : null}
 
           {whyLines.length > 0 ? (
             <View style={[styles.whyBlock, themedStyles.dividerTop]}>
-              <Text style={[styles.whyTitle, themedStyles.mutedText]}>Why you are seeing this</Text>
+              <Text style={[styles.whyTitle, themedStyles.mutedText]}>
+                {t('care.priorities.whySeeing')}
+              </Text>
               {whyLines.map((line) => (
                 <View key={line} style={styles.bucketItemRow}>
                   <Text style={sectionStyles.listBullet}>{'\u2022'}</Text>
@@ -362,6 +469,7 @@ function MedicationWatchRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const visible = expanded ? area.watchAreas : area.watchAreas.slice(0, 3);
   return (
@@ -373,7 +481,7 @@ function MedicationWatchRow({
         {visible.map((code) => (
           <View key={code} style={[styles.watchChip, themedStyles.brandSoftSurface]}>
             <Text style={[styles.watchChipText, themedStyles.actionText]}>
-              {humanizeMedicationWatchCode(code)}
+              {formatWatchCodeLabel(code, t)}
             </Text>
           </View>
         ))}
@@ -381,10 +489,16 @@ function MedicationWatchRow({
           <Pressable
             onPress={() => setExpanded((current) => !current)}
             accessibilityRole="button"
-            accessibilityLabel={expanded ? 'Show fewer watch areas' : 'Show all watch areas'}
+            accessibilityLabel={
+              expanded
+                ? t('care.priorities.showFewerWatchAreas')
+                : t('care.priorities.showAllWatchAreas')
+            }
           >
             <Text style={[styles.explainLink, themedStyles.actionText]}>
-              {expanded ? 'Less' : `+${area.watchAreas.length - 3} more`}
+              {expanded
+                ? t('care.priorities.less')
+                : t('care.priorities.more', { count: area.watchAreas.length - 3 })}
             </Text>
           </Pressable>
         ) : null}
@@ -395,18 +509,26 @@ function MedicationWatchRow({
             <Pressable
               onPress={() => onExplain(area)}
               accessibilityRole="button"
-              accessibilityLabel={`Explain watch areas for ${area.medicationName}`}
+              accessibilityLabel={t('care.priorities.explainWatchA11y', {
+                medicationName: area.medicationName,
+              })}
             >
-              <Text style={[styles.explainLink, themedStyles.actionText]}>Explain</Text>
+              <Text style={[styles.explainLink, themedStyles.actionText]}>
+                {t('care.priorities.explain')}
+              </Text>
             </Pressable>
           ) : null}
           {onAddToPlan ? (
             <Pressable
               onPress={() => onAddToPlan(area)}
               accessibilityRole="button"
-              accessibilityLabel={`Review watch areas for ${area.medicationName} for the care plan`}
+              accessibilityLabel={t('care.priorities.reviewWatchA11y', {
+                medicationName: area.medicationName,
+              })}
             >
-              <Text style={[styles.explainLink, themedStyles.actionText]}>Review for care plan</Text>
+              <Text style={[styles.explainLink, themedStyles.actionText]}>
+                {t('care.priorities.reviewForCarePlan')}
+              </Text>
             </Pressable>
           ) : null}
         </View>

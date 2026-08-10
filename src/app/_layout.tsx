@@ -2,7 +2,7 @@
  * Root layout for the Expo Router app.
  *
  * Wraps the mobile app with:
- *   SettingsProvider → PatientRecordProvider → SLMProvider → OrchestratorProvider
+ *   SettingsProvider → PatientRecordProvider → LocalizationProvider → SLMProvider → OrchestratorProvider
  *
  * PatientRecordProvider seeds the SQLite DB from the onboarding profile and
  * exposes the denormalized patient record snapshot that the orchestrator and
@@ -28,6 +28,7 @@ import { DeprecatedModelsGate } from "@/components/models/DeprecatedModelsGate";
 import { HypotheticalCriticalBanner } from "@/components/notifications/hypothetical-critical-banner";
 import { InAppBanner } from "@/components/notifications/in-app-banner";
 import { CriticalAlertProvider } from "@/contexts/critical-alert-context";
+import { LocalizationProvider } from "@/contexts/localization-context";
 import { OrchestratorProvider } from "@/contexts/orchestrator-context";
 import { PatientRecordProvider } from "@/contexts/patient-record-context";
 import { SensorProvider } from "@/contexts/sensor-context";
@@ -314,24 +315,26 @@ export default function RootLayout() {
           <SettingsProvider>
             <ThemedNavigationProvider>
               <PatientRecordProvider>
-                <SLMProvider>
-                  <SlmPolicySync />
-                  <NotificationInit />
-                  <NotificationResponseInit />
-                  <SensorProvider>
-                    <UC2RuntimeProvider>
-                      <OrchestratorProvider>
-                        <CriticalAlertProvider>
-                          <AnimatedSplashOverlay />
-                          <InAppBanner />
-                          <HypotheticalCriticalBanner />
-                          <CriticalAlertDialog />
-                          <Stack screenOptions={{ headerShown: false }} />
-                        </CriticalAlertProvider>
-                      </OrchestratorProvider>
-                    </UC2RuntimeProvider>
-                  </SensorProvider>
-                </SLMProvider>
+                <LocalizationProvider>
+                  <SLMProvider>
+                    <SlmPolicySync />
+                    <NotificationInit />
+                    <NotificationResponseInit />
+                    <SensorProvider>
+                      <UC2RuntimeProvider>
+                        <OrchestratorProvider>
+                          <CriticalAlertProvider>
+                            <AnimatedSplashOverlay />
+                            <InAppBanner />
+                            <HypotheticalCriticalBanner />
+                            <CriticalAlertDialog />
+                            <Stack screenOptions={{ headerShown: false }} />
+                          </CriticalAlertProvider>
+                        </OrchestratorProvider>
+                      </UC2RuntimeProvider>
+                    </SensorProvider>
+                  </SLMProvider>
+                </LocalizationProvider>
               </PatientRecordProvider>
             </ThemedNavigationProvider>
           </SettingsProvider>

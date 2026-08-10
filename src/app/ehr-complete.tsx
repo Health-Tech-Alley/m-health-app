@@ -8,7 +8,7 @@
  * Planning/33 §6.4 — "Prompt user post-import."
  */
 
-import { useState, useCallback } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -17,6 +17,9 @@ import { AppIcon, type AppIconName } from '@/components/AppIcon';
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useOrchestratorPatientId } from '@/contexts/orchestrator-context';
+import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslationKey, TranslateFn } from '@/localization/i18n';
 import {
   upsertPatient,
   upsertCaregiver,
@@ -26,36 +29,82 @@ import { refreshPatientRecord } from '@/contexts/patient-record-context';
 
 const mutedText = AppTheme.colors.textMuted;
 
+const GMFCS_VALUE_KEYS = {
+  'Not assessed': 'ehrComplete.value.notAssessed',
+} as const satisfies Record<string, TranslationKey>;
+
+const CAREGIVER_COMFORT_VALUE_KEYS = {
+  'Moderate detail': 'ehrComplete.value.moderateDetail',
+  'Clinical (FNP/DNP)': 'ehrComplete.value.clinicalDetail',
+  Limited: 'ehrComplete.value.limitedDetail',
+} as const satisfies Record<string, TranslationKey>;
+
+const CAREGIVER_NAME_VALUE_KEYS = {
+  Caregiver: 'ehrComplete.value.caregiver',
+} as const satisfies Record<string, TranslationKey>;
+
+function displayStoredValue(
+  value: string,
+  t: TranslateFn,
+  labels: Partial<Record<string, TranslationKey>>,
+) {
+  const key = labels[value];
+  return key ? t(key) : value;
+}
+
+function canonicalizeDisplayValue(
+  value: string,
+  t: TranslateFn,
+  labels: Partial<Record<string, TranslationKey>>,
+) {
+  const trimmed = value.trim();
+  const entries = Object.entries(labels) as Array<[string, TranslationKey]>;
+  const match = entries.find(
+    ([stored, key]) => trimmed === stored || trimmed === t(key),
+  );
+  return match ? match[0] : value;
+}
+
 function Field({
   label,
   value,
   onChangeText,
   placeholder,
   helper,
+  accessibilityHint,
 }: {
   label: string;
   value: string;
   onChangeText: (v: string) => void;
   placeholder?: string;
   helper?: string;
+  accessibilityHint?: string;
 }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+
   return (
     <View style={styles.fieldBlock}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={[styles.fieldLabel, themedStyles.fieldLabel]}>{label}</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, themedStyles.input]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={mutedText}
+        placeholderTextColor={theme.appTextMuted}
+        accessibilityLabel={label}
+        accessibilityHint={accessibilityHint ?? helper}
       />
-      {helper ? <Text style={styles.fieldHelper}>{helper}</Text> : null}
+      {helper ? <Text style={[styles.fieldHelper, themedStyles.fieldHelper]}>{helper}</Text> : null}
     </View>
   );
 }
 
 export default function EhrCompleteScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const { t } = useTranslation();
   const patientId = useOrchestratorPatientId();
   const { refresh } = usePatientRecord();
 
@@ -97,17 +146,26 @@ export default function EhrCompleteScreen() {
           patientId,
           name: patientName.trim(),
           location: patientLocation.trim() || undefined,
-          gmfcs: gmfcs,
+          gmfcs: canonicalizeDisplayValue(gmfcs, t, GMFCS_VALUE_KEYS),
           updatedAt: new Date().toISOString(),
         });
       }
+      const canonicalCaregiverName = canonicalizeDisplayValue(
+        caregiverName,
+        t,
+        CAREGIVER_NAME_VALUE_KEYS,
+      );
       upsertCaregiver({
         ...existingCaregiver,
         caregiverId: existingCaregiver?.caregiverId ?? 'default-caregiver',
         patientId,
-        name: caregiverName.trim() || 'Caregiver',
+        name: canonicalCaregiverName.trim() || 'Caregiver',
         relationship: caregiverRelationship.trim() || undefined,
-        medicalComfortLevel: caregiverComfort,
+        medicalComfortLevel: canonicalizeDisplayValue(
+          caregiverComfort,
+          t,
+          CAREGIVER_COMFORT_VALUE_KEYS,
+        ),
         createdAt: existingCaregiver?.createdAt ?? new Date().toISOString(),
       });
       refreshPatientRecord(patientId);
@@ -128,13 +186,14 @@ export default function EhrCompleteScreen() {
     existingCaregiver,
     refresh,
     router,
+    t,
   ]);
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+    <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={['top', 'bottom']}>
       <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}
+        style={[styles.scrollView, themedStyles.scrollView]}
+        contentContainerStyle={[styles.content, themedStyles.content]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
@@ -142,108 +201,145 @@ export default function EhrCompleteScreen() {
             <AppIcon name="care" size={26} color={AppTheme.colors.white} />
           </View>
           <View style={styles.headerText}>
-            <Text style={styles.eyebrow}>EHR IMPORTED</Text>
-            <Text style={styles.title}>Complete the patient profile</Text>
+            <Text style={[styles.eyebrow, themedStyles.eyebrow]}>{t('ehrComplete.eyebrow')}</Text>
+            <Text style={[styles.title, themedStyles.title]}>{t('ehrComplete.title')}</Text>
           </View>
         </View>
 
-        <Text style={styles.subtitle}>
-          The EHR data has been imported with redacted identity fields.
-          Fill in the details below so the app can personalize care guidance.
-          You can skip fields and complete them later via the profile screen.
+        <Text style={[styles.subtitle, themedStyles.subtitle]}>
+          {t('ehrComplete.subtitle')}
         </Text>
 
-        <Text style={styles.sectionLabel}>Patient</Text>
+        <Text style={[styles.sectionLabel, themedStyles.sectionLabel]}>{t('ehrComplete.section.patient')}</Text>
         <Field
-          label="Patient name"
+          label={t('ehrComplete.field.patientName')}
           value={patientName}
           onChangeText={setPatientName}
-          placeholder="e.g. Mike's caregiver"
-          helper="Was 'Patient Redacted' in the CDA — enter the real or demo name."
+          placeholder={t('ehrComplete.placeholder.patientName')}
+          helper={t('ehrComplete.helper.patientName')}
+          accessibilityHint={t('ehrComplete.a11y.patientNameHint')}
         />
         <Field
-          label="Location (county, state)"
+          label={t('ehrComplete.field.location')}
           value={patientLocation}
           onChangeText={setPatientLocation}
-          placeholder="e.g. Garrett County, Maryland"
-          helper="Used for CDC PLACES community health context."
+          placeholder={t('ehrComplete.placeholder.location')}
+          helper={t('ehrComplete.helper.location')}
+          accessibilityHint={t('ehrComplete.a11y.locationHint')}
         />
         <Field
-          label="GMFCS level"
-          value={gmfcs}
-          onChangeText={setGmfcs}
-          placeholder="e.g. V"
-          helper="Cerebral Palsy mobility scale. Leave 'Not assessed' if unknown."
+          label={t('ehrComplete.field.gmfcs')}
+          value={displayStoredValue(gmfcs, t, GMFCS_VALUE_KEYS)}
+          onChangeText={(value) => setGmfcs(canonicalizeDisplayValue(value, t, GMFCS_VALUE_KEYS))}
+          placeholder={t('ehrComplete.placeholder.gmfcs')}
+          helper={t('ehrComplete.helper.gmfcs')}
+          accessibilityHint={t('ehrComplete.a11y.gmfcsHint')}
         />
 
-        <Text style={styles.sectionLabel}>Caregiver</Text>
+        <Text style={[styles.sectionLabel, themedStyles.sectionLabel]}>{t('ehrComplete.section.caregiver')}</Text>
         <Field
-          label="Caregiver name"
-          value={caregiverName}
-          onChangeText={setCaregiverName}
-          placeholder="e.g. caregiver name"
+          label={t('ehrComplete.field.caregiverName')}
+          value={displayStoredValue(caregiverName, t, CAREGIVER_NAME_VALUE_KEYS)}
+          onChangeText={(value) => setCaregiverName(canonicalizeDisplayValue(value, t, CAREGIVER_NAME_VALUE_KEYS))}
+          placeholder={t('ehrComplete.placeholder.caregiverName')}
         />
         <Field
-          label="Relationship"
+          label={t('ehrComplete.field.relationship')}
           value={caregiverRelationship}
           onChangeText={setCaregiverRelationship}
-          placeholder="e.g. Mother"
+          placeholder={t('ehrComplete.placeholder.relationship')}
         />
         <Field
-          label="Medical comfort level"
-          value={caregiverComfort}
-          onChangeText={setCaregiverComfort}
-          placeholder="Moderate detail / Clinical (FNP/DNP) / Limited"
-          helper="Controls the SLM's tone — clinical terms vs plain language."
+          label={t('ehrComplete.field.medicalComfort')}
+          value={displayStoredValue(caregiverComfort, t, CAREGIVER_COMFORT_VALUE_KEYS)}
+          onChangeText={(value) =>
+            setCaregiverComfort(canonicalizeDisplayValue(value, t, CAREGIVER_COMFORT_VALUE_KEYS))
+          }
+          placeholder={t('ehrComplete.placeholder.medicalComfort')}
+          helper={t('ehrComplete.helper.medicalComfort')}
+          accessibilityHint={t('ehrComplete.a11y.medicalComfortHint')}
         />
 
-        <Text style={styles.sectionLabel}>Primary care provider</Text>
+        <Text style={[styles.sectionLabel, themedStyles.sectionLabel]}>{t('ehrComplete.section.primaryCare')}</Text>
         <Field
-          label="PCP name"
+          label={t('ehrComplete.field.pcpName')}
           value={pcpName}
           onChangeText={setPcpName}
-          placeholder="e.g. Dr. Sarah Reynolds"
+          placeholder={t('ehrComplete.placeholder.pcpName')}
         />
         <Field
-          label="PCP phone"
+          label={t('ehrComplete.field.pcpPhone')}
           value={pcpPhone}
           onChangeText={setPcpPhone}
-          placeholder="e.g. (555) 987-6543"
+          placeholder={t('ehrComplete.placeholder.pcpPhone')}
         />
 
-        <Text style={styles.sectionLabel}>Safety</Text>
+        <Text style={[styles.sectionLabel, themedStyles.sectionLabel]}>{t('ehrComplete.section.safety')}</Text>
         <Field
-          label="Emergency contact"
+          label={t('ehrComplete.field.emergencyContact')}
           value={emergencyContact}
           onChangeText={setEmergencyContact}
-          placeholder="e.g. 911 / Poison Control: 1-800-222-1222"
+          placeholder={t('ehrComplete.placeholder.emergencyContact')}
         />
         <Field
-          label="Safety notes"
+          label={t('ehrComplete.field.safetyNotes')}
           value={safetyNotes}
           onChangeText={setSafetyNotes}
-          placeholder="e.g. COPD red flags: increased breathlessness, blue lips, confusion."
+          placeholder={t('ehrComplete.placeholder.safetyNotes')}
         />
 
         <Pressable
           style={[styles.saveButton, saving && styles.disabledButton]}
           disabled={saving}
           onPress={handleSave}
+          accessibilityRole="button"
+          accessibilityLabel={
+            saving ? t('ehrComplete.action.savingA11y') : t('ehrComplete.action.saveA11y')
+          }
+          accessibilityHint={t('ehrComplete.action.saveHint')}
+          accessibilityState={{ disabled: saving }}
         >
           <Text style={styles.saveButtonText}>
-            {saving ? 'Saving…' : 'Save & open dashboard'}
+            {saving ? t('ehrComplete.action.saving') : t('ehrComplete.action.saveOpenDashboard')}
           </Text>
         </Pressable>
 
         <Pressable
           style={styles.skipButton}
           onPress={() => router.replace('/dashboard')}
+          accessibilityRole="button"
+          accessibilityLabel={t('ehrComplete.action.skipA11y')}
+          accessibilityHint={t('ehrComplete.action.skipHint')}
         >
-          <Text style={styles.skipButtonText}>Skip for now</Text>
+          <Text style={[styles.skipButtonText, themedStyles.skipButtonText]}>{t('ehrComplete.action.skip')}</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+
+  return StyleSheet.create({
+    safeArea: { backgroundColor: theme.appBackground },
+    scrollView: { backgroundColor: theme.appBackground },
+    content: { backgroundColor: theme.appBackground },
+    eyebrow: { color: isDark ? theme.appSectionText : AppTheme.colors.brand },
+    title: { color: theme.appText },
+    subtitle: { color: theme.appTextSupporting },
+    sectionLabel: {
+      color: isDark ? theme.appSectionText : AppTheme.colors.brand,
+    },
+    fieldLabel: { color: theme.appText },
+    input: {
+      borderColor: theme.appBorder,
+      backgroundColor: theme.appInputBackground,
+      color: theme.appText,
+    },
+    fieldHelper: { color: theme.appTextSupporting },
+    skipButtonText: { color: theme.appTextMuted },
+  });
 }
 
 const styles = StyleSheet.create({

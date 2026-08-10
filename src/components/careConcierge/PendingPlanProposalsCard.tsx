@@ -11,26 +11,8 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppIcon } from '@/components/AppIcon';
 import { AppTheme } from '@/constants/theme';
 import type { PendingPlanProposalSlice } from '@/data/types';
-
-const STATUS_LABEL: Record<string, string> = {
-  draft: 'Needs your review',
-  awaiting_hitl: 'Needs your review',
-  awaiting_ml_vet: 'Concierge is reviewing',
-  accepted: 'Added to care plan',
-  applied: 'Added to care plan',
-  accepted_with_clip: 'Added with adjustments',
-  rejected_by_ml: 'Not added',
-  rejected_by_caregiver: 'Not added',
-  expired: 'Not added',
-};
-
-const KIND_LABEL: Record<string, string> = {
-  threshold_patch: 'Monitoring update',
-  therapy_patch: 'Therapy plan update',
-  priority_promote: 'Care priority update',
-  goal_patch: 'Goal update',
-  note_wording: 'Care note update',
-};
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 
 const ACTIONABLE_STATUSES = new Set(['draft', 'awaiting_hitl']);
 const PROCESSING_STATUS = 'awaiting_ml_vet';
@@ -46,6 +28,7 @@ export function PendingPlanProposalsCard({
   onConfirm,
   onReject,
 }: PendingPlanProposalsCardProps) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(true);
   const sorted = useMemo(
     () =>
@@ -78,11 +61,14 @@ export function PendingPlanProposalsCard({
         .join('|'),
     [actionable],
   );
-  const actionCountLabel = `${actionable.length} plan update${
-    actionable.length === 1 ? '' : 's'
-  }`;
+  const actionCountLabel =
+    actionable.length === 1
+      ? t('care.proposals.count.one')
+      : t('care.proposals.count.many', { count: actionable.length });
   const headerTitle =
-    actionable.length === 1 ? 'Plan update needs your review' : 'Plan updates need your review';
+    actionable.length === 1
+      ? t('care.proposals.header.one')
+      : t('care.proposals.header.many');
 
   useEffect(() => {
     // Defer so the state update does not run synchronously within the effect
@@ -100,27 +86,27 @@ export function PendingPlanProposalsCard({
   const handleReject = useCallback(
     (proposalId: string) => {
       Alert.alert(
-        'Reject this plan update?',
-        'The care plan will not change.',
+        t('care.proposals.rejectDialog.title'),
+        t('care.proposals.rejectDialog.body'),
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Reject',
+            text: t('care.proposals.reject'),
             style: 'destructive',
             onPress: () => onReject(proposalId, 'caregiver_rejected'),
           },
         ],
       );
     },
-    [onReject],
+    [onReject, t],
   );
 
   if (actionable.length === 0) {
     if (processing.length === 0) return null;
     const statusText =
       processing.length === 1
-        ? 'Concierge is reviewing your update'
-        : 'Concierge is reviewing your updates';
+        ? t('care.proposals.reviewing.one')
+        : t('care.proposals.reviewing.many');
     return (
       <View style={[styles.card, styles.statusCard]} accessible accessibilityLabel={statusText}>
         <AppIcon name="heart" size={18} color={AppTheme.colors.brand} />
@@ -136,9 +122,11 @@ export function PendingPlanProposalsCard({
         onPress={() => setExpanded((value) => !value)}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
-        accessibilityLabel={`${headerTitle}, ${actionCountLabel}, ${
-          expanded ? 'expanded' : 'collapsed'
-        }`}
+        accessibilityLabel={t('care.proposals.headerA11y', {
+          title: headerTitle,
+          countLabel: actionCountLabel,
+          expandedLabel: expanded ? t('care.proposals.expanded') : t('care.proposals.collapsed'),
+        })}
       >
         <AppIcon name="heart" size={18} color={AppTheme.colors.brand} />
         <Text style={styles.title}>{headerTitle}</Text>
@@ -151,29 +139,29 @@ export function PendingPlanProposalsCard({
           {actionable.map((proposal) => (
             <View key={proposal.proposalId} style={styles.row}>
               <View style={styles.rowHeader}>
-                <Text style={styles.kind}>{proposalTitle(proposal)}</Text>
+                <Text style={styles.kind}>{proposalTitle(proposal, t)}</Text>
                 <View style={styles.statusBadge}>
-                  <Text style={styles.statusText}>{displayStatus(proposal.status)}</Text>
+                  <Text style={styles.statusText}>{displayStatus(proposal.status, t)}</Text>
                 </View>
               </View>
-              <Text style={styles.summary}>{proposalSummary(proposal)}</Text>
+              <Text style={styles.summary}>{proposalSummary(proposal, t)}</Text>
 
               <View style={styles.actionsRow}>
                 <Pressable
                   style={[styles.actionButton, styles.confirmButton]}
                   onPress={() => handleConfirm(proposal.proposalId)}
                   accessibilityRole="button"
-                  accessibilityLabel="Confirm plan update"
+                  accessibilityLabel={t('care.proposals.confirmA11y')}
                 >
-                  <Text style={styles.confirmText}>Confirm</Text>
+                  <Text style={styles.confirmText}>{t('common.confirm')}</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.actionButton, styles.rejectButton]}
                   onPress={() => handleReject(proposal.proposalId)}
                   accessibilityRole="button"
-                  accessibilityLabel="Reject plan update"
+                  accessibilityLabel={t('care.proposals.rejectA11y')}
                 >
-                  <Text style={styles.rejectText}>Reject</Text>
+                  <Text style={styles.rejectText}>{t('care.proposals.reject')}</Text>
                 </Pressable>
               </View>
             </View>
@@ -184,34 +172,71 @@ export function PendingPlanProposalsCard({
   );
 }
 
-function displayStatus(status: string): string {
-  if (/fail/i.test(status)) return "Couldn't review update";
-  return STATUS_LABEL[status] ?? 'Needs your review';
-}
-
-function proposalTitle(proposal: PendingPlanProposalSlice): string {
-  if (proposal.kind === 'priority_promote' && /^Promote:\s*Watch\s+/i.test(proposal.summary)) {
-    return 'Medication monitoring update';
+function displayStatus(status: string, t: TranslateFn): string {
+  if (/fail/i.test(status)) return t('care.proposals.status.failed');
+  switch (status) {
+    case 'draft':
+    case 'awaiting_hitl':
+      return t('care.proposals.status.needsReview');
+    case 'awaiting_ml_vet':
+      return t('care.proposals.status.reviewing');
+    case 'accepted':
+    case 'applied':
+      return t('care.proposals.status.added');
+    case 'accepted_with_clip':
+      return t('care.proposals.status.addedAdjusted');
+    case 'rejected_by_ml':
+    case 'rejected_by_caregiver':
+    case 'expired':
+      return t('care.proposals.status.notAdded');
+    default:
+      return t('care.proposals.status.needsReview');
   }
-  return KIND_LABEL[proposal.kind] ?? 'Plan update';
 }
 
-function proposalSummary(proposal: PendingPlanProposalSlice): string {
+function proposalTitle(proposal: PendingPlanProposalSlice, t: TranslateFn): string {
+  if (proposal.kind === 'priority_promote' && /^Promote:\s*Watch\s+/i.test(proposal.summary)) {
+    return t('care.proposals.kind.medicationMonitoring');
+  }
+  switch (proposal.kind) {
+    case 'threshold_patch':
+      return t('care.proposals.kind.monitoring');
+    case 'therapy_patch':
+      return t('care.proposals.kind.therapy');
+    case 'priority_promote':
+      return t('care.proposals.kind.priority');
+    case 'goal_patch':
+      return t('care.proposals.kind.goal');
+    case 'note_wording':
+      return t('care.proposals.kind.note');
+    default:
+      return t('care.proposals.kind.planUpdate');
+  }
+}
+
+function proposalSummary(proposal: PendingPlanProposalSlice, t: TranslateFn): string {
   const summary = proposal.summary.trim();
   const watchMatch = /^Promote:\s*Watch\s+(.+)\s+with\s+(.+)$/i.exec(summary);
   if (watchMatch) {
     const watchAreaLabel = watchMatch[1] ?? '';
     const medicationLabel = watchMatch[2] ?? '';
-    return `Review adding ${watchAreaLabel.toLowerCase()} monitoring for ${medicationLabel}`;
+    return t('care.proposals.reviewAddingMonitoringFor', {
+      watchArea: watchAreaLabel.toLowerCase(),
+      medication: medicationLabel,
+    });
   }
   if (/^Promote:\s*/i.test(summary)) {
-    return summary.replace(/^Promote:\s*/i, 'Review adding ');
+    return t('care.proposals.reviewAdding', {
+      summary: summary.replace(/^Promote:\s*/i, ''),
+    });
   }
   if (proposal.kind === 'threshold_patch' || proposal.kind === 'goal_patch') {
-    return `Review ${summary.charAt(0).toLowerCase()}${summary.slice(1)}`;
+    return t('care.proposals.reviewSummary', {
+      summary: `${summary.charAt(0).toLowerCase()}${summary.slice(1)}`,
+    });
   }
   if (proposal.kind === 'therapy_patch') {
-    return 'Review the therapy plan update';
+    return t('care.proposals.reviewTherapy');
   }
   return summary;
 }

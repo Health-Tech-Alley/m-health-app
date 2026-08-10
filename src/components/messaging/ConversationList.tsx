@@ -3,7 +3,9 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
 import type { SecureConversation } from "@/components/messaging/types";
+import type { AppLocale, TranslateFn } from "@/localization/i18n";
 
 export function ConversationList({
   conversations,
@@ -17,22 +19,23 @@ export function ConversationList({
   onNewMessagePressed: () => void;
 }) {
   const theme = useTheme();
+  const { t, locale } = useTranslation();
   const themedStyles = useMemo(() => createStyles(theme), [theme]);
 
   if (conversations.length === 0) {
     return (
       <View style={[styles.emptyState, themedStyles.emptyState]}>
-        <Text style={[styles.emptyTitle, themedStyles.emptyTitle]}>No conversations available</Text>
+        <Text style={[styles.emptyTitle, themedStyles.emptyTitle]}>{t("messaging.conversations.emptyTitle")}</Text>
         <Text style={[styles.emptyText, themedStyles.emptyText]}>
-          Connect conversation retrieval to show care-team threads here.
+          {t("messaging.conversations.emptyBody")}
         </Text>
         <Pressable
           style={styles.newMessageButton}
           accessibilityRole="button"
-          accessibilityLabel="Start a new message"
+          accessibilityLabel={t("messaging.newMessageA11y")}
           onPress={onNewMessagePressed}
         >
-          <Text style={styles.newMessageButtonText}>New message</Text>
+          <Text style={styles.newMessageButtonText}>{t("messaging.newMessage")}</Text>
         </Pressable>
       </View>
     );
@@ -47,7 +50,9 @@ export function ConversationList({
             key={conversation.conversationId}
             style={[styles.row, themedStyles.row, selected && styles.rowSelected, selected && themedStyles.rowSelected]}
             accessibilityRole="button"
-            accessibilityLabel={`Open conversation with ${conversation.participant.displayName}`}
+            accessibilityLabel={t("messaging.conversations.openA11y", {
+              name: conversation.participant.displayName,
+            })}
             onPress={() => onConversationSelected(conversation.conversationId)}
           >
             <View style={[styles.avatar, themedStyles.avatar]}>
@@ -60,7 +65,7 @@ export function ConversationList({
                   {conversation.participant.displayName}
                 </Text>
                 {conversation.latestMessageAt ? (
-                  <Text style={[styles.timestamp, themedStyles.timestamp]}>{formatShortTime(conversation.latestMessageAt)}</Text>
+                  <Text style={[styles.timestamp, themedStyles.timestamp]}>{formatShortTime(conversation.latestMessageAt, locale)}</Text>
                 ) : null}
               </View>
               <Text style={[styles.role, themedStyles.role, selected && themedStyles.roleSelected]}>{conversation.participant.role}</Text>
@@ -77,7 +82,7 @@ export function ConversationList({
                     conversation.deliveryState === "failed" && styles.deliveryFailed,
                   ]}
                 >
-                  {formatDeliveryState(conversation.deliveryState)}
+                  {formatDeliveryState(conversation.deliveryState, t)}
                 </Text>
               ) : null}
             </View>
@@ -104,14 +109,22 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
-function formatShortTime(value: string) {
+function formatShortTime(value: string, locale: AppLocale) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return date.toLocaleDateString(locale, { month: "short", day: "numeric" });
 }
 
-function formatDeliveryState(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
+function formatDeliveryState(
+  value: NonNullable<SecureConversation["deliveryState"]>,
+  t: TranslateFn,
+) {
+  if (value === "sending") return t("messaging.delivery.sending");
+  if (value === "sent") return t("messaging.delivery.sent");
+  if (value === "delivered") return t("messaging.delivery.delivered");
+  if (value === "read") return t("messaging.delivery.read");
+  if (value === "failed") return t("messaging.delivery.failed");
+  return value;
 }
 
 function createStyles(theme: ReturnType<typeof useTheme>) {

@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
+import { useTranslation } from '@/hooks/use-translation';
 import type { CarePlanHistoryItem } from '@/services/carePlan/carePlanViewModel';
 
 export interface WhatChangedSheetProps {
@@ -35,6 +36,7 @@ const CLOSE_MS = 220;
 const DRAG_THRESHOLD = 80;
 
 export function WhatChangedSheet({ visible, items, onClose }: WhatChangedSheetProps) {
+  const { locale, t } = useTranslation();
   const [mounted, setMounted] = useState(false);
   const closingRef = useRef(false);
   const onCloseRef = useRef(onClose);
@@ -161,7 +163,9 @@ export function WhatChangedSheet({ visible, items, onClose }: WhatChangedSheetPr
   if (!mounted) return null;
 
   const title =
-    items.length === 1 ? '1 recent change' : `${items.length} recent changes`;
+    items.length === 1
+      ? t('care.hero.recentChange.one')
+      : t('care.hero.recentChange.many', { count: items.length });
 
   return (
     <Modal visible transparent animationType="none" onRequestClose={requestClose}>
@@ -188,16 +192,13 @@ export function WhatChangedSheet({ visible, items, onClose }: WhatChangedSheetPr
                 onPress={requestClose}
                 hitSlop={12}
                 accessibilityRole="button"
-                accessibilityLabel="Close"
+                accessibilityLabel={t('care.whatChanged.closeA11y')}
               >
                 <Text style={styles.closeText}>×</Text>
               </Pressable>
             </View>
           </View>
-          <Text style={styles.subtitle}>
-            Plan decisions you confirmed or updated. Your living care plan sits on top of the
-            health record — the full audit log is in Settings.
-          </Text>
+          <Text style={styles.subtitle}>{t('care.whatChanged.subtitle')}</Text>
           <ScrollView
             style={styles.body}
             showsVerticalScrollIndicator
@@ -205,14 +206,14 @@ export function WhatChangedSheet({ visible, items, onClose }: WhatChangedSheetPr
             keyboardShouldPersistTaps="handled"
           >
             {items.length === 0 ? (
-              <Text style={styles.empty}>No plan decisions recorded yet.</Text>
+              <Text style={styles.empty}>{t('care.whatChanged.empty')}</Text>
             ) : (
               items.map((item) => (
                 <View key={item.id} style={styles.row}>
                   <Text style={styles.bullet}>{'\u2022'}</Text>
                   <View style={styles.textBlock}>
                     <Text style={styles.summary}>{item.summary}</Text>
-                    <Text style={styles.at}>{item.at.slice(0, 10)}</Text>
+                    <Text style={styles.at}>{formatHistoryDate(item.at, locale)}</Text>
                   </View>
                 </View>
               ))
@@ -222,6 +223,16 @@ export function WhatChangedSheet({ visible, items, onClose }: WhatChangedSheetPr
       </View>
     </Modal>
   );
+}
+
+function formatHistoryDate(value: string, locale: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  return date.toLocaleDateString(locale, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 const styles = StyleSheet.create({

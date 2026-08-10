@@ -33,6 +33,8 @@ import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
 import type { NextStepActionId, PatientRecordSnapshot } from '@/data/types';
 import { executeNextStep } from '@/orchestration/next-steps';
@@ -96,6 +98,31 @@ function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function intentLabel(intent: AdcpProposalIntentId, fallback: string, t: TranslateFn): string {
+  switch (intent) {
+    case 'review_monitoring_contract':
+      return t('care.intents.label.reviewMonitoring');
+    case 'propose_therapy_contract_patch':
+      return t('care.intents.label.therapyPatch');
+    case 'explain_uc4_card':
+      return t('care.intents.label.explainUc4');
+    case 'promote_uc4_to_plan_task':
+      return t('care.intents.label.promoteUc4');
+    case 'suggest_todays_logging':
+      return t('care.intents.label.todaysLogging');
+    case 'weekly_care_plan_review':
+      return t('care.intents.label.weeklyReview');
+    case 'handoff_summary':
+      return t('care.intents.label.handoff');
+    case 'explain_uc3_result':
+      return t('care.intents.label.explainUc3');
+    case 'explain_uc2_alert':
+      return t('care.intents.label.explainUc2');
+    default:
+      return fallback;
+  }
+}
+
 export function CarePlanAskChat({
   snapshot,
   patientName,
@@ -120,6 +147,7 @@ export function CarePlanAskChat({
   const optionalGate = useOptionalFeatureGate('both');
   const { refresh, patientId } = usePatientRecord();
   const { presentCaregiverReportedEmergency } = useCriticalAlert();
+  const { t } = useTranslation();
   // Effective default — a single installed model is always the default.
   const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
     MODEL_CATALOG.some((m) => m.id === id && isModelInstalled(m)),
@@ -140,12 +168,12 @@ export function CarePlanAskChat({
   const [emergencyBusy, setEmergencyBusy] = useState(false);
 
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatTitle, setChatTitle] = useState('Ask about the plan');
+  const [chatTitle, setChatTitle] = useState(() => t('care.ask.title'));
   const [activeIntent, setActiveIntent] = useState<AdcpProposalIntentId | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [followUp, setFollowUp] = useState('');
   const [busy, setBusy] = useState(false);
-  const [statusLine, setStatusLine] = useState('Preparing…');
+  const [statusLine, setStatusLine] = useState(() => t('care.miniChat.status.preparing'));
   const [observationCodes, setObservationCodes] = useState<string[]>([]);
   const [showHitl, setShowHitl] = useState(false);
   const [hitlResolved, setHitlResolved] = useState(false);
@@ -163,8 +191,8 @@ export function CarePlanAskChat({
   const sessionKeyRef = useRef(0);
 
   const placeholder = patientName
-    ? `Ask about ${patientName}'s plan…`
-    : "Ask about the care plan…";
+    ? t('care.ask.placeholderWithName', { patientName })
+    : t('care.ask.placeholder');
 
   const releaseLease = useCallback(() => {
     const hadLease = leaseRef.current !== null;
@@ -221,10 +249,10 @@ export function CarePlanAskChat({
     setProposalIds([]);
     setProposalConfirmVisible(false);
     setProposalNote(null);
-    setStatusLine('Preparing…');
+    setStatusLine(t('care.miniChat.status.preparing'));
     setActiveIntent(null);
     setChatOpen(false);
-  }, [releaseLease]);
+  }, [releaseLease, t]);
 
   const runFollowUpTurn = useCallback(
     async (userText: string) => {
@@ -244,7 +272,11 @@ export function CarePlanAskChat({
         { id: assistantId, role: 'assistant', text: '', status: 'streaming' },
       ]);
       setBusy(true);
-      setStatusLine(currentModelId ? `Thinking · ${currentModelId}…` : 'Loading Concierge…');
+      setStatusLine(
+        currentModelId
+          ? t('care.miniChat.status.thinking', { modelId: currentModelId })
+          : t('care.miniChat.status.loading'),
+      );
 
       const lease = await ensureModelAndLease();
       if (cancelRef.current) {
@@ -257,12 +289,12 @@ export function CarePlanAskChat({
         const installed = MODEL_CATALOG.filter(isModelInstalled);
         const err =
           installed.length === 0
-            ? 'Concierge is unavailable — no model is installed.'
-            : 'Concierge could not load a model.';
+            ? t('care.miniChat.error.noModel')
+            : t('care.miniChat.error.loadFailed');
         setMessages((prev) =>
           prev.map((m) => (m.id === assistantId ? { ...m, text: err, status: 'error' } : m)),
         );
-        setStatusLine(`Error: ${err}`);
+        setStatusLine(t('care.miniChat.status.error', { error: err }));
         setBusy(false);
         return;
       }
@@ -287,7 +319,11 @@ export function CarePlanAskChat({
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        setStatusLine(currentModelId ? `Generating · ${currentModelId}…` : 'Generating…');
+        setStatusLine(
+          currentModelId
+            ? t('care.miniChat.status.generatingModel', { modelId: currentModelId })
+            : t('care.miniChat.status.generating'),
+        );
         const result = await provider.chat(
           historyRef.current,
           (token) => {
@@ -308,7 +344,11 @@ export function CarePlanAskChat({
             m.id === assistantId ? { ...m, text: cleaned, status: 'done' } : m,
           ),
         );
-        setStatusLine(currentModelId ? `Complete · ${currentModelId}` : 'Complete');
+        setStatusLine(
+          currentModelId
+            ? t('care.miniChat.status.completeModel', { modelId: currentModelId })
+            : t('care.miniChat.status.complete'),
+        );
       } catch (err) {
         if (cancelRef.current || controller.signal.aborted) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -317,7 +357,7 @@ export function CarePlanAskChat({
             m.id === assistantId ? { ...m, text: message, status: 'error' } : m,
           ),
         );
-        setStatusLine(`Error: ${message}`);
+        setStatusLine(t('care.miniChat.status.error', { error: message }));
       } finally {
         abortRef.current = null;
         setBusy(false);
@@ -332,20 +372,22 @@ export function CarePlanAskChat({
       ensureModelAndLease,
       provider,
       snapshot,
+      t,
     ],
   );
 
   const runIntentSeed = useCallback(
     async (intentId: AdcpProposalIntentId, args: Record<string, unknown> = {}) => {
       if (!snapshot) {
-        setRouteError('No patient record loaded yet.');
+        setRouteError(t('care.ask.noPatient'));
         return;
       }
       const def = getIntentDefinition(intentId);
+      const displayLabel = intentLabel(intentId, def.caregiverLabel, t);
       const session = ++sessionKeyRef.current;
       cancelRef.current = false;
       setChatOpen(true);
-      setChatTitle(def.caregiverLabel);
+      setChatTitle(displayLabel);
       setActiveIntent(intentId);
       setMessages([]);
       setShowHitl(false);
@@ -368,7 +410,11 @@ export function CarePlanAskChat({
         { id: assistantId, role: 'assistant', text: '', status: 'streaming' },
       ]);
       setBusy(true);
-      setStatusLine(currentModelId ? `Thinking · ${currentModelId}…` : 'Loading Concierge…');
+      setStatusLine(
+        currentModelId
+          ? t('care.miniChat.status.thinking', { modelId: currentModelId })
+          : t('care.miniChat.status.loading'),
+      );
 
       const lease = await ensureModelAndLease();
       if (cancelRef.current || session !== sessionKeyRef.current) {
@@ -381,12 +427,12 @@ export function CarePlanAskChat({
         const installed = MODEL_CATALOG.filter(isModelInstalled);
         const err =
           installed.length === 0
-            ? 'Concierge is unavailable — no model is installed.'
-            : 'Concierge could not load a model.';
+            ? t('care.miniChat.error.noModel')
+            : t('care.miniChat.error.loadFailed');
         setMessages((prev) =>
           prev.map((m) => (m.id === assistantId ? { ...m, text: err, status: 'error' } : m)),
         );
-        setStatusLine(`Error: ${err}`);
+        setStatusLine(t('care.miniChat.status.error', { error: err }));
         setBusy(false);
         return;
       }
@@ -396,7 +442,11 @@ export function CarePlanAskChat({
       let answerAcc = '';
 
       try {
-        setStatusLine(currentModelId ? `Generating · ${currentModelId}…` : 'Generating…');
+        setStatusLine(
+          currentModelId
+            ? t('care.miniChat.status.generatingModel', { modelId: currentModelId })
+            : t('care.miniChat.status.generating'),
+        );
         const conditionName = snapshot.primaryCondition?.name;
         const retrievalQuery = buildRetrievalQuery(conditionName, def.caregiverLabel);
         const pid = snapshot.patient?.patientId ?? '';
@@ -453,7 +503,7 @@ export function CarePlanAskChat({
           '';
         const cleaned = stripControlTokens(raw).answer;
         const collapsed = formatAnswerWithCollapsedSources(cleaned, mergedCitations);
-        const display = collapsed.displayText || cleaned || 'No response.';
+        const display = collapsed.displayText || cleaned || t('slmSheet.noResponse');
         const sources = citationsToSources(mergedCitations);
         historyRef.current.push({ role: 'assistant', content: display });
         setMessages((prev) =>
@@ -461,15 +511,19 @@ export function CarePlanAskChat({
             m.id === assistantId ? { ...m, text: display, status: 'done', sources } : m,
           ),
         );
-        setStatusLine(currentModelId ? `Complete · ${currentModelId}` : 'Complete');
+        setStatusLine(
+          currentModelId
+            ? t('care.miniChat.status.completeModel', { modelId: currentModelId })
+            : t('care.miniChat.status.complete'),
+        );
 
         if (routerResult.blocked) {
-          setProposalNote(routerResult.blockMessage ?? 'Care plan is view-only.');
+          setProposalNote(routerResult.blockMessage ?? t('care.ask.viewOnly'));
         } else if (routerResult.enqueuedProposalIds.length > 0) {
           setProposalIds(routerResult.enqueuedProposalIds);
           setProposalConfirmVisible(true);
         } else {
-          setProposalNote('No plan change suggested — explanation only.');
+          setProposalNote(t('care.ask.noPlanChange'));
         }
 
         if (!hitlResolved) setShowHitl(true);
@@ -481,7 +535,7 @@ export function CarePlanAskChat({
             m.id === assistantId ? { ...m, text: message, status: 'error' } : m,
           ),
         );
-        setStatusLine(`Error: ${message}`);
+        setStatusLine(t('care.miniChat.status.error', { error: message }));
       } finally {
         abortRef.current = null;
         setBusy(false);
@@ -495,6 +549,7 @@ export function CarePlanAskChat({
       hitlResolved,
       provider,
       snapshot,
+      t,
     ],
   );
 
@@ -502,7 +557,7 @@ export function CarePlanAskChat({
     async (text: string) => {
       cancelRef.current = false;
       setChatOpen(true);
-      setChatTitle('Ask about the plan');
+      setChatTitle(t('care.ask.title'));
       setActiveIntent(null);
       setMessages([]);
       setShowHitl(false);
@@ -514,7 +569,7 @@ export function CarePlanAskChat({
       await runFollowUpTurn(text);
       if (!hitlResolved) setShowHitl(true);
     },
-    [hitlResolved, runFollowUpTurn],
+    [hitlResolved, runFollowUpTurn, t],
   );
 
   const launchIntent = useCallback(
@@ -614,7 +669,7 @@ export function CarePlanAskChat({
       }
       // Chips shown; wait for tap. Also allow opening free chat on second Ask.
     } catch (err) {
-      setRouteError(err instanceof Error ? err.message : 'Could not understand that yet.');
+      setRouteError(err instanceof Error ? err.message : t('care.ask.understandFailed'));
     } finally {
       setRoutingBusy(false);
     }
@@ -627,17 +682,18 @@ export function CarePlanAskChat({
     openFreeTextChat,
     routingBusy,
     snapshot,
+    t,
   ]);
 
   const requestCloseChat = useCallback(() => {
     if (busy) {
       Alert.alert(
-        'Stop Concierge?',
-        'Concierge is still generating. Closing now will cancel this conversation.',
+        t('care.miniChat.stopDialog.title'),
+        t('care.miniChat.stopDialog.body'),
         [
-          { text: 'Keep going', style: 'cancel' },
+          { text: t('care.miniChat.stopDialog.keepGoing'), style: 'cancel' },
           {
-            text: 'Stop',
+            text: t('care.miniChat.stopDialog.stop'),
             style: 'destructive',
             onPress: resetChatState,
           },
@@ -646,7 +702,7 @@ export function CarePlanAskChat({
       return;
     }
     resetChatState();
-  }, [busy, resetChatState]);
+  }, [busy, resetChatState, t]);
 
   const handleSendFollowUp = useCallback(() => {
     if (busy || !followUp.trim()) return;
@@ -680,19 +736,19 @@ export function CarePlanAskChat({
         });
       }
       setProposalConfirmVisible(false);
-      setProposalNote('Sent for review — check Needs your review when ready.');
+      setProposalNote(t('care.ask.proposalConfirmed'));
       setProposalIds([]);
       refresh();
       onProposalResolved?.();
     } catch (err) {
       Alert.alert(
-        'Could not confirm',
-        err instanceof Error ? err.message : 'Something went wrong confirming the proposal.',
+        t('care.ask.confirmFailed.title'),
+        err instanceof Error ? err.message : t('care.ask.confirmFailed.body'),
       );
     } finally {
       setProposalBusy(false);
     }
-  }, [activeIntent, onProposalResolved, proposalBusy, proposalIds, refresh]);
+  }, [activeIntent, onProposalResolved, proposalBusy, proposalIds, refresh, t]);
 
   const handleEmergencyAction = useCallback(
     async (actionId: NextStepActionId) => {
@@ -767,29 +823,27 @@ export function CarePlanAskChat({
         caregiverRejectProposal(id, 'Rejected from Care ask chat');
       }
       setProposalConfirmVisible(false);
-      setProposalNote('Proposal dismissed — no plan change.');
+      setProposalNote(t('care.ask.proposalRejected'));
       setProposalIds([]);
       refresh();
     } catch (err) {
       Alert.alert(
-        'Could not dismiss',
-        err instanceof Error ? err.message : 'Something went wrong dismissing the proposal.',
+        t('care.ask.rejectFailed.title'),
+        err instanceof Error ? err.message : t('care.ask.rejectFailed.body'),
       );
     } finally {
       setProposalBusy(false);
     }
-  }, [proposalBusy, proposalIds, refresh]);
+  }, [proposalBusy, proposalIds, refresh, t]);
 
   const visibleMessages = messages.filter((m) => !m.hidden);
 
   if (!optionalGate.ready) {
     return (
-      <View style={styles.wrap} accessible accessibilityLabel="Ask about the care plan">
+      <View style={styles.wrap} accessible accessibilityLabel={t('care.ask.cardA11y')}>
         <View style={[styles.card, themedStyles.card]}>
-          <Text style={[styles.title, themedStyles.primaryText]}>Ask about the plan</Text>
-          <Text style={[styles.subtitle, themedStyles.supportingText]}>
-            The Concierge powers care-plan questions. It is not downloaded yet.
-          </Text>
+          <Text style={[styles.title, themedStyles.primaryText]}>{t('care.ask.title')}</Text>
+          <Text style={[styles.subtitle, themedStyles.supportingText]}>{t('care.ask.notDownloaded')}</Text>
           <OptionalFeaturePrompt
             requirement="both"
             simulatedMissing={optionalGate.simulatedMissing}
@@ -800,13 +854,11 @@ export function CarePlanAskChat({
   }
 
   return (
-    <View style={styles.wrap} accessible accessibilityLabel="Ask about the care plan">
+    <View style={styles.wrap} accessible accessibilityLabel={t('care.ask.cardA11y')}>
       {!chatOpen ? (
         <View style={[styles.card, themedStyles.card]}>
-          <Text style={[styles.title, themedStyles.primaryText]}>Ask about the plan</Text>
-          <Text style={[styles.subtitle, themedStyles.supportingText]}>
-            Type a short request. Concierge opens in this card — you still confirm any plan change.
-          </Text>
+          <Text style={[styles.title, themedStyles.primaryText]}>{t('care.ask.title')}</Text>
+          <Text style={[styles.subtitle, themedStyles.supportingText]}>{t('care.ask.subtitle')}</Text>
           <View style={styles.row}>
             <TextInput
               value={composerText}
@@ -827,12 +879,12 @@ export function CarePlanAskChat({
                 (!composerText.trim() || disabled || routingBusy) && styles.sendDisabled,
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Submit care question"
+              accessibilityLabel={t('care.ask.submitA11y')}
             >
               {routingBusy ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={styles.sendText}>Ask</Text>
+                <Text style={styles.sendText}>{t('care.miniChat.ask')}</Text>
               )}
             </Pressable>
           </View>
@@ -841,7 +893,7 @@ export function CarePlanAskChat({
 
           {refuseMessage ? (
             <View style={[styles.refuse, themedStyles.controlCard]}>
-              <Text style={[styles.refuseTitle, themedStyles.primaryText]}>Couldn&apos;t apply that</Text>
+              <Text style={[styles.refuseTitle, themedStyles.primaryText]}>{t('care.ask.couldNotApply')}</Text>
               <Text style={[styles.refuseBody, themedStyles.supportingText]}>{refuseMessage}</Text>
             </View>
           ) : null}
@@ -850,18 +902,14 @@ export function CarePlanAskChat({
             <View
               style={styles.emergency}
               accessible
-              accessibilityLabel="Emergency confirmation"
+              accessibilityLabel={t('care.ask.emergencyLabel')}
             >
-              <Text style={styles.emergencyKicker}>Emergency check</Text>
-              <Text style={styles.emergencyTitle}>Is this happening right now?</Text>
-              <Text style={styles.emergencyBody}>
-                Concierge does not diagnose. If someone is in immediate danger, use the actions
-                below. Confirm only if this is a real emergency — not a what-if or practice
-                question.
-              </Text>
+              <Text style={styles.emergencyKicker}>{t('care.ask.emergencyKicker')}</Text>
+              <Text style={styles.emergencyTitle}>{t('care.ask.emergencyTitle')}</Text>
+              <Text style={styles.emergencyBody}>{t('care.ask.emergencyBody')}</Text>
               {emergencyPending.phrase ? (
                 <Text style={styles.emergencyPhrase}>
-                  Detected: “{emergencyPending.phrase}”
+                  {t('care.ask.detected', { phrase: emergencyPending.phrase })}
                 </Text>
               ) : null}
 
@@ -870,22 +918,20 @@ export function CarePlanAskChat({
                 onPress={handleConfirmRealEmergency}
                 disabled={emergencyBusy}
                 accessibilityRole="button"
-                accessibilityLabel="Confirm this is a real emergency"
+                accessibilityLabel={t('care.ask.confirmEmergencyA11y')}
               >
-                <Text style={styles.emergencyPrimaryText}>Yes — this is real</Text>
+                <Text style={styles.emergencyPrimaryText}>{t('care.ask.confirmEmergency')}</Text>
               </Pressable>
-              <Text style={styles.emergencyHint}>
-                Opens the emergency alert dialogue (Call 911 / Go to ER).
-              </Text>
+              <Text style={styles.emergencyHint}>{t('care.ask.emergencyHint')}</Text>
 
               <Pressable
                 style={[styles.emergencySecondary, emergencyBusy && styles.sendDisabled]}
                 onPress={handleDismissEmergencyAsHypothetical}
                 disabled={emergencyBusy}
                 accessibilityRole="button"
-                accessibilityLabel="Not happening now, dismiss"
+                accessibilityLabel={t('care.ask.dismissEmergencyA11y')}
               >
-                <Text style={styles.emergencySecondaryText}>No — just asking / not now</Text>
+                <Text style={styles.emergencySecondaryText}>{t('care.ask.dismissEmergency')}</Text>
               </Pressable>
 
               <View style={styles.emergencyActionRow}>
@@ -894,18 +940,18 @@ export function CarePlanAskChat({
                   onPress={() => void handleEmergencyAction('call_911')}
                   disabled={emergencyBusy}
                   accessibilityRole="button"
-                  accessibilityLabel="Call 911"
+                  accessibilityLabel={t('dashboard.critical.call911')}
                 >
-                  <Text style={styles.emergencyCallText}>Call 911</Text>
+                  <Text style={styles.emergencyCallText}>{t('dashboard.critical.call911')}</Text>
                 </Pressable>
                 <Pressable
                   style={styles.emergencyEr}
                   onPress={() => void handleEmergencyAction('go_to_er')}
                   disabled={emergencyBusy}
                   accessibilityRole="button"
-                  accessibilityLabel="Go to ER"
+                  accessibilityLabel={t('care.ask.goToEr')}
                 >
-                  <Text style={styles.emergencyErText}>Go to ER</Text>
+                  <Text style={styles.emergencyErText}>{t('care.ask.goToEr')}</Text>
                 </Pressable>
               </View>
             </View>
@@ -914,7 +960,7 @@ export function CarePlanAskChat({
           {resolution?.kind === 'single_chip' || resolution?.kind === 'multi_chip' ? (
             <View style={styles.chips}>
               <Text style={[styles.chipHint, themedStyles.supportingText]}>
-                {resolution.kind === 'single_chip' ? 'Did you mean:' : 'Try one of these:'}
+                {resolution.kind === 'single_chip' ? t('care.ask.didYouMean') : t('care.ask.tryOne')}
               </Text>
               {resolution.chips.map((c) => (
                 <Pressable
@@ -922,24 +968,26 @@ export function CarePlanAskChat({
                   style={[styles.chip, themedStyles.brandSoftChip]}
                   onPress={() => launchIntent(c.intent, c.args)}
                   accessibilityRole="button"
-                  accessibilityLabel={c.label}
+                  accessibilityLabel={intentLabel(c.intent, c.label, t)}
                 >
-                  <Text style={[styles.chipText, themedStyles.actionText]}>{c.label}</Text>
+                  <Text style={[styles.chipText, themedStyles.actionText]}>
+                    {intentLabel(c.intent, c.label, t)}
+                  </Text>
                 </Pressable>
               ))}
               <Pressable
                 style={styles.chipSecondary}
                 onPress={() => {
-                  const t = composerText.trim();
-                  if (!t) return;
+                  const trimmed = composerText.trim();
+                  if (!trimmed) return;
                   setComposerText('');
                   setResolution(null);
-                  void openFreeTextChat(t);
+                  void openFreeTextChat(trimmed);
                 }}
                 accessibilityRole="button"
-                accessibilityLabel="Open free chat with this question"
+                accessibilityLabel={t('care.ask.freeChatA11y')}
               >
-                <Text style={[styles.chipSecondaryText, themedStyles.supportingText]}>Chat about this instead</Text>
+                <Text style={[styles.chipSecondaryText, themedStyles.supportingText]}>{t('care.ask.chatInstead')}</Text>
               </Pressable>
             </View>
           ) : null}
@@ -955,7 +1003,7 @@ export function CarePlanAskChat({
               onPress={requestCloseChat}
               hitSlop={12}
               accessibilityRole="button"
-              accessibilityLabel="Close plan chat"
+              accessibilityLabel={t('care.ask.closeChatA11y')}
             >
               <Text style={[styles.closeText, themedStyles.supportingText]}>×</Text>
             </Pressable>
@@ -988,7 +1036,7 @@ export function CarePlanAskChat({
                 ]}
               >
                 <Text style={[styles.bubbleLabel, themedStyles.mutedText]}>
-                  {msg.role === 'user' ? 'You' : 'Concierge'}
+                  {msg.role === 'user' ? t('care.miniChat.you') : t('care.miniChat.concierge')}
                 </Text>
                 {msg.role === 'assistant' && msg.status === 'done' ? (
                   <>
@@ -1025,11 +1073,8 @@ export function CarePlanAskChat({
 
             {showHitl && !hitlResolved ? (
               <View style={[styles.hitlCard, themedStyles.card]}>
-                <Text style={[styles.hitlTitle, themedStyles.primaryText]}>Your review</Text>
-                <Text style={[styles.hitlBody, themedStyles.supportingText]}>
-                  Select anything you observed so Concierge can refine this guidance. This is
-                  optional.
-                </Text>
+                <Text style={[styles.hitlTitle, themedStyles.primaryText]}>{t('care.miniChat.yourReview')}</Text>
+                <Text style={[styles.hitlBody, themedStyles.supportingText]}>{t('care.miniChat.reviewBody')}</Text>
                 <ObservationPicker
                   selected={observationCodes}
                   onChange={setObservationCodes}
@@ -1041,14 +1086,14 @@ export function CarePlanAskChat({
                     onPress={handleApplyHitl}
                     disabled={busy}
                   >
-                    <Text style={styles.hitlPrimaryText}>Apply review & continue</Text>
+                    <Text style={styles.hitlPrimaryText}>{t('care.miniChat.applyReview')}</Text>
                   </Pressable>
                   <Pressable
                     style={[styles.hitlButton, styles.hitlSecondary, themedStyles.controlSurface]}
                     onPress={handleSkipHitl}
                     disabled={busy}
                   >
-                    <Text style={[styles.hitlSecondaryText, themedStyles.supportingText]}>Skip review</Text>
+                    <Text style={[styles.hitlSecondaryText, themedStyles.supportingText]}>{t('care.miniChat.skipReview')}</Text>
                   </Pressable>
                 </View>
               </View>
@@ -1059,7 +1104,7 @@ export function CarePlanAskChat({
                 style={styles.reopenProposal}
                 onPress={() => setProposalConfirmVisible(true)}
               >
-                <Text style={[styles.reopenProposalText, themedStyles.actionText]}>Review plan proposal…</Text>
+                <Text style={[styles.reopenProposalText, themedStyles.actionText]}>{t('care.ask.reviewProposal')}</Text>
               </Pressable>
             ) : null}
           </ScrollView>
@@ -1068,7 +1113,7 @@ export function CarePlanAskChat({
             <TextInput
               value={followUp}
               onChangeText={setFollowUp}
-              placeholder="Ask a follow-up…"
+              placeholder={t('care.miniChat.placeholder')}
               placeholderTextColor={theme.appTextMuted}
               editable={!busy}
               multiline
@@ -1079,15 +1124,13 @@ export function CarePlanAskChat({
               onPress={handleSendFollowUp}
               disabled={!followUp.trim() || busy}
               accessibilityRole="button"
-              accessibilityLabel="Send follow-up"
+              accessibilityLabel={t('care.miniChat.sendA11y')}
             >
-              <Text style={styles.sendText}>Ask</Text>
+              <Text style={styles.sendText}>{t('care.miniChat.ask')}</Text>
             </Pressable>
           </View>
 
-          <Text style={[styles.footnote, themedStyles.mutedText]}>
-            Concierge guidance — not a diagnosis. Confirm any plan change below.
-          </Text>
+          <Text style={[styles.footnote, themedStyles.mutedText]}>{t('care.ask.footnote')}</Text>
         </View>
       )}
 
@@ -1106,18 +1149,15 @@ export function CarePlanAskChat({
           }}
         >
           <Pressable style={[styles.confirmSheet, themedStyles.card]} onPress={(e) => e.stopPropagation()}>
-            <Text style={[styles.confirmTitle, themedStyles.primaryText]}>Confirm plan proposal</Text>
-            <Text style={[styles.confirmMessage, themedStyles.supportingText]}>
-              Concierge drafted a care plan update. Confirm to send it for review, or cancel to
-              dismiss it. Nothing is applied until you confirm.
-            </Text>
+            <Text style={[styles.confirmTitle, themedStyles.primaryText]}>{t('care.ask.confirmProposalTitle')}</Text>
+            <Text style={[styles.confirmMessage, themedStyles.supportingText]}>{t('care.ask.confirmProposalBody')}</Text>
             <View style={styles.confirmActions}>
               <Pressable
                 style={[styles.confirmButton, styles.confirmCancelButton, themedStyles.controlSurface]}
                 onPress={handleRejectProposals}
                 disabled={proposalBusy}
               >
-                <Text style={[styles.confirmCancelText, themedStyles.supportingText]}>Dismiss</Text>
+                <Text style={[styles.confirmCancelText, themedStyles.supportingText]}>{t('common.dismiss')}</Text>
               </Pressable>
               <Pressable
                 style={[styles.confirmButton, styles.confirmPrimaryButton]}
@@ -1127,7 +1167,7 @@ export function CarePlanAskChat({
                 {proposalBusy ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.confirmPrimaryText}>Confirm</Text>
+                  <Text style={styles.confirmPrimaryText}>{t('common.confirm')}</Text>
                 )}
               </Pressable>
             </View>

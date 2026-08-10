@@ -4,6 +4,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTheme } from '@/constants/theme';
 import type { LatestUc4PriorityCardSummary } from '@/data/types';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 import type { Uc4CardResponseAction } from '@/services/uc4/uc4EvaluationService';
 
 type Uc4PriorityCardProps = {
@@ -31,14 +33,38 @@ const CONTEXT_OPTIONS = new Set([
   'UNKNOWN_OR_NOT_SURE',
 ]);
 
-function humanize(value: string): string {
-  return value.replace(/_/g, ' ').toLowerCase();
+function humanize(value: string, t: TranslateFn): string {
+  switch (value) {
+    case 'YES':
+      return t('care.uc4.option.yes');
+    case 'NO':
+      return t('care.uc4.option.no');
+    case 'DURING_TRANSFER':
+      return t('care.uc4.option.duringTransfer');
+    case 'WHILE_SITTING_OR_POSITIONED':
+      return t('care.uc4.option.whileSitting');
+    case 'AFTER_ACTIVITY_OR_THERAPY':
+      return t('care.uc4.option.afterActivity');
+    case 'AROUND_MEDICATION_TIME':
+      return t('care.uc4.option.aroundMedication');
+    case 'DURING_SLEEP_OR_NIGHT':
+      return t('care.uc4.option.duringSleep');
+    case 'MEAL_OR_HYDRATION_RELATED':
+      return t('care.uc4.option.mealHydration');
+    case 'BATHROOM_OR_BOWEL_BLADDER':
+      return t('care.uc4.option.bathroom');
+    case 'UNKNOWN_OR_NOT_SURE':
+      return t('care.uc4.option.unknown');
+    default:
+      return value.replace(/_/g, ' ').toLowerCase();
+  }
 }
 
 export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardProps) {
   const [selectedOptions, setSelectedOptions] = useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = useState(false);
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   const toggleOption = (fieldId: string, option: string) => {
@@ -70,7 +96,7 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
     <View style={[styles.card, themedStyles.card]}>
       <View style={styles.header}>
         <View style={styles.headerText}>
-          <Text style={[styles.kicker, themedStyles.mutedText]}>Care focus</Text>
+          <Text style={[styles.kicker, themedStyles.mutedText]}>{t('care.uc4.careFocus')}</Text>
           <Text style={[styles.title, themedStyles.primaryText]}>{card.title}</Text>
         </View>
         <Text style={[styles.score, themedStyles.actionText]}>{Math.round(card.score * 100)}%</Text>
@@ -82,7 +108,7 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
       {card.body.length > 150 ? (
         <Pressable onPress={() => setExpanded((current) => !current)}>
           <Text style={[styles.expand, themedStyles.actionText]}>
-            {expanded ? 'Show less' : 'Show more'}
+            {expanded ? t('care.uc4.showLess') : t('care.uc4.showMore')}
           </Text>
         </Pressable>
       ) : null}
@@ -91,7 +117,9 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
 
       {card.whatToLogNextSchema.length > 0 ? (
         <View style={[styles.logNext, themedStyles.dividerTop]}>
-          <Text style={[styles.logNextTitle, themedStyles.primaryText]}>What to log next</Text>
+          <Text style={[styles.logNextTitle, themedStyles.primaryText]}>
+            {t('care.uc4.whatToLogNext')}
+          </Text>
           {card.whatToLogNextSchema.map((field) => (
             <View key={field.fieldId} style={styles.fieldBlock}>
               <Text style={[styles.fieldLabel, themedStyles.supportingText]}>{field.label}</Text>
@@ -106,7 +134,7 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
                       onPress={() => toggleOption(field.fieldId, option)}
                     >
                       <Text style={[styles.optionText, themedStyles.supportingText, active && styles.optionTextActive, active && themedStyles.actionText]}>
-                        {humanize(option)}
+                        {humanize(option, t)}
                       </Text>
                     </Pressable>
                   );
@@ -120,13 +148,17 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
       {onRespond ? (
         <View style={styles.actions}>
           <Pressable style={[styles.secondaryButton, themedStyles.brandSoftSurface]} onPress={() => submit('acknowledged')}>
-            <Text style={[styles.secondaryButtonText, themedStyles.actionText]}>Got it</Text>
+            <Text style={[styles.secondaryButtonText, themedStyles.actionText]}>
+              {t('care.uc4.gotIt')}
+            </Text>
           </Pressable>
           <Pressable
             style={[styles.secondaryButton, themedStyles.brandSoftSurface]}
             onPress={() => submit('provider_review_requested')}
           >
-            <Text style={[styles.secondaryButtonText, themedStyles.actionText]}>Provider review</Text>
+            <Text style={[styles.secondaryButtonText, themedStyles.actionText]}>
+              {t('care.uc4.providerReview')}
+            </Text>
           </Pressable>
         </View>
       ) : null}
@@ -138,7 +170,7 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
               style={[styles.primaryButton, styles.bottomActionButton]}
               onPress={() => submit('caregiver_response_submitted')}
             >
-              <Text style={styles.primaryButtonText}>Save log</Text>
+              <Text style={styles.primaryButtonText}>{t('care.uc4.saveLog')}</Text>
             </Pressable>
           ) : null}
           {onRespond ? (
@@ -146,7 +178,9 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
               style={[styles.dismissButton, themedStyles.controlSurface, styles.bottomActionButton]}
               onPress={() => submit('dismissed')}
             >
-              <Text style={[styles.dismissButtonText, themedStyles.mutedText]}>Dismiss</Text>
+              <Text style={[styles.dismissButtonText, themedStyles.mutedText]}>
+                {t('common.dismiss')}
+              </Text>
             </Pressable>
           ) : null}
           {onExplain ? (
@@ -154,7 +188,7 @@ export function Uc4PriorityCard({ card, onExplain, onRespond }: Uc4PriorityCardP
               style={[styles.explainButton, styles.bottomActionButton]}
               onPress={() => onExplain(card)}
             >
-              <Text style={styles.explainButtonText}>Explain this result</Text>
+              <Text style={styles.explainButtonText}>{t('care.uc4.explainResult')}</Text>
             </Pressable>
           ) : null}
         </View>

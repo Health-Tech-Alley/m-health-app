@@ -9,6 +9,7 @@ import {
   type Patient,
 } from "@/data";
 import type { PatientProfileEntry } from "@/data/fhir/patient-profiles";
+import { useTranslation } from "@/hooks/use-translation";
 import { emitInAppBanner } from "@/services/notifications";
 import { useAppDispatch } from "@/store/hooks";
 import { addPatient } from "@/store/reducers/patientSlice";
@@ -64,6 +65,7 @@ function startBundledEhrKnowledgeBundle(params: {
 export function useBundledEhrImport() {
   const dispatch = useAppDispatch();
   const { importFHIRBundle } = usePatientRecord();
+  const { t } = useTranslation();
 
   const importBundledEhrProfile = useCallback(
     async (
@@ -71,7 +73,6 @@ export function useBundledEhrImport() {
       options: ImportBundledEhrProfileOptions = {},
     ): Promise<BundledEhrImportResult> => {
       const fhirBundle = profile.data;
-
       const importedPatientId = importFHIRBundle(fhirBundle);
       dispatch(addPatient(fhirBundle));
 
@@ -105,8 +106,8 @@ export function useBundledEhrImport() {
       });
 
       emitInAppBanner({
-        title: "EHR Import",
-        body: `FHIR bundle "${profile.label}" imported successfully`,
+        title: t("ehrImport.banner.title"),
+        body: t("ehrImport.banner.body", { profile: profile.label }),
         severity: 1,
       });
 
@@ -117,7 +118,7 @@ export function useBundledEhrImport() {
         bundleLocation,
       };
     },
-    [dispatch, importFHIRBundle],
+    [dispatch, importFHIRBundle, t],
   );
 
   return { importBundledEhrProfile };

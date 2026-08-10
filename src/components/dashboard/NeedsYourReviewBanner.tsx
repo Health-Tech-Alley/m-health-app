@@ -16,9 +16,11 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon } from '@/components/AppIcon';
 import { AppTheme } from '@/constants/theme';
-import { severityColor, severityLabel } from '@/constants/user-terms';
+import { severityColor } from '@/constants/user-terms';
 import type { PendingReview } from '@/hooks/usePendingReviews';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 
 type ReviewAlert = PendingReview['openNonEmergencyAlertItems'][number];
 
@@ -35,6 +37,7 @@ export function NeedsYourReviewBanner({
 }: Props) {
   const router = useRouter();
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   if (variant === 'alerts') {
@@ -44,12 +47,13 @@ export function NeedsYourReviewBanner({
 
     return (
       <View style={styles.reviewSection}>
-        <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Needs your review</Text>
+        <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{t('dashboard.needsReview.title')}</Text>
         <View style={styles.alertList}>
           {reviews.openNonEmergencyAlertItems.map((alert) => (
             <AlertReviewCard
               key={alert.alertId}
               alert={alert}
+              t={t}
               onPress={() =>
                 router.push({
                   pathname: '/alert-detail',
@@ -67,18 +71,7 @@ export function NeedsYourReviewBanner({
     return null;
   }
 
-  const parts: string[] = [];
-  if (reviews.thresholdRecommendations > 0) {
-    parts.push(
-      `${reviews.thresholdRecommendations} threshold suggestion${reviews.thresholdRecommendations === 1 ? '' : 's'}`,
-    );
-  }
-  if (reviews.planProposals > 0) {
-    parts.push(
-      `${reviews.planProposals} plan proposal${reviews.planProposals === 1 ? '' : 's'}`,
-    );
-  }
-  const breakdown = parts.join(' and ');
+  const breakdown = formatCareBreakdown(reviews, t);
   const hasPlanProposalsOnly =
     reviews.planProposals > 0 &&
     reviews.thresholdRecommendations === 0;
@@ -87,12 +80,14 @@ export function NeedsYourReviewBanner({
   return (
     <View style={[styles.banner, themedStyles.banner]}>
       <View style={styles.body}>
-        <Text style={[styles.eyebrow, themedStyles.eyebrow]}>Needs your review</Text>
+        <Text style={[styles.eyebrow, themedStyles.eyebrow]}>{t('dashboard.needsReview.title')}</Text>
         <Text style={[styles.line, themedStyles.line]}>
-          {breakdown} need{reviews.total === 1 ? 's' : ''} your review.
+          {t(reviews.total === 1 ? 'dashboard.needsReview.lineOne' : 'dashboard.needsReview.lineMany', {
+            breakdown,
+          })}
         </Text>
         <Text style={[styles.subline, themedStyles.subline]}>
-          The Concierge suggests. You decide.
+          {t('dashboard.needsReview.subline')}
         </Text>
       </View>
       <View style={styles.actions}>
@@ -100,18 +95,18 @@ export function NeedsYourReviewBanner({
           style={styles.reviewButton}
           onPress={handleReviewPress}
           accessibilityRole="button"
-          accessibilityLabel="Review pending items"
+          accessibilityLabel={t('dashboard.needsReview.reviewNowA11y')}
         >
-          <Text style={styles.reviewButtonText}>Review now</Text>
+          <Text style={styles.reviewButtonText}>{t('dashboard.needsReview.reviewNow')}</Text>
         </Pressable>
         {hasPlanProposalsOnly ? (
           <Pressable
             style={styles.linkButton}
             onPress={() => router.push('/care')}
             accessibilityRole="link"
-            accessibilityLabel="Open Care tab to review plan proposals"
+            accessibilityLabel={t('dashboard.needsReview.openCarePlanA11y')}
           >
-            <Text style={[styles.linkButtonText, themedStyles.linkButtonText]}>Open Care plan</Text>
+            <Text style={[styles.linkButtonText, themedStyles.linkButtonText]}>{t('dashboard.needsReview.openCarePlan')}</Text>
           </Pressable>
         ) : null}
         {reviews.thresholdRecommendations > 0 ? (
@@ -119,9 +114,9 @@ export function NeedsYourReviewBanner({
             style={styles.linkButton}
             onPress={() => router.push('/settings')}
             accessibilityRole="link"
-            accessibilityLabel="Open threshold suggestions"
+            accessibilityLabel={t('dashboard.needsReview.openThresholdsA11y')}
           >
-            <Text style={[styles.linkButtonText, themedStyles.linkButtonText]}>Open thresholds</Text>
+            <Text style={[styles.linkButtonText, themedStyles.linkButtonText]}>{t('dashboard.needsReview.openThresholds')}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -131,9 +126,11 @@ export function NeedsYourReviewBanner({
 
 function AlertReviewCard({
   alert,
+  t,
   onPress,
 }: {
   alert: ReviewAlert;
+  t: TranslateFn;
   onPress: () => void;
 }) {
   const theme = useTheme();
@@ -143,14 +140,18 @@ function AlertReviewCard({
     theme.appBackground === '#000000' && alert.severity !== 2
       ? AppTheme.colors.brandPale
       : accent;
-  const body = alert.body.trim() || 'Open this alert to review the saved details.';
+  const body = alert.body.trim() || t('dashboard.needsReview.alertFallbackBody');
+  const severity = formatDashboardSeverityLabel(alert.severity, t);
 
   return (
     <Pressable
       style={[styles.alertCard, themedStyles.alertCard, { borderColor: accent }]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`Review alert, ${severityLabel(alert.severity)}: ${alert.title}`}
+      accessibilityLabel={t('dashboard.needsReview.reviewAlertA11y', {
+        severity,
+        title: alert.title,
+      })}
     >
       <View style={[styles.alertIcon, { backgroundColor: alertIconBackground(alert, theme) }]}>
         <AppIcon name="alert" size={22} color={textAccent} />
@@ -158,9 +159,9 @@ function AlertReviewCard({
       <View style={styles.alertBody}>
         <View style={styles.alertMetaRow}>
           <Text style={[styles.alertSeverity, { color: textAccent }]}>
-            {severityLabel(alert.severity)}
+            {severity}
           </Text>
-          <Text style={[styles.alertTime, themedStyles.eyebrow]}>{formatRelativeTime(alert.createdAt)}</Text>
+          <Text style={[styles.alertTime, themedStyles.eyebrow]}>{formatRelativeTime(alert.createdAt, t)}</Text>
         </View>
         <Text style={[styles.alertTitle, themedStyles.line]} numberOfLines={2}>
           {alert.title}
@@ -168,7 +169,7 @@ function AlertReviewCard({
         <Text style={[styles.alertText, themedStyles.subline]} numberOfLines={2}>
           {body}
         </Text>
-        <Text style={[styles.alertAction, { color: textAccent }]}>Review alert</Text>
+        <Text style={[styles.alertAction, { color: textAccent }]}>{t('dashboard.needsReview.reviewAlert')}</Text>
       </View>
       <AppIcon name="chevronRight" size={24} color={theme.appTextMuted} />
     </Pressable>
@@ -183,15 +184,53 @@ function alertIconBackground(alert: ReviewAlert, theme: ReturnType<typeof useThe
   return theme.appBrandSoftSurface;
 }
 
-function formatRelativeTime(iso: string): string {
+function formatCareBreakdown(reviews: PendingReview, t: TranslateFn): string {
+  const parts: string[] = [];
+  if (reviews.thresholdRecommendations > 0) {
+    parts.push(
+      t(reviews.thresholdRecommendations === 1
+        ? 'dashboard.needsReview.thresholdOne'
+        : 'dashboard.needsReview.thresholdMany', {
+        count: reviews.thresholdRecommendations,
+      }),
+    );
+  }
+  if (reviews.planProposals > 0) {
+    parts.push(
+      t(reviews.planProposals === 1
+        ? 'dashboard.needsReview.planOne'
+        : 'dashboard.needsReview.planMany', {
+        count: reviews.planProposals,
+      }),
+    );
+  }
+  if (parts.length <= 1) return parts[0] ?? '';
+  return parts.slice(1).reduce(
+    (left, right) => t('dashboard.needsReview.breakdownJoin', { left, right }),
+    parts[0],
+  );
+}
+
+function formatDashboardSeverityLabel(
+  severity: number | null | undefined,
+  t: TranslateFn,
+): string {
+  if (severity === 3) return t('dashboard.alertSeverity.urgent');
+  if (severity === 2) return t('dashboard.alertSeverity.needsAttention');
+  if (severity === 1) return t('dashboard.alertSeverity.headsUp');
+  if (severity === 0) return t('dashboard.alertSeverity.info');
+  return t('dashboard.alertSeverity.alert');
+}
+
+function formatRelativeTime(iso: string, t: TranslateFn): string {
   const ts = new Date(iso).getTime();
-  if (!Number.isFinite(ts)) return 'Recent';
+  if (!Number.isFinite(ts)) return t('dashboard.time.recent');
   const minutes = Math.max(0, Math.round((Date.now() - ts) / 60000));
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return t('dashboard.time.justNow');
+  if (minutes < 60) return t('dashboard.time.minutesAgoShort', { count: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+  if (hours < 24) return t('dashboard.time.hoursAgoShort', { count: hours });
+  return t('dashboard.time.daysAgoShort', { count: Math.round(hours / 24) });
 }
 
 function createThemedStyles(theme: ReturnType<typeof useTheme>) {

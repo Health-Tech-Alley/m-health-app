@@ -9,8 +9,9 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 import {
-  decisionDisplayLine,
   listCaregiverDecisions,
   type CaregiverDecisionRow,
 } from '@/hooks/usePendingReviews';
@@ -22,23 +23,88 @@ type Props = {
   initiallyExpanded?: boolean;
 };
 
-function formatRelativeDate(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return iso;
-  const diffMs = Date.now() - t;
+function formatRelativeDate(iso: string, locale: string, t: TranslateFn): string {
+  const timestamp = Date.parse(iso);
+  if (!Number.isFinite(timestamp)) return iso;
+  const diffMs = Date.now() - timestamp;
   const day = 24 * 60 * 60 * 1000;
   if (diffMs < day) {
     const hours = Math.round(diffMs / (60 * 60 * 1000));
-    if (hours <= 0) return 'just now';
-    if (hours === 1) return '1 hour ago';
-    return `${hours} hours ago`;
+    if (hours <= 0) return t('decisions.time.justNow');
+    if (hours === 1) return t('decisions.time.hourAgo');
+    return t('decisions.time.hoursAgo', { count: hours });
   }
   if (diffMs < 7 * day) {
     const days = Math.round(diffMs / day);
-    if (days === 1) return 'yesterday';
-    return `${days} days ago`;
+    if (days === 1) return t('decisions.time.yesterday');
+    return t('decisions.time.daysAgo', { count: days });
   }
-  return new Date(t).toLocaleDateString();
+  return new Date(timestamp).toLocaleDateString(locale);
+}
+
+function formatDecisionLine(row: CaregiverDecisionRow, patientFirstName: string, t: TranslateFn): string {
+  const subject = row.alertTitle
+    ? `"${row.alertTitle}"`
+    : t('decisions.subject.alertAbout', { patient: patientFirstName });
+  const verb = formatDecisionVerb(row, t);
+  const summary = formatDecisionSummary(row.summary, t);
+
+  return summary
+    ? t('decisions.lineWithSummary', { verb, subject, summary })
+    : t('decisions.line', { verb, subject });
+}
+
+function formatDecisionVerb(row: CaregiverDecisionRow, t: TranslateFn): string {
+  switch (row.type) {
+    case 'override':
+      return t('decisions.verb.override');
+    case 'answer_clarifying_question':
+      return t('decisions.verb.answerClarifyingQuestion');
+    case 'ask_slm':
+      return t('decisions.verb.askSlm');
+    case 'log_observation':
+      return t('decisions.verb.logObservation');
+    case 'acknowledge_alert':
+      return t('decisions.verb.acknowledgeAlert');
+    case 'resolve_alert':
+      return t('decisions.verb.resolveAlert');
+    case 'threshold_recommendation_apply':
+      return t('decisions.verb.thresholdApply');
+    case 'threshold_recommendation_dismiss':
+      return t('decisions.verb.thresholdDismiss');
+    default:
+      return row.verb;
+  }
+}
+
+function formatDecisionSummary(summary: string, t: TranslateFn): string {
+  const text = summary.trim();
+  if (!text) return '';
+  if (text === 'No note provided') return t('decisions.summary.noNote');
+  if (text === 'Asked the Concierge to explain the alert') return t('decisions.summary.askSlm');
+  if (text === 'Logged an observation') return t('decisions.summary.loggedObservation');
+  if (text === 'Personalized a threshold') return t('decisions.summary.personalizedThreshold');
+  if (text === 'Kept current threshold') return t('decisions.summary.keptThreshold');
+  if (text.startsWith('Note:')) {
+    return t('decisions.summary.note', { note: stripSummaryValue(text.slice('Note:'.length)) });
+  }
+  if (text.startsWith('Chose:')) {
+    return t('decisions.summary.chose', { option: stripSummaryValue(text.slice('Chose:'.length)) });
+  }
+  if (text.startsWith('Observation:')) {
+    return t('decisions.summary.observation', {
+      observation: stripSummaryValue(text.slice('Observation:'.length)),
+    });
+  }
+  return summary;
+}
+
+function stripSummaryValue(value: string): string {
+  return value
+    .trim()
+    .replace(/^["'“”]+|["'“”]+$/g, '')
+    .replace(/^â€œ|â€$/g, '')
+    .trim();
 }
 
 export function YourDecisionsSection({
@@ -47,6 +113,7 @@ export function YourDecisionsSection({
   initiallyExpanded = false,
 }: Props) {
   const theme = useTheme();
+  const { locale, t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [rows] = useState<CaregiverDecisionRow[]>(() => listCaregiverDecisions(limit));
   const [open, setOpen] = useState(initiallyExpanded);
@@ -57,12 +124,12 @@ export function YourDecisionsSection({
         style={styles.header}
         onPress={() => setOpen((v) => !v)}
         accessibilityRole="button"
-        accessibilityLabel={open ? 'Collapse your decisions' : 'Expand your decisions'}
+        accessibilityLabel={open ? t('decisions.a11y.collapse') : t('decisions.a11y.expand')}
       >
         <View style={styles.headerText}>
-          <Text style={styles.eyebrow}>Your decisions</Text>
+          <Text style={styles.eyebrow}>{t('decisions.title')}</Text>
           <Text style={[styles.subtitle, themedStyles.secondaryText]}>
-            Recent overrides, observations, and confirmations.
+            {t('decisions.subtitle')}
           </Text>
         </View>
         <Text style={[styles.chevron, themedStyles.secondaryText]}>{open ? '\u25BE' : '\u25B8'}</Text>
@@ -71,16 +138,16 @@ export function YourDecisionsSection({
       {open ? (
         rows.length === 0 ? (
           <Text style={[styles.emptyText, themedStyles.secondaryText]}>
-            No decisions yet. When you act on alerts, your choices will show up here so you can see your pattern over time.
+            {t('decisions.empty')}
           </Text>
         ) : (
           <View style={[styles.list, themedStyles.list]}>
             {rows.map((row) => (
               <View key={row.actionId} style={[styles.row, themedStyles.row]}>
                 <Text style={[styles.line, themedStyles.primaryText]}>
-                  {decisionDisplayLine(row, patientFirstName)}
+                  {formatDecisionLine(row, patientFirstName, t)}
                 </Text>
-                <Text style={[styles.meta, themedStyles.secondaryText]}>{formatRelativeDate(row.createdAt)}</Text>
+                <Text style={[styles.meta, themedStyles.secondaryText]}>{formatRelativeDate(row.createdAt, locale, t)}</Text>
               </View>
             ))}
           </View>

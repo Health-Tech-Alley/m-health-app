@@ -11,6 +11,7 @@ import { useCallback, useState } from 'react';
 import { Alert } from 'react-native';
 
 import { getPatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
+import type { TranslationKey, TranslationParams, TranslateFn } from '@/localization/i18n';
 
 export type CarePlanBackupStatus =
   | { kind: 'idle' }
@@ -24,6 +25,7 @@ export type CarePlanBackupStatus =
 export interface UseCarePlanBackupOptions {
   /** Called after a successful restore so Care can rebuild the snapshot. */
   onRestored?: () => void;
+  t?: TranslateFn;
 }
 
 export interface UseCarePlanBackupResult {
@@ -43,6 +45,12 @@ export function useCarePlanBackup(
   const [exportInFlight, setExportInFlight] = useState(false);
   const [importInFlight, setImportInFlight] = useState(false);
   const onRestored = options?.onRestored;
+  const t = options?.t;
+  const tr = useCallback(
+    (key: TranslationKey, fallback: string, params?: TranslationParams) =>
+      t ? t(key, params) : fallback,
+    [t],
+  );
 
   const resetStatus = useCallback(() => setStatus({ kind: 'idle' }), []);
 
@@ -62,16 +70,20 @@ export function useCarePlanBackup(
         if (result.consentRequired) {
           setStatus({ kind: 'consent_required' });
           Alert.alert(
-            'Consent required',
-            'Enable Care plan backup consent, then try again.',
+            tr('care.backup.alert.consentRequired.title', 'Consent required'),
+            tr(
+              'care.backup.alert.consentRequired.body',
+              'Enable Care plan backup consent, then try again.',
+            ),
           );
           return;
         }
         if (!result.ok || !result.json || !result.filename) {
           setStatus({ kind: 'no_plan' });
           Alert.alert(
-            'No plan to export',
-            result.reason ?? 'No active care plan revision.',
+            tr('care.backup.alert.noPlan.title', 'No plan to export'),
+            result.reason ??
+              tr('care.backup.alert.noActivePlan', 'No active care plan revision.'),
           );
           return;
         }
@@ -79,7 +91,11 @@ export function useCarePlanBackup(
         const sizeLabel = `${result.bundleSize ?? 0} bytes`;
         setStatus({
           kind: 'ready',
-          message: `Backup ready (${sizeLabel}) \u2014 exporting\u2026`,
+          message: tr(
+            'care.backup.status.ready',
+            `Backup ready (${sizeLabel}) - exporting...`,
+            { size: sizeLabel },
+          ),
         });
 
         try {
@@ -92,28 +108,41 @@ export function useCarePlanBackup(
           await file.write(result.json);
           await Sharing.shareAsync(file.uri, {
             mimeType: 'application/json',
-            dialogTitle: 'Care plan backup',
+            dialogTitle: tr('care.backup.dialogTitle', 'Care plan backup'),
           });
           setStatus({
             kind: 'shared',
-            message: `Exported ${result.filename} \u2014 ${sizeLabel}.`,
+            message: tr(
+              'care.backup.status.shared',
+              `Exported ${result.filename} - ${sizeLabel}.`,
+              { filename: result.filename, size: sizeLabel },
+            ),
           });
         } catch (shareErr) {
           console.warn('[useCarePlanBackup] share unavailable, preview only:', shareErr);
           setStatus({
             kind: 'preview',
-            message: `${result.filename} ready (${sizeLabel}). Track-A preview \u2014 copy from logs if needed.`,
+            message: tr(
+              'care.backup.status.preview',
+              `${result.filename} ready (${sizeLabel}). Track-A preview - copy from logs if needed.`,
+              { filename: result.filename, size: sizeLabel },
+            ),
           });
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        setStatus({ kind: 'error', message: `Export failed: ${msg}` });
-        Alert.alert('Export failed', msg);
+        setStatus({
+          kind: 'error',
+          message: tr('care.backup.status.exportFailed', `Export failed: ${msg}`, {
+            message: msg,
+          }),
+        });
+        Alert.alert(tr('care.backup.alert.exportFailed', 'Export failed'), msg);
       } finally {
         setExportInFlight(false);
       }
     },
-    [patientId, exportInFlight],
+    [patientId, exportInFlight, tr],
   );
 
   const importBackup = useCallback(async () => {
@@ -130,7 +159,10 @@ export function useCarePlanBackup(
       }
       const asset = pickerResult.assets[0];
       if (!asset?.uri) {
-        Alert.alert('Restore failed', 'No file URI returned from picker.');
+        Alert.alert(
+          tr('care.backup.alert.restoreFailed', 'Restore failed'),
+          tr('care.backup.alert.noFileUri', 'No file URI returned from picker.'),
+        );
         return;
       }
       const { File } = await import('expo-file-system');
@@ -144,26 +176,43 @@ export function useCarePlanBackup(
         jsonText: json,
       });
       if (!outcome.ok) {
-        Alert.alert('Restore failed', outcome.reason ?? 'Unknown error.');
+        Alert.alert(
+          tr('care.backup.alert.restoreFailed', 'Restore failed'),
+          outcome.reason ?? tr('care.backup.alert.unknownError', 'Unknown error.'),
+        );
         return;
       }
       const versionLabel =
         outcome.newPlanVersion != null
-          ? ` as care plan v${outcome.newPlanVersion}`
+          ? tr('care.backup.status.restoreVersion', ` as care plan v${outcome.newPlanVersion}`, {
+              version: outcome.newPlanVersion,
+            })
           : '';
       setStatus({
         kind: 'ready',
-        message: `Restored${versionLabel} from ${asset.name ?? 'care plan backup'}.`,
+        message: tr(
+          'care.backup.status.restored',
+          `Restored${versionLabel} from ${asset.name ?? 'care plan backup'}.`,
+          {
+            versionLabel,
+            filename: asset.name ?? tr('care.backup.dialogTitle', 'care plan backup'),
+          },
+        ),
       });
       onRestored?.();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setStatus({ kind: 'error', message: `Restore failed: ${msg}` });
-      Alert.alert('Restore failed', msg);
+      setStatus({
+        kind: 'error',
+        message: tr('care.backup.status.restoreFailed', `Restore failed: ${msg}`, {
+          message: msg,
+        }),
+      });
+      Alert.alert(tr('care.backup.alert.restoreFailed', 'Restore failed'), msg);
     } finally {
       setImportInFlight(false);
     }
-  }, [patientId, importInFlight, onRestored]);
+  }, [patientId, importInFlight, onRestored, tr]);
 
   return { status, exportInFlight, importInFlight, exportBackup, importBackup, resetStatus };
 }

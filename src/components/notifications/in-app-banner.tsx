@@ -20,6 +20,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Spacing } from '@/constants/theme';
+import { useTranslation } from '@/hooks/use-translation';
 import { onInAppBanner, type InAppBannerPayload } from '@/services/notifications';
 
 const BRAND_TEAL = '#0E6F68';
@@ -31,6 +32,7 @@ interface VisibleBanner extends InAppBannerPayload {
 }
 
 export function InAppBanner() {
+  const { t } = useTranslation();
   const [banner, setBanner] = useState<VisibleBanner | null>(null);
   const slideY = useMemo(() => new Animated.Value(-400), []);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -110,7 +112,7 @@ export function InAppBanner() {
           hitSlop={12}
           onPress={dismiss}
           accessibilityRole="button"
-          accessibilityLabel="Dismiss notification">
+          accessibilityLabel={t('dashboard.notification.dismissA11y')}>
           <Text style={styles.closeBtn}>✕</Text>
         </Pressable>
       </Animated.View>

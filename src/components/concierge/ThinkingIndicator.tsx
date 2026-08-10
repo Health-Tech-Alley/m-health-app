@@ -22,8 +22,15 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslationKey } from '@/localization/i18n';
 
-const PHASES = ['Understanding', 'Thinking', 'Checking', 'Drafting'] as const;
+const PHASE_KEYS = [
+  'assistant.thinking.understanding',
+  'assistant.thinking.thinking',
+  'assistant.thinking.checking',
+  'assistant.thinking.drafting',
+] as const satisfies readonly TranslationKey[];
 type PhaseIndex = 0 | 1 | 2 | 3;
 
 const QUICK_ANSWER_MAX_CHARS = 2000;
@@ -74,6 +81,7 @@ export function ThinkingIndicator({
   reasoning?: string | null;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   // Legacy 3-dots indicator (kept for callers that haven't migrated).
@@ -126,8 +134,8 @@ export function ThinkingIndicator({
   useEffect(() => {
     if (streaming) return;
     if (phase !== undefined) return; // caller-driven, don't auto-rotate
-    const t = setInterval(() => setAutoIdx((i) => (i + 1) % PHASES.length), 1200);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setAutoIdx((i) => (i + 1) % PHASE_KEYS.length), 1200);
+    return () => clearInterval(timer);
   }, [streaming, phase]);
 
   useEffect(() => {
@@ -174,7 +182,7 @@ export function ThinkingIndicator({
   }
 
   const activePhase: PhaseIndex = (phase ?? autoIdx) as PhaseIndex;
-  const label = PHASES[activePhase];
+  const label = t(PHASE_KEYS[activePhase]);
   const ellipsisOpacity = ellipsisValue.interpolate({ inputRange: [0, 1], outputRange: [0.2, 1] });
 
   // Discrete step chunks from the real reasoning structure.

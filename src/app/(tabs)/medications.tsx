@@ -18,8 +18,9 @@ import { SlmInsightSheet } from "@/components/slm-insight-sheet";
 import { AppTheme } from "@/constants/theme";
 import { CitationList } from "@/components/common/CitationList";
 import { usePatientRecord } from "@/contexts/patient-record-context";
-import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
+import type { AppLocale, TranslationKey, TranslateFn } from "@/localization/i18n";
 import {
   deleteMedication,
   getActiveMedications,
@@ -40,9 +41,9 @@ import {
   getMedKnowledgeGlance,
   type MedKnowledgeGlance,
 } from "@/services/medications/medKnowledgeGlance";
-import { getPatientDisplayName } from "@/utils/patientDisplay";
 
 type MedStatus = "pending" | "confirmed";
+type KnowledgeSectionKey = "indication" | "sideEffects" | "warnings" | "other";
 
 interface MedRow {
   med: Medication;
@@ -50,15 +51,40 @@ interface MedRow {
   status: MedStatus;
   accent: string;
   confirmationRequired: boolean;
-  confirmationLabel?: "Required by care team" | "Confirmation selected" | "Confirmation preference saved";
+  confirmationLabelKey?: TranslationKey;
 }
 
 const CARE_PLAN_ACCENT = "#F5B800";
 const CUSTOM_ACCENT = "#7C3AED";
 const UNSAVED_PREFERENCE_TIMESTAMP = new Date(0).toISOString();
+const UNNAMED_MEDICATION = "Unnamed medication";
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
+}
+
+function displayMedicationName(name: string, t: TranslateFn): string {
+  return name === UNNAMED_MEDICATION ? t("medications.value.unnamedMedication") : name;
+}
+
+function medicationNameForEdit(name: string): string {
+  return name === UNNAMED_MEDICATION ? "" : name;
+}
+
+function formatTimeOfDayLabel(timeOfDay: string, locale: AppLocale): string {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(timeOfDay.trim());
+  if (!match) return timeOfDay;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return timeOfDay;
+  return new Date(2000, 0, 1, hours, minutes).toLocaleTimeString(locale, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function localizeMedSourceLabel(label: string, t: TranslateFn): string {
+  return label === "Drug label" ? t("medications.source.drugLabel") : label;
 }
 
 /** Build the joined med+schedule rows from the DB. */
@@ -99,14 +125,14 @@ function loadMedRows(patientId: string): MedRow[] {
       status: "pending" as MedStatus,
       accent: med.source === "custom" ? CUSTOM_ACCENT : CARE_PLAN_ACCENT,
       confirmationRequired,
-      confirmationLabel: confirmationRequired
+      confirmationLabelKey: confirmationRequired
         ? required
-          ? "Required by care team"
+          ? "medications.confirmation.requiredByCareTeam"
           : hasSavedPreference && schedule
-            ? "Confirmation selected"
+            ? "medications.confirmation.selected"
             : hasSavedPreference
-              ? "Confirmation preference saved"
-              : "Confirmation selected"
+              ? "medications.confirmation.preferenceSaved"
+              : "medications.confirmation.selected"
         : undefined,
     };
   });
@@ -114,15 +140,12 @@ function loadMedRows(patientId: string): MedRow[] {
 
 export default function MedicationsScreen() {
   const theme = useTheme();
+  const { locale, t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const brandIconColor =
     theme.appBackground === "#000000" ? AppTheme.colors.brandPale : AppTheme.colors.brand;
   const router = useRouter();
   const { patientId, snapshot, refresh } = usePatientRecord();
-  const activePatient = useActivePatientView();
-
-  const patientFirstName =
-    getPatientDisplayName(activePatient).trim().split(/\s+/)[0] || "Patient";
 
   const [rows, setRows] = useState<MedRow[]>(() =>
     patientId ? loadMedRows(patientId) : [],
@@ -185,7 +208,7 @@ export default function MedicationsScreen() {
 
   const openEdit = (row: MedRow) => {
     setEditing(row);
-    setEditName(row.med.name);
+    setEditName(medicationNameForEdit(row.med.name));
     setEditDose(row.med.dosage ?? "");
     setEditInstructions(row.med.frequency ?? "");
     setEditTime(row.schedule?.timeOfDay ?? "");
@@ -206,7 +229,7 @@ export default function MedicationsScreen() {
       upsertMedication({
         medicationId: medId,
         patientId,
-        name: editName.trim() || "Unnamed medication",
+        name: editName.trim() || UNNAMED_MEDICATION,
         dosage: editDose.trim() || undefined,
         frequency: editInstructions.trim() || undefined,
         active: true,
@@ -272,12 +295,14 @@ export default function MedicationsScreen() {
   const handleDelete = (row: MedRow) => {
     if (!patientId) return;
     Alert.alert(
-      "Delete medication",
-      `Remove ${row.med.name}? This cannot be undone.`,
+      t("medications.deleteDialog.title"),
+      t("medications.deleteDialog.body", {
+        name: displayMedicationName(row.med.name, t),
+      }),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
-          text: "Delete",
+          text: t("common.delete"),
           style: "destructive",
           onPress: () => {
             deleteMedication(row.med.medicationId, true);
@@ -302,8 +327,8 @@ export default function MedicationsScreen() {
   };
 
   const formatTimeLabel = (row: MedRow): string => {
-    if (!row.schedule) return "Schedule not provided";
-    return row.schedule.timeOfDay;
+    if (!row.schedule) return t("medications.scheduleNotProvided");
+    return formatTimeOfDayLabel(row.schedule.timeOfDay, locale);
   };
 
   return (
@@ -315,8 +340,8 @@ export default function MedicationsScreen() {
           contentContainerStyle={[styles.content, themedStyles.screen]}
         >
           <MainTabHeader
-            title="Medication Management"
-            eyebrow="Caregiver Concierge"
+            title={t("medications.header.title")}
+            eyebrow={t("medications.header.eyebrow")}
             icon="pill"
           />
 
@@ -327,9 +352,9 @@ export default function MedicationsScreen() {
               </View>
 
               <View style={styles.nextDueTextBlock}>
-                <Text style={styles.nextDueLabel}>Next Due</Text>
+                <Text style={styles.nextDueLabel}>{t("medications.nextDue")}</Text>
                 <Text style={styles.nextDueTitle}>
-                  {nextDue.med.name} · {nextDue.med.dosage ?? "—"}
+                  {displayMedicationName(nextDue.med.name, t)} · {nextDue.med.dosage ?? "—"}
                 </Text>
                 <Text style={styles.nextDueTime}>{formatTimeLabel(nextDue)}</Text>
               </View>
@@ -342,26 +367,28 @@ export default function MedicationsScreen() {
             style={[styles.reminderPreferencesButton, themedStyles.card]}
             onPress={() => router.push("/notifications-reminders")}
             accessibilityRole="button"
-            accessibilityLabel="Open reminder preferences"
+            accessibilityLabel={t("medications.reminderPreferencesA11y")}
           >
             <AppIcon name="bell" size={18} color={brandIconColor} />
             <Text style={[styles.reminderPreferencesText, themedStyles.accentText]}>
-              Reminder preferences
+              {t("medications.reminderPreferences")}
             </Text>
           </Pressable>
 
-          <Text style={[styles.sectionLabel, themedStyles.sectionText]}>Active medications</Text>
+          <Text style={[styles.sectionLabel, themedStyles.sectionText]}>
+            {t("medications.section.active")}
+          </Text>
 
           {rows.length === 0 ? (
             <Text style={[styles.emptyText, themedStyles.secondaryText]}>
-              No medications yet. Add one below.
+              {t("medications.empty")}
             </Text>
           ) : (
             <>
               {confirmationRequiredRows.length > 0 ? (
                 <>
                   <Text style={[styles.sectionLabel, themedStyles.sectionText]}>
-                    Confirmation required
+                    {t("medications.section.confirmationRequired")}
                   </Text>
                   {confirmationRequiredRows.map((row) => (
                     <MedicationCard
@@ -386,9 +413,10 @@ export default function MedicationsScreen() {
                     onPress={() => setShowOtherCurrentMedications((current) => !current)}
                     accessibilityRole="button"
                     accessibilityState={{ expanded: showOtherCurrentMedications }}
+                    accessibilityLabel={t("medications.section.otherCurrent")}
                   >
                     <Text style={[styles.historyToggleText, themedStyles.secondaryText]}>
-                      Other current medications
+                      {t("medications.section.otherCurrent")}
                     </Text>
                     <Text style={[styles.historyToggleCount, themedStyles.mutedText]}>
                       {otherActiveRows.length}
@@ -397,7 +425,7 @@ export default function MedicationsScreen() {
                   {showOtherCurrentMedications ? (
                     <>
                       <Text style={[styles.sectionLabel, themedStyles.sectionText]}>
-                        Other current medications
+                        {t("medications.section.otherCurrent")}
                       </Text>
                       {otherActiveRows.map((row) => (
                         <MedicationCard
@@ -419,9 +447,14 @@ export default function MedicationsScreen() {
             </>
           )}
 
-          <Pressable style={[styles.addMedicationButton, themedStyles.addMedicationButton]} onPress={openAdd}>
+          <Pressable
+            style={[styles.addMedicationButton, themedStyles.addMedicationButton]}
+            onPress={openAdd}
+            accessibilityRole="button"
+            accessibilityLabel={t("medications.action.addA11y")}
+          >
             <Text style={[styles.addMedicationText, themedStyles.secondaryText]}>
-              ➕ Add Medication
+              ➕ {t("medications.action.add")}
             </Text>
           </Pressable>
           {medicationCandidates.length > 0 ? (
@@ -431,9 +464,16 @@ export default function MedicationsScreen() {
                 onPress={() => setShowMedicationHistory((current) => !current)}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: showMedicationHistory }}
+                accessibilityLabel={
+                  showMedicationHistory
+                    ? t("medications.history.hide")
+                    : t("medications.history.view")
+                }
               >
                 <Text style={[styles.historyToggleText, themedStyles.secondaryText]}>
-                  {showMedicationHistory ? "Hide" : "View"} historical / review medications
+                  {showMedicationHistory
+                    ? t("medications.history.hide")
+                    : t("medications.history.view")}
                 </Text>
                 <Text style={[styles.historyToggleCount, themedStyles.mutedText]}>
                   {medicationCandidates.length}
@@ -442,10 +482,10 @@ export default function MedicationsScreen() {
               {showMedicationHistory ? (
                 <>
                   <Text style={[styles.sectionLabel, themedStyles.sectionText]}>
-                    Medication history / review candidates
+                    {t("medications.history.title")}
                   </Text>
                   <Text style={[styles.candidateIntro, themedStyles.secondaryText]}>
-                    Saved for medication review. These are separate from current medications.
+                    {t("medications.history.intro")}
                   </Text>
                   {medicationCandidates.map((candidate) => (
                     <MedicationCandidateCard
@@ -470,54 +510,77 @@ export default function MedicationsScreen() {
         <Pressable style={styles.modalOverlay} onPress={() => setEditing(null)}>
           <Pressable style={[styles.modalSheet, themedStyles.card]} onPress={(e) => e.stopPropagation()}>
             <Text style={[styles.modalTitle, themedStyles.primaryText]}>
-              {editing === "new" ? "Add Medication" : "Edit Medication"}
+              {editing === "new"
+                ? t("medications.modal.addTitle")
+                : t("medications.modal.editTitle")}
             </Text>
 
-            <Text style={[styles.modalLabel, themedStyles.sectionText]}>Name</Text>
+            <Text style={[styles.modalLabel, themedStyles.sectionText]}>
+              {t("medications.modal.name")}
+            </Text>
             <TextInput
               style={[styles.modalInput, themedStyles.modalInput]}
               value={editName}
               onChangeText={setEditName}
-              placeholder="e.g. Albuterol"
+              placeholder={t("medications.modal.namePlaceholder")}
               placeholderTextColor={theme.appTextMuted}
+              accessibilityLabel={t("medications.modal.name")}
             />
 
-            <Text style={[styles.modalLabel, themedStyles.sectionText]}>Dose</Text>
+            <Text style={[styles.modalLabel, themedStyles.sectionText]}>
+              {t("medications.modal.dose")}
+            </Text>
             <TextInput
               style={[styles.modalInput, themedStyles.modalInput]}
               value={editDose}
               onChangeText={setEditDose}
-              placeholder="e.g. 2 puffs"
+              placeholder={t("medications.modal.dosePlaceholder")}
               placeholderTextColor={theme.appTextMuted}
+              accessibilityLabel={t("medications.modal.dose")}
             />
 
-            <Text style={[styles.modalLabel, themedStyles.sectionText]}>Instructions / Frequency</Text>
+            <Text style={[styles.modalLabel, themedStyles.sectionText]}>
+              {t("medications.modal.instructions")}
+            </Text>
             <TextInput
               style={[styles.modalInput, themedStyles.modalInput]}
               value={editInstructions}
               onChangeText={setEditInstructions}
-              placeholder="e.g. Once daily"
+              placeholder={t("medications.modal.instructionsPlaceholder")}
               placeholderTextColor={theme.appTextMuted}
+              accessibilityLabel={t("medications.modal.instructions")}
             />
 
-            <Text style={[styles.modalLabel, themedStyles.sectionText]}>Administration time (HH:mm, 24h)</Text>
+            <Text style={[styles.modalLabel, themedStyles.sectionText]}>
+              {t("medications.modal.time")}
+            </Text>
             <TextInput
               style={[styles.modalInput, themedStyles.modalInput]}
               value={editTime}
               onChangeText={setEditTime}
-              placeholder="e.g. 20:00"
+              placeholder={t("medications.modal.timePlaceholder")}
               placeholderTextColor={theme.appTextMuted}
+              accessibilityLabel={t("medications.modal.time")}
             />
 
             <View style={styles.modalActions}>
               <Pressable
                 style={[styles.modalButton, styles.modalCancel, themedStyles.modalCancel]}
                 onPress={() => setEditing(null)}
+                accessibilityRole="button"
+                accessibilityLabel={t("common.cancel")}
               >
-                <Text style={[styles.modalCancelText, themedStyles.secondaryText]}>Cancel</Text>
+                <Text style={[styles.modalCancelText, themedStyles.secondaryText]}>
+                  {t("common.cancel")}
+                </Text>
               </Pressable>
-              <Pressable style={styles.modalButton} onPress={saveEdit}>
-                <Text style={styles.modalSaveText}>Save</Text>
+              <Pressable
+                style={styles.modalButton}
+                onPress={saveEdit}
+                accessibilityRole="button"
+                accessibilityLabel={t("common.save")}
+              >
+                <Text style={styles.modalSaveText}>{t("common.save")}</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -528,7 +591,7 @@ export default function MedicationsScreen() {
       <SlmInsightSheet
         visible={slmCheckMed !== null}
         onClose={() => setSlmCheckMed(null)}
-        title="Concierge medication check"
+        title={t("medications.slm.title")}
         reason="custom_med_check"
         allowMinimize={false}
         prompt={
@@ -557,14 +620,16 @@ function MedicationCard({
   onSlmCheck: () => void;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const brandIconColor =
     theme.appBackground === "#000000" ? AppTheme.colors.brandPale : AppTheme.colors.brand;
   const isConfirmed = row.status === "confirmed";
   const isCustom = row.med.source === "custom";
   const showConfirmationUi = row.confirmationRequired;
+  const medName = displayMedicationName(row.med.name, t);
   const [openSection, setOpenSection] = useState<
-    null | 'indication' | 'sideEffects' | 'warnings' | 'other'
+    null | KnowledgeSectionKey
   >(null);
   const { patientId: activePatientId } = usePatientRecord();
   const glance = useMemo(
@@ -583,16 +648,18 @@ function MedicationCard({
 
         <View style={styles.medicationTitleBlock}>
           <View style={styles.nameRow}>
-            <Text style={[styles.medicationName, themedStyles.primaryText]}>{row.med.name}</Text>
+            <Text style={[styles.medicationName, themedStyles.primaryText]}>{medName}</Text>
             {isCustom ? (
               <View style={styles.customBadge}>
-                <Text style={styles.customBadgeText}>Custom</Text>
+                <Text style={styles.customBadgeText}>
+                  {t("medications.badge.custom")}
+                </Text>
               </View>
             ) : null}
-            {row.confirmationLabel ? (
+            {row.confirmationLabelKey ? (
               <View style={[styles.confirmationBadge, themedStyles.brandSoftSurface]}>
                 <Text style={[styles.confirmationBadgeText, themedStyles.accentText]}>
-                  {row.confirmationLabel}
+                  {t(row.confirmationLabelKey)}
                 </Text>
               </View>
             ) : null}
@@ -627,6 +694,12 @@ function MedicationCard({
               isConfirmed && themedStyles.primaryActionConfirmed,
             ]}
             onPress={onToggleConfirm}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isConfirmed
+                ? t("medications.action.confirmedUndoA11y", { name: medName })
+                : t("medications.action.confirmGivenA11y", { name: medName })
+            }
           >
             <Text
               style={[
@@ -635,17 +708,32 @@ function MedicationCard({
                 isConfirmed && themedStyles.primaryActionTextConfirmed,
               ]}
             >
-              {isConfirmed ? "✅ Confirmed · tap to undo" : "✅ Confirm Given"}
+              ✅{" "}
+              {isConfirmed
+                ? t("medications.action.confirmedUndo")
+                : t("medications.action.confirmGiven")}
             </Text>
           </Pressable>
         ) : null}
 
-        <Pressable style={[styles.iconButton, themedStyles.iconButton]} onPress={onEdit}>
+        <Pressable
+          style={[styles.iconButton, themedStyles.iconButton]}
+          onPress={onEdit}
+          accessibilityRole="button"
+          accessibilityLabel={t("medications.action.editA11y", { name: medName })}
+        >
           <AppIcon name="note" size={20} color={theme.appTextMuted} />
         </Pressable>
 
         {isCustom ? (
-          <Pressable style={[styles.iconButton, themedStyles.iconButton]} onPress={onSlmCheck}>
+          <Pressable
+            style={[styles.iconButton, themedStyles.iconButton]}
+            onPress={onSlmCheck}
+            accessibilityRole="button"
+            accessibilityLabel={t("medications.action.conciergeCheckA11y", {
+              name: medName,
+            })}
+          >
             <AppIcon name="care" size={20} color={brandIconColor} />
           </Pressable>
         ) : null}
@@ -654,6 +742,8 @@ function MedicationCard({
           <Pressable
             style={[styles.iconButton, themedStyles.iconButton, styles.iconButtonDanger]}
             onPress={onDelete}
+            accessibilityRole="button"
+            accessibilityLabel={t("medications.action.deleteA11y", { name: medName })}
           >
             <Text style={styles.deleteIconText}>🗑</Text>
           </Pressable>
@@ -671,10 +761,11 @@ function MedKnowledgeCollapsibles({
 }: {
   glance: MedKnowledgeGlance | null;
   medIndication?: string;
-  openSection: null | 'indication' | 'sideEffects' | 'warnings' | 'other';
-  onToggle: (key: 'indication' | 'sideEffects' | 'warnings' | 'other') => void;
+  openSection: null | KnowledgeSectionKey;
+  onToggle: (key: KnowledgeSectionKey) => void;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const indicationText = glance?.indication ?? medIndication?.trim() ?? null;
   const sideEffects = glance?.sideEffects ?? null;
@@ -684,27 +775,44 @@ function MedKnowledgeCollapsibles({
   if (!hasAny) return null;
 
   const rows: Array<{
-    key: 'indication' | 'sideEffects' | 'warnings' | 'other';
-    label: string;
+    key: KnowledgeSectionKey;
+    labelKey: TranslationKey;
     body: string;
   }> = [];
   if (indicationText) {
-    rows.push({ key: 'indication', label: 'What it addresses', body: indicationText });
+    rows.push({
+      key: "indication",
+      labelKey: "medications.knowledge.indication",
+      body: indicationText,
+    });
   }
   if (sideEffects) {
-    rows.push({ key: 'sideEffects', label: 'Common side effects', body: sideEffects });
+    rows.push({
+      key: "sideEffects",
+      labelKey: "medications.knowledge.sideEffects",
+      body: sideEffects,
+    });
   }
   if (warnings) {
-    rows.push({ key: 'warnings', label: 'Warnings to watch', body: warnings });
+    rows.push({
+      key: "warnings",
+      labelKey: "medications.knowledge.warnings",
+      body: warnings,
+    });
   }
   if (other && !indicationText && !sideEffects && !warnings) {
-    rows.push({ key: 'other', label: 'From knowledge', body: other });
+    rows.push({
+      key: "other",
+      labelKey: "medications.knowledge.other",
+      body: other,
+    });
   }
 
   return (
     <View style={[styles.knowledgeBlock, themedStyles.knowledgeBlock]}>
       {rows.map((row) => {
         const open = openSection === row.key;
+        const label = t(row.labelKey);
         return (
           <View key={row.key} style={[styles.knowledgeRow, themedStyles.knowledgeRow]}>
             <Pressable
@@ -712,9 +820,13 @@ function MedKnowledgeCollapsibles({
               onPress={() => onToggle(row.key)}
               accessibilityRole="button"
               accessibilityState={{ expanded: open }}
-              accessibilityLabel={`${row.label}${open ? ' — collapse' : ' — expand'}`}
+              accessibilityLabel={
+                open
+                  ? t("medications.knowledge.collapseA11y", { label })
+                  : t("medications.knowledge.expandA11y", { label })
+              }
             >
-              <Text style={[styles.knowledgeLabel, themedStyles.primaryText]}>{row.label}</Text>
+              <Text style={[styles.knowledgeLabel, themedStyles.primaryText]}>{label}</Text>
               <Text style={[styles.knowledgeChevron, themedStyles.mutedText]}>{open ? '▾' : '▸'}</Text>
             </Pressable>
             {open ? (
@@ -725,7 +837,9 @@ function MedKnowledgeCollapsibles({
       })}
       {glance?.sourceLabels?.length ? (
         <CitationList
-          sources={glance.sourceLabels.map((label) => ({ label }))}
+          sources={glance.sourceLabels.map((label) => ({
+            label: localizeMedSourceLabel(label, t),
+          }))}
           collapsible
           defaultExpanded={false}
           compact
@@ -742,17 +856,9 @@ function MedicationCandidateCard({
   candidate: MedicationCandidate;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const isDark = theme.appBackground === "#000000";
-  const sourceDetail = [
-    candidate.sourceFile,
-    typeof candidate.visitIndex === "number" ? `visit ${candidate.visitIndex}` : undefined,
-    typeof candidate.daysFromFirstVisit === "number"
-      ? `${candidate.daysFromFirstVisit} days from first visit`
-      : undefined,
-  ].filter(Boolean).join(" · ");
-
-  void sourceDetail;
 
   return (
     <View style={[styles.medicationCard, themedStyles.card, styles.candidateCard, themedStyles.candidateCard]}>
@@ -762,21 +868,27 @@ function MedicationCandidateCard({
           <View style={styles.nameRow}>
             <Text style={[styles.medicationName, themedStyles.primaryText]}>{candidate.name}</Text>
             <View style={[styles.reviewBadge, themedStyles.warningSurface]}>
-              <Text style={[styles.reviewBadgeText, themedStyles.warningText]}>Review only</Text>
+              <Text style={[styles.reviewBadgeText, themedStyles.warningText]}>
+                {t("medications.candidate.reviewOnly")}
+              </Text>
             </View>
           </View>
           <Text style={[styles.medicationDose, themedStyles.secondaryText]}>
-            {candidate.category} - historical/review context
+            {t("medications.candidate.categoryContext", {
+              category: candidate.category,
+            })}
           </Text>
         </View>
       </View>
 
       <Text style={[styles.candidateIntro, themedStyles.secondaryText]}>
-        Saved for review. No reminders are set from this item.
+        {t("medications.candidate.saved")}
       </Text>
 
       <View style={[styles.reviewAction, themedStyles.reviewAction]}>
-        <Text style={[styles.reviewActionText, themedStyles.accentText]}>Historical / review context</Text>
+        <Text style={[styles.reviewActionText, themedStyles.accentText]}>
+          {t("medications.candidate.context")}
+        </Text>
       </View>
     </View>
   );
@@ -790,8 +902,12 @@ function StatusPill({
   compact?: boolean;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
-  const label = status === "confirmed" ? "Confirmed" : "Pending";
+  const label =
+    status === "confirmed"
+      ? t("medications.status.confirmed")
+      : t("medications.status.pending");
   return (
     <View
       style={[

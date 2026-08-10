@@ -4,6 +4,7 @@
  */
 
 import type { OptionalFeatureRequirements } from '@/hooks/useOptionalFeatureGate';
+import type { TranslationKey, TranslateFn } from '@/localization/i18n';
 
 const COPY: Record<
   OptionalFeatureRequirements,
@@ -23,6 +24,24 @@ const COPY: Record<
   },
 };
 
+const COPY_KEYS: Record<
+  OptionalFeatureRequirements,
+  { title: TranslationKey; body: TranslationKey }
+> = {
+  slm: {
+    title: 'optionalFeaturePrompt.slm.title',
+    body: 'optionalFeaturePrompt.slm.body',
+  },
+  knowledge: {
+    title: 'optionalFeaturePrompt.knowledge.title',
+    body: 'optionalFeaturePrompt.knowledge.body',
+  },
+  both: {
+    title: 'optionalFeaturePrompt.both.title',
+    body: 'optionalFeaturePrompt.both.body',
+  },
+};
+
 /**
  * Resolve the prompt copy for a requirement.
  * When `simulatedMissing` is true, the developer flag "Simulate missing
@@ -32,14 +51,28 @@ const COPY: Record<
 export function getPromptCopy(
   requirement: OptionalFeatureRequirements,
   simulatedMissing: boolean,
+  t?: TranslateFn,
 ): { title: string; body: string } {
   if (simulatedMissing) {
+    if (t) {
+      return {
+        title: t('optionalFeaturePrompt.developer.title'),
+        body: t('optionalFeaturePrompt.developer.body'),
+      };
+    }
     return {
       title: 'Concierge is hidden by a developer setting',
       body:
         'The setting "Simulate missing Concierge / knowledge" (Settings → Developer → Runtime gates) is ON. ' +
         'It reports the Concierge and knowledge packs as not downloaded to test the optional-feature prompts. ' +
         'Your model is installed — turn the setting OFF to use Concierge.',
+    };
+  }
+  if (t) {
+    const keys = COPY_KEYS[requirement];
+    return {
+      title: t(keys.title),
+      body: t(keys.body),
     };
   }
   return COPY[requirement];

@@ -19,21 +19,24 @@ import { Animated, StyleSheet, Text, View } from "react-native";
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
+import type { TranslationKey } from "@/localization/i18n";
 
 const TAB_CONFIG: {
   name: string;
-  label: string;
+  labelKey: TranslationKey;
   icon: AppIconName;
 }[] = [
-  { name: "dashboard", label: "Home", icon: "home" },
-  { name: "care", label: "Care", icon: "care" },
-  { name: "medications", label: "Meds", icon: "pill" },
-  { name: "schedule", label: "Schedule", icon: "schedule" },
-  { name: "assistant", label: "Concierge", icon: "assistant" },
+  { name: "dashboard", labelKey: "tabs.home", icon: "home" },
+  { name: "care", labelKey: "tabs.care", icon: "care" },
+  { name: "medications", labelKey: "tabs.meds", icon: "pill" },
+  { name: "schedule", labelKey: "tabs.schedule", icon: "schedule" },
+  { name: "assistant", labelKey: "tabs.concierge", icon: "assistant" },
 ];
 
 export default function TabsLayout() {
   const theme = useTheme();
+  const { t } = useTranslation();
 
   return (
     <Tabs
@@ -52,26 +55,30 @@ export default function TabsLayout() {
         tabBarItemStyle: styles.tabItem,
       }}
     >
-      {TAB_CONFIG.map((tab) => (
-        <Tabs.Screen
-          key={tab.name}
-          name={tab.name}
-          options={{
-            title: tab.label,
-            tabBarLabel: ({ color }) => (
-              <Text
-                style={[styles.tabLabel, { color }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.68}
-              >
-                {tab.label}
-              </Text>
-            ),
-            tabBarIcon: ({ focused }) => <AnimatedTabIcon name={tab.icon} focused={focused} inactiveColor={theme.appSectionText} />,
-          }}
-        />
-      ))}
+      {TAB_CONFIG.map((tab) => {
+        const label = t(tab.labelKey);
+
+        return (
+          <Tabs.Screen
+            key={tab.name}
+            name={tab.name}
+            options={{
+              title: label,
+              tabBarLabel: ({ color }) => (
+                <Text
+                  style={[styles.tabLabel, { color }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.68}
+                >
+                  {label}
+                </Text>
+              ),
+              tabBarIcon: ({ focused }) => <AnimatedTabIcon name={tab.icon} focused={focused} inactiveColor={theme.appSectionText} />,
+            }}
+          />
+        );
+      })}
     </Tabs>
   );
 }

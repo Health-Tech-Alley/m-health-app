@@ -3,7 +3,9 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
 import type { SecureConversation, SecureMessage } from "@/components/messaging/types";
+import type { AppLocale, TranslateFn } from "@/localization/i18n";
 
 export function MessageThread({
   conversation,
@@ -17,13 +19,14 @@ export function MessageThread({
   onMessageActionPressed: (messageId: string) => void;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createStyles(theme), [theme]);
 
   if (!conversation) {
     return (
       <View style={[styles.emptyState, themedStyles.emptyState]}>
-        <Text style={[styles.emptyTitle, themedStyles.emptyTitle]}>No conversation selected</Text>
-        <Text style={[styles.emptyText, themedStyles.emptyText]}>Choose a conversation or start a new message when messaging is connected.</Text>
+        <Text style={[styles.emptyTitle, themedStyles.emptyTitle]}>{t("messaging.thread.emptyNoSelectionTitle")}</Text>
+        <Text style={[styles.emptyText, themedStyles.emptyText]}>{t("messaging.thread.emptyNoSelectionBody")}</Text>
       </View>
     );
   }
@@ -31,8 +34,8 @@ export function MessageThread({
   if (messages.length === 0) {
     return (
       <View style={[styles.emptyState, themedStyles.emptyState]}>
-        <Text style={[styles.emptyTitle, themedStyles.emptyTitle]}>No messages yet</Text>
-        <Text style={[styles.emptyText, themedStyles.emptyText]}>Messages will appear here after retrieval is connected.</Text>
+        <Text style={[styles.emptyTitle, themedStyles.emptyTitle]}>{t("messaging.thread.emptyNoMessagesTitle")}</Text>
+        <Text style={[styles.emptyText, themedStyles.emptyText]}>{t("messaging.thread.emptyNoMessagesBody")}</Text>
       </View>
     );
   }
@@ -64,8 +67,10 @@ function MessageBubble({
   onMessageActionPressed: (messageId: string) => void;
 }) {
   const theme = useTheme();
+  const { t, locale } = useTranslation();
   const themedStyles = useMemo(() => createStyles(theme), [theme]);
   const outgoing = message.direction === "outgoing";
+  const senderLabel = outgoing ? t("messaging.thread.sender.you") : participantName;
   return (
     <View style={[styles.bubbleWrap, outgoing ? styles.outgoingWrap : styles.incomingWrap]}>
       <Pressable
@@ -75,26 +80,29 @@ function MessageBubble({
           !outgoing && themedStyles.incomingBubble,
         ]}
         accessibilityRole="button"
-        accessibilityLabel={`Message from ${outgoing ? "you" : participantName}`}
+        accessibilityLabel={t("messaging.thread.messageFromA11y", { sender: senderLabel })}
         onPress={() => onMessageActionPressed(message.messageId)}
       >
         <Text style={[styles.sender, outgoing ? styles.outgoingText : styles.incomingSender, !outgoing && themedStyles.incomingSender]}>
-          {outgoing ? "You" : participantName}
+          {senderLabel}
         </Text>
         <Text style={[styles.body, outgoing ? styles.outgoingText : styles.incomingText, !outgoing && themedStyles.incomingText]}>
           {message.body}
         </Text>
         <View style={styles.metaRow}>
           <Text style={[styles.meta, outgoing ? styles.outgoingMeta : styles.incomingMeta, !outgoing && themedStyles.incomingMeta]}>
-            {formatMessageTime(message.createdAt)} - {formatDeliveryState(message.deliveryState)}
+            {t("messaging.thread.deliveryMeta", {
+              time: formatMessageTime(message.createdAt, locale),
+              status: formatDeliveryState(message.deliveryState, t),
+            })}
           </Text>
           {message.deliveryState === "failed" ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Retry failed message"
+              accessibilityLabel={t("messaging.thread.retryFailedA11y")}
               onPress={() => onRetryFailedMessagePressed(message.messageId)}
             >
-              <Text style={styles.retryText}>Retry</Text>
+              <Text style={styles.retryText}>{t("common.retry")}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -103,14 +111,22 @@ function MessageBubble({
   );
 }
 
-function formatMessageTime(value: string) {
+function formatMessageTime(value: string, locale: AppLocale) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return date.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
 }
 
-function formatDeliveryState(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
+function formatDeliveryState(
+  value: SecureMessage["deliveryState"],
+  t: TranslateFn,
+) {
+  if (value === "sending") return t("messaging.delivery.sending");
+  if (value === "sent") return t("messaging.delivery.sent");
+  if (value === "delivered") return t("messaging.delivery.delivered");
+  if (value === "read") return t("messaging.delivery.read");
+  if (value === "failed") return t("messaging.delivery.failed");
+  return value;
 }
 
 function createStyles(theme: ReturnType<typeof useTheme>) {

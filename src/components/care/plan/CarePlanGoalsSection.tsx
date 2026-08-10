@@ -15,6 +15,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 import type {
   Caregiver,
   CarePlan,
@@ -40,6 +42,7 @@ export interface GoalExplainRequest {
 
 export interface CategoryExplainRequest {
   categoryLabel: string;
+  displayCategoryLabel?: string;
   items: string[];
 }
 
@@ -78,19 +81,69 @@ function toggle(set: Record<string, boolean>, key: string): Record<string, boole
   return { ...set, [key]: !set[key] };
 }
 
-function statusExplanation(status: string | null | undefined): string {
+function formatCareCategoryLabel(key: CareCategoryKey, t: TranslateFn): string {
+  switch (key) {
+    case 'medication':
+      return t('care.category.medication');
+    case 'skin_pressure':
+      return t('care.category.skinPressure');
+    case 'mobility_transfers':
+      return t('care.category.mobilityTransfers');
+    case 'breathing':
+      return t('care.category.breathing');
+    case 'bowel_bladder':
+      return t('care.category.bowelBladder');
+    case 'feeding_hydration':
+      return t('care.category.feedingHydration');
+    case 'sleep_fatigue':
+      return t('care.category.sleepFatigue');
+    case 'therapy':
+      return t('care.category.therapy');
+    case 'pain_comfort':
+      return t('care.category.painComfort');
+    case 'responsiveness':
+      return t('care.category.responsiveness');
+    case 'caregiver_support':
+      return t('care.category.caregiverSupport');
+    case 'other':
+      return t('care.category.other');
+  }
+}
+
+function statusLabel(status: string | null | undefined, t: TranslateFn): string {
   switch ((status ?? '').toLowerCase()) {
     case 'active':
-      return '"Active" means this is still being worked on — the care team has not marked it complete.';
+      return t('care.goals.status.active.label');
     case 'in-progress':
-      return '"In progress" means work on this has started and is still going.';
+      return t('care.goals.status.inProgress.label');
     case 'completed':
-      return '"Completed" means the care team marked this done.';
+      return t('care.goals.status.completed.label');
+    case 'cancelled':
+      return t('care.goals.status.cancelled.label');
+    case 'on-hold':
+      return t('care.goals.status.onHold.label');
+    default:
+      return status ?? '';
+  }
+}
+
+function statusExplanation(status: string | null | undefined, t: TranslateFn): string {
+  switch ((status ?? '').toLowerCase()) {
+    case 'active':
+      return t('care.goals.status.active.explanation');
+    case 'in-progress':
+      return t('care.goals.status.inProgress.explanation');
+    case 'completed':
+      return t('care.goals.status.completed.explanation');
     case 'cancelled':
     case 'on-hold':
-      return `"${status}" means this is paused for now, not abandoned.`;
+      return t('care.goals.status.paused.explanation', {
+        status: statusLabel(status, t) || status || '',
+      });
     default:
-      return status ? `Status reported by the care team: "${status}".` : 'No status was recorded for this item.';
+      return status
+        ? t('care.goals.status.reported.explanation', { status })
+        : t('care.goals.status.none.explanation');
   }
 }
 
@@ -123,6 +176,7 @@ export function CarePlanGoalsSection({
   onExplainConsideration,
 }: CarePlanGoalsSectionProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedSectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const activities = useMemo(
@@ -154,7 +208,7 @@ export function CarePlanGoalsSection({
       push({
         id: `goal:${goal.goalId}`,
         kind: 'goal',
-        text: goal.description ?? 'Goal',
+        text: goal.description ?? t('care.goals.goal'),
         status: goal.status,
         targetDate: goal.targetDate ?? null,
       });
@@ -163,7 +217,7 @@ export function CarePlanGoalsSection({
       push({
         id: `activity:${activity.activityId}`,
         kind: 'activity',
-        text: activity.description ?? 'Activity',
+        text: activity.description ?? t('care.goals.activity'),
         status: activity.status,
       });
     }
@@ -172,7 +226,7 @@ export function CarePlanGoalsSection({
       label: careCategoryLabel(key),
       items: groups.get(key) ?? [],
     }));
-  }, [goals, activities]);
+  }, [goals, activities, t]);
 
   const total = goals.length + activities.length;
   const considerations = buildConsiderations({
@@ -181,14 +235,15 @@ export function CarePlanGoalsSection({
     dailyRoutine,
     functionalScales,
     careContextExtension,
+    t,
   });
   const hasCareAreas = orderedGroups.length > 0;
   const hasCareConsiderations = considerations.length > 0;
   const hasCareTeam = careTeam.length > 0;
   const subtitleLabels = [
-    hasCareAreas ? 'Care areas' : '',
-    hasCareConsiderations ? 'Care considerations' : '',
-    hasCareTeam ? 'Care team' : '',
+    hasCareAreas ? t('care.goals.careAreas') : '',
+    hasCareConsiderations ? t('care.goals.careConsiderations') : '',
+    hasCareTeam ? t('care.goals.careTeam') : '',
   ].filter(Boolean);
   const displayedContentKey = [
     patientId ?? 'no-patient',
@@ -224,12 +279,17 @@ export function CarePlanGoalsSection({
         onPress={() => setSectionExpanded((current) => !current)}
         accessibilityRole="button"
         accessibilityState={{ expanded: sectionExpanded }}
-        accessibilityLabel={`Goals and activities${total > 0 ? `, ${total} items` : ''}${
-          subtitleLabels.length > 0 ? `, ${subtitleLabels.join(', ')}` : ''
-        }`}
+        accessibilityLabel={
+          total > 0
+            ? t('care.goals.accessibilityLabelWithMeta', {
+                count: total,
+                meta: subtitleLabels.length > 0 ? `, ${subtitleLabels.join(', ')}` : '',
+              })
+            : t('care.goals.accessibilityLabel')
+        }
       >
         <View style={styles.sectionTitleRow}>
-          <Text style={[themedSectionStyles.title, styles.sectionTitleText]}>Goals & activities</Text>
+          <Text style={[themedSectionStyles.title, styles.sectionTitleText]}>{t('care.goals.title')}</Text>
           {total > 0 ? (
             <View style={themedSectionStyles.pill}>
               <Text style={themedSectionStyles.pillText}>{total}</Text>
@@ -246,9 +306,12 @@ export function CarePlanGoalsSection({
         <View style={styles.expandedBody}>
           {hasCareAreas ? (
             <View>
-              <Text style={[styles.bodySectionTitle, themedStyles.sectionLabel]}>Care areas</Text>
+              <Text style={[styles.bodySectionTitle, themedStyles.sectionLabel]}>{t('care.goals.careAreas')}</Text>
               {orderedGroups.map((group) => {
                 const expanded = Boolean(expandedGroups[group.key]);
+                const groupDisplayLabel = formatCareCategoryLabel(group.key, t);
+                const itemLabel =
+                  group.items.length === 1 ? t('care.goals.item.one') : t('care.goals.item.many');
                 return (
                   <View key={group.key} style={[styles.groupBlock, themedStyles.dividerTop]}>
                     <View style={styles.groupHeaderRow}>
@@ -259,9 +322,9 @@ export function CarePlanGoalsSection({
                         }
                         accessibilityRole="button"
                         accessibilityState={{ expanded }}
-                        accessibilityLabel={`${group.label}, ${group.items.length} items`}
+                        accessibilityLabel={`${groupDisplayLabel}, ${group.items.length} ${itemLabel}`}
                       >
-                        <Text style={[styles.groupTitle, themedStyles.primaryText]}>{group.label}</Text>
+                        <Text style={[styles.groupTitle, themedStyles.primaryText]}>{groupDisplayLabel}</Text>
                         <View style={styles.groupMeta}>
                           <View style={[themedSectionStyles.pill, themedSectionStyles.pillMuted]}>
                             <Text style={themedSectionStyles.pillMutedText}>{group.items.length}</Text>
@@ -274,13 +337,16 @@ export function CarePlanGoalsSection({
                           onPress={() =>
                             onExplainCategory({
                               categoryLabel: group.label,
+                              displayCategoryLabel: groupDisplayLabel,
                               items: group.items.map((item) => item.text),
                             })
                           }
                           accessibilityRole="button"
-                          accessibilityLabel={`Explain ${group.label} with Concierge`}
+                          accessibilityLabel={t('care.goals.explainCategoryA11y', {
+                            category: groupDisplayLabel,
+                          })}
                         >
-                          <Text style={[styles.explainLink, themedStyles.actionText]}>Explain</Text>
+                          <Text style={[styles.explainLink, themedStyles.actionText]}>{t('care.priorities.explain')}</Text>
                         </Pressable>
                       ) : null}
                     </View>
@@ -304,7 +370,9 @@ export function CarePlanGoalsSection({
                                 >
                                   <Text style={[styles.bulletText, themedStyles.primaryText]}>{itemExpanded ? item.text : summary}</Text>
                                   <View style={styles.itemMetaRow}>
-                                    <Text style={[styles.kindTag, themedStyles.mutedText]}>{item.kind === 'goal' ? 'Goal' : 'Activity'}</Text>
+                                    <Text style={[styles.kindTag, themedStyles.mutedText]}>
+                                      {item.kind === 'goal' ? t('care.goals.goal') : t('care.goals.activity')}
+                                    </Text>
                                     {item.status ? (
                                       <Pressable
                                         onPress={() =>
@@ -313,18 +381,26 @@ export function CarePlanGoalsSection({
                                           )
                                         }
                                         accessibilityRole="button"
-                                        accessibilityLabel={`Status ${item.status}`}
+                                        accessibilityLabel={t('care.goals.statusA11y', {
+                                          status: statusLabel(item.status, t),
+                                        })}
                                       >
-                                        <Text style={[styles.statusChip, themedStyles.statusChip]}>{item.status}</Text>
+                                        <Text style={[styles.statusChip, themedStyles.statusChip]}>
+                                          {statusLabel(item.status, t)}
+                                        </Text>
                                       </Pressable>
                                     ) : null}
                                     {item.targetDate ? (
-                                      <Text style={[styles.itemMeta, themedStyles.mutedText]}>Target {item.targetDate}</Text>
+                                      <Text style={[styles.itemMeta, themedStyles.mutedText]}>
+                                        {t('care.goals.target', { date: item.targetDate })}
+                                      </Text>
                                     ) : null}
                                   </View>
                                 </Pressable>
                                 {statusInfoFor === item.id ? (
-                                  <Text style={[styles.statusExplainer, themedStyles.supportingText]}>{statusExplanation(item.status)}</Text>
+                                  <Text style={[styles.statusExplainer, themedStyles.supportingText]}>
+                                    {statusExplanation(item.status, t)}
+                                  </Text>
                                 ) : null}
                                 {itemExpanded && onExplainItem ? (
                                   <Pressable
@@ -337,9 +413,9 @@ export function CarePlanGoalsSection({
                                       })
                                     }
                                     accessibilityRole="button"
-                                    accessibilityLabel="Explain this item with Concierge"
+                                    accessibilityLabel={t('care.goals.explainItemA11y')}
                                   >
-                                    <Text style={[styles.explainLink, themedStyles.actionText]}>Explain with Concierge</Text>
+                                    <Text style={[styles.explainLink, themedStyles.actionText]}>{t('care.goals.explainItem')}</Text>
                                   </Pressable>
                                 ) : null}
                               </View>
@@ -359,7 +435,9 @@ export function CarePlanGoalsSection({
                           </Text>
                         ))}
                         {group.items.length > 3 ? (
-                          <Text style={[styles.previewMore, themedStyles.mutedText]}>+{group.items.length - 3} more</Text>
+                          <Text style={[styles.previewMore, themedStyles.mutedText]}>
+                            {t('care.goals.more', { count: group.items.length - 3 })}
+                          </Text>
                         ) : null}
                       </View>
                     )}
@@ -373,10 +451,10 @@ export function CarePlanGoalsSection({
             <View
               style={[styles.summarySection, themedStyles.dividerTop]}
               accessible
-              accessibilityLabel="Care considerations"
+              accessibilityLabel={t('care.goals.careConsiderations')}
             >
               <View style={styles.summarySectionHeaderStatic}>
-                <Text style={[styles.summarySectionTitle, themedStyles.sectionLabel]}>Care considerations</Text>
+                <Text style={[styles.summarySectionTitle, themedStyles.sectionLabel]}>{t('care.goals.careConsiderations')}</Text>
               </View>
               <View style={styles.summarySectionBody}>
                 {considerations.map((consideration) => {
@@ -399,7 +477,9 @@ export function CarePlanGoalsSection({
                         }
                         accessibilityRole="button"
                         accessibilityState={{ expanded }}
-                        accessibilityLabel={`${consideration.label}, ${bullets.length} points`}
+                        accessibilityLabel={`${consideration.label}, ${bullets.length} ${
+                          bullets.length === 1 ? t('care.goals.item.one') : t('care.goals.item.many')
+                        }`}
                       >
                         <Text style={[styles.considerationLabel, themedStyles.sectionLabel]}>{consideration.label}</Text>
                         <View style={styles.groupMeta}>
@@ -427,9 +507,11 @@ export function CarePlanGoalsSection({
                             <Pressable
                               onPress={() => onExplainConsideration(consideration.text)}
                               accessibilityRole="button"
-                              accessibilityLabel={`Discuss ${consideration.label} with Concierge`}
+                              accessibilityLabel={t('care.goals.discussA11y', {
+                                label: consideration.label,
+                              })}
                             >
-                              <Text style={[styles.explainLink, themedStyles.actionText]}>Discuss with Concierge</Text>
+                              <Text style={[styles.explainLink, themedStyles.actionText]}>{t('care.goals.discuss')}</Text>
                             </Pressable>
                           ) : null}
                         </>
@@ -448,11 +530,11 @@ export function CarePlanGoalsSection({
                 onPress={() => setExpandedSummarySections((current) => toggle(current, 'care-team'))}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: Boolean(expandedSummarySections['care-team']) }}
-                accessibilityLabel={`Care team, ${careTeam.length} ${
-                  careTeam.length === 1 ? 'member' : 'members'
+                accessibilityLabel={`${t('care.goals.careTeam')}, ${careTeam.length} ${
+                  careTeam.length === 1 ? t('care.goals.member.one') : t('care.goals.member.many')
                 }`}
               >
-                <Text style={[styles.summarySectionTitle, themedStyles.sectionLabel]}>Care team</Text>
+                <Text style={[styles.summarySectionTitle, themedStyles.sectionLabel]}>{t('care.goals.careTeam')}</Text>
                 <View style={styles.groupMeta}>
                   <View style={[themedSectionStyles.pill, themedSectionStyles.pillMuted]}>
                     <Text style={themedSectionStyles.pillMutedText}>{careTeam.length}</Text>
@@ -547,6 +629,7 @@ function buildConsiderations(input: {
   dailyRoutine?: string | null;
   functionalScales?: Record<string, string> | null;
   careContextExtension?: CarePlanGoalsSectionProps['careContextExtension'];
+  t: TranslateFn;
 }): Consideration[] {
   const list: Consideration[] = [];
   const ext = input.careContextExtension;
@@ -575,28 +658,28 @@ function buildConsiderations(input: {
   });
 
   if (mainConcern) {
-    list.push(toConsideration('main-concern', 'Main concern', mainConcern, nluCtx));
+    list.push(toConsideration('main-concern', input.t('care.goals.consideration.mainConcern'), mainConcern, nluCtx));
   }
 
   if (otherSymptoms) {
     // Already a short list — still bulletize for consistency.
-    list.push(toConsideration('other-symptoms', 'Other symptoms', otherSymptoms, nluCtx));
+    list.push(toConsideration('other-symptoms', input.t('care.goals.consideration.otherSymptoms'), otherSymptoms, nluCtx));
   }
 
   if (support) {
-    list.push(toConsideration('support-needs', 'Support needs', support, nluCtx));
+    list.push(toConsideration('support-needs', input.t('care.goals.consideration.supportNeeds'), support, nluCtx));
   }
 
   if (mobility) {
-    list.push(toConsideration('mobility', 'Mobility & function', mobility, nluCtx));
+    list.push(toConsideration('mobility', input.t('care.goals.consideration.mobility'), mobility, nluCtx));
   }
 
   if (routine) {
-    list.push(toConsideration('daily-routine', 'Daily routine', routine, nluCtx));
+    list.push(toConsideration('daily-routine', input.t('care.goals.consideration.dailyRoutine'), routine, nluCtx));
   }
 
   if (otherNotes) {
-    list.push(toConsideration('other-notes', 'Additional notes', otherNotes, nluCtx));
+    list.push(toConsideration('other-notes', input.t('care.goals.consideration.additionalNotes'), otherNotes, nluCtx));
   }
 
   return list;

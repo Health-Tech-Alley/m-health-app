@@ -18,10 +18,13 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTheme } from '@/constants/theme';
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslationKey } from '@/localization/i18n';
 
 export interface ConciergeSuggestion {
   id: string;
   label: string;
+  labelKey: TranslationKey;
   kind: 'chat' | 'intent';
   /** For kind 'chat': the prompt sent into the conversation. */
   prompt?: string;
@@ -32,6 +35,7 @@ export interface ConciergeSuggestion {
 interface SuggestionGroup {
   key: string;
   label: string;
+  labelKey: TranslationKey;
   suggestions: ConciergeSuggestion[];
 }
 
@@ -39,10 +43,12 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
   {
     key: 'understand',
     label: 'Understand the plan',
+    labelKey: 'assistant.suggestions.group.understand',
     suggestions: [
       {
         id: 'weekly-review',
         label: 'Review this week\u2019s care plan',
+        labelKey: 'assistant.suggestions.weeklyReview',
         kind: 'chat',
         prompt:
           'Walk me through this week\u2019s care plan for my patient in plain language: the main goals, what changed recently, and what I should focus on first.',
@@ -50,6 +56,7 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
       {
         id: 'explain-focus',
         label: 'Explain my current care focus items',
+        labelKey: 'assistant.suggestions.explainFocus',
         kind: 'chat',
         prompt:
           'Explain my current care focus items: what each one means, why it was raised, and what I should log or watch for next.',
@@ -57,6 +64,7 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
       {
         id: 'understand-goals',
         label: 'What are the goals right now?',
+        labelKey: 'assistant.suggestions.understandGoals',
         kind: 'chat',
         prompt:
           'Summarize the active goals on the care plan and what progress toward them looks like this month.',
@@ -66,10 +74,12 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
   {
     key: 'daily-care',
     label: 'Daily care',
+    labelKey: 'assistant.suggestions.group.dailyCare',
     suggestions: [
       {
         id: 'todays-logging',
         label: 'What should I log today?',
+        labelKey: 'assistant.suggestions.todaysLogging',
         kind: 'chat',
         prompt:
           'Based on the current care plan and recent patterns, what are the most useful things for me to log today?',
@@ -77,6 +87,7 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
       {
         id: 'watch-today',
         label: 'What should I watch for today?',
+        labelKey: 'assistant.suggestions.watchToday',
         kind: 'chat',
         prompt:
           'Given this patient\u2019s conditions, medications, and care plan, what should I watch for today and when should I escalate?',
@@ -84,6 +95,7 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
       {
         id: 'propose-therapy',
         label: 'Suggest a therapy plan update',
+        labelKey: 'assistant.suggestions.proposeTherapy',
         kind: 'intent',
         intentId: 'propose_therapy_contract_patch',
       },
@@ -92,10 +104,12 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
   {
     key: 'review-prepare',
     label: 'Review & prepare',
+    labelKey: 'assistant.suggestions.group.reviewPrepare',
     suggestions: [
       {
         id: 'handoff-summary',
         label: 'Prepare a care-team summary',
+        labelKey: 'assistant.suggestions.handoffSummary',
         kind: 'chat',
         prompt:
           'Help me prepare a short summary for the care team: recent concerns, what I have been logging, and questions to bring up at the next visit.',
@@ -103,12 +117,14 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
       {
         id: 'review-monitoring',
         label: 'Review monitoring thresholds',
+        labelKey: 'assistant.suggestions.reviewMonitoring',
         kind: 'intent',
         intentId: 'review_monitoring_contract',
       },
       {
         id: 'med-questions',
         label: 'Questions about medications',
+        labelKey: 'assistant.suggestions.medQuestions',
         kind: 'chat',
         prompt:
           'What are practical, non-dose questions I could ask the care team about the current medications and their watch areas?',
@@ -130,6 +146,7 @@ export function ConciergeSuggestionBox({
   disabled = false,
 }: ConciergeSuggestionBoxProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [cardExpanded, setCardExpanded] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -144,19 +161,21 @@ export function ConciergeSuggestionBox({
   };
 
   return (
-    <View style={[styles.card, themedStyles.card]} accessible accessibilityLabel="Suggestions">
+    <View style={[styles.card, themedStyles.card]} accessible accessibilityLabel={t('assistant.suggestions.cardA11y')}>
       <Pressable
         style={styles.cardHeader}
         onPress={() => setCardExpanded((v) => !v)}
         accessibilityRole="button"
         accessibilityState={{ expanded: cardExpanded }}
-        accessibilityLabel={`Try asking${cardExpanded ? ' — collapse' : ' — expand'}`}
+        accessibilityLabel={t('assistant.suggestions.a11y', {
+          state: cardExpanded ? t('common.collapse') : t('common.expand'),
+        })}
       >
         <View style={styles.cardHeaderText}>
-          <Text style={[styles.title, themedStyles.primaryText]}>Try asking</Text>
+          <Text style={[styles.title, themedStyles.primaryText]}>{t('assistant.suggestions.title')}</Text>
           {!cardExpanded ? (
             <Text style={[styles.subtitleCollapsed, themedStyles.mutedText]}>
-              Sample prompts by category — tap to expand
+              {t('assistant.suggestions.collapsedSubtitle')}
             </Text>
           ) : null}
         </View>
@@ -166,10 +185,11 @@ export function ConciergeSuggestionBox({
       {cardExpanded ? (
         <>
           <Text style={[styles.subtitle, themedStyles.mutedText]}>
-            A few starting points, grouped so they are easier to scan.
+            {t('assistant.suggestions.subtitle')}
           </Text>
           {SUGGESTION_GROUPS.map((group) => {
             const expanded = Boolean(expandedGroups[group.key]);
+            const groupLabel = t(group.labelKey);
             return (
               <View key={group.key} style={[styles.group, themedStyles.group]}>
                 <Pressable
@@ -182,9 +202,9 @@ export function ConciergeSuggestionBox({
                   }
                   accessibilityRole="button"
                   accessibilityState={{ expanded }}
-                  accessibilityLabel={`${group.label}${expanded ? ' — collapse' : ' — expand'}`}
+                  accessibilityLabel={`${groupLabel} - ${expanded ? t('common.collapse') : t('common.expand')}`}
                 >
-                  <Text style={[styles.groupLabel, themedStyles.primaryText]}>{group.label}</Text>
+                  <Text style={[styles.groupLabel, themedStyles.primaryText]}>{groupLabel}</Text>
                   <Text style={[styles.groupMeta, themedStyles.mutedText]}>
                     {group.suggestions.length} · {expanded ? '▾' : '▸'}
                   </Text>
@@ -198,9 +218,9 @@ export function ConciergeSuggestionBox({
                         onPress={() => handlePress(suggestion)}
                         disabled={disabled}
                         accessibilityRole="button"
-                        accessibilityLabel={suggestion.label}
+                        accessibilityLabel={t(suggestion.labelKey)}
                       >
-                        <Text style={[styles.chipText, themedStyles.chipText]}>{suggestion.label}</Text>
+                        <Text style={[styles.chipText, themedStyles.chipText]}>{t(suggestion.labelKey)}</Text>
                       </Pressable>
                     ))}
                   </View>

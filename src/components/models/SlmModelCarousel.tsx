@@ -22,11 +22,60 @@ import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { useSettings } from '@/contexts/settings-context';
-import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
+import {
+  MODEL_CATALOG,
+  resolveActiveModelId,
+  type ModelEntry,
+} from '@/inference/model-catalog';
 import {
   getInstalledModelIds,
   useModelDownloadQueue,
 } from '@/hooks/useModelDownloadQueue';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn, TranslationKey } from '@/localization/i18n';
+
+const MODEL_COPY_KEYS: Record<
+  string,
+  { tagline: TranslationKey; bullets: TranslationKey[] }
+> = {
+  'gemma-4-e2b': {
+    tagline: 'onboarding.models.gemma.tagline',
+    bullets: [
+      'onboarding.models.gemma.bullet1',
+      'onboarding.models.gemma.bullet2',
+      'onboarding.models.gemma.bullet3',
+      'onboarding.models.gemma.bullet4',
+    ],
+  },
+  'bonsai-8b-1bit': {
+    tagline: 'onboarding.models.bonsai.tagline',
+    bullets: [
+      'onboarding.models.bonsai.bullet1',
+      'onboarding.models.bonsai.bullet2',
+      'onboarding.models.bonsai.bullet3',
+      'onboarding.models.bonsai.bullet4',
+    ],
+  },
+  'lfm2-5-2-6b': {
+    tagline: 'onboarding.models.lfm2.tagline',
+    bullets: [
+      'onboarding.models.lfm2.bullet1',
+      'onboarding.models.lfm2.bullet2',
+      'onboarding.models.lfm2.bullet3',
+      'onboarding.models.lfm2.bullet4',
+    ],
+  },
+};
+
+function getLocalizedModelCopy(item: ModelEntry, t: TranslateFn) {
+  const keys = MODEL_COPY_KEYS[item.id];
+  if (!keys) return { tagline: item.tagline, bullets: item.bullets };
+
+  return {
+    tagline: t(keys.tagline),
+    bullets: keys.bullets.map((key) => t(key)),
+  };
+}
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '0 B';
@@ -55,6 +104,7 @@ export function SlmModelCarousel({
 }: SlmModelCarouselProps) {
   const queue = useModelDownloadQueue();
   const { settings, setDemoDefaultModelId } = useSettings();
+  const { t } = useTranslation();
   // Effective default — a single installed model is always the default.
   const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
     queue.rows.some((r) => r.id === id && r.status === 'installed'),
@@ -79,7 +129,7 @@ export function SlmModelCarousel({
     (modelId: string) => {
       const result = queue.removeModel(modelId);
       if (!result.ok) {
-        Alert.alert('Keep a Concierge model', result.reason);
+        Alert.alert(t('onboarding.models.keepModelTitle'), result.reason);
         return;
       }
       // Reassign the default if the deleted model was it.
@@ -90,7 +140,7 @@ export function SlmModelCarousel({
         }
       }
     },
-    [queue, defaultModelId, setDemoDefaultModelId],
+    [queue, defaultModelId, setDemoDefaultModelId, t],
   );
 
   const onMomentumEnd = useCallback(
@@ -106,14 +156,14 @@ export function SlmModelCarousel({
     <View style={styles.root}>
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
-          <Text style={styles.title}>Concierge model</Text>
+          <Text style={styles.title}>{t('onboarding.models.title')}</Text>
           <Text style={styles.subtitle}>
-            Swipe to compare · one download at a time
+            {t('onboarding.models.subtitle')}
           </Text>
         </View>
         {hfTokenHint ? (
           <Pressable onPress={onNeedHfToken} accessibilityRole="link">
-            <Text style={styles.link}>HF token</Text>
+            <Text style={styles.link}>{t('onboarding.models.hfToken')}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -136,6 +186,11 @@ export function SlmModelCarousel({
               : 0;
           const isDefault = defaultModelId === item.id;
           const disableStart = queue.anyDownloading && queue.activeModelId !== item.id;
+          const modelCopy = getLocalizedModelCopy(item, t);
+          const contextLabel =
+            item.preferredNCtx >= 8192
+              ? t('onboarding.models.context8k')
+              : t('onboarding.models.context4k');
 
           return (
             <View style={[styles.card, { width: cardW, height: cardHeight }]}>
@@ -143,23 +198,25 @@ export function SlmModelCarousel({
                 <Text style={styles.modelName}>{item.displayName}</Text>
                 {item.experimental ? (
                   <View style={styles.experimentalBadge}>
-                    <Text style={styles.experimentalText}>Experimental</Text>
+                    <Text style={styles.experimentalText}>
+                      {t('onboarding.models.experimental')}
+                    </Text>
                   </View>
                 ) : null}
               </View>
               <Text style={styles.meta}>
                 ~{formatBytes(item.sizeBytes)} ·{' '}
                 {item.family === 'qwen3' ? 'Qwen3' : item.family === 'lfm2' ? 'LFM2.5' : 'Gemma 4'} ·{' '}
-                {item.preferredNCtx >= 8192 ? ' 8K context' : ' 4K context'}
-                {item.nGpuLayers === 0 ? ' · CPU' : ''}
+                {contextLabel}
+                {item.nGpuLayers === 0 ? ` · ${t('onboarding.models.cpu')}` : ''}
               </Text>
-              <Text style={styles.tagline}>{item.tagline}</Text>
+              <Text style={styles.tagline}>{modelCopy.tagline}</Text>
               <ScrollView
                 style={styles.bullets}
                 contentContainerStyle={styles.bulletsContent}
                 nestedScrollEnabled
                 showsVerticalScrollIndicator={false}>
-                {item.bullets.map((b) => (
+                {modelCopy.bullets.map((b) => (
                   <Text key={b} style={styles.bullet}>
                     {'\u2022'} {b}
                   </Text>
@@ -179,8 +236,12 @@ export function SlmModelCarousel({
                       style={[styles.btn, styles.btnDanger]}
                       onPress={() => queue.cancelDownload(item.id)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Cancel download of ${item.displayName}`}>
-                      <Text style={styles.btnText}>Cancel</Text>
+                      accessibilityLabel={t('onboarding.models.cancelAccessibility', {
+                        model: item.displayName,
+                      })}>
+                      <Text style={styles.btnText}>
+                        {t('onboarding.models.cancel')}
+                      </Text>
                     </Pressable>
                   </View>
                 ) : status === 'installed' ? (
@@ -190,19 +251,31 @@ export function SlmModelCarousel({
                         style={[styles.btn, isDefault ? styles.btnDefaultActive : styles.btnPrimary]}
                         onPress={() => setDemoDefaultModelId(item.id)}
                         accessibilityRole="button"
-                        accessibilityLabel={`Use ${item.displayName} as the default Concierge model`}>
-                        <Text style={styles.btnText}>{isDefault ? '✓ Default model' : 'Use as default'}</Text>
+                        accessibilityLabel={t('onboarding.models.defaultAccessibility', {
+                          model: item.displayName,
+                        })}>
+                        <Text style={styles.btnText}>
+                          {isDefault
+                            ? `✓ ${t('onboarding.models.defaultModel')}`
+                            : t('onboarding.models.useAsDefault')}
+                        </Text>
                       </Pressable>
                     ) : (
-                      <Text style={styles.done}>{'\u2713'} Installed</Text>
+                      <Text style={styles.done}>
+                        {'\u2713'} {t('onboarding.models.installed')}
+                      </Text>
                     )}
                     {showDelete ? (
                       <Pressable
                         style={[styles.btn, styles.btnMuted]}
                         onPress={() => handleDelete(item.id)}
                         accessibilityRole="button"
-                        accessibilityLabel={`Delete ${item.displayName}`}>
-                        <Text style={styles.btnTextDark}>Delete</Text>
+                        accessibilityLabel={t('onboarding.models.deleteAccessibility', {
+                          model: item.displayName,
+                        })}>
+                        <Text style={styles.btnTextDark}>
+                          {t('onboarding.models.delete')}
+                        </Text>
                       </Pressable>
                     ) : null}
                   </View>
@@ -214,8 +287,14 @@ export function SlmModelCarousel({
                       disabled={disableStart}
                       onPress={() => void queue.startDownload(item.id)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Download ${item.displayName}`}>
-                      <Text style={styles.btnText}>{row?.status === 'error' ? 'Retry' : 'Download'}</Text>
+                      accessibilityLabel={t('onboarding.models.downloadAccessibility', {
+                        model: item.displayName,
+                      })}>
+                      <Text style={styles.btnText}>
+                        {row?.status === 'error'
+                          ? t('onboarding.models.retry')
+                          : t('onboarding.models.download')}
+                      </Text>
                     </Pressable>
                   </View>
                 )}
@@ -232,8 +311,11 @@ export function SlmModelCarousel({
           ))}
         </View>
         <Text style={styles.footerText}>
-          Active default:{' '}
-          {MODEL_CATALOG.find((m) => m.id === defaultModelId)?.displayName ?? 'Gemma 4 E2B'}
+          {t('onboarding.models.activeDefault', {
+            model:
+              MODEL_CATALOG.find((m) => m.id === defaultModelId)?.displayName ??
+              'Gemma 4 E2B',
+          })}
         </Text>
       </View>
     </View>

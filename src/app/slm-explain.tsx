@@ -37,7 +37,9 @@ import {
 import { useSLM } from '@/contexts/slm-context';
 import { useSettings } from '@/contexts/settings-context';
 import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
+import { useTranslation } from '@/hooks/use-translation';
 import { isModelInstalled } from '@/services/model-storage';
+import type { TranslateFn } from '@/localization/i18n';
 import {
   getAlertById,
   getUc3TrajectoryResultById,
@@ -79,7 +81,7 @@ function isModelLoadError(error: string | null): boolean {
   );
 }
 
-function formatLoadFailureMessage(raw: string): string {
+function formatLoadFailureMessage(raw: string, t: TranslateFn): string {
   const lower = raw.toLowerCase();
   if (
     lower.includes('ram') ||
@@ -90,14 +92,13 @@ function formatLoadFailureMessage(raw: string): string {
   ) {
     return (
       `${raw}\n\n` +
-      'Tips: close other apps, unload Concierge from Models/Settings if it is half-loaded, ' +
-      'then retry. Prefer Gemma-4-E2B (~2.9 GB) if a larger model is selected.'
+      t('slmExplain.loadFailure.memoryTips')
     );
   }
   if (lower.includes('not installed') || lower.includes('not found')) {
     return (
       `${raw}\n\n` +
-      'Open Models and download the default Concierge model, then tap Load Concierge.'
+      t('slmExplain.loadFailure.notInstalledTips')
     );
   }
   return raw;
@@ -123,6 +124,7 @@ type ExplanationTarget =
 
 export default function SlmExplainScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const orchestrator = useOrchestrator();
   const slm = useSLM();
   const optionalGate = useOptionalFeatureGate('slm');
@@ -158,37 +160,37 @@ export default function SlmExplainScreen() {
     const requestedPatientId = routePatientId?.trim();
     const validatePatient = (targetPatientId: string, label: string): string | null => {
       if (requestedPatientId && requestedPatientId !== patientId) {
-        return `This ${label} link is stale for the active patient. Switch back to the original patient or reopen the result.`;
+        return t('slmExplain.unavailable.staleLink', { label });
       }
       if (targetPatientId !== patientId) {
-        return `This ${label} belongs to a different patient. Switch back to that patient to view it.`;
+        return t('slmExplain.unavailable.differentPatient', { label });
       }
       return null;
     };
 
     if (alertId) {
       const alert = getAlertById(alertId);
-      if (!alert) return { kind: 'unavailable', message: 'Alert not found.' };
-      const mismatch = validatePatient(alert.patientId, 'alert');
+      if (!alert) return { kind: 'unavailable', message: t('slmExplain.unavailable.alertNotFound') };
+      const mismatch = validatePatient(alert.patientId, t('slmExplain.label.alert'));
       return mismatch ? { kind: 'unavailable', message: mismatch } : { kind: 'alert', alert };
     }
 
     if (mode === 'rehab_trajectory' && resultId) {
       const result = getUc3TrajectoryResultById(resultId);
-      if (!result) return { kind: 'unavailable', message: 'Rehab trajectory result not found.' };
-      const mismatch = validatePatient(result.patientId, 'rehab trajectory result');
+      if (!result) return { kind: 'unavailable', message: t('slmExplain.unavailable.rehabNotFound') };
+      const mismatch = validatePatient(result.patientId, t('slmExplain.label.rehabTrajectory'));
       return mismatch ? { kind: 'unavailable', message: mismatch } : { kind: 'uc3', result };
     }
 
     if (mode === 'uc4_priority' && cardId) {
       const card = getUc4PriorityCardSummaryById(cardId);
-      if (!card) return { kind: 'unavailable', message: 'Care focus card not found.' };
-      const mismatch = validatePatient(card.patientId, 'care focus card');
+      if (!card) return { kind: 'unavailable', message: t('slmExplain.unavailable.careFocusNotFound') };
+      const mismatch = validatePatient(card.patientId, t('slmExplain.label.careFocus'));
       return mismatch ? { kind: 'unavailable', message: mismatch } : { kind: 'uc4', card };
     }
 
-    return { kind: 'unavailable', message: 'No Concierge explanation target was selected.' };
-  }, [alertId, cardId, mode, patientId, resultId, routePatientId]);
+    return { kind: 'unavailable', message: t('slmExplain.unavailable.noTarget') };
+  }, [alertId, cardId, mode, patientId, resultId, routePatientId, t]);
 
   const alert = target.kind === 'alert' ? target.alert : null;
   const acquireSlm = slm.acquireSlm;
@@ -232,7 +234,7 @@ export default function SlmExplainScreen() {
       if (slm.provider.getModelInfo() === null) {
         throw new Error(
           slm.loadError ??
-            'Concierge model is not loaded. Free memory, unload other apps, then retry.',
+            t('slmExplain.error.modelNotLoaded'),
         );
       }
 
@@ -264,13 +266,13 @@ export default function SlmExplainScreen() {
       log(`Explanation received. Citations: ${result.citations.length}.`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const friendly = formatLoadFailureMessage(msg);
+      const friendly = formatLoadFailureMessage(msg, t);
       setError(friendly);
       log(`Explain failed: ${msg}`);
     } finally {
       setLoading(false);
     }
-  }, [acquireSlm, orchestrator, log, target, slm.provider, slm.loadError]);
+  }, [acquireSlm, orchestrator, log, target, slm.provider, slm.loadError, t]);
 
   // E3 HOTFIX: recovery CTA when native SLM failed to load.
   const handleLoadConcierge = useCallback(async () => {
@@ -296,12 +298,12 @@ export default function SlmExplainScreen() {
       await explain();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(formatLoadFailureMessage(msg));
+      setError(formatLoadFailureMessage(msg, t));
       log(`Load failed: ${msg}`);
     } finally {
       setLoading(false);
     }
-  }, [slm, explain, log, settings.demoDefaultModelId]);
+  }, [slm, explain, log, settings.demoDefaultModelId, t]);
 
   // Reset auto-run when the explain target changes (new result / card / alert).
   const targetKey =
@@ -405,10 +407,10 @@ export default function SlmExplainScreen() {
       createdAt: new Date().toISOString(),
     });
     log('Override recorded.');
-    setFeedback('Thanks. I\u2019ll learn from your feedback.');
+    setFeedback(t('slmExplain.feedback.overrideSaved'));
     setOverrideText('');
     setOverrideOpen(false);
-  }, [alert, patientId, overrideText, log]);
+  }, [alert, patientId, overrideText, log, t]);
 
   const confirmProposal = useCallback(() => {
     if (!alert) return;
@@ -422,8 +424,8 @@ export default function SlmExplainScreen() {
       createdAt: new Date().toISOString(),
     });
     log('Caregiver confirmed the Concierge explanation.');
-    setFeedback('Got it. The next step is in your hands.');
-  }, [alert, patientId, log]);
+    setFeedback(t('slmExplain.feedback.confirmed'));
+  }, [alert, patientId, log, t]);
 
   if (!optionalGate.ready) {
     return (
@@ -431,9 +433,9 @@ export default function SlmExplainScreen() {
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.topBar}>
             <Pressable onPress={() => router.back()} hitSlop={12}>
-              <Text style={styles.backLink}>← Back</Text>
+              <Text style={styles.backLink}>← {t('slmExplain.back')}</Text>
             </Pressable>
-            <Text style={styles.topTitle}>Concierge</Text>
+            <Text style={styles.topTitle}>{t('slmExplain.title')}</Text>
           </View>
           <OptionalFeaturePrompt
             requirement="slm"
@@ -449,9 +451,9 @@ export default function SlmExplainScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.topBar}>
           <Pressable onPress={() => router.back()} hitSlop={12}>
-            <Text style={styles.backLink}>← Back</Text>
+            <Text style={styles.backLink}>← {t('slmExplain.back')}</Text>
           </Pressable>
-          <Text style={styles.topTitle}>Concierge</Text>
+          <Text style={styles.topTitle}>{t('slmExplain.title')}</Text>
         </View>
 
         {alert && (
@@ -470,7 +472,7 @@ export default function SlmExplainScreen() {
 
         {error && (
           <View style={styles.errorBox}>
-            <Text style={styles.errorEyebrow}>Concierge unavailable</Text>
+            <Text style={styles.errorEyebrow}>{t('slmExplain.error.unavailable')}</Text>
             <Text style={styles.errorText}>{error}</Text>
             {isModelLoadError(error) ? (
               <View style={styles.errorActions}>
@@ -478,9 +480,9 @@ export default function SlmExplainScreen() {
                   style={[styles.retryButton, styles.primaryButton]}
                   onPress={handleLoadConcierge}
                   accessibilityRole="button"
-                  accessibilityLabel="Load Concierge"
+                  accessibilityLabel={t('slmExplain.error.loadConcierge')}
                 >
-                  <Text style={styles.buttonText}>Unload & reload Concierge</Text>
+                  <Text style={styles.buttonText}>{t('slmExplain.error.reloadConcierge')}</Text>
                 </Pressable>
                 <Pressable
                   style={styles.secondaryButton}
@@ -489,14 +491,14 @@ export default function SlmExplainScreen() {
                     router.push('/models');
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel="Open Models"
+                  accessibilityLabel={t('slmExplain.error.openModels')}
                 >
-                  <Text style={styles.secondaryButtonText}>Open Models</Text>
+                  <Text style={styles.secondaryButtonText}>{t('slmExplain.error.openModels')}</Text>
                 </Pressable>
               </View>
             ) : null}
             <Pressable style={styles.retryButton} onPress={() => void explain()}>
-              <Text style={styles.buttonText}>Retry</Text>
+              <Text style={styles.buttonText}>{t('slmExplain.error.retry')}</Text>
             </Pressable>
           </View>
         )}
@@ -504,8 +506,8 @@ export default function SlmExplainScreen() {
         {proposal && (
           <View style={styles.explanationCard}>
             <View style={styles.explanationHeader}>
-              <Text style={styles.explanationEyebrow}>Concierge analysis</Text>
-              <Text style={styles.explanationTitle}>Alert explanation</Text>
+              <Text style={styles.explanationEyebrow}>{t('slmExplain.explanation.eyebrow')}</Text>
+              <Text style={styles.explanationTitle}>{t('slmExplain.explanation.title')}</Text>
             </View>
 
             <View style={styles.answerContainer}>
@@ -523,7 +525,7 @@ export default function SlmExplainScreen() {
 
             {proposal.clarifyingQuestion && (
               <View style={styles.questionSection}>
-                <Text style={styles.sectionTitle}>Clarifying Question</Text>
+                <Text style={styles.sectionTitle}>{t('slmExplain.question.title')}</Text>
                 <Text style={styles.questionText}>{proposal.clarifyingQuestion.question}</Text>
                 {proposal.clarifyingQuestion.options.map((option) => (
                   <Pressable
@@ -540,7 +542,7 @@ export default function SlmExplainScreen() {
 
             {proposal.nextSteps && proposal.nextSteps.length > 0 && (
               <View style={styles.nextStepsSection}>
-                <Text style={styles.sectionTitle}>Recommended Next Steps</Text>
+                <Text style={styles.sectionTitle}>{t('slmExplain.nextSteps.title')}</Text>
                 {stepResult ? (
                   <View style={styles.stepResultBox}>
                     <Text
@@ -586,7 +588,7 @@ export default function SlmExplainScreen() {
           <View style={styles.hitlCard}>
             <AiSuggestsTagline variant="outline" />
             <View style={styles.hitlHeaderRow}>
-              <Text style={styles.hitlTitle}>Your review</Text>
+              <Text style={styles.hitlTitle}>{t('slmExplain.hitl.title')}</Text>
               {alert ? (
                 <Text style={styles.hitlEyebrow}>
                   {alert.title}
@@ -594,7 +596,7 @@ export default function SlmExplainScreen() {
               ) : null}
             </View>
             <Text style={styles.hitlHint}>
-              The Concierge suggested the explanation above. Confirm if it matches what you see, or tell us why it\u2019s off.
+              {t('slmExplain.hitl.hint')}
             </Text>
             <View style={styles.hitlActions}>
               <Pressable
@@ -602,21 +604,23 @@ export default function SlmExplainScreen() {
                 onPress={confirmProposal}
                 disabled={loading}
                 accessibilityRole="button"
-                accessibilityLabel="Confirm the Concierge explanation"
+                accessibilityLabel={t('slmExplain.hitl.confirmA11y')}
               >
-                <Text style={styles.hitlPrimaryText}>Looks right, proceed</Text>
+                <Text style={styles.hitlPrimaryText}>{t('slmExplain.hitl.confirm')}</Text>
               </Pressable>
               <Pressable
                 style={styles.hitlSecondaryButton}
                 onPress={() => setOverrideOpen(true)}
                 disabled={loading}
                 accessibilityRole="button"
-                accessibilityLabel="I disagree with the Concierge"
+                accessibilityLabel={t('slmExplain.hitl.disagreeA11y')}
               >
-                <Text style={styles.hitlSecondaryText}>I disagree</Text>
+                <Text style={styles.hitlSecondaryText}>{t('slmExplain.hitl.disagree')}</Text>
               </Pressable>
             </View>
-            <Text style={styles.tagline}>The Concierge suggests. You decide.</Text>
+            <Text style={styles.tagline}>
+              {t('assistant.tagline', { source: t('assistant.term.concierge') })}
+            </Text>
             {feedback ? (
               <View style={styles.feedbackBox}>
                 <Text style={styles.feedbackText}>{feedback}</Text>
@@ -627,12 +631,12 @@ export default function SlmExplainScreen() {
 
         {/* Trace log (collapsible) */}
         <Pressable style={styles.traceHeader} onPress={() => setTraceOpen((v) => !v)}>
-          <Text style={styles.sectionTitle}>{traceOpen ? '▾' : '▸'} Trace Log</Text>
+          <Text style={styles.sectionTitle}>{traceOpen ? '▾' : '▸'} {t('slmExplain.trace.title')}</Text>
         </Pressable>
         {traceOpen && (
           <View style={styles.card}>
             {logs.length === 0 ? (
-              <Text style={styles.muted}>No trace events yet.</Text>
+              <Text style={styles.muted}>{t('slmExplain.trace.empty')}</Text>
             ) : (
               logs.map((l, i) => (
                 <Text key={i} style={styles.logLine}>
@@ -648,16 +652,15 @@ export default function SlmExplainScreen() {
       <Modal visible={overrideOpen} animationType="slide" transparent onRequestClose={() => setOverrideOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Override / Note</Text>
+            <Text style={styles.modalTitle}>{t('slmExplain.override.title')}</Text>
             <Text style={styles.modalSubtext}>
-              Record a caregiver override. This is logged as a caregiver_action and feeds the
-              personalization loop.
+              {t('slmExplain.override.body')}
             </Text>
             <TextInput
               style={styles.noteInput}
               value={overrideText}
               onChangeText={setOverrideText}
-              placeholder="Describe your override or observation…"
+              placeholder={t('slmExplain.override.placeholder')}
               placeholderTextColor="#9AA4A8"
               multiline
               textAlignVertical="top"
@@ -665,10 +668,10 @@ export default function SlmExplainScreen() {
             />
             <View style={styles.modalActions}>
               <Pressable style={styles.modalCancel} onPress={() => setOverrideOpen(false)}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
+                <Text style={styles.modalCancelText}>{t('slmExplain.override.cancel')}</Text>
               </Pressable>
               <Pressable style={styles.modalSave} onPress={saveOverride}>
-                <Text style={styles.buttonText}>Save override</Text>
+                <Text style={styles.buttonText}>{t('slmExplain.override.save')}</Text>
               </Pressable>
             </View>
           </View>

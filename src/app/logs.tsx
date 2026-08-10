@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppTheme } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
 
 type LogFile = {
   path: string;
@@ -32,6 +33,7 @@ function formatBytes(bytes: number) {
 export default function LogsScreen() {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
+  const { t, locale } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [files, setFiles] = useState<LogFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,17 +84,17 @@ export default function LogsScreen() {
   const handleShare = async (path: string) => {
     const available = await Sharing.isAvailableAsync();
     if (!available) {
-      Alert.alert("Sharing not available on this device");
+      Alert.alert(t("logs.shareUnavailable"));
       return;
     }
     await Sharing.shareAsync(path);
   };
 
   const handleDeleteAll = () => {
-    Alert.alert("Delete all log files?", undefined, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("logs.deleteAllDialog.title"), undefined, [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Delete",
+        text: t("common.delete"),
         style: "destructive",
         onPress: async () => {
           const logsDir = new Directory(Paths.document, "logs");
@@ -125,6 +127,7 @@ export default function LogsScreen() {
     // });
   };
 
+
   return (
     <View
       style={[
@@ -135,9 +138,11 @@ export default function LogsScreen() {
     >
       <View style={[styles.header, themedStyles.header]}>
         <View>
-          <Text style={[styles.title, themedStyles.title]}>Log Files</Text>
+          <Text style={[styles.title, themedStyles.title]}>{t("logs.title")}</Text>
           <Text style={[styles.subtitle, themedStyles.subtitle]}>
-            {files.length} file{files.length === 1 ? "" : "s"}
+            {t(files.length === 1 ? "logs.fileCount.one" : "logs.fileCount.many", {
+              count: files.length,
+            })}
           </Text>
         </View>
         {files.length > 0 && (
@@ -149,8 +154,10 @@ export default function LogsScreen() {
               themedStyles.deleteAllButton,
               pressed && styles.pressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel={t("logs.deleteAllA11y")}
           >
-            <Text style={[styles.deleteAllText, themedStyles.deleteAllText]}>Delete all</Text>
+            <Text style={[styles.deleteAllText, themedStyles.deleteAllText]}>{t("logs.deleteAll")}</Text>
           </Pressable>
         )}
       </View>
@@ -172,12 +179,12 @@ export default function LogsScreen() {
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <Text style={[styles.emptyTitle, themedStyles.emptyTitle]}>
-                  {unavailable ? "Logging unavailable" : "No log files yet"}
+                  {unavailable ? t("logs.empty.unavailableTitle") : t("logs.empty.title")}
                 </Text>
                 <Text style={[styles.emptySubtitle, themedStyles.emptySubtitle]}>
                   {unavailable
-                    ? "File logging unavailable in this build (native module not linked)."
-                    : "Log files will appear here once the app writes some."}
+                    ? t("logs.empty.unavailableBody")
+                    : t("logs.empty.body")}
                 </Text>
               </View>
             }
@@ -185,6 +192,8 @@ export default function LogsScreen() {
               <Pressable
                 style={({ pressed }) => [styles.row, themedStyles.row, pressed && styles.pressed]}
                 onPress={() => handleShare(item.path)}
+                accessibilityRole="button"
+                accessibilityLabel={t("logs.shareFileA11y", { name: item.name })}
               >
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.fileName, themedStyles.fileName]} numberOfLines={1}>
@@ -193,11 +202,11 @@ export default function LogsScreen() {
                   <Text style={[styles.fileMeta, themedStyles.fileMeta]}>
                     {formatBytes(item.size)}
                     {item.modificationTime
-                      ? ` · ${new Date(item.modificationTime).toLocaleString()}`
+                      ? ` \u00b7 ${new Date(item.modificationTime).toLocaleString(locale)}`
                       : ""}
                   </Text>
                 </View>
-                <Text style={[styles.shareLabel, themedStyles.shareLabel]}>Share</Text>
+                <Text style={[styles.shareLabel, themedStyles.shareLabel]}>{t("logs.share")}</Text>
               </Pressable>
             )}
           />
@@ -211,8 +220,10 @@ export default function LogsScreen() {
               themedStyles.sendLogsButton,
               pressed && styles.pressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel={t("logs.sendByEmailA11y")}
           >
-            <Text style={styles.sendLogsButtonText}>Send logs by email</Text>
+            <Text style={styles.sendLogsButtonText}>{t("logs.sendByEmail")}</Text>
           </Pressable>
         </View>
       )}

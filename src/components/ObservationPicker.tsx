@@ -10,6 +10,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn, TranslationKey } from '@/localization/i18n';
 import { CAREGIVER_OBSERVATION_CODES } from '@/ml-models/uc2-decision-layer';
 
 export type ObservationPickerProps = {
@@ -18,53 +20,54 @@ export type ObservationPickerProps = {
   enabled?: boolean;
 };
 
-const FRIENDLY_LABEL: Record<string, string> = {
-  EXERCISE_ACTIVITY: 'Exercise / activity',
-  POOR_SLEEP: 'Poor sleep',
-  STRESS: 'Stress',
-  LOW_INTAKE: 'Low intake',
-  MED_CHANGE: 'Medication change',
-  BATHROOM_CHANGE: 'Bathroom change',
-  VOMITING_DIARRHEA: 'Vomiting / diarrhea',
-  WEAK_CONFUSED: 'Weak / confused',
-  PAIN: 'Pain',
-  BREATHING_CHANGE: 'Breathing change',
-  SENSOR_ISSUE: 'Sensor issue',
-  NOTHING_UNUSUAL: 'Nothing unusual',
-  NOT_SURE: 'Not sure',
+const FRIENDLY_LABEL_KEYS: Record<string, TranslationKey> = {
+  EXERCISE_ACTIVITY: 'observation.code.exerciseActivity',
+  POOR_SLEEP: 'observation.code.poorSleep',
+  STRESS: 'observation.code.stress',
+  LOW_INTAKE: 'observation.code.lowIntake',
+  MED_CHANGE: 'observation.code.medicationChange',
+  BATHROOM_CHANGE: 'observation.code.bathroomChange',
+  VOMITING_DIARRHEA: 'observation.code.vomitingDiarrhea',
+  WEAK_CONFUSED: 'observation.code.weakConfused',
+  PAIN: 'observation.code.pain',
+  BREATHING_CHANGE: 'observation.code.breathingChange',
+  SENSOR_ISSUE: 'observation.code.sensorIssue',
+  NOTHING_UNUSUAL: 'observation.code.nothingUnusual',
+  NOT_SURE: 'observation.code.notSure',
 };
 
 type ObservationCategory = {
   key: string;
-  label: string;
+  labelKey: TranslationKey;
   codes: readonly string[];
 };
 
 const OBSERVATION_CATEGORIES: ObservationCategory[] = [
   {
     key: 'daily',
-    label: 'Daily routine',
+    labelKey: 'observation.category.daily',
     codes: ['EXERCISE_ACTIVITY', 'POOR_SLEEP', 'STRESS', 'LOW_INTAKE'],
   },
   {
     key: 'body',
-    label: 'Body changes',
+    labelKey: 'observation.category.body',
     codes: ['PAIN', 'BREATHING_CHANGE', 'WEAK_CONFUSED', 'VOMITING_DIARRHEA', 'BATHROOM_CHANGE'],
   },
   {
     key: 'care',
-    label: 'Care & devices',
+    labelKey: 'observation.category.care',
     codes: ['MED_CHANGE', 'SENSOR_ISSUE'],
   },
   {
     key: 'overall',
-    label: 'Overall',
+    labelKey: 'observation.category.overall',
     codes: ['NOTHING_UNUSUAL', 'NOT_SURE'],
   },
 ];
 
-function labelForCode(code: string): string {
-  if (FRIENDLY_LABEL[code]) return FRIENDLY_LABEL[code];
+function labelForCode(code: string, t: TranslateFn): string {
+  const key = FRIENDLY_LABEL_KEYS[code];
+  if (key) return t(key);
   return code
     .toLowerCase()
     .split(/[_\s]+/)
@@ -75,6 +78,7 @@ function labelForCode(code: string): string {
 
 export function ObservationPicker({ selected, onChange, enabled = true }: ObservationPickerProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const selectedSet = new Set(selected);
   const known = new Set(OBSERVATION_CATEGORIES.flatMap((c) => [...c.codes]));
@@ -115,7 +119,7 @@ export function ObservationPicker({ selected, onChange, enabled = true }: Observ
         ]}
         accessibilityRole="button"
         accessibilityState={{ selected: active, disabled: !enabled }}
-        accessibilityLabel={labelForCode(code)}
+        accessibilityLabel={labelForCode(code, t)}
       >
         <Text
           style={[
@@ -124,7 +128,7 @@ export function ObservationPicker({ selected, onChange, enabled = true }: Observ
             !active && themedStyles.chipTextIdle,
           ]}
         >
-          {labelForCode(code)}
+          {labelForCode(code, t)}
         </Text>
       </Pressable>
     );
@@ -140,12 +144,12 @@ export function ObservationPicker({ selected, onChange, enabled = true }: Observ
           onPress={() => toggleCategory(key)}
           accessibilityRole="button"
           accessibilityState={{ expanded }}
-          accessibilityLabel={`${label}${expanded ? ' — collapse' : ' — expand'}`}
+          accessibilityLabel={`${label} - ${expanded ? t('common.collapse') : t('common.expand')}`}
         >
           <Text style={[styles.categoryLabel, themedStyles.categoryLabel]}>{label}</Text>
           <Text style={[styles.categoryMeta, themedStyles.categoryMeta]}>
-            {selectedCount > 0 ? `${selectedCount} selected · ` : ''}
-            {expanded ? '▾' : '▸'}
+            {selectedCount > 0 ? `${t('observation.selectedCount', { count: selectedCount })} \u00b7 ` : ''}
+            {expanded ? '\u25be' : '\u25b8'}
           </Text>
         </Pressable>
         {expanded ? <View style={styles.grid}>{codes.map(renderChip)}</View> : null}
@@ -156,9 +160,9 @@ export function ObservationPicker({ selected, onChange, enabled = true }: Observ
   return (
     <View style={styles.root}>
       {OBSERVATION_CATEGORIES.map((category) =>
-        renderCategory(category.key, category.label, category.codes),
+        renderCategory(category.key, t(category.labelKey), category.codes),
       )}
-      {extras.length > 0 ? renderCategory('other', 'Other', extras) : null}
+      {extras.length > 0 ? renderCategory('other', t('observation.category.other'), extras) : null}
     </View>
   );
 }

@@ -12,6 +12,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppTheme } from '@/constants/theme';
 import { useCarePlanBackup, type CarePlanBackupStatus } from '@/hooks/useCarePlanBackup';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
 import { createThemedSectionStyles } from './carePlanSectionStyles';
 
 export interface CarePlanBackupSectionProps {
@@ -27,19 +28,18 @@ export function CarePlanBackupSection({
   onRestored,
 }: CarePlanBackupSectionProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const { status, exportInFlight, importInFlight, exportBackup, importBackup } =
-    useCarePlanBackup(patientId, { onRestored });
+    useCarePlanBackup(patientId, { onRestored, t });
 
   return (
-    <View style={sectionStyles.card} accessible accessibilityLabel="Backup and restore">
+    <View style={sectionStyles.card} accessible accessibilityLabel={t('care.backup.accessibilityLabel')}>
       <View style={sectionStyles.headerRow}>
-        <Text style={sectionStyles.title}>Backup & restore</Text>
+        <Text style={sectionStyles.title}>{t('care.backup.title')}</Text>
       </View>
-      <Text style={sectionStyles.subtitle}>
-        Save a care plan file you can store outside the device, or restore one you saved earlier.
-      </Text>
+      <Text style={sectionStyles.subtitle}>{t('care.backup.subtitle')}</Text>
 
       <View style={styles.actionRow}>
         <Pressable
@@ -47,10 +47,10 @@ export function CarePlanBackupSection({
           onPress={() => void exportBackup({ autoGrantConsent })}
           disabled={exportInFlight || !patientId}
           accessibilityRole="button"
-          accessibilityLabel="Save a care plan file"
+          accessibilityLabel={t('care.backup.saveA11y')}
         >
           <Text style={styles.exportText}>
-            {exportInFlight ? 'Saving\u2026' : 'Save a care plan file'}
+            {exportInFlight ? t('care.backup.saving') : t('care.backup.save')}
           </Text>
         </Pressable>
         <Pressable
@@ -63,10 +63,10 @@ export function CarePlanBackupSection({
           onPress={() => void importBackup()}
           disabled={importInFlight || !patientId}
           accessibilityRole="button"
-          accessibilityLabel="Restore from a care plan file"
+          accessibilityLabel={t('care.backup.restoreA11y')}
         >
           <Text style={[styles.importText, themedStyles.importText]}>
-            {importInFlight ? 'Restoring\u2026' : 'Restore from file'}
+            {importInFlight ? t('care.backup.restoring') : t('care.backup.restore')}
           </Text>
         </Pressable>
       </View>
@@ -78,6 +78,7 @@ export function CarePlanBackupSection({
 
 function StatusLine({ status }: { status: CarePlanBackupStatus }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   if (status.kind === 'idle') return null;
@@ -94,11 +95,11 @@ function StatusLine({ status }: { status: CarePlanBackupStatus }) {
       tone = 'warning';
       break;
     case 'consent_required':
-      text = 'Consent required before export.';
+      text = t('care.backup.consentRequired');
       tone = 'warning';
       break;
     case 'no_plan':
-      text = 'No published care plan to export.';
+      text = t('care.backup.noPlan');
       tone = 'muted';
       break;
     case 'error':

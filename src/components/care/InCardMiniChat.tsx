@@ -35,6 +35,7 @@ import { useSettings } from '@/contexts/settings-context';
 import { useSLM } from '@/contexts/slm-context';
 import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
 import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
@@ -111,6 +112,7 @@ export function InCardMiniChat({
   const { settings, isDeveloper } = useSettings();
   const optionalGate = useOptionalFeatureGate('both');
   const retriever = useOrchestratorRetriever();
+  const { t } = useTranslation();
   // Effective default — a single installed model is always the default.
   const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
     MODEL_CATALOG.some((m) => m.id === id && isModelInstalled(m)),
@@ -122,7 +124,7 @@ export function InCardMiniChat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  const [statusLine, setStatusLine] = useState('Preparing…');
+  const [statusLine, setStatusLine] = useState(() => t('care.miniChat.status.preparing'));
   const [observationCodes, setObservationCodes] = useState<string[]>([]);
   const [showHitl, setShowHitl] = useState(false);
   const [hitlResolved, setHitlResolved] = useState(false);
@@ -212,7 +214,7 @@ export function InCardMiniChat({
             { role: 'user', content: trimmed },
             { role: 'assistant', content: cached.answer },
           ];
-          setStatusLine('Saved explanation · unchanged since last run');
+          setStatusLine(t('care.miniChat.status.saved'));
           setBusy(false);
           if (enableObservationHitl && !hitlResolved) {
             setShowHitl(true);
@@ -236,7 +238,9 @@ export function InCardMiniChat({
       ]);
       setBusy(true);
       setStatusLine(
-        currentModelId ? `Thinking · ${currentModelId}…` : 'Loading Concierge…',
+        currentModelId
+          ? t('care.miniChat.status.thinking', { modelId: currentModelId })
+          : t('care.miniChat.status.loading'),
       );
 
       const lease = await ensureModelAndLease();
@@ -250,14 +254,14 @@ export function InCardMiniChat({
         const installed = MODEL_CATALOG.filter(isModelInstalled);
         const err =
           installed.length === 0
-            ? 'Concierge is unavailable — no model is installed.'
-            : 'Concierge could not load a model.';
+            ? t('care.miniChat.error.noModel')
+            : t('care.miniChat.error.loadFailed');
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId ? { ...m, text: err, status: 'error' } : m,
           ),
         );
-        setStatusLine(`Error: ${err}`);
+        setStatusLine(t('care.miniChat.status.error', { error: err }));
         setBusy(false);
         return;
       }
@@ -304,7 +308,9 @@ export function InCardMiniChat({
 
       try {
         setStatusLine(
-          currentModelId ? `Generating · ${currentModelId}…` : 'Generating…',
+          currentModelId
+            ? t('care.miniChat.status.generatingModel', { modelId: currentModelId })
+            : t('care.miniChat.status.generating'),
         );
         const result = await provider.chat(
           historyRef.current,
@@ -329,7 +335,9 @@ export function InCardMiniChat({
           ),
         );
         setStatusLine(
-          currentModelId ? `Complete · ${currentModelId}` : 'Complete',
+          currentModelId
+            ? t('care.miniChat.status.completeModel', { modelId: currentModelId })
+            : t('care.miniChat.status.complete'),
         );
         if (isSeed && fingerprint && cleaned.trim()) {
           setCachedExplainAnswer({
@@ -352,7 +360,7 @@ export function InCardMiniChat({
               : m,
           ),
         );
-        setStatusLine(`Error: ${message}`);
+        setStatusLine(t('care.miniChat.status.error', { error: message }));
       } finally {
         abortRef.current = null;
         setBusy(false);
@@ -373,6 +381,7 @@ export function InCardMiniChat({
       retriever,
       settings.nluDevelopmentFallback,
       snapshot,
+      t,
     ],
   );
 
@@ -391,7 +400,7 @@ export function InCardMiniChat({
         setShowHitl(false);
         setHitlResolved(false);
         setObservationCodes([]);
-        setStatusLine('Preparing…');
+        setStatusLine(t('care.miniChat.status.preparing'));
       }, 0);
       return () => clearTimeout(handle);
     }
@@ -417,12 +426,12 @@ export function InCardMiniChat({
   const requestClose = useCallback(() => {
     if (busy) {
       Alert.alert(
-        'Stop Concierge?',
-        'Concierge is still generating. Closing now will cancel this conversation.',
+        t('care.miniChat.stopDialog.title'),
+        t('care.miniChat.stopDialog.body'),
         [
-          { text: 'Keep going', style: 'cancel' },
+          { text: t('care.miniChat.stopDialog.keepGoing'), style: 'cancel' },
           {
-            text: 'Stop',
+            text: t('care.miniChat.stopDialog.stop'),
             style: 'destructive',
             onPress: () => {
               cancelRef.current = true;
@@ -439,7 +448,7 @@ export function InCardMiniChat({
     abortRef.current?.abort();
     releaseLease();
     onClose();
-  }, [busy, onClose, releaseLease]);
+  }, [busy, onClose, releaseLease, t]);
 
   const handleSend = useCallback(() => {
     if (busy || !input.trim()) return;
@@ -489,7 +498,7 @@ export function InCardMiniChat({
             onPress={requestClose}
             hitSlop={12}
             accessibilityRole="button"
-            accessibilityLabel="Close mini Concierge"
+            accessibilityLabel={t('care.miniChat.closeA11y')}
           >
             <Text style={[styles.closeText, themedStyles.supportingText]}>×</Text>
           </Pressable>
@@ -517,7 +526,7 @@ export function InCardMiniChat({
           onPress={requestClose}
           hitSlop={12}
           accessibilityRole="button"
-          accessibilityLabel="Close mini Concierge"
+          accessibilityLabel={t('care.miniChat.closeA11y')}
         >
           <Text style={[styles.closeText, themedStyles.supportingText]}>×</Text>
         </Pressable>
@@ -550,7 +559,7 @@ export function InCardMiniChat({
             ]}
           >
             <Text style={[styles.bubbleLabel, themedStyles.mutedText]}>
-              {msg.role === 'user' ? 'You' : 'Concierge'}
+              {msg.role === 'user' ? t('care.miniChat.you') : t('care.miniChat.concierge')}
             </Text>
             {msg.role === 'assistant' && msg.status === 'done' ? (
               <MarkdownRenderer size="normal">{msg.text || '…'}</MarkdownRenderer>
@@ -572,10 +581,9 @@ export function InCardMiniChat({
 
         {showHitl && !hitlResolved ? (
           <View style={[styles.hitlCard, themedStyles.cardEmbedded]}>
-            <Text style={[styles.hitlTitle, themedStyles.primaryText]}>Your review</Text>
+            <Text style={[styles.hitlTitle, themedStyles.primaryText]}>{t('care.miniChat.yourReview')}</Text>
             <Text style={[styles.hitlBody, themedStyles.supportingText]}>
-              Select anything you observed so Concierge can refine this guidance.
-              This is optional.
+              {t('care.miniChat.reviewBody')}
             </Text>
             <ObservationPicker
               selected={observationCodes}
@@ -588,14 +596,14 @@ export function InCardMiniChat({
                 onPress={handleApplyHitl}
                 disabled={busy}
               >
-                <Text style={styles.hitlPrimaryText}>Apply review & continue</Text>
+                <Text style={styles.hitlPrimaryText}>{t('care.miniChat.applyReview')}</Text>
               </Pressable>
               <Pressable
                 style={[styles.hitlButton, styles.hitlSecondary, themedStyles.controlSurface]}
                 onPress={handleSkipHitl}
                 disabled={busy}
               >
-                <Text style={[styles.hitlSecondaryText, themedStyles.supportingText]}>Skip review</Text>
+                <Text style={[styles.hitlSecondaryText, themedStyles.supportingText]}>{t('care.miniChat.skipReview')}</Text>
               </Pressable>
             </View>
           </View>
@@ -606,7 +614,7 @@ export function InCardMiniChat({
         <TextInput
           value={input}
           onChangeText={setInput}
-          placeholder="Ask a follow-up…"
+          placeholder={t('care.miniChat.placeholder')}
           placeholderTextColor={theme.appTextMuted}
           editable={!busy}
           multiline
@@ -617,14 +625,14 @@ export function InCardMiniChat({
           onPress={handleSend}
           disabled={!input.trim() || busy}
           accessibilityRole="button"
-          accessibilityLabel="Send follow-up"
+          accessibilityLabel={t('care.miniChat.sendA11y')}
         >
-          <Text style={styles.sendText}>Ask</Text>
+          <Text style={styles.sendText}>{t('care.miniChat.ask')}</Text>
         </Pressable>
       </View>
 
       <Text style={[styles.footnote, themedStyles.mutedText]}>
-        Concierge guidance — not a diagnosis. Confirm with the care team.
+        {t('care.miniChat.footnote')}
       </Text>
     </View>
   );

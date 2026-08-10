@@ -16,12 +16,13 @@ import { NeedsYourReviewBanner } from "@/components/dashboard/NeedsYourReviewBan
 import { PatientSummaryCard } from "@/components/dashboard/PatientSummaryCard";
 import { WeeklyVitalsCard } from "@/components/dashboard/WeeklyVitalsCard";
 import { AppTheme } from "@/constants/theme";
-import { timeOfDayGreeting } from "@/constants/user-terms";
 import { useOrchestratorPatientId } from "@/contexts/orchestrator-context";
 import { usePatientRecord } from "@/contexts/patient-record-context";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { usePendingReviews } from "@/hooks/usePendingReviews";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
+import type { TranslationKey } from "@/localization/i18n";
 import {
   formatPossessive,
   getCaregiverDisplay,
@@ -31,6 +32,7 @@ import {
 
 export default function DashboardRoute() {
   const theme = useTheme();
+  const { locale, t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const activePatient = useActivePatientView();
   const patientId = useOrchestratorPatientId();
@@ -40,7 +42,8 @@ export default function DashboardRoute() {
 
   const caregiverFirstName = getFirstName(getCaregiverDisplay(activePatient));
   const patientFirstName = getFirstName(getPatientDisplayName(activePatient));
-  const greeting = `${timeOfDayGreeting()}, ${caregiverFirstName}`;
+  const greeting = t(getDashboardGreetingKey(), { name: caregiverFirstName });
+  const patientStatusOwner = formatPossessive(patientFirstName);
   // planning/41 §4 + §11: rehab reminder only when a therapy contract is
   // present. Use the snapshot's `therapyContractPresent` flag (set by the
   // ADCP spine) as the single source of truth so the Dashboard + Care tab
@@ -82,9 +85,12 @@ export default function DashboardRoute() {
           contentContainerStyle={[styles.content, themedStyles.content]}
         >
           <MainTabHeader
-            title="Home"
-            eyebrow="Caregiver Concierge"
-            subtitle={`${greeting}. Here\u2019s ${formatPossessive(patientFirstName)} status.`}
+            title={t("dashboard.header.title")}
+            eyebrow={t("dashboard.header.eyebrow")}
+            subtitle={`${greeting}. ${t("dashboard.header.subtitle", {
+              patientName: patientFirstName,
+              patientStatusOwner,
+            })}`}
             logoSource={require("@/assets/images/hta-logo.png")}
             rightContent={
               <>
@@ -92,7 +98,7 @@ export default function DashboardRoute() {
                   style={[styles.bellButton, themedStyles.iconButton]}
                   onPress={scrollToAlertsLog}
                   accessibilityRole="button"
-                  accessibilityLabel="View alerts"
+                  accessibilityLabel={t("dashboard.action.viewAlerts")}
                 >
                   <AppIcon
                     name="bell"
@@ -105,7 +111,7 @@ export default function DashboardRoute() {
                   style={[styles.gearButton, themedStyles.iconButton]}
                   onPress={() => router.push("/more" as never)}
                   accessibilityRole="button"
-                  accessibilityLabel="Open More"
+                  accessibilityLabel={t("dashboard.action.openMore")}
                 >
                   <AppIcon
                     name="settings"
@@ -125,12 +131,14 @@ export default function DashboardRoute() {
           />
           {showTodayCare ? (
             <View style={styles.todayCareSection}>
-              <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{"Today\u2019s care"}</Text>
+              <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{t("dashboard.section.todayCare")}</Text>
               <View style={styles.todayCareList}>
                 {topUc4Priority ? (
                   <CareFocusCompactCard
                     title={topUc4Priority.title}
-                    detail={`Priority ${Math.round(topUc4Priority.score * 100)}%`}
+                    detail={t("dashboard.careFocus.priority", {
+                      percent: Math.round(topUc4Priority.score * 100).toLocaleString(locale),
+                    })}
                   />
                 ) : null}
                 {showRehabReminder ? <RehabReminderCard /> : null}
@@ -156,7 +164,7 @@ export default function DashboardRoute() {
               setAlertsLogY(event.nativeEvent.layout.y);
             }}
           >
-            <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Alerts Log</Text>
+            <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{t("dashboard.section.alertsLog")}</Text>
             <AlertsLogCard />
           </View>
         </ScrollView>
@@ -165,8 +173,18 @@ export default function DashboardRoute() {
   );
 }
 
+function getDashboardGreetingKey(now: Date = new Date()): TranslationKey {
+  const hour = now.getHours();
+  if (hour < 5) return "dashboard.greeting.neutral";
+  if (hour < 12) return "dashboard.greeting.morning";
+  if (hour < 17) return "dashboard.greeting.afternoon";
+  if (hour < 22) return "dashboard.greeting.evening";
+  return "dashboard.greeting.neutral";
+}
+
 function CareFocusCompactCard({ title, detail }: { title: string; detail: string }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   return (
@@ -174,13 +192,13 @@ function CareFocusCompactCard({ title, detail }: { title: string; detail: string
       style={[styles.compactCard, themedStyles.compactCard]}
       onPress={() => router.push("/care")}
       accessibilityRole="button"
-      accessibilityLabel="Open care focus checklist"
+      accessibilityLabel={t("dashboard.careFocus.open")}
     >
       <View style={[styles.compactIcon, themedStyles.compactIcon]}>
         <AppIcon name="heart" size={24} color={AppTheme.colors.warning} />
       </View>
       <View style={styles.compactBody}>
-        <Text style={[styles.compactKicker, themedStyles.compactKicker]}>Care focus</Text>
+        <Text style={[styles.compactKicker, themedStyles.compactKicker]}>{t("dashboard.careFocus.kicker")}</Text>
         <Text style={[styles.compactTitle, themedStyles.compactTitle]} numberOfLines={2}>{title}</Text>
         <Text style={[styles.compactMeta, themedStyles.compactMeta]}>{detail}</Text>
       </View>
@@ -191,6 +209,7 @@ function CareFocusCompactCard({ title, detail }: { title: string; detail: string
 
 function Uc3HomeStatusCard({ eventType, urgent }: { eventType: string; urgent: boolean }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const brandIconColor = theme.appBackground === "#000000" ? AppTheme.colors.brandPale : AppTheme.colors.brand;
 
@@ -204,15 +223,15 @@ function Uc3HomeStatusCard({ eventType, urgent }: { eventType: string; urgent: b
       ]}
       onPress={() => router.push("/care")}
       accessibilityRole="button"
-      accessibilityLabel="Open rehabilitation progress result"
+      accessibilityLabel={t("dashboard.rehab.openProgress")}
     >
       <View style={[styles.compactIcon, themedStyles.compactIcon]}>
         <AppIcon name={urgent ? "alert" : "walking"} size={24} color={urgent ? AppTheme.colors.danger : brandIconColor} />
       </View>
       <View style={styles.compactBody}>
-        <Text style={[styles.compactKicker, themedStyles.compactKicker]}>Rehabilitation progress</Text>
+        <Text style={[styles.compactKicker, themedStyles.compactKicker]}>{t("dashboard.rehab.progress")}</Text>
         <Text style={[styles.compactTitle, themedStyles.compactTitle]} numberOfLines={2}>
-          {urgent ? "Urgent safety concern" : "Progress review available"}
+          {urgent ? t("dashboard.rehab.urgent") : t("dashboard.rehab.reviewAvailable")}
         </Text>
         <Text style={[styles.compactMeta, themedStyles.compactMeta]}>{eventType.replace(/_/g, " ").toLowerCase()}</Text>
       </View>
@@ -223,6 +242,7 @@ function Uc3HomeStatusCard({ eventType, urgent }: { eventType: string; urgent: b
 
 function RehabReminderCard() {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const brandIconColor = theme.appBackground === "#000000" ? AppTheme.colors.brandPale : AppTheme.colors.brand;
 
@@ -236,17 +256,17 @@ function RehabReminderCard() {
         } as never)
       }
       accessibilityRole="button"
-      accessibilityLabel="Open today's rehab check-in"
+      accessibilityLabel={t("dashboard.rehab.openCheckIn")}
     >
       <View style={[styles.compactIcon, themedStyles.compactIcon]}>
         <AppIcon name="walking" size={24} color={brandIconColor} />
       </View>
       <View style={styles.compactBody}>
-        <Text style={[styles.compactKicker, themedStyles.compactKicker]}>{"Today\u2019s rehab check-in"}</Text>
+        <Text style={[styles.compactKicker, themedStyles.compactKicker]}>{t("dashboard.rehab.todayCheckIn")}</Text>
         <Text style={[styles.compactTitle, themedStyles.compactTitle]} numberOfLines={2}>
-          Therapy has not been completed today.
+          {t("dashboard.rehab.incompleteToday")}
         </Text>
-        <Text style={[styles.compactMeta, themedStyles.compactMeta]}>Open check-in</Text>
+        <Text style={[styles.compactMeta, themedStyles.compactMeta]}>{t("dashboard.rehab.openCheckInShort")}</Text>
       </View>
       <AppIcon name="chevronRight" size={24} color={theme.appTextMuted} />
     </Pressable>

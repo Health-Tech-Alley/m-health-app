@@ -33,6 +33,7 @@ import { OptionalFeaturePrompt } from '@/components/optional-feature-prompt';
 import { AppTheme } from '@/constants/theme';
 import { CitationList } from '@/components/common/CitationList';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
 import { useSLM } from '@/contexts/slm-context';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
@@ -52,6 +53,7 @@ import type { PatientRecordSnapshot } from '@/data/types';
 import { runIntent, type RunIntentResult } from '@/services/carePlan/intentRouter';
 import { runSlmCompletion } from '@/services/carePlan/careSlmAdapter';
 import { formatAnswerWithCollapsedSources } from '@/clinical-evidence/citation-display';
+import type { TranslateFn } from '@/localization/i18n';
 
 export interface CarePlanInsightSheetProps {
   visible: boolean;
@@ -67,6 +69,35 @@ type Phase = 'idle' | 'loading' | 'thinking' | 'streaming' | 'done' | 'error';
 
 const BODY_MAX_HEIGHT = Math.round(Dimensions.get('window').height * 0.55);
 
+function intentDisplayLabel(
+  intent: CareIntentDefinition<any, any> | null,
+  t: TranslateFn,
+): string {
+  if (!intent) return t('assistant.careIntentSheet.titleFallback');
+  switch (intent.intentId) {
+    case 'review_monitoring_contract':
+      return t('care.intents.label.reviewMonitoring');
+    case 'propose_therapy_contract_patch':
+      return t('care.intents.label.therapyPatch');
+    case 'explain_uc4_card':
+      return t('care.intents.label.explainUc4');
+    case 'promote_uc4_to_plan_task':
+      return t('care.intents.label.promoteUc4');
+    case 'suggest_todays_logging':
+      return t('care.intents.label.todaysLogging');
+    case 'weekly_care_plan_review':
+      return t('care.intents.label.weeklyReview');
+    case 'handoff_summary':
+      return t('care.intents.label.handoff');
+    case 'explain_uc3_result':
+      return t('care.intents.label.explainUc3');
+    case 'explain_uc2_alert':
+      return t('care.intents.label.explainUc2');
+    default:
+      return intent.caregiverLabel;
+  }
+}
+
 export function CarePlanInsightSheet({
   visible,
   intent,
@@ -76,6 +107,7 @@ export function CarePlanInsightSheet({
   intentArgs,
 }: CarePlanInsightSheetProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const slm = useSLM();
   const optionalGate = useOptionalFeatureGate('both');
@@ -194,8 +226,8 @@ export function CarePlanInsightSheet({
       const installed = MODEL_CATALOG.filter(isModelInstalled);
       setError(
         installed.length === 0
-          ? 'Concierge is unavailable — no model is installed. Open Models to download one, then retry.'
-          : 'Concierge could not load a model. Free memory, open Models, load Concierge, then retry.',
+          ? t('assistant.careIntentSheet.error.noModel')
+          : t('assistant.careIntentSheet.error.loadFailed'),
       );
       setPhase('error');
       return;
@@ -291,6 +323,7 @@ export function CarePlanInsightSheet({
     ensureModelAndLease,
     slm.provider,
     slmCurrentModelId,
+    t,
   ]);
 
   // One auto-run per open+intent; StrictMode-safe via ranRef.
@@ -357,17 +390,17 @@ export function CarePlanInsightSheet({
       phaseRef.current === 'streaming';
     if (running) {
       Alert.alert(
-        'Stop Concierge?',
-        'Concierge is still generating. Closing now will cancel this explanation.',
+        t('assistant.careIntentSheet.stopDialog.title'),
+        t('assistant.careIntentSheet.stopDialog.body'),
         [
-          { text: 'Keep going', style: 'cancel' },
-          { text: 'Stop', style: 'destructive', onPress: performClose },
+          { text: t('assistant.careIntentSheet.stopDialog.keepGoing'), style: 'cancel' },
+          { text: t('assistant.careIntentSheet.stopDialog.stop'), style: 'destructive', onPress: performClose },
         ],
       );
       return;
     }
     performClose();
-  }, [performClose]);
+  }, [performClose, t]);
 
   const handleRetryLoad = useCallback(async () => {
     setPhase('loading');
@@ -431,9 +464,10 @@ export function CarePlanInsightSheet({
     [handleClose, panY],
   );
 
-  const statusLabel = deriveStatusLabel(phase, currentModelId, error);
+  const statusLabel = deriveStatusLabel(phase, currentModelId, error, t);
   const statusTone = deriveStatusTone(phase, theme);
   const inProgress = phase === 'loading' || phase === 'thinking' || phase === 'streaming';
+  const displayTitle = intentDisplayLabel(intent, t);
 
   if (!optionalGate.ready) {
     return (
@@ -442,8 +476,14 @@ export function CarePlanInsightSheet({
           <Pressable style={styles.backdrop} onPress={handleClose} />
           <View style={[styles.sheet, styles.greyedSheet]}>
             <View style={styles.header}>
-              <Text style={styles.title}>{intent?.caregiverLabel ?? 'Care Concierge'}</Text>
-              <Pressable style={styles.closeButton} onPress={handleClose} hitSlop={12}>
+              <Text style={styles.title}>{displayTitle}</Text>
+              <Pressable
+                style={styles.closeButton}
+                onPress={handleClose}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel={t('assistant.careIntentSheet.closeA11y')}
+              >
                 <Text style={styles.closeText}>×</Text>
               </Pressable>
             </View>
@@ -468,8 +508,14 @@ export function CarePlanInsightSheet({
           <View {...panResponder.panHandlers}>
             <View style={[styles.handle, themedStyles.handle]} />
             <View style={styles.header}>
-              <Text style={[styles.title, themedStyles.title]}>{intent?.caregiverLabel ?? 'Care Concierge'}</Text>
-              <Pressable style={[styles.closeButton, themedStyles.closeButton]} onPress={handleClose} hitSlop={12}>
+              <Text style={[styles.title, themedStyles.title]}>{displayTitle}</Text>
+              <Pressable
+                style={[styles.closeButton, themedStyles.closeButton]}
+                onPress={handleClose}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel={t('assistant.careIntentSheet.closeA11y')}
+              >
                 <Text style={[styles.closeText, themedStyles.closeText]}>×</Text>
               </Pressable>
             </View>
@@ -496,7 +542,7 @@ export function CarePlanInsightSheet({
             {phase === 'error' ? (
               <View>
                 <Text style={[styles.errorText, themedStyles.errorText]}>
-                  Couldn&apos;t run this intent: {error}
+                  {t('assistant.careIntentSheet.error.runIntent', { error: error ?? '' })}
                 </Text>
                 <Pressable
                   style={styles.retryButton}
@@ -504,15 +550,15 @@ export function CarePlanInsightSheet({
                     void handleRetryLoad();
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel="Retry loading Concierge"
+                  accessibilityLabel={t('assistant.careIntentSheet.retryLoadA11y')}
                 >
-                  <Text style={styles.retryButtonText}>Retry Concierge load</Text>
+                  <Text style={styles.retryButtonText}>{t('assistant.careIntentSheet.retryLoad')}</Text>
                 </Pressable>
               </View>
             ) : null}
 
             {(phase === 'loading' || phase === 'thinking') ? (
-              <Text style={[styles.thinkingText, themedStyles.mutedText]}>Thinking…</Text>
+              <Text style={[styles.thinkingText, themedStyles.mutedText]}>{t('assistant.careIntentSheet.thinking')}</Text>
             ) : null}
 
             {phase === 'streaming' ? (
@@ -538,17 +584,17 @@ export function CarePlanInsightSheet({
                   void runExplain();
                 }}
                 accessibilityRole="button"
-                accessibilityLabel="Regenerate"
+                accessibilityLabel={t('assistant.careIntentSheet.regenerateA11y')}
               >
-                <Text style={[styles.regenerateButtonText, themedStyles.regenerateButtonText]}>Regenerate</Text>
+                <Text style={[styles.regenerateButtonText, themedStyles.regenerateButtonText]}>{t('assistant.careIntentSheet.regenerate')}</Text>
               </Pressable>
             ) : null}
 
             {result && result.enqueuedProposalIds.length > 0 ? (
               <View style={[styles.proposalBlock, themedStyles.proposalBlock]}>
-                <Text style={[styles.proposalKicker, themedStyles.proposalKicker]}>Plan proposal queued</Text>
+                <Text style={[styles.proposalKicker, themedStyles.proposalKicker]}>{t('assistant.careIntentSheet.proposalQueued')}</Text>
                 <Text style={[styles.proposalMeta, themedStyles.supportingText]}>
-                  Concierge drafted a plan update. Confirm below to send to ML vetting.
+                  {t('assistant.careIntentSheet.proposalMeta')}
                 </Text>
                 <View style={styles.proposalActions}>
                   <Pressable
@@ -561,25 +607,25 @@ export function CarePlanInsightSheet({
                       handleClose();
                     }}
                   >
-                    <Text style={styles.confirmText}>Send for your review</Text>
+                    <Text style={styles.confirmText}>{t('assistant.careIntentSheet.sendForReview')}</Text>
                   </Pressable>
                 </View>
                 {proposalResolvedAt ? (
-                  <Text style={[styles.proposalResolved, themedStyles.proposalResolved]}>Sent — refresh to see updated plan.</Text>
+                  <Text style={[styles.proposalResolved, themedStyles.proposalResolved]}>{t('assistant.careIntentSheet.sentRefresh')}</Text>
                 ) : null}
               </View>
             ) : null}
 
             {result?.enqueuedProposalIds?.length === 0 && phase === 'done' ? (
               <Text style={[styles.explanationOnlyNote, themedStyles.mutedText]}>
-                No plan change suggested — explanation only.
+                {t('assistant.careIntentSheet.noPlanChange')}
               </Text>
             ) : null}
           </ScrollView>
 
           {phase === 'done' && finalText ? (
             <Text style={[styles.footnote, themedStyles.mutedText]}>
-              Concierge guidance — not a diagnosis. Confirm any plan change with the care team.
+              {t('assistant.careIntentSheet.footnote')}
             </Text>
           ) : null}
         </Animated.View>
@@ -588,21 +634,30 @@ export function CarePlanInsightSheet({
   );
 }
 
-function deriveStatusLabel(phase: Phase, modelId: string | null, error: string | null): string {
+function deriveStatusLabel(
+  phase: Phase,
+  modelId: string | null,
+  error: string | null,
+  t: TranslateFn,
+): string {
   const modelTag = modelId ? ` · ${modelId}` : '';
   switch (phase) {
     case 'idle':
-      return 'Preparing…';
+      return t('assistant.careIntentSheet.status.preparing');
     case 'loading':
-      return modelId ? `Loading model · ${modelId}…` : 'Loading Concierge…';
+      return modelId
+        ? t('assistant.careIntentSheet.status.loadingModel', { modelId })
+        : t('assistant.careIntentSheet.status.loadingConcierge');
     case 'thinking':
-      return `Thinking${modelTag}…`;
+      return t('assistant.careIntentSheet.status.thinking', { modelTag });
     case 'streaming':
-      return `Generating${modelTag}…`;
+      return t('assistant.careIntentSheet.status.generating', { modelTag });
     case 'done':
-      return `Complete${modelTag}`;
+      return t('assistant.careIntentSheet.status.complete', { modelTag });
     case 'error':
-      return `Error: ${error ?? 'unknown'}`;
+      return t('assistant.careIntentSheet.status.error', {
+        error: error ?? t('assistant.careIntentSheet.status.unknown'),
+      });
     default:
       return '';
   }

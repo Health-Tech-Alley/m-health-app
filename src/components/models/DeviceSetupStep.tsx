@@ -10,6 +10,7 @@ import { AppTheme } from '@/constants/theme';
 import { useKnowledgePackInstall } from '@/hooks/useKnowledgePackInstall';
 import { useModelDownloadQueue } from '@/hooks/useModelDownloadQueue';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
 import type { PackRunnerOptions } from '@/clinical-evidence/pack';
 
 import { KnowledgePackProgressCard } from './KnowledgePackProgressCard';
@@ -30,6 +31,7 @@ export function DeviceSetupStep({
   const pack = useKnowledgePackInstall();
   const models = useModelDownloadQueue();
   const theme = useTheme();
+  const { t } = useTranslation();
 
   const keepAwake = pack.inFlight || models.anyDownloading;
   const isDark = theme.appBackground === '#000000';
@@ -84,12 +86,16 @@ export function DeviceSetupStep({
       // Soft Wi‑Fi reminder — user can still proceed.
       await new Promise<void>((resolve) => {
         Alert.alert(
-          'Download clinical knowledge',
-          'Wi‑Fi is strongly recommended. Stay on this screen while downloads run. Do not lock the phone or force-quit the app.',
+          t('onboarding.deviceSetup.alert.title'),
+          t('onboarding.deviceSetup.alert.body'),
           [
-            { text: 'Wait', style: 'cancel', onPress: () => resolve() },
             {
-              text: 'Continue download',
+              text: t('onboarding.deviceSetup.alert.wait'),
+              style: 'cancel',
+              onPress: () => resolve(),
+            },
+            {
+              text: t('onboarding.deviceSetup.alert.continue'),
               onPress: () => {
                 if (!cancelled) {
                   void pack.autoStartOnce(runnerOptions);
@@ -110,17 +116,18 @@ export function DeviceSetupStep({
   }, []);
 
   const banner = useMemo(
-    () =>
-      'Stay on this screen while downloads run. Do not power off or force-quit the app. Leaving may pause large downloads. Wi‑Fi strongly recommended.',
-    [],
+    () => t('onboarding.deviceSetup.banner'),
+    [t],
   );
 
   return (
     <View style={styles.root}>
       <View style={[styles.introCard, themedStyles.introCard]}>
-        <Text style={[styles.heading, themedStyles.heading]}>Device setup</Text>
+        <Text style={[styles.heading, themedStyles.heading]}>
+          {t('onboarding.deviceSetup.title')}
+        </Text>
         <Text style={[styles.subheading, themedStyles.subheading]}>
-          Download on-device AI before home care use
+          {t('onboarding.deviceSetup.subtitle')}
         </Text>
       </View>
       <View style={[styles.banner, themedStyles.banner]}>
@@ -133,8 +140,8 @@ export function DeviceSetupStep({
         showUseDefault={false}
         onNeedHfToken={() =>
           Alert.alert(
-            'Hugging Face token',
-            'Public Concierge models do not need a token. If a download fails with a 401, add a token in Settings → Models.',
+            t('onboarding.deviceSetup.hfToken.title'),
+            t('onboarding.deviceSetup.hfToken.body'),
           )
         }
       />

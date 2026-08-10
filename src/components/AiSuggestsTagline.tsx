@@ -8,6 +8,7 @@
 
 import { StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
 
 type Variant = 'muted' | 'inverse' | 'outline';
 
@@ -19,6 +20,8 @@ type Props = {
 
 export function AiSuggestsTagline({ variant = 'muted', source = 'Concierge' }: Props) {
   const theme = useTheme();
+  const { t } = useTranslation();
+  const sourceLabel = source === 'Concierge' ? t('assistant.term.concierge') : source;
 
   const palette =
     variant === 'inverse'
@@ -31,7 +34,7 @@ export function AiSuggestsTagline({ variant = 'muted', source = 'Concierge' }: P
     <View style={[styles.wrap, { backgroundColor: palette.bg }]}>
       <Text style={[styles.dot, { color: palette.fg }]}>•</Text>
       <Text style={[styles.text, { color: palette.fg }]}>
-        The {source} suggests. You decide.
+        {t('assistant.tagline', { source: sourceLabel })}
       </Text>
     </View>
   );

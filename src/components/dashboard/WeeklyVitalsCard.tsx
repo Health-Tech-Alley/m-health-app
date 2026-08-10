@@ -15,6 +15,8 @@ import {
   selectProductionWearableReadingsForPatient,
 } from "@/store/reducers/vitalsSlice";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
+import type { AppLocale, TranslateFn, TranslationKey } from "@/localization/i18n";
 
 type MetricTone = "critical" | "warning" | "good";
 
@@ -35,134 +37,134 @@ const METRIC_META: Record<
   HealthSampleType,
   {
     tabIcon: string;
-    label: string;
-    helperText: string;
+    labelKey: TranslationKey;
+    helperKey: TranslationKey;
   }
 > = {
   spo2: {
     tabIcon: "\u{1FAC1}",
-    label: "Oxygen Saturation",
-    helperText: "SpO2 estimates how much oxygen is in the blood.",
+    labelKey: "dashboard.vitals.metric.spo2.label",
+    helperKey: "dashboard.vitals.metric.spo2.helper",
   },
   heart_rate: {
     tabIcon: "\u2764\uFE0F",
-    label: "Heart Rate",
-    helperText: "Heart rate shows beats per minute.",
+    labelKey: "dashboard.vitals.metric.heartRate.label",
+    helperKey: "dashboard.vitals.metric.heartRate.helper",
   },
   respiratory_rate: {
     tabIcon: "\u{1F4A8}",
-    label: "Respiratory Rate",
-    helperText: "Respiratory rate counts breaths per minute.",
+    labelKey: "dashboard.vitals.metric.respiratoryRate.label",
+    helperKey: "dashboard.vitals.metric.respiratoryRate.helper",
   },
   blood_pressure_systolic: {
     tabIcon: "\u{1FA7A}",
-    label: "Blood Pressure",
-    helperText: "Blood pressure is shown from paired recent readings when available.",
+    labelKey: "dashboard.vitals.metric.bloodPressure.label",
+    helperKey: "dashboard.vitals.metric.bloodPressure.helper",
   },
   blood_pressure_diastolic: {
     tabIcon: "\u{1FA7A}",
-    label: "Blood Pressure",
-    helperText: "Blood pressure is shown from paired recent readings when available.",
+    labelKey: "dashboard.vitals.metric.bloodPressure.label",
+    helperKey: "dashboard.vitals.metric.bloodPressure.helper",
   },
   temperature: {
     tabIcon: "\u{1F321}\uFE0F",
-    label: "Body Temperature",
-    helperText: "Body temperature uses the unit stored with the reading.",
+    labelKey: "dashboard.vitals.metric.temperature.label",
+    helperKey: "dashboard.vitals.metric.temperature.helper",
   },
   blood_glucose: {
     tabIcon: "\u{1FA78}",
-    label: "Blood Glucose",
-    helperText: "Blood glucose uses the unit stored with the reading.",
+    labelKey: "dashboard.vitals.metric.bloodGlucose.label",
+    helperKey: "dashboard.vitals.metric.bloodGlucose.helper",
   },
   steps: {
     tabIcon: "\u{1F463}",
-    label: "Steps",
-    helperText: "Steps show recent movement readings from monitoring data.",
+    labelKey: "dashboard.vitals.metric.steps.label",
+    helperKey: "dashboard.vitals.metric.steps.helper",
   },
   weight: {
     tabIcon: "\u2696\uFE0F",
-    label: "Weight",
-    helperText: "Weight uses the unit stored with the reading.",
+    labelKey: "dashboard.vitals.metric.weight.label",
+    helperKey: "dashboard.vitals.metric.weight.helper",
   },
   height: {
     tabIcon: "\u{1F4CF}",
-    label: "Height",
-    helperText: "Height uses the unit stored with the reading.",
+    labelKey: "dashboard.vitals.metric.height.label",
+    helperKey: "dashboard.vitals.metric.height.helper",
   },
   bmi: {
     tabIcon: "\u{1F4CA}",
-    label: "BMI",
-    helperText: "BMI uses the unit stored with the reading.",
+    labelKey: "dashboard.vitals.metric.bmi.label",
+    helperKey: "dashboard.vitals.metric.bmi.helper",
   },
   distance: {
     tabIcon: "\u{1F6B6}",
-    label: "Distance",
-    helperText: "Distance uses the unit stored with the reading.",
+    labelKey: "dashboard.vitals.metric.distance.label",
+    helperKey: "dashboard.vitals.metric.distance.helper",
   },
   flights_climbed: {
     tabIcon: "\u{1FA9C}",
-    label: "Flights Climbed",
-    helperText: "Flights climbed uses the unit stored with the reading.",
+    labelKey: "dashboard.vitals.metric.flightsClimbed.label",
+    helperKey: "dashboard.vitals.metric.flightsClimbed.helper",
   },
   sleep: {
     tabIcon: "\u{1F4A4}",
-    label: "Sleep",
-    helperText: "Sleep readings use the stored monitoring value.",
+    labelKey: "dashboard.vitals.metric.sleep.label",
+    helperKey: "dashboard.vitals.metric.sleep.helper",
   },
   coughing: {
     tabIcon: "\u{1F5E3}\uFE0F",
-    label: "Coughing",
-    helperText: "Coughing readings use the stored monitoring value.",
+    labelKey: "dashboard.vitals.metric.coughing.label",
+    helperKey: "dashboard.vitals.metric.coughing.helper",
   },
   calories_burned: {
     tabIcon: "\u{1F525}",
-    label: "Calories Burned",
-    helperText: "Calories burned sums active energy from monitoring data.",
+    labelKey: "dashboard.vitals.metric.caloriesBurned.label",
+    helperKey: "dashboard.vitals.metric.caloriesBurned.helper",
   },
   hrv_sdnn: {
     tabIcon: "\u{1F30A}",
-    label: "Heart Rate Variability",
-    helperText: "HRV (SDNN) reflects recovery and stress from recent heart rate readings.",
+    labelKey: "dashboard.vitals.metric.hrvSdnn.label",
+    helperKey: "dashboard.vitals.metric.hrvSdnn.helper",
   },
   resting_heart_rate: {
     tabIcon: "\u{1F6D1}",
-    label: "Resting Heart Rate",
-    helperText: "Resting heart rate is measured while at rest.",
+    labelKey: "dashboard.vitals.metric.restingHeartRate.label",
+    helperKey: "dashboard.vitals.metric.restingHeartRate.helper",
   },
   walking_steadiness: {
     tabIcon: "\u{1F9CF}",
-    label: "Walking Steadiness",
-    helperText: "Walking steadiness estimates fall risk from gait data.",
+    labelKey: "dashboard.vitals.metric.walkingSteadiness.label",
+    helperKey: "dashboard.vitals.metric.walkingSteadiness.helper",
   },
   walking_speed: {
     tabIcon: "\u{1F6B6}",
-    label: "Walking Speed",
-    helperText: "Walking speed is measured from monitoring data.",
+    labelKey: "dashboard.vitals.metric.walkingSpeed.label",
+    helperKey: "dashboard.vitals.metric.walkingSpeed.helper",
   },
   step_length: {
     tabIcon: "\u{1F4AD}",
-    label: "Step Length",
-    helperText: "Step length measures average stride from monitoring data.",
+    labelKey: "dashboard.vitals.metric.stepLength.label",
+    helperKey: "dashboard.vitals.metric.stepLength.helper",
   },
   walking_asymmetry: {
     tabIcon: "\u{2696}\uFE0F",
-    label: "Walking Asymmetry",
-    helperText: "Walking asymmetry compares left vs right step timing.",
+    labelKey: "dashboard.vitals.metric.walkingAsymmetry.label",
+    helperKey: "dashboard.vitals.metric.walkingAsymmetry.helper",
   },
   walking_double_support: {
     tabIcon: "\u{23F1}\uFE0F",
-    label: "Double Support Time",
-    helperText: "Double support time shows time with both feet on the ground.",
+    labelKey: "dashboard.vitals.metric.walkingDoubleSupport.label",
+    helperKey: "dashboard.vitals.metric.walkingDoubleSupport.helper",
   },
   vo2_max: {
     tabIcon: "\u{1F3C3}",
-    label: "VO2 Max",
-    helperText: "VO2 max estimates cardiorespiratory fitness.",
+    labelKey: "dashboard.vitals.metric.vo2Max.label",
+    helperKey: "dashboard.vitals.metric.vo2Max.helper",
   },
   six_minute_walk_distance: {
     tabIcon: "\u{1F3C1}",
-    label: "Six-Minute Walk",
-    helperText: "Six-minute walk distance measures functional capacity.",
+    labelKey: "dashboard.vitals.metric.sixMinuteWalk.label",
+    helperKey: "dashboard.vitals.metric.sixMinuteWalk.helper",
   },
 };
 
@@ -251,6 +253,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function WeeklyVitalsCard() {
   const theme = useTheme();
+  const { locale, t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [selectedKey, setSelectedKey] = useState<HealthSampleType>("spo2");
   const [selectedDayStart, setSelectedDayStart] = useState<number>(() =>
@@ -265,8 +268,8 @@ export function WeeklyVitalsCard() {
   );
 
   const metrics = useMemo(
-    () => buildMetrics(productionReadings, activePatientId),
-    [activePatientId, productionReadings],
+    () => buildMetrics(productionReadings, activePatientId, t, locale),
+    [activePatientId, locale, productionReadings, t],
   );
 
   const { isRealHealth } = useSensor();
@@ -304,8 +307,9 @@ export function WeeklyVitalsCard() {
         selectedMetric?.key ?? null,
         activePatientId,
         activePatient,
+        t,
       ),
-    [selectedMetric, activePatientId, activePatient],
+    [selectedMetric, activePatientId, activePatient, t],
   );
 
   const dayTotal = useMemo(() => {
@@ -315,23 +319,23 @@ export function WeeklyVitalsCard() {
 
   if (vitals.status === "loading") {
     return (
-      <CardShell title="Recent monitoring">
-        <Text style={[styles.stateText, themedStyles.subtitle]}>Loading recent monitoring readings...</Text>
+      <CardShell title={t("dashboard.vitals.title")}>
+        <Text style={[styles.stateText, themedStyles.subtitle]}>{t("dashboard.vitals.loading")}</Text>
       </CardShell>
     );
   }
   if (vitals.status === "error" || vitals.status === "unavailable" || !activePatientId) {
     return (
-      <CardShell title="Recent monitoring">
-        <Text style={[styles.stateText, themedStyles.subtitle]}>Recent monitoring unavailable</Text>
+      <CardShell title={t("dashboard.vitals.title")}>
+        <Text style={[styles.stateText, themedStyles.subtitle]}>{t("dashboard.vitals.unavailable")}</Text>
       </CardShell>
     );
   }
 
   if (!selectedMetric) {
     return (
-      <CardShell title="Recent monitoring">
-        <Text style={[styles.stateText, themedStyles.subtitle]}>No recent monitoring readings</Text>
+      <CardShell title={t("dashboard.vitals.title")}>
+        <Text style={[styles.stateText, themedStyles.subtitle]}>{t("dashboard.vitals.noReadings")}</Text>
       </CardShell>
     );
   }
@@ -340,7 +344,7 @@ export function WeeklyVitalsCard() {
     <View style={[styles.card, themedStyles.card]}>
       <View style={styles.headerRow}>
         <View style={styles.titleBlock}>
-          <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>Recent monitoring</Text>
+          <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{t("dashboard.vitals.title")}</Text>
           <Text style={[styles.subtitle, themedStyles.subtitle]}>{selectedMetric.subtitle}</Text>
         </View>
 
@@ -373,7 +377,7 @@ export function WeeklyVitalsCard() {
         </Text>
         <Text style={[styles.unit, themedStyles.subtitle]}>{selectedMetric.unit}</Text>
         <Text style={[styles.status, styles.statusGood, themedStyles.statusGood]}>
-          {dayTotal !== null ? formatDayLabel(selectedDayStart) : selectedMetric.status}
+          {dayTotal !== null ? formatDayLabel(selectedDayStart, locale, t) : selectedMetric.status}
         </Text>
       </View>
 
@@ -382,12 +386,15 @@ export function WeeklyVitalsCard() {
           readings={selectedMetric.readings}
           dayStart={selectedDayStart}
           onDayChange={setSelectedDayStart}
+          locale={locale}
+          t={t}
         />
       ) : (
         <TrendChart
           readings={selectedMetric.readings}
           secondaryReadings={selectedClass === "paired" ? diastolicReadings : undefined}
           bands={bands}
+          locale={locale}
         />
       )}
 
@@ -433,6 +440,8 @@ function CardShell({
 function buildMetrics(
   readings: LiveVitalReading[],
   activePatientId: string | null,
+  t: TranslateFn,
+  locale: AppLocale,
 ): VitalMetric[] {
   if (!activePatientId) return [];
 
@@ -464,13 +473,13 @@ function buildMetrics(
       return [{
         key: type,
         tabIcon: meta.tabIcon,
-        label: meta.label,
+        label: t(meta.labelKey),
         value: formatReadingValue(latest, byType),
         unit: displayUnit(type, formatReadingUnit(latest, byType)),
-        status: `Latest ${formatRelativeTime(latest.recordedAt)}`,
+        status: t("dashboard.vitals.latest", { time: formatRelativeTime(latest.recordedAt, t) }),
         statusTone: "good" as MetricTone,
-        subtitle: formatReadingsSubtitle(sorted),
-        helperText: meta.helperText,
+        subtitle: formatReadingsSubtitle(sorted, locale, t),
+        helperText: t(meta.helperKey),
         readings: sorted,
       }];
     });
@@ -525,10 +534,12 @@ function TrendChart({
   readings,
   secondaryReadings,
   bands = [],
+  locale,
 }: {
   readings: LiveVitalReading[];
   secondaryReadings?: LiveVitalReading[];
   bands?: ChartBand[];
+  locale: AppLocale;
 }) {
   const theme = useTheme();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
@@ -742,7 +753,7 @@ function TrendChart({
               ]}
             >
               <Text style={styles.valueBubbleText}>
-                {formatNumber(selectedReading.value)}, {formatTime(selectedReading.recordedAt)}
+                {formatNumber(selectedReading.value)}, {formatTime(selectedReading.recordedAt, locale)}
               </Text>
             </View>
           ) : null}
@@ -750,10 +761,10 @@ function TrendChart({
 
         <View style={styles.dayRow}>
           <Text style={[styles.dayLabel, themedStyles.axisLabel]}>
-            {firstReading ? formatShortDate(firstReading.recordedAt) : ""}
+            {firstReading ? formatShortDate(firstReading.recordedAt, locale) : ""}
           </Text>
           <Text style={[styles.dayLabel, themedStyles.axisLabel]}>
-            {lastReading ? formatShortDate(lastReading.recordedAt) : ""}
+            {lastReading ? formatShortDate(lastReading.recordedAt, locale) : ""}
           </Text>
         </View>
       </View>
@@ -765,10 +776,14 @@ function HourlyBarChart({
   readings,
   dayStart,
   onDayChange,
+  locale,
+  t,
 }: {
   readings: LiveVitalReading[];
   dayStart: number;
   onDayChange: (dayStartMs: number) => void;
+  locale: AppLocale;
+  t: TranslateFn;
 }) {
   const theme = useTheme();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
@@ -797,16 +812,16 @@ function HourlyBarChart({
       <View style={styles.hourBarHeader}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Previous day"
+          accessibilityLabel={t("dashboard.vitals.previousDay")}
           onPress={() => onDayChange(dayStart - DAY_MS)}
           style={[styles.dayChevron, themedStyles.dayChevron]}
         >
           <Text style={[styles.dayChevronText, themedStyles.dayChevronText]}>‹</Text>
         </Pressable>
-        <Text style={[styles.dayTitle, themedStyles.subtitle]}>{formatDayLabel(dayStart)}</Text>
+        <Text style={[styles.dayTitle, themedStyles.subtitle]}>{formatDayLabel(dayStart, locale, t)}</Text>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Next day"
+          accessibilityLabel={t("dashboard.vitals.nextDay")}
           onPress={() => onDayChange(dayStart + DAY_MS)}
           style={[styles.dayChevron, themedStyles.dayChevron]}
         >
@@ -931,43 +946,45 @@ function formatNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-function formatTime(value: string): string {
+function formatTime(value: string, locale: AppLocale): string {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return "";
 
-  return new Date(timestamp).toLocaleTimeString(undefined, {
+  return new Date(timestamp).toLocaleTimeString(locale, {
     hour: "numeric",
     minute: "2-digit",
   });
 }
 
-function formatRelativeTime(value: string): string {
+function formatRelativeTime(value: string, t: TranslateFn): string {
   const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return "recently";
+  if (!Number.isFinite(timestamp)) return t("dashboard.vitals.recently");
 
   const diffMinutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
-  if (diffMinutes < 1) return "just now";
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  if (diffMinutes < 1) return t("dashboard.vitals.justNow");
+  if (diffMinutes < 60) return t("dashboard.vitals.minutesAgoShort", { count: diffMinutes });
 
   const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffHours < 24) return t("dashboard.vitals.hoursAgoShort", { count: diffHours });
 
   const diffDays = Math.round(diffHours / 24);
-  return `${diffDays}d ago`;
+  return t("dashboard.vitals.daysAgoShort", { count: diffDays });
 }
 
-function formatShortDate(value: string): string {
+function formatShortDate(value: string, locale: AppLocale): string {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return "";
 
-  return new Date(timestamp).toLocaleDateString(undefined, {
+  return new Date(timestamp).toLocaleDateString(locale, {
     month: "short",
     day: "numeric",
   });
 }
 
-function formatReadingsSubtitle(readings: LiveVitalReading[]): string {
-  const countLabel = `${readings.length} reading${readings.length === 1 ? "" : "s"}`;
+function formatReadingsSubtitle(readings: LiveVitalReading[], locale: AppLocale, t: TranslateFn): string {
+  const countLabel = t(readings.length === 1 ? "dashboard.vitals.readingOne" : "dashboard.vitals.readingMany", {
+    count: readings.length,
+  });
   const dates = readings
     .map((reading) => {
       const timestamp = Date.parse(reading.recordedAt);
@@ -975,21 +992,21 @@ function formatReadingsSubtitle(readings: LiveVitalReading[]): string {
     })
     .filter((date): date is Date => date !== null);
 
-  if (dates.length === 0) return "Latest readings";
+  if (dates.length === 0) return t("dashboard.vitals.latestReadings");
 
   const today = new Date();
   if (dates.every((date) => isSameLocalDay(date, today))) {
-    return `${countLabel} Today`;
+    return t("dashboard.vitals.readingsToday", { countLabel });
   }
 
   const first = dates[0];
   const last = dates[dates.length - 1];
-  const firstLabel = formatShortDate(first.toISOString());
-  const lastLabel = formatShortDate(last.toISOString());
+  const firstLabel = formatShortDate(first.toISOString(), locale);
+  const lastLabel = formatShortDate(last.toISOString(), locale);
 
-  if (!firstLabel || !lastLabel) return "Latest readings";
-  if (firstLabel === lastLabel) return `${countLabel} ${lastLabel}`;
-  return `${countLabel} ${firstLabel} - ${lastLabel}`;
+  if (!firstLabel || !lastLabel) return t("dashboard.vitals.latestReadings");
+  if (firstLabel === lastLabel) return t("dashboard.vitals.readingsOnDate", { countLabel, date: lastLabel });
+  return t("dashboard.vitals.readingsDateRange", { countLabel, firstDate: firstLabel, lastDate: lastLabel });
 }
 
 function isSameLocalDay(left: Date, right: Date): boolean {
@@ -1017,11 +1034,11 @@ function sumReadingsForDay(readings: LiveVitalReading[], dayStartMs: number): nu
   return total;
 }
 
-function formatDayLabel(dayStartMs: number): string {
+function formatDayLabel(dayStartMs: number, locale: AppLocale, t: TranslateFn): string {
   const today = startOfLocalDay(Date.now());
-  if (dayStartMs === today) return "Today";
-  if (dayStartMs === today - DAY_MS) return "Yesterday";
-  return new Date(dayStartMs).toLocaleDateString(undefined, {
+  if (dayStartMs === today) return t("dashboard.vitals.today");
+  if (dayStartMs === today - DAY_MS) return t("dashboard.vitals.yesterday");
+  return new Date(dayStartMs).toLocaleDateString(locale, {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -1043,6 +1060,7 @@ function buildBandsForMetric(
   metricKey: HealthSampleType | null,
   patientId: string | null,
   patient: NormalizedActivePatient | null,
+  t: TranslateFn,
 ): ChartBand[] {
   if (!metricKey || !patientId) return [];
   const bands: ChartBand[] = [];
@@ -1051,14 +1069,14 @@ function buildBandsForMetric(
     bands.push({
       value: threshold.value,
       tone: threshold.severity >= 3 ? "danger" : "warning",
-      label: threshold.direction === "below" ? "min" : "max",
+      label: threshold.direction === "below" ? t("dashboard.vitals.band.min") : t("dashboard.vitals.band.max"),
     });
   }
 
   if (metricKey === "spo2") {
     const cutoff = Number.parseFloat(patient?.spo2Cutoff ?? "");
     if (Number.isFinite(cutoff)) {
-      bands.push({ value: cutoff, tone: "danger", label: "cutoff" });
+      bands.push({ value: cutoff, tone: "danger", label: t("dashboard.vitals.band.cutoff") });
     }
   }
 
@@ -1066,8 +1084,8 @@ function buildBandsForMetric(
     const baseline = Number.parseFloat(patient?.baselineHeartRate ?? "");
     if (Number.isFinite(baseline)) {
       bands.push(
-        { value: baseline + 30, tone: "warning", label: "max" },
-        { value: Math.max(40, baseline - 20), tone: "warning", label: "min" },
+        { value: baseline + 30, tone: "warning", label: t("dashboard.vitals.band.max") },
+        { value: Math.max(40, baseline - 20), tone: "warning", label: t("dashboard.vitals.band.min") },
       );
     }
   }

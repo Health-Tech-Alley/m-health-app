@@ -5,13 +5,14 @@ import { Pressable, StyleSheet, Text, useColorScheme, View } from "react-native"
 import { AppTheme, Colors } from "@/constants/theme";
 import type { HealthSampleType } from "@/data/types";
 import { useClinicalVitals } from "@/hooks/useActivePatientView";
+import { useTranslation } from "@/hooks/use-translation";
+import type { AppLocale, TranslateFn } from "@/localization/i18n";
 import type { NormalizedBloodPressurePair, NormalizedVitalMetric } from "@/data/types";
 
 type RangeKey = "6m" | "1y" | "2y";
 
 type RangeOption = {
   key: RangeKey;
-  label: string;
   encounterCount: number;
 };
 
@@ -65,65 +66,88 @@ type VitalMetric = {
 const CHART_HEIGHT = 112;
 const POINT_SIZE = 14;
 const CHART_HORIZONTAL_PADDING = 10;
-const SOURCE_BADGE = "Recorded observations";
 
 const RANGE_OPTIONS: RangeOption[] = [
-  { key: "6m", label: "6 months", encounterCount: 6 },
-  { key: "1y", label: "1 year", encounterCount: 12 },
-  { key: "2y", label: "2 years", encounterCount: 24 },
+  { key: "6m", encounterCount: 6 },
+  { key: "1y", encounterCount: 12 },
+  { key: "2y", encounterCount: 24 },
 ];
 
-const VITAL_PRESENTATION: Record<string, Omit<VitalMetric, "value" | "unit" | "series">> = {
-  blood_pressure_systolic: {
-    key: "blood_pressure_systolic",
-    tabIcon: "🩸",
-    label: "Blood Pressure",
-    subtitle: "Paired systolic and diastolic readings from care records",
-    helperText: "Blood pressure shows systolic and diastolic pressure in millimeters of mercury.",
-    observedAt: undefined,
-  },
-  heart_rate: {
-    key: "heart_rate",
-    tabIcon: "❤️",
-    label: "Heart Rate",
-    subtitle: "Heart-rate readings from care records",
-    helperText: "Heart rate shows beats per minute compared with baseline.",
-    observedAt: undefined,
-  },
-  temperature: {
-    key: "temperature",
-    tabIcon: "🌡️",
-    label: "Body Temperature",
-    subtitle: "Temperature readings from care records",
-    helperText: "Body temperature shows the latest recorded temperature.",
-    observedAt: undefined,
-  },
-  spo2: {
-    key: "spo2",
-    tabIcon: "🫁",
-    label: "SpO2",
-    subtitle: "Oxygen saturation readings from care records",
-    helperText: "SpO2 estimates how much oxygen is in the blood.",
-    observedAt: undefined,
-  },
-  respiratory_rate: {
-    key: "respiratory_rate",
-    tabIcon: "💨",
-    label: "Respiratory Rate",
-    subtitle: "Respiratory readings from care records",
-    helperText: "Respiratory rate counts breaths per minute.",
-    observedAt: undefined,
-  },
-};
+function rangeLabel(key: RangeKey, t: TranslateFn): string {
+  switch (key) {
+    case "6m":
+      return t("care.vitals.range.6m");
+    case "1y":
+      return t("care.vitals.range.1y");
+    case "2y":
+      return t("care.vitals.range.2y");
+  }
+}
+
+function vitalPresentation(
+  key: string,
+  t: TranslateFn,
+): Omit<VitalMetric, "value" | "unit" | "series"> | null {
+  switch (key) {
+    case "blood_pressure_systolic":
+      return {
+        key,
+        tabIcon: "🩸",
+        label: t("care.vitals.metric.bloodPressure.label"),
+        subtitle: t("care.vitals.metric.bloodPressure.subtitle"),
+        helperText: t("care.vitals.metric.bloodPressure.helper"),
+        observedAt: undefined,
+      };
+    case "heart_rate":
+      return {
+        key,
+        tabIcon: "❤️",
+        label: t("care.vitals.metric.heartRate.label"),
+        subtitle: t("care.vitals.metric.heartRate.subtitle"),
+        helperText: t("care.vitals.metric.heartRate.helper"),
+        observedAt: undefined,
+      };
+    case "temperature":
+      return {
+        key,
+        tabIcon: "🌡️",
+        label: t("care.vitals.metric.temperature.label"),
+        subtitle: t("care.vitals.metric.temperature.subtitle"),
+        helperText: t("care.vitals.metric.temperature.helper"),
+        observedAt: undefined,
+      };
+    case "spo2":
+      return {
+        key,
+        tabIcon: "🫁",
+        label: t("care.vitals.metric.spo2.label"),
+        subtitle: t("care.vitals.metric.spo2.subtitle"),
+        helperText: t("care.vitals.metric.spo2.helper"),
+        observedAt: undefined,
+      };
+    case "respiratory_rate":
+      return {
+        key,
+        tabIcon: "💨",
+        label: t("care.vitals.metric.respiratoryRate.label"),
+        subtitle: t("care.vitals.metric.respiratoryRate.subtitle"),
+        helperText: t("care.vitals.metric.respiratoryRate.helper"),
+        observedAt: undefined,
+      };
+    default:
+      return null;
+  }
+}
 
 export function ObservationVitalsCard() {
   const router = useRouter();
+  const { locale, t } = useTranslation();
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const clinicalVitals = useClinicalVitals();
   const chartMetrics = useMemo(
-    () => clinicalVitals.map(toVitalMetric).filter(isVitalMetric),
-    [clinicalVitals],
+    () => clinicalVitals.map((metric) => toVitalMetric(metric, t)).filter(isVitalMetric),
+    [clinicalVitals, t],
   );
   const [selectedKey, setSelectedKey] = useState<HealthSampleType>("blood_pressure_systolic");
   const [selectedRange, setSelectedRange] = useState<RangeKey>("6m");
@@ -132,26 +156,24 @@ export function ObservationVitalsCard() {
     chartMetrics.find((metric) => metric.key === selectedKey) ?? chartMetrics[0];
   const selectedRangeOption = RANGE_OPTIONS.find((range) => range.key === selectedRange) ?? RANGE_OPTIONS[0];
   const chart = useMemo(
-    () => (selectedMetric ? buildChartModel(selectedMetric, selectedRangeOption) : null),
-    [selectedMetric, selectedRangeOption],
+    () => (selectedMetric ? buildChartModel(selectedMetric, selectedRangeOption, locale) : null),
+    [locale, selectedMetric, selectedRangeOption],
   );
 
   if (chartMetrics.length === 0 || !selectedMetric || !chart) {
     return (
       <View style={[styles.card, isDark && styles.cardDark]}>
         <View style={styles.titleRow}>
-          <Text style={styles.sectionTitle}>Recent readings</Text>
-          <Text style={styles.sourceBadge}>{SOURCE_BADGE}</Text>
+          <Text style={styles.sectionTitle}>{t("care.vitals.title")}</Text>
+          <Text style={styles.sourceBadge}>{t("care.vitals.sourceBadge")}</Text>
         </View>
-        <Text style={styles.emptyTitle}>No observations available</Text>
-        <Text style={styles.emptyText}>
-          Import the latest care record from Settings to add observations and vitals.
-        </Text>
+        <Text style={styles.emptyTitle}>{t("care.vitals.emptyTitle")}</Text>
+        <Text style={styles.emptyText}>{t("care.vitals.emptyBody")}</Text>
         <Pressable
           style={styles.importButton}
           onPress={() => router.push({ pathname: "/more", params: { focus: "ehr-import" } } as never)}
         >
-          <Text style={styles.importButtonText}>Import from Settings</Text>
+          <Text style={styles.importButtonText}>{t("care.vitals.import")}</Text>
         </Pressable>
       </View>
     );
@@ -161,8 +183,8 @@ export function ObservationVitalsCard() {
     <View style={[styles.card, isDark && styles.cardDark]}>
       <View style={styles.headerRow}>
         <View style={styles.titleRow}>
-          <Text style={styles.sectionTitle}>Recent readings</Text>
-          <Text style={styles.sourceBadge}>{SOURCE_BADGE}</Text>
+          <Text style={styles.sectionTitle}>{t("care.vitals.title")}</Text>
+          <Text style={styles.sourceBadge}>{t("care.vitals.sourceBadge")}</Text>
         </View>
         <Text style={styles.subtitle}>{selectedMetric.subtitle}</Text>
       </View>
@@ -177,7 +199,7 @@ export function ObservationVitalsCard() {
               style={[styles.tab, active && styles.tabActive]}
               accessibilityRole="button"
               accessibilityLabel={metric.label}
-              accessibilityHint={`Show ${metric.label} observations`}
+              accessibilityHint={t("care.vitals.showObservationsA11y", { label: metric.label })}
               accessibilityState={{ selected: active }}
               onPress={() => setSelectedKey(metric.key)}
             >
@@ -192,54 +214,57 @@ export function ObservationVitalsCard() {
       <View style={styles.rangeRow}>
         {RANGE_OPTIONS.map((range) => {
           const active = selectedRange === range.key;
+          const label = rangeLabel(range.key, t);
           return (
             <Pressable
               key={range.key}
               style={[styles.rangePill, active && styles.rangePillActive]}
               accessibilityRole="button"
-              accessibilityLabel={`Show ${range.label}`}
+              accessibilityLabel={t("care.vitals.showRangeA11y", { label })}
               onPress={() => setSelectedRange(range.key)}
             >
               <Text style={[styles.rangePillText, active && styles.rangePillTextActive]}>
-                {range.label}
+                {label}
               </Text>
             </Pressable>
           );
         })}
       </View>
 
-      <TrendChart chart={chart} />
+      <TrendChart chart={chart} locale={locale} t={t} />
 
-      <Text style={styles.summaryText}>{formatAverageSummary(selectedMetric, chart)}</Text>
+      <Text style={styles.summaryText}>{formatAverageSummary(selectedMetric, chart, t)}</Text>
     </View>
   );
 }
 
-function toVitalMetric(metric: NormalizedVitalMetric): VitalMetric | null {
-  const presentation = VITAL_PRESENTATION[metric.key];
+function toVitalMetric(metric: NormalizedVitalMetric, t: TranslateFn): VitalMetric | null {
+  const presentation = vitalPresentation(metric.key, t);
   if (!presentation) return null;
 
   const series =
     metric.key === "blood_pressure_systolic"
-      ? buildBloodPressureSeries(metric.bloodPressureReadings ?? [])
-      : [buildSingleValueSeries(metric)];
+      ? buildBloodPressureSeries(metric.bloodPressureReadings ?? [], t)
+      : [buildSingleValueSeries(metric, t)];
 
   const hasPoints = series.some((item) => item.points.length > 0);
   if (!hasPoints) return null;
 
   return {
     ...presentation,
-    value: metric.value || "Not available",
+    value: metric.value || t("common.notProvided"),
     unit: metric.unit,
     observedAt: metric.recordedAt,
     series,
   };
 }
 
-function buildSingleValueSeries(metric: NormalizedVitalMetric): ChartSeries {
+function buildSingleValueSeries(metric: NormalizedVitalMetric, t: TranslateFn): ChartSeries {
+  const presentation = vitalPresentation(metric.key, t);
+  const label = presentation?.label ?? metric.label;
   return {
     key: metric.key,
-    label: metric.label,
+    label,
     color: "#0F766E",
     unit: metric.unit,
     points: metric.readings
@@ -248,7 +273,7 @@ function buildSingleValueSeries(metric: NormalizedVitalMetric): ChartSeries {
         value: reading.value,
         unit: reading.unit || metric.unit,
         recordedAt: reading.recordedAt,
-        label: metric.label,
+        label,
         clinicalTimeKey: reading.sampleId,
         source: reading.source,
       }))
@@ -258,7 +283,7 @@ function buildSingleValueSeries(metric: NormalizedVitalMetric): ChartSeries {
   };
 }
 
-function buildBloodPressureSeries(readings: NormalizedBloodPressurePair[]): ChartSeries[] {
+function buildBloodPressureSeries(readings: NormalizedBloodPressurePair[], t: TranslateFn): ChartSeries[] {
   const systolic: ChartPoint[] = [];
   const diastolic: ChartPoint[] = [];
 
@@ -272,7 +297,7 @@ function buildBloodPressureSeries(readings: NormalizedBloodPressurePair[]): Char
         value: reading.systolic,
         unit: reading.unit,
         recordedAt: reading.recordedAt,
-        label: "Systolic",
+        label: t("care.vitals.series.systolic"),
         clinicalTimeKey,
       });
     }
@@ -282,7 +307,7 @@ function buildBloodPressureSeries(readings: NormalizedBloodPressurePair[]): Char
         value: reading.diastolic,
         unit: reading.unit,
         recordedAt: reading.recordedAt,
-        label: "Diastolic",
+        label: t("care.vitals.series.diastolic"),
         clinicalTimeKey,
       });
     }
@@ -291,14 +316,14 @@ function buildBloodPressureSeries(readings: NormalizedBloodPressurePair[]): Char
   return [
     {
       key: "blood_pressure_systolic",
-      label: "Systolic",
+      label: t("care.vitals.series.systolic"),
       color: "#0F766E",
       unit: "mmHg",
       points: systolic.filter(hasValidPointDate).sort(sortPointsOldestFirst),
     },
     {
       key: "blood_pressure_diastolic",
-      label: "Diastolic",
+      label: t("care.vitals.series.diastolic"),
       color: "#2563EB",
       unit: "mmHg",
       points: diastolic.filter(hasValidPointDate).sort(sortPointsOldestFirst),
@@ -306,7 +331,7 @@ function buildBloodPressureSeries(readings: NormalizedBloodPressurePair[]): Char
   ];
 }
 
-function buildChartModel(metric: VitalMetric, range: RangeOption): ChartModel {
+function buildChartModel(metric: VitalMetric, range: RangeOption, locale: AppLocale): ChartModel {
   const allPoints = metric.series.flatMap((series) => series.points);
   const clinicalTimePoints = buildClinicalTimePoints(allPoints);
   const selectedTimePoints = clinicalTimePoints
@@ -365,19 +390,19 @@ function buildChartModel(metric: VitalMetric, range: RangeOption): ChartModel {
     yMin,
     yMax,
     yLabels: [yMax, (yMax + yMin) / 2, yMin],
-    xLabels: getXAxisLabels(selectedTimePoints),
+    xLabels: getXAxisLabels(selectedTimePoints, locale),
   };
 }
 
-function TrendChart({ chart }: { chart: ChartModel }) {
+function TrendChart({ chart, locale, t }: { chart: ChartModel; locale: AppLocale; t: TranslateFn }) {
   const [chartWidth, setChartWidth] = useState(0);
   const [selectedPoint, setSelectedPoint] = useState<ChartPoint | null>(null);
 
   if (chart.points.length === 0) {
     return (
       <View style={styles.noRangeData}>
-        <Text style={styles.noRangeTitle}>No readings in this range</Text>
-        <Text style={styles.noRangeText}>Try a longer range or import a newer care record.</Text>
+        <Text style={styles.noRangeTitle}>{t("care.vitals.noRangeTitle")}</Text>
+        <Text style={styles.noRangeText}>{t("care.vitals.noRangeBody")}</Text>
       </View>
     );
   }
@@ -394,7 +419,7 @@ function TrendChart({ chart }: { chart: ChartModel }) {
           <Text style={styles.tooltipValue}>
             {selectedPoint.label}: {formatValue(selectedPoint.value)} {selectedPoint.unit}
           </Text>
-          <Text style={styles.tooltipDate}>{formatObservationDate(selectedPoint.recordedAt)}</Text>
+          <Text style={styles.tooltipDate}>{formatObservationDate(selectedPoint.recordedAt, locale, t)}</Text>
         </View>
       ) : null}
 
@@ -425,6 +450,8 @@ function TrendChart({ chart }: { chart: ChartModel }) {
                     timePointCount={chart.timePoints.length}
                     timePointIndexByKey={timePointIndexByKey}
                     onSelectPoint={setSelectedPoint}
+                    locale={locale}
+                    t={t}
                   />
                 ))
               : null}
@@ -462,6 +489,8 @@ function ChartSeriesLayer({
   timePointCount,
   timePointIndexByKey,
   onSelectPoint,
+  locale,
+  t,
 }: {
   series: ChartSeries;
   chartWidth: number;
@@ -470,6 +499,8 @@ function ChartSeriesLayer({
   timePointCount: number;
   timePointIndexByKey: Map<string, number>;
   onSelectPoint: (point: ChartPoint) => void;
+  locale: AppLocale;
+  t: TranslateFn;
 }) {
   const points = series.points.map((point) => {
     const timePointIndex = timePointIndexByKey.get(point.clinicalTimeKey) ?? 0;
@@ -510,7 +541,12 @@ function ChartSeriesLayer({
         <Pressable
           key={`point-${series.key}-${point.clinicalTimeKey}-${point.id}`}
           accessibilityRole="button"
-          accessibilityLabel={`${point.label} ${formatValue(point.value)} ${point.unit} observed ${formatObservationDate(point.recordedAt)}`}
+          accessibilityLabel={t("care.vitals.observedA11y", {
+            label: point.label,
+            value: formatValue(point.value),
+            unit: point.unit,
+            date: formatObservationDate(point.recordedAt, locale, t),
+          })}
           onPress={() => onSelectPoint(point)}
           style={[
             styles.point,
@@ -568,7 +604,7 @@ function getClinicalPointX(index: number, total: number, chartWidth: number) {
   return CHART_HORIZONTAL_PADDING + (index / (total - 1)) * plotWidth;
 }
 
-function getXAxisLabels(timePoints: ChartTimePoint[]) {
+function getXAxisLabels(timePoints: ChartTimePoint[], locale: AppLocale) {
   if (timePoints.length === 0) return [];
   const start = new Date(timePoints[0].recordedAt);
   const end = new Date(timePoints[timePoints.length - 1].recordedAt);
@@ -577,7 +613,7 @@ function getXAxisLabels(timePoints: ChartTimePoint[]) {
 
   return labelPoints.map((point, index) => ({
     id: `${point.key}-${index}`,
-    text: formatAxisDate(point.recordedAt, spanDays),
+    text: formatAxisDate(point.recordedAt, spanDays, locale),
     offset: getClinicalLabelOffset(point.index, timePoints.length),
   }));
 }
@@ -598,34 +634,38 @@ function getClinicalLabelOffset(index: number, total: number) {
   return Math.min(Math.max(labelStart + (index / (total - 1)) * labelSpan, 0), 92);
 }
 
-function formatAxisDate(value: string, spanDays: number) {
+function formatAxisDate(value: string, spanDays: number, locale: AppLocale) {
   if (/^\d{4}$/.test(value)) return value;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   if (spanDays > 540) {
-    return date.toLocaleDateString(undefined, { year: "numeric" });
+    return date.toLocaleDateString(locale, { year: "numeric" });
   }
-  return date.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+  return date.toLocaleDateString(locale, { month: "short", year: "2-digit" });
 }
 
-function formatAverageSummary(metric: VitalMetric, chart: ChartModel) {
-  if (chart.points.length === 0) return "Average: Not available";
+function formatAverageSummary(metric: VitalMetric, chart: ChartModel, t: TranslateFn) {
+  if (chart.points.length === 0) return t("care.vitals.averageUnavailable");
   if (metric.key === "blood_pressure_systolic") {
     const systolic = chart.series.find((series) => series.key === "blood_pressure_systolic");
     const diastolic = chart.series.find((series) => series.key === "blood_pressure_diastolic");
     const systolicAverage = getAverage(systolic?.points ?? []);
     const diastolicAverage = getAverage(diastolic?.points ?? []);
     if (systolicAverage == null || diastolicAverage == null) {
-      return "Average: Not available";
+      return t("care.vitals.averageUnavailable");
     }
-    return `Average: ${formatValue(systolicAverage)}/${formatValue(diastolicAverage)} mmHg`;
+    return t("care.vitals.average", {
+      value: `${formatValue(systolicAverage)}/${formatValue(diastolicAverage)} mmHg`,
+    });
   }
 
   const average = getAverage(chart.points);
   const unit = chart.points[0]?.unit ?? metric.unit;
   return average == null
-    ? "Average: Not available"
-    : `Average: ${formatValue(average)}${unit === "%" ? "%" : ` ${unit}`}`;
+    ? t("care.vitals.averageUnavailable")
+    : t("care.vitals.average", {
+        value: `${formatValue(average)}${unit === "%" ? "%" : ` ${unit}`}`,
+      });
 }
 
 function getAverage(points: ChartPoint[]) {
@@ -657,12 +697,12 @@ function isVitalMetric(metric: VitalMetric | null): metric is VitalMetric {
   return metric !== null;
 }
 
-function formatObservationDate(value?: string) {
-  if (!value) return "Not available";
+function formatObservationDate(value: string | undefined, locale: AppLocale, t: TranslateFn) {
+  if (!value) return t("common.notProvided");
   if (/^\d{4}$/.test(value)) return value;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(locale, {
     month: "short",
     day: "numeric",
     year: "numeric",

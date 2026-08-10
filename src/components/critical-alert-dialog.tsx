@@ -34,6 +34,8 @@ import { HARD_EMERGENCY_THRESHOLDS } from '@/ml-models/uc2-decision-layer/uc2Con
 import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
 import { useActivePatientView } from '@/hooks/useActivePatientView';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 import { displayEntered, formatPossessive, getPatientDisplayName } from '@/utils/patientDisplay';
 
 type AlertMetricVitals = {
@@ -58,20 +60,21 @@ function formatMetric(v: number | undefined, unit: string): string {
     : '—';
 }
 
-function formatRelativeTime(iso: string): string {
+function formatRelativeTime(iso: string, t: TranslateFn): string {
   const ts = new Date(iso).getTime();
-  if (!Number.isFinite(ts)) return 'Recent';
+  if (!Number.isFinite(ts)) return t('dashboard.time.recent');
   const minutes = Math.max(0, Math.round((Date.now() - ts) / 60000));
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return t('dashboard.time.justNow');
+  if (minutes < 60) return t('dashboard.time.minutesAgoShort', { count: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+  if (hours < 24) return t('dashboard.time.hoursAgoShort', { count: hours });
+  return t('dashboard.time.daysAgoShort', { count: Math.round(hours / 24) });
 }
 
 export function CriticalAlertDialog() {
   const router = useRouter();
   const { alert, visible, closeForSession, dismiss } = useCriticalAlert();
+  const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
 
   const activePatient = useActivePatientView();
@@ -104,12 +107,12 @@ export function CriticalAlertDialog() {
       show: hasSpo2,
     },
     {
-      label: 'SpO₂ cutoff',
+      label: t('dashboard.critical.spo2Cutoff'),
       value: displayEntered(spo2Cutoff),
       show: !isCaregiverReported || hasSpo2,
     },
     {
-      label: 'Baseline HR',
+      label: t('dashboard.critical.baselineHr'),
       value: displayEntered(activePatient?.baselineHeartRate),
       show: !isCaregiverReported || hasSpo2,
     },
@@ -117,11 +120,13 @@ export function CriticalAlertDialog() {
   const contextualType =
     mlEvent?.initialAnomalyType ?? alert.initialAnomalyType ?? undefined;
   const contextLabel =
-    isEmergencyFastPath || isCaregiverReported ? 'Path' : 'Pattern';
+    isEmergencyFastPath || isCaregiverReported
+      ? t('dashboard.critical.context.path')
+      : t('dashboard.critical.context.pattern');
   const contextValue = isEmergencyFastPath
-    ? 'emergency fast path'
+    ? t('dashboard.critical.context.emergencyFastPath')
     : isCaregiverReported
-      ? 'caregiver reported'
+      ? t('dashboard.critical.context.caregiverReported')
       : contextualType?.replace(/_/g, ' ').toLowerCase();
   const visibleAlertBody =
     activePatient && alert.body
@@ -130,6 +135,10 @@ export function CriticalAlertDialog() {
           `${formatPossessive(patientDisplayName)}`,
         )
       : alert.body;
+  const fallbackAlertBody = t('dashboard.critical.fallbackBody', {
+    patientName: patientDisplayName,
+    patientStatusOwner: formatPossessive(patientDisplayName),
+  });
 
   async function handleAction(actionId: NextStepActionId) {
     if (!alert) return;
@@ -148,12 +157,12 @@ export function CriticalAlertDialog() {
   function handleDismiss() {
     if (!alert) return;
     Alert.alert(
-      'Dismiss this alert?',
-      'This permanently suppresses the popup. The alert stays logged as inactive and you can review or remove it from the alerts log on the Home tab.',
+      t('dashboard.critical.dismissDialog.title'),
+      t('dashboard.critical.dismissDialog.body'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Dismiss',
+          text: t('common.dismiss'),
           style: 'destructive',
           onPress: () => dismiss(alert.alertId),
         },
@@ -181,14 +190,14 @@ export function CriticalAlertDialog() {
                 <AppIcon name="alert" size={28} color={AppTheme.colors.white} />
               </View>
               <View style={styles.titleBlock}>
-                <Text style={styles.eyebrow}>Active Alert · Emergency</Text>
+                <Text style={styles.eyebrow}>{t('dashboard.critical.activeEmergency')}</Text>
                 <Text style={styles.title}>{alert.title}</Text>
                 <Text style={styles.subtitle}>
-                  {formatRelativeTime(alert.createdAt)}
+                  {formatRelativeTime(alert.createdAt, t)}
                 </Text>
               </View>
               <View style={styles.urgentPill}>
-                <Text style={styles.urgentText}>Urgent</Text>
+                <Text style={styles.urgentText}>{t('dashboard.critical.urgent')}</Text>
               </View>
             </View>
 
@@ -212,18 +221,20 @@ export function CriticalAlertDialog() {
             <Text style={styles.bodyText}>
               {visibleAlertBody
                 ? visibleAlertBody
-                : `${formatPossessive(patientDisplayName)} recent vitals show an unusual pattern.`}
-              <Text style={styles.boldText}> You decide.</Text>
+                : fallbackAlertBody}
+              <Text style={styles.boldText}> {t('dashboard.critical.youDecide')}</Text>
             </Text>
 
-            <Text style={styles.promptText}>What do you want to do?</Text>
+            <Text style={styles.promptText}>{t('dashboard.critical.prompt')}</Text>
 
             <Pressable
               style={styles.callButton}
               onPress={() => handleAction('call_911')}
               disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel={t('dashboard.critical.call911')}
             >
-              <Text style={styles.callButtonText}>Call 911</Text>
+              <Text style={styles.callButtonText}>{t('dashboard.critical.call911')}</Text>
             </Pressable>
 
             <View style={styles.twoColumnActions}>
@@ -231,39 +242,50 @@ export function CriticalAlertDialog() {
                 style={styles.secondaryButton}
                 onPress={() => handleAction('go_to_er')}
                 disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel={t('dashboard.critical.goToEr')}
               >
-                <Text style={styles.secondaryButtonText}>Go to ER</Text>
+                <Text style={styles.secondaryButtonText}>{t('dashboard.critical.goToEr')}</Text>
               </Pressable>
               <Pressable
                 style={styles.secondaryButton}
                 onPress={() => handleAction('contact_pcp')}
                 disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel={t('dashboard.critical.contactProvider')}
               >
-                <Text style={styles.secondaryButtonText}>Contact Provider</Text>
+                <Text style={styles.secondaryButtonText}>{t('dashboard.critical.contactProvider')}</Text>
               </Pressable>
             </View>
 
-            <Pressable onPress={openDetail}>
-              <Text style={styles.footerLink}>View full alert →</Text>
+            <Pressable
+              onPress={openDetail}
+              accessibilityRole="link"
+              accessibilityLabel={t('dashboard.critical.viewFullAlertA11y')}
+            >
+              <Text style={styles.footerLink}>{t('dashboard.critical.viewFullAlert')}</Text>
             </Pressable>
 
             <View style={styles.dialogActions}>
               <Pressable
                 style={[styles.dialogButton, styles.closeButton]}
                 onPress={closeForSession}
+                accessibilityRole="button"
+                accessibilityLabel={t('common.close')}
               >
-                <Text style={styles.closeButtonText}>Close</Text>
+                <Text style={styles.closeButtonText}>{t('common.close')}</Text>
               </Pressable>
               <Pressable
                 style={[styles.dialogButton, styles.dismissButton]}
                 onPress={handleDismiss}
+                accessibilityRole="button"
+                accessibilityLabel={t('common.dismiss')}
               >
-                <Text style={styles.dismissButtonText}>Dismiss</Text>
+                <Text style={styles.dismissButtonText}>{t('common.dismiss')}</Text>
               </Pressable>
             </View>
             <Text style={styles.hint}>
-              Close hides this for now (it returns when you re-open the Care
-              tab). Dismiss suppresses it permanently.
+              {t('dashboard.critical.hint')}
             </Text>
           </ScrollView>
         </Pressable>

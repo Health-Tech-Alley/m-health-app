@@ -14,26 +14,27 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { OptionalFeaturePrompt } from '@/components/optional-feature-prompt';
 import { AppTheme } from '@/constants/theme';
 import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
+import { useTranslation } from '@/hooks/use-translation';
 
 import SlmScreen from "../slm";
 
 export default function AssistantTab() {
   const gate = useOptionalFeatureGate('slm');
+  const { t } = useTranslation();
 
   if (!gate.ready) {
     return (
       <SafeAreaView style={styles.greyed} edges={['top']}>
         <View style={styles.headerBlock}>
-          <Text style={styles.eyebrow}>Caregiver Concierge</Text>
-          <Text style={styles.title}>Concierge Support</Text>
+          <Text style={styles.eyebrow}>{t('assistant.gate.eyebrow')}</Text>
+          <Text style={styles.title}>{t('assistant.gate.title')}</Text>
           <Text style={styles.subtitle}>
-            Ask practical questions using the caregiver profile and patient
-            context.
+            {t('assistant.gate.subtitle')}
           </Text>
         </View>
         <OptionalFeaturePrompt requirement="slm" simulatedMissing={gate.simulatedMissing} />
         <Text style={styles.hint}>
-          The Concierge chat unlocks after the on-device model is downloaded.
+          {t('assistant.gate.hint')}
         </Text>
       </SafeAreaView>
     );

@@ -17,6 +17,7 @@ import { ConversationList } from "@/components/messaging/ConversationList";
 import { MessageComposer } from "@/components/messaging/MessageComposer";
 import { MessageThread } from "@/components/messaging/MessageThread";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
 import type { SecureConversation, SecureMessage } from "@/components/messaging/types";
 
 const CONVERSATIONS: SecureConversation[] = [];
@@ -25,6 +26,7 @@ const MESSAGES_BY_CONVERSATION_ID: Record<string, SecureMessage[]> = {};
 export default function SecureMessagingScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createStyles(theme), [theme]);
   const [selectedConversationId, setSelectedConversationId] = useState("");
   const [composeText, setComposeText] = useState("");
@@ -80,19 +82,19 @@ export default function SecureMessagingScreen() {
           <Pressable
             style={[styles.backButton, themedStyles.backButton]}
             accessibilityRole="button"
-            accessibilityLabel="Back to More"
+            accessibilityLabel={t("messaging.backA11y")}
             onPress={() => router.back()}
           >
-            <Text style={[styles.backText, themedStyles.backText]}>Back</Text>
+            <Text style={[styles.backText, themedStyles.backText]}>{t("common.back")}</Text>
           </Pressable>
 
           <MainTabHeader
-            title="Secure Messaging"
-            eyebrow="Ready-to-connect scaffold"
+            title={t("messaging.title")}
+            eyebrow={t("messaging.eyebrow")}
             icon="messages"
           />
 
-          <Section title="Conversations">
+          <Section title={t("messaging.conversations.title")}>
             <ConversationList
               conversations={CONVERSATIONS}
               selectedConversationId={selectedConversationId}
@@ -101,7 +103,7 @@ export default function SecureMessagingScreen() {
             />
           </Section>
 
-          <Section title={selectedConversation?.participant.displayName ?? "Message Thread"}>
+          <Section title={selectedConversation?.participant.displayName ?? t("messaging.thread.title")}>
             <MessageThread
               conversation={selectedConversation}
               messages={selectedMessages}
@@ -110,7 +112,7 @@ export default function SecureMessagingScreen() {
             />
           </Section>
 
-          <Section title="Compose">
+          <Section title={t("messaging.compose.title")}>
             <MessageComposer
               value={composeText}
               disabled={!selectedConversation}

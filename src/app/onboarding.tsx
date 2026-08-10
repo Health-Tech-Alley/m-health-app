@@ -19,6 +19,15 @@ import { DeviceSetupStep } from "@/components/models/DeviceSetupStep";
 import { AppTheme } from "@/constants/theme";
 import { useSettings } from "@/contexts/settings-context";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
+import {
+  SUPPORTED_APP_LANGUAGE_PREFERENCES,
+  languagePreferenceLabel,
+  normalizeSupportedLanguagePreference,
+  type SupportedAppLanguagePreference,
+  type TranslateFn,
+  type TranslationKey,
+} from "@/localization/i18n";
 import {
   refreshPatientRecord,
   selectPatientRecord,
@@ -44,7 +53,6 @@ import {
   type Availability,
   type CaregivingExperience,
   type EmergencyComfortLevel,
-  type LanguagePreference,
   type MedicalComfortLevel,
   type NotificationStyle,
   type ImportedPatientManualFields,
@@ -56,15 +64,6 @@ import {
 
 const totalScreens = 7;
 const formStepCount = 6;
-
-const formProgressSteps = [
-  "Caregiver",
-  "Caregiving",
-  "Patient",
-  "Safety",
-  "Device",
-  "Setup",
-];
 
 const experienceOptions: CaregivingExperience[] = [
   "First time",
@@ -87,12 +86,7 @@ const notificationOptions: NotificationStyle[] = [
   "Text message",
 ];
 
-const languageOptions: LanguagePreference[] = [
-  "English",
-  "Español",
-  "English + Español",
-  "Other",
-];
+const languageOptions = SUPPORTED_APP_LANGUAGE_PREFERENCES;
 
 const appearanceOptions = [
   { label: "System", value: "system" },
@@ -111,6 +105,69 @@ const emergencyComfortOptions: EmergencyComfortLevel[] = [
   "Prefer provider first",
   "Not sure — guide me",
 ];
+
+const experienceOptionKeys: Record<CaregivingExperience, TranslationKey> = {
+  "First time": "onboarding.caregiving.experience.firstTime",
+  "Some experience": "onboarding.caregiving.experience.someExperience",
+  Experienced: "onboarding.caregiving.experience.experienced",
+  "Medical background": "onboarding.caregiving.experience.medicalBackground",
+};
+
+const availabilityOptionKeys: Record<Availability, TranslationKey> = {
+  "Full time": "onboarding.caregiving.availability.fullTime",
+  Mornings: "onboarding.caregiving.availability.mornings",
+  "Evenings & weekends": "onboarding.caregiving.availability.eveningsWeekends",
+  "On-call only": "onboarding.caregiving.availability.onCallOnly",
+};
+
+const notificationOptionKeys: Record<NotificationStyle, TranslationKey> = {
+  "Push + sound": "onboarding.notifications.pushSound",
+  "Vibrate only": "onboarding.notifications.vibrateOnly",
+  "Push only": "onboarding.notifications.pushOnly",
+  "Text message": "onboarding.notifications.textMessage",
+};
+
+const medicalComfortOptionKeys: Record<MedicalComfortLevel, TranslationKey> = {
+  "Keep it simple": "onboarding.medicalComfort.simple",
+  "Moderate detail": "onboarding.medicalComfort.moderate",
+  "Full clinical detail": "onboarding.medicalComfort.full",
+};
+
+const emergencyComfortOptionKeys: Record<EmergencyComfortLevel, TranslationKey> = {
+  "Would call 911 if needed": "onboarding.emergencyComfort.call911",
+  "Prefer provider first": "onboarding.emergencyComfort.providerFirst",
+  "Not sure — guide me": "onboarding.emergencyComfort.notSure",
+};
+
+const symptomOptionKeys: Record<string, TranslationKey> = {
+  "shortness-of-breath": "onboarding.patient.symptoms.shortnessOfBreath",
+  wheezing: "onboarding.patient.symptoms.wheezing",
+  "persistent-cough": "onboarding.patient.symptoms.persistentCough",
+  "low-oxygen": "onboarding.patient.symptoms.lowOxygen",
+  "chest-tightness": "onboarding.patient.symptoms.chestTightness",
+  "fast-heart-rate": "onboarding.patient.symptoms.fastHeartRate",
+  dizziness: "onboarding.patient.symptoms.dizziness",
+  confusion: "onboarding.patient.symptoms.confusion",
+  weakness: "onboarding.patient.symptoms.weakness",
+  "reduced-mobility": "onboarding.patient.symptoms.reducedMobility",
+  "falls-risk": "onboarding.patient.symptoms.fallsRisk",
+  fatigue: "onboarding.patient.symptoms.fatigue",
+  fever: "onboarding.patient.symptoms.fever",
+  pain: "onboarding.patient.symptoms.pain",
+  "sleep-change": "onboarding.patient.symptoms.sleepChange",
+  "appetite-change": "onboarding.patient.symptoms.appetiteChange",
+};
+
+const wearableDeviceOptionKeys: Record<WearableDeviceType, TranslationKey> = {
+  "Apple Watch": "onboarding.device.type.appleWatch",
+  Fitbit: "onboarding.device.type.fitbit",
+  Garmin: "onboarding.device.type.garmin",
+  "Samsung Galaxy Watch": "onboarding.device.type.samsung",
+  "Oura Ring": "onboarding.device.type.oura",
+  "Phone only": "onboarding.device.type.phoneOnly",
+  "No device yet": "onboarding.device.type.noDevice",
+  Other: "onboarding.device.type.other",
+};
 
 type ExpandedSelect =
   | "symptoms"
@@ -368,13 +425,126 @@ function normalizeClassificationValue(value: string | undefined): string {
 function formatClassificationValue(
   value: string,
   options: MobilityOption[],
+  t: TranslateFn,
   prefix?: string,
 ): string {
-  if (!value) return "Not selected";
+  if (!value) return t("onboarding.classification.notSelected");
   const option = options.find((item) => item.value === value);
   if (!option) return value;
   if (option.value === "Not assessed") return option.label;
   return prefix ? `${prefix} ${option.value}` : option.detail ?? option.label;
+}
+
+function translateOption<T extends string>(
+  option: T,
+  keys: Record<T, TranslationKey>,
+  t: TranslateFn,
+): string {
+  return t(keys[option]);
+}
+
+function getSymptomLabel(option: SymptomProfile, t: TranslateFn): string {
+  const key = symptomOptionKeys[option.id];
+  return key ? t(key) : option.label;
+}
+
+type MobilityKind = "gmfcs" | "fms" | "macs" | "cfcs" | "edacs";
+
+function translateMobilityOptions(
+  kind: MobilityKind,
+  options: MobilityOption[],
+  t: TranslateFn,
+): MobilityOption[] {
+  return options.map((option) => ({
+    ...option,
+    label: getMobilityLabel(option.value, t),
+    description: getMobilityDescription(kind, option.value, option.description, t),
+    detail: option.detail
+      ? getMobilityDetail(option.value, option.detail, t)
+      : undefined,
+  }));
+}
+
+function getMobilityLabel(value: string, t: TranslateFn): string {
+  if (value === "Not assessed") {
+    return t("onboarding.classification.notAssessed.label");
+  }
+  if (value === "I") return t("onboarding.classification.levelI");
+  if (value === "II") return t("onboarding.classification.levelII");
+  if (value === "III") return t("onboarding.classification.levelIII");
+  if (value === "IV") return t("onboarding.classification.levelIV");
+  if (value === "V") return t("onboarding.classification.levelV");
+  return value;
+}
+
+function getMobilityDetail(
+  value: string,
+  fallback: string,
+  t: TranslateFn,
+): string {
+  if (value === "I") return t("onboarding.classification.score1");
+  if (value === "II") return t("onboarding.classification.score2");
+  if (value === "III") return t("onboarding.classification.score3");
+  if (value === "IV") return t("onboarding.classification.score4");
+  if (value === "V") return t("onboarding.classification.score5");
+  return fallback;
+}
+
+function getMobilityDescription(
+  kind: MobilityKind,
+  value: string,
+  fallback: string,
+  t: TranslateFn,
+): string {
+  if (value === "Not assessed") {
+    return t("onboarding.classification.notAssessed.description");
+  }
+
+  const key = getMobilityDescriptionKey(kind, value);
+  return key ? t(key) : fallback;
+}
+
+function getMobilityDescriptionKey(
+  kind: MobilityKind,
+  value: string,
+): TranslationKey | null {
+  if (kind === "gmfcs") {
+    if (value === "I") return "onboarding.classification.gmfcs.i";
+    if (value === "II") return "onboarding.classification.gmfcs.ii";
+    if (value === "III") return "onboarding.classification.gmfcs.iii";
+    if (value === "IV") return "onboarding.classification.gmfcs.iv";
+    if (value === "V") return "onboarding.classification.gmfcs.v";
+  }
+  if (kind === "fms") {
+    if (value === "1") return "onboarding.classification.fms.1";
+    if (value === "2") return "onboarding.classification.fms.2";
+    if (value === "3") return "onboarding.classification.fms.3";
+    if (value === "4") return "onboarding.classification.fms.4";
+    if (value === "5") return "onboarding.classification.fms.5";
+    if (value === "6") return "onboarding.classification.fms.6";
+  }
+  if (kind === "macs") {
+    if (value === "I") return "onboarding.classification.macs.i";
+    if (value === "II") return "onboarding.classification.macs.ii";
+    if (value === "III") return "onboarding.classification.macs.iii";
+    if (value === "IV") return "onboarding.classification.macs.iv";
+    if (value === "V") return "onboarding.classification.macs.v";
+  }
+  if (kind === "cfcs") {
+    if (value === "I") return "onboarding.classification.cfcs.i";
+    if (value === "II") return "onboarding.classification.cfcs.ii";
+    if (value === "III") return "onboarding.classification.cfcs.iii";
+    if (value === "IV") return "onboarding.classification.cfcs.iv";
+    if (value === "V") return "onboarding.classification.cfcs.v";
+  }
+  if (kind === "edacs") {
+    if (value === "I") return "onboarding.classification.edacs.i";
+    if (value === "II") return "onboarding.classification.edacs.ii";
+    if (value === "III") return "onboarding.classification.edacs.iii";
+    if (value === "IV") return "onboarding.classification.edacs.iv";
+    if (value === "V") return "onboarding.classification.edacs.v";
+  }
+  return null;
 }
 
 function cleanImportedText(value: string | null | undefined): string {
@@ -405,26 +575,31 @@ function getImportedEhrStatusText(bundleStatus: {
   state: "in_flight" | "complete" | "failed";
   chunksAdded: number;
   error?: string;
-} | undefined): string {
+} | undefined, t: TranslateFn): string {
   if (bundleStatus?.state === "in_flight") {
-    return "Import complete. Clinical evidence is still updating.";
+    return t("onboarding.patient.ehr.status.inFlight");
   }
   if (bundleStatus?.state === "failed") {
-    return "Import complete. Clinical evidence will retry later.";
+    return t("onboarding.patient.ehr.status.failed");
   }
 
-  return "Imported patient details are ready for review.";
+  return t("onboarding.patient.ehr.status.ready");
 }
 
 export default function OnboardingScreen() {
   const router = useRouter();
   const theme = useTheme();
   const styles = useMemo(() => createThemedStyles(theme), [theme]);
+  const { t, setTemporaryLanguagePreference, clearTemporaryLanguagePreference } = useTranslation();
   const existingProfile = getOnboardingProfile();
   const { snapshot, ready } = usePatientRecord();
-  const { settings, setTheme } = useSettings();
+  const {
+    settings,
+    setTheme,
+    setLanguagePreference: persistLanguagePreference,
+    setSimulateMissingOptionalFeatures,
+  } = useSettings();
   const { importBundledEhrProfile } = useBundledEhrImport();
-  const { setSimulateMissingOptionalFeatures } = useSettings();
 
   const [stepIndex, setStepIndex] = useState(0);
   const [expandedSelect, setExpandedSelect] = useState<ExpandedSelect>(null);
@@ -472,9 +647,18 @@ export default function OnboardingScreen() {
       existingProfile.caregiver.notificationStyle ?? "Push + sound",
     );
   const [languagePreference, setLanguagePreference] =
-    useState<LanguagePreference>(
-      existingProfile.caregiver.languagePreference ?? "English + Español",
+    useState<SupportedAppLanguagePreference>(
+      normalizeSupportedLanguagePreference(settings.languagePreference),
     );
+  useEffect(() => {
+    setTemporaryLanguagePreference(languagePreference);
+    return clearTemporaryLanguagePreference;
+  }, [
+    clearTemporaryLanguagePreference,
+    languagePreference,
+    setTemporaryLanguagePreference,
+  ]);
+
   const [medicalComfortLevel, setMedicalComfortLevel] =
     useState<MedicalComfortLevel>(
       existingProfile.caregiver.medicalComfortLevel ?? "Moderate detail",
@@ -593,9 +777,6 @@ export default function OnboardingScreen() {
     setCaregiverPhone(caregiver.phone);
     if (caregiver.experience) setExperience(caregiver.experience);
     if (caregiver.availability) setAvailability(caregiver.availability);
-    if (caregiver.languagePreference) {
-      setLanguagePreference(caregiver.languagePreference);
-    }
     if (caregiver.medicalComfortLevel) {
       setMedicalComfortLevel(caregiver.medicalComfortLevel);
     }
@@ -673,6 +854,27 @@ export default function OnboardingScreen() {
     string | undefined
   >(existingProfile.patient.wearableDevice?.baselineCompletedAt);
 
+  const translatedGmfcsOptions = useMemo(
+    () => translateMobilityOptions("gmfcs", gmfcsOptions, t),
+    [t],
+  );
+  const translatedFmsOptions = useMemo(
+    () => translateMobilityOptions("fms", fmsOptions, t),
+    [t],
+  );
+  const translatedMacsOptions = useMemo(
+    () => translateMobilityOptions("macs", macsOptions, t),
+    [t],
+  );
+  const translatedCfcsOptions = useMemo(
+    () => translateMobilityOptions("cfcs", cfcsOptions, t),
+    [t],
+  );
+  const translatedEdacsOptions = useMemo(
+    () => translateMobilityOptions("edacs", edacsOptions, t),
+    [t],
+  );
+
   const selectedSymptomLabels = useMemo(
     () =>
       selectedSymptoms
@@ -680,18 +882,21 @@ export default function OnboardingScreen() {
           COMMON_SYMPTOM_OPTIONS.find((option) => option.id === symptomId),
         )
         .filter((option): option is SymptomProfile => Boolean(option))
-        .map((option) => option.label),
-    [selectedSymptoms],
+        .map((option) => getSymptomLabel(option, t)),
+    [selectedSymptoms, t],
   );
 
   const visibleSymptoms = useMemo(() => {
     const query = symptomSearch.trim().toLowerCase();
 
-    return COMMON_SYMPTOM_OPTIONS.filter((symptom) => {
+    return COMMON_SYMPTOM_OPTIONS.map((symptom) => ({
+      ...symptom,
+      label: getSymptomLabel(symptom, t),
+    })).filter((symptom) => {
       if (!query) return true;
       return symptom.label.toLowerCase().includes(query);
     }).sort((a, b) => a.label.localeCompare(b.label));
-  }, [symptomSearch]);
+  }, [symptomSearch, t]);
 
   const selectedEhrProfile = useMemo(
     () =>
@@ -730,9 +935,9 @@ export default function OnboardingScreen() {
       medications,
       spo2Cutoff,
       baselineHeartRate,
-      statusText: getImportedEhrStatusText(snapshot.bundleStatus),
+      statusText: getImportedEhrStatusText(snapshot.bundleStatus, t),
     };
-  }, [ehrImportSucceeded, snapshot]);
+  }, [ehrImportSucceeded, snapshot, t]);
 
   useEffect(() => {
     if (!importedEhrSummary || !ehrImportRequest) return;
@@ -780,10 +985,10 @@ export default function OnboardingScreen() {
     if (!pending) return;
     const known = getDemoOnboardingOptions().some((o) => o.id === pending);
     if (!known) return;
-    const t = setTimeout(() => {
+    const handle = setTimeout(() => {
       handleSelectDemoProfile(pending as DemoOnboardingProfileId);
     }, 0);
-    return () => clearTimeout(t);
+    return () => clearTimeout(handle);
     // Mount-only: apply queued demo once when the wizard opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -794,6 +999,22 @@ export default function OnboardingScreen() {
   const isDeviceSetupStep = stepIndex === 6;
   const isFinalStep = isDeviceSetupStep;
   const formStepNumber = Math.max(stepIndex, 1);
+  const progressLabels = useMemo(
+    () => [
+      t("onboarding.progress.caregiver"),
+      t("onboarding.progress.caregiving"),
+      t("onboarding.progress.patient"),
+      t("onboarding.progress.safety"),
+      t("onboarding.progress.device"),
+      t("onboarding.progress.setup"),
+    ],
+    [t],
+  );
+  const primaryButtonLabel = isIntroScreen
+    ? t("onboarding.action.start")
+    : isFinalStep
+      ? t("onboarding.action.continueHome")
+      : t("common.continue");
 
   const deviceSetupRunnerOptions = useMemo(() => {
     const conditions = patientConditions
@@ -841,6 +1062,7 @@ export default function OnboardingScreen() {
   }
 
   async function finishOnboardingFromDeviceSetup() {
+    persistLanguagePreference(languagePreference);
     // First-run guard: never leave the developer "Simulate missing Concierge /
     // knowledge" flag on after onboarding — it would hide the SLM from a
     // caregiver even when a model is installed.
@@ -864,7 +1086,7 @@ export default function OnboardingScreen() {
       const result = await importBundledEhrProfile(selectedEhrProfile);
       if (!result.patientId) {
         setEhrImportRequest(null);
-        setEhrImportError("The selected EHR profile could not be imported.");
+        setEhrImportError(t("onboarding.patient.ehr.error.importUnavailable"));
         return;
       }
 
@@ -875,7 +1097,7 @@ export default function OnboardingScreen() {
     } catch (error) {
       console.error("Failed to import onboarding EHR profile", error);
       setEhrImportRequest(null);
-      setEhrImportError("EHR import failed. Try again.");
+      setEhrImportError(t("onboarding.patient.ehr.error.importFailed"));
     } finally {
       setEhrImporting(false);
     }
@@ -953,12 +1175,13 @@ export default function OnboardingScreen() {
       clinicalImport: existingProfile.clinicalImport,
       completedAt: new Date().toISOString(),
     };
+    persistLanguagePreference(languagePreference);
 
     if (ehrImportRequest) {
       const importedPatientId = ehrImportRequest.patientId;
       if (!ready || snapshot?.patient?.patientId !== importedPatientId) {
         setEhrImportError(
-          "The imported EHR patient is no longer active. Import EHR again before continuing.",
+          t("onboarding.patient.ehr.error.patientInactive"),
         );
         setStepIndex(3);
         return;
@@ -1015,7 +1238,7 @@ export default function OnboardingScreen() {
       } catch (error) {
         console.error("Failed to complete onboarding for imported patient", error);
         setEhrImportError(
-          "Onboarding could not finish with the imported EHR patient. Try importing again.",
+          t("onboarding.patient.ehr.error.completionFailed"),
         );
         setStepIndex(3);
       }
@@ -1125,21 +1348,27 @@ export default function OnboardingScreen() {
                     style={styles.backButton}
                     onPress={goBack}
                     disabled={!canGoBack}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("onboarding.action.back")}
+                    accessibilityState={{ disabled: !canGoBack }}
                   >
                     <Text style={styles.backIcon}>‹</Text>
                   </Pressable>
 
                   <View style={styles.headerCenter}>
-                    <Text style={styles.kicker}>Caregiver Concierge</Text>
+                    <Text style={styles.kicker}>{t("common.appName")}</Text>
                     <Text style={styles.stepCount}>
-                      Step {formStepNumber} of {formStepCount}
+                      {t("onboarding.stepCount", {
+                        current: formStepNumber,
+                        total: formStepCount,
+                      })}
                     </Text>
                   </View>
 
                   <View style={styles.topSpacer} />
                 </View>
 
-                <ProgressTracker activeIndex={formStepNumber - 1} />
+                <ProgressTracker activeIndex={formStepNumber - 1} labels={progressLabels} />
               </>
             ) : null}
 
@@ -1152,32 +1381,32 @@ export default function OnboardingScreen() {
 
             {stepIndex === 1 ? (
               <StepShell
-                title="About You"
-                subtitle="Tell us who is providing care and where to reach you."
+                title={t("onboarding.about.title")}
+                subtitle={t("onboarding.about.subtitle")}
               >
                 <Field
-                  label="Caregiver name"
+                  label={t("onboarding.about.caregiverName.label")}
                   value={caregiverName}
                   onChangeText={setCaregiverName}
-                  placeholder="Caregiver name"
+                  placeholder={t("onboarding.about.caregiverName.placeholder")}
                 />
 
                 <Field
-                  label="Relationship to patient"
+                  label={t("onboarding.about.relationship.label")}
                   value={relationship}
                   onChangeText={setRelationship}
-                  placeholder="Son, spouse, daughter, aide..."
+                  placeholder={t("onboarding.about.relationship.placeholder")}
                 />
 
                 <Field
-                  label="Phone"
+                  label={t("onboarding.about.phone.label")}
                   value={caregiverPhone}
                   onChangeText={setCaregiverPhone}
-                  placeholder="Phone number"
+                  placeholder={t("onboarding.about.phone.placeholder")}
                   keyboardType="phone-pad"
                 />
 
-                <SectionLabel title="Caregiver address" />
+                <SectionLabel title={t("onboarding.about.address")} />
 
                 <AddressFields
                   address={caregiverAddress}
@@ -1188,45 +1417,61 @@ export default function OnboardingScreen() {
 
             {stepIndex === 2 ? (
               <StepShell
-                title="Caregiving"
-                subtitle="These choices help tune alerts, explanations, and support around how you provide care."
+                title={t("onboarding.caregiving.title")}
+                subtitle={t("onboarding.caregiving.subtitle")}
               >
                 <ChipGroup
-                  label="Experience"
+                  label={t("onboarding.caregiving.experience")}
                   options={experienceOptions}
                   selectedValue={experience}
                   onSelect={setExperience}
+                  getOptionLabel={(option) =>
+                    translateOption(option, experienceOptionKeys, t)
+                  }
                 />
 
                 <ChipGroup
-                  label="Availability"
+                  label={t("onboarding.caregiving.availability")}
                   options={availabilityOptions}
                   selectedValue={availability}
                   onSelect={setAvailability}
+                  getOptionLabel={(option) =>
+                    translateOption(option, availabilityOptionKeys, t)
+                  }
                 />
 
-                <SectionLabel title="Preferences" />
+                <SectionLabel title={t("onboarding.preferences")} />
 
                 <ChipGroup
-                  label="Notifications"
+                  label={t("onboarding.notifications")}
                   options={notificationOptions}
                   selectedValue={notificationStyle}
                   onSelect={setNotificationStyle}
+                  getOptionLabel={(option) =>
+                    translateOption(option, notificationOptionKeys, t)
+                  }
                 />
 
                 <ChipGroup
-                  label="Language"
+                  label={t("onboarding.language.label")}
                   options={languageOptions}
                   selectedValue={languagePreference}
                   onSelect={setLanguagePreference}
+                  getOptionLabel={(option) => languagePreferenceLabel(option, t)}
                 />
 
                 <View style={styles.chipBlock}>
-                  <Text style={styles.fieldLabel}>Appearance</Text>
+                  <Text style={styles.fieldLabel}>{t("onboarding.appearance.label")}</Text>
 
                   <View style={styles.chipRow}>
-                    {appearanceOptions.map(({ label, value }) => {
+                    {appearanceOptions.map(({ value }) => {
                       const selected = settings.theme === value;
+                      const displayLabel =
+                        value === "system"
+                          ? t("onboarding.appearance.system")
+                          : value === "light"
+                            ? t("onboarding.appearance.light")
+                            : t("onboarding.appearance.dark");
 
                       return (
                         <Pressable
@@ -1237,7 +1482,9 @@ export default function OnboardingScreen() {
                           ]}
                           onPress={() => setTheme(value)}
                           accessibilityRole="button"
-                          accessibilityLabel={`Use ${label} appearance`}
+                          accessibilityLabel={t("onboarding.appearance.accessibility", {
+                            label: displayLabel,
+                          })}
                           accessibilityState={{ selected }}
                         >
                           <Text
@@ -1246,7 +1493,7 @@ export default function OnboardingScreen() {
                               selected && styles.chipTextSelected,
                             ]}
                           >
-                            {label}
+                            {displayLabel}
                           </Text>
                         </Pressable>
                       );
@@ -1255,66 +1502,71 @@ export default function OnboardingScreen() {
                 </View>
 
                 <ChipGroup
-                  label="Medical detail comfort"
+                  label={t("onboarding.medicalComfort")}
                   options={medicalComfortOptions}
                   selectedValue={medicalComfortLevel}
                   onSelect={setMedicalComfortLevel}
+                  getOptionLabel={(option) =>
+                    translateOption(option, medicalComfortOptionKeys, t)
+                  }
                 />
 
                 <ChipGroup
-                  label="Emergency comfort"
+                  label={t("onboarding.emergencyComfort")}
                   options={emergencyComfortOptions}
                   selectedValue={emergencyComfortLevel}
                   onSelect={setEmergencyComfortLevel}
+                  getOptionLabel={(option) =>
+                    translateOption(option, emergencyComfortOptionKeys, t)
+                  }
                 />
 
                 <LargeField
-                  label="Main concern"
+                  label={t("onboarding.caregiving.mainConcern.label")}
                   value={mainConcern}
                   onChangeText={setMainConcern}
-                  placeholder="Example: breathing episodes, falls, confusion..."
+                  placeholder={t("onboarding.caregiving.mainConcern.placeholder")}
                 />
 
                 <LargeField
-                  label="Helpful routines or hobbies"
+                  label={t("onboarding.caregiving.routines.label")}
                   value={hobbiesOrRoutines}
                   onChangeText={setHobbiesOrRoutines}
-                  placeholder="Example: evening walks, cooking, music..."
+                  placeholder={t("onboarding.caregiving.routines.placeholder")}
                 />
 
                 <LargeField
-                  label="Stress or support needs"
+                  label={t("onboarding.caregiving.support.label")}
                   value={stressOrSupportNeeds}
                   onChangeText={setStressOrSupportNeeds}
-                  placeholder="Example: family check-ins help, prefers simple alerts..."
+                  placeholder={t("onboarding.caregiving.support.placeholder")}
                 />
 
                 <Field
-                  label="Backup caregiver"
+                  label={t("onboarding.caregiving.backup.label")}
                   value={backupCaregiver}
                   onChangeText={setBackupCaregiver}
-                  placeholder="Name and phone number"
+                  placeholder={t("onboarding.caregiving.backup.placeholder")}
                 />
               </StepShell>
             ) : null}
 
             {stepIndex === 3 ? (
               <StepShell
-                title="Patient"
-                subtitle="Start with the name your family uses, then add official record details when you are ready."
+                title={t("onboarding.patient.title")}
+                subtitle={t("onboarding.patient.subtitle")}
               >
-                <SectionLabel title="Preferred name" />
+                <SectionLabel title={t("onboarding.patient.preferredName.section")} />
 
                 <Field
-                  label="What name should we use for your loved one?"
+                  label={t("onboarding.patient.preferredName.label")}
                   value={patientPreferredName}
                   onChangeText={setPatientPreferredName}
-                  placeholder="Preferred name"
+                  placeholder={t("onboarding.patient.preferredName.placeholder")}
                 />
 
                 <Text style={styles.diagnosisHelper}>
-                  This can be a nickname, preferred name, or the name your family
-                  normally uses.
+                  {t("onboarding.patient.preferredName.helper")}
                 </Text>
 
                 <Pressable
@@ -1326,8 +1578,8 @@ export default function OnboardingScreen() {
                   onPress={handleImportSelectedEhrProfile}
                   disabled={!canImportSelectedEhrProfile}
                   accessibilityRole="button"
-                  accessibilityLabel="Import from EHR"
-                  accessibilityHint="Imports EHR details for the selected onboarding patient"
+                  accessibilityLabel={t("onboarding.patient.ehr.import")}
+                  accessibilityHint={t("onboarding.patient.ehr.importHint")}
                   accessibilityState={{ disabled: !canImportSelectedEhrProfile }}
                 >
                   <View style={styles.ehrIconCircle}>
@@ -1341,68 +1593,70 @@ export default function OnboardingScreen() {
                   <View style={styles.ehrTextBlock}>
                     <Text style={styles.ehrTitle}>
                       {ehrImporting
-                        ? "Importing..."
+                        ? t("onboarding.patient.ehr.importing")
                         : importedEhrSummary
-                        ? "Imported from EHR"
-                        : "Import from EHR"}
+                        ? t("onboarding.patient.ehr.imported")
+                        : t("onboarding.patient.ehr.import")}
                     </Text>
                     <Text style={styles.ehrSubtitle}>
                       {ehrImporting
-                        ? "Importing EHR details for the selected patient."
+                        ? t("onboarding.patient.ehr.importingDetails")
                         : ehrImportError
                         ? ehrImportError
                         : importedEhrSummary
                         ? importedEhrSummary.statusText
                         : selectedEhrProfile
-                        ? "Some information on this page can be obtained from the patient's EHR."
+                        ? t("onboarding.patient.ehr.infoAvailable")
                         : selectedDemoProfileId
-                        ? "The selected onboarding case does not have a matching EHR profile."
-                        : "Select a patient case on the landing page before importing EHR details."}
+                        ? t("onboarding.patient.ehr.noMatchingProfile")
+                        : t("onboarding.patient.ehr.selectCaseFirst")}
                     </Text>
                     {selectedEhrProfile ? (
                       <Text style={styles.ehrSelectedPatient}>
-                        Selected patient: {selectedEhrProfile.label}
+                        {t("onboarding.patient.ehr.selectedPatient", {
+                          patient: selectedEhrProfile.label,
+                        })}
                       </Text>
                     ) : null}
                   </View>
                 </Pressable>
 
-                <SectionLabel title="Patient information" />
+                <SectionLabel title={t("onboarding.patient.info.section")} />
 
                 <View style={styles.twoColumnFields}>
                   <Field
-                    label="Full name"
+                    label={t("onboarding.patient.fullName.label")}
                     value={patientFullName}
                     onChangeText={setPatientFullName}
-                    placeholder="Full name"
+                    placeholder={t("onboarding.patient.fullName.placeholder")}
                     autoCapitalize="words"
                     imported={Boolean(importedEhrFields.fullName)}
                     editable={!importedEhrFields.fullName}
                   />
 
                   <Field
-                    label="Age"
+                    label={t("onboarding.patient.age.label")}
                     value={patientAge}
                     onChangeText={setPatientAge}
-                    placeholder="Age"
+                    placeholder={t("onboarding.patient.age.placeholder")}
                     keyboardType="number-pad"
                     imported={Boolean(importedEhrFields.age)}
                     editable={!importedEhrFields.age}
                   />
                 </View>
 
-                <SectionLabel title="Address" />
+                <SectionLabel title={t("onboarding.patient.address.section")} />
 
                 <ChoiceCard
-                  title="Same as caregiver address"
-                  body="Use the caregiver address for the patient profile."
+                  title={t("onboarding.patient.address.same.title")}
+                  body={t("onboarding.patient.address.same.body")}
                   selected={patientAddressSameAsCaregiver}
                   onPress={() => setPatientAddressSameAsCaregiver(true)}
                 />
 
                 <ChoiceCard
-                  title="Different patient address"
-                  body="Enter a separate address for the patient."
+                  title={t("onboarding.patient.address.different.title")}
+                  body={t("onboarding.patient.address.different.body")}
                   selected={!patientAddressSameAsCaregiver}
                   onPress={() => setPatientAddressSameAsCaregiver(false)}
                 />
@@ -1415,22 +1669,24 @@ export default function OnboardingScreen() {
                 ) : null}
 
                 <LargeField
-                  label="Conditions"
+                  label={t("onboarding.patient.conditions.label")}
                   value={patientConditions}
                   onChangeText={setPatientConditions}
-                  placeholder="Add known conditions..."
+                  placeholder={t("onboarding.patient.conditions.placeholder")}
                   imported={Boolean(importedEhrFields.conditions)}
                   editable={!importedEhrFields.conditions}
                 />
 
-                <SectionLabel title="Common symptoms" />
+                <SectionLabel title={t("onboarding.patient.symptoms.section")} />
 
                 <SelectPanel
-                  title="Symptoms"
+                  title={t("onboarding.patient.symptoms.title")}
                   value={
                     selectedSymptomLabels.length > 0
-                      ? `${selectedSymptomLabels.length} selected`
-                      : "Select common symptoms"
+                      ? t("onboarding.patient.symptoms.selectedCount", {
+                          count: selectedSymptomLabels.length,
+                        })
+                      : t("onboarding.patient.symptoms.select")
                   }
                   expanded={expandedSelect === "symptoms"}
                   onToggle={() =>
@@ -1443,7 +1699,7 @@ export default function OnboardingScreen() {
                     style={styles.symptomSearchInput}
                     value={symptomSearch}
                     onChangeText={setSymptomSearch}
-                    placeholder="Search symptoms..."
+                    placeholder={t("onboarding.patient.symptoms.search")}
                     placeholderTextColor={theme.appTextMuted}
                   />
 
@@ -1475,97 +1731,100 @@ export default function OnboardingScreen() {
 
                   {visibleSymptoms.length === 0 ? (
                     <Text style={styles.emptySelectText}>
-                      No matching symptoms
+                      {t("onboarding.patient.symptoms.none")}
                     </Text>
                   ) : null}
                 </SelectPanel>
 
                 <LargeField
-                  label="Other symptoms"
+                  label={t("onboarding.patient.otherSymptoms.label")}
                   value={otherSymptoms}
                   onChangeText={setOtherSymptoms}
-                  placeholder="Add symptoms not listed above..."
+                  placeholder={t("onboarding.patient.otherSymptoms.placeholder")}
                 />
 
                 <LargeField
-                  label="Current medications"
+                  label={t("onboarding.patient.medications.label")}
                   value={patientCurrentMedications}
                   onChangeText={setPatientCurrentMedications}
-                  placeholder="Add current medications..."
+                  placeholder={t("onboarding.patient.medications.placeholder")}
                   imported={Boolean(importedEhrFields.medications)}
                   editable={!importedEhrFields.medications}
                 />
 
                 <LargeField
-                  label="Daily routine"
+                  label={t("onboarding.patient.dailyRoutine.label")}
                   value={baselineDailyRoutine}
                   onChangeText={setBaselineDailyRoutine}
-                  placeholder="Describe the usual daily routine..."
+                  placeholder={t("onboarding.patient.dailyRoutine.placeholder")}
                 />
 
                 <View style={styles.clinicalGuidanceCard}>
                   <View style={styles.clinicalGuidanceHeader}>
                     <Text style={styles.clinicalGuidanceTitle}>
-                      Clinical guidance
+                      {t("onboarding.patient.clinicalGuidance.title")}
                     </Text>
                     <Text style={styles.clinicalGuidanceText}>
-                      These values should come from the patient&apos;s care plan or
-                      be confirmed with the primary care provider.
+                      {t("onboarding.patient.clinicalGuidance.body")}
                     </Text>
                   </View>
 
-                  <SectionLabel title="CARE-PLAN THRESHOLDS" />
+                  <SectionLabel title={t("onboarding.patient.thresholds")} />
 
                   <Field
-                    label="SpO2 cutoff"
+                    label={t("onboarding.patient.spo2.label")}
                     value={spo2Cutoff}
                     onChangeText={setSpo2Cutoff}
-                    placeholder="Care-plan cutoff"
+                    placeholder={t("onboarding.patient.spo2.placeholder")}
                     imported={Boolean(importedEhrFields.spo2Cutoff)}
                     editable={!importedEhrFields.spo2Cutoff}
                   />
 
-                  <SectionLabel title="USUAL HEALTH READINGS" />
+                  <SectionLabel title={t("onboarding.patient.readings")} />
 
                   <Field
-                    label="Baseline HR"
+                    label={t("onboarding.patient.heartRate.label")}
                     value={baselineHeartRate}
                     onChangeText={setBaselineHeartRate}
-                    placeholder="bpm"
+                    placeholder={t("onboarding.patient.heartRate.placeholder")}
                     keyboardType="number-pad"
                     imported={Boolean(importedEhrFields.baselineHeartRate)}
                     editable={!importedEhrFields.baselineHeartRate}
                   />
 
                   <Field
-                    label="Baseline blood oxygen (SpO2)"
+                    label={t("onboarding.patient.bloodOxygen.label")}
                     value={baselineBloodOxygen}
                     onChangeText={setBaselineBloodOxygen}
-                    placeholder="%"
+                    placeholder={t("onboarding.patient.bloodOxygen.placeholder")}
                     keyboardType="decimal-pad"
                   />
 
                   <Field
-                    label="Baseline breathing rate"
+                    label={t("onboarding.patient.breathingRate.label")}
                     value={baselineRespiratoryRate}
                     onChangeText={setBaselineRespiratoryRate}
-                    placeholder="breaths/min"
+                    placeholder={t("onboarding.patient.breathingRate.placeholder")}
                     keyboardType="number-pad"
                   />
 
                   <View style={styles.fieldBlock}>
-                    <Text style={styles.fieldLabel}>Baseline blood pressure</Text>
+                    <Text style={styles.fieldLabel}>
+                      {t("onboarding.patient.bloodPressure.label")}
+                    </Text>
                     <View style={styles.bloodPressureFields}>
                       <View style={styles.bloodPressureField}>
                         <TextInput
                           style={styles.input}
                           value={baselineBloodPressureSystolic}
                           onChangeText={setBaselineBloodPressureSystolic}
-                          placeholder="Top number"
+                          placeholder={t("onboarding.patient.bloodPressure.topPlaceholder")}
                           placeholderTextColor={theme.appTextMuted}
                           keyboardType="number-pad"
                         />
-                        <Text style={styles.fieldUnitText}>mmHg</Text>
+                        <Text style={styles.fieldUnitText}>
+                          {t("onboarding.patient.bloodPressure.unit")}
+                        </Text>
                       </View>
 
                       <View style={styles.bloodPressureField}>
@@ -1573,43 +1832,46 @@ export default function OnboardingScreen() {
                           style={styles.input}
                           value={baselineBloodPressureDiastolic}
                           onChangeText={setBaselineBloodPressureDiastolic}
-                          placeholder="Bottom number"
+                          placeholder={t("onboarding.patient.bloodPressure.bottomPlaceholder")}
                           placeholderTextColor={theme.appTextMuted}
                           keyboardType="number-pad"
                         />
-                        <Text style={styles.fieldUnitText}>mmHg</Text>
+                        <Text style={styles.fieldUnitText}>
+                          {t("onboarding.patient.bloodPressure.unit")}
+                        </Text>
                       </View>
                     </View>
                   </View>
 
                   <Field
-                    label="Baseline blood glucose"
+                    label={t("onboarding.patient.glucose.label")}
                     value={baselineGlucoseLevel}
                     onChangeText={setBaselineGlucoseLevel}
-                    placeholder="mg/dL"
+                    placeholder={t("onboarding.patient.glucose.placeholder")}
                     keyboardType="decimal-pad"
                   />
 
                   <Field
-                    label="Baseline body temperature"
+                    label={t("onboarding.patient.temperature.label")}
                     value={baselineBodyTemperature}
                     onChangeText={setBaselineBodyTemperature}
-                    placeholder="deg F"
+                    placeholder={t("onboarding.patient.temperature.placeholder")}
                     keyboardType="decimal-pad"
                   />
                 </View>
 
-                <SectionLabel title="Functional and communication classifications" />
+                <SectionLabel title={t("onboarding.classification.section")} />
 
                 <ClassificationSelect
                   id="gmfcs"
-                  title="Gross Motor Function Classification System (GMFCS)"
+                  title={t("onboarding.classification.gmfcs.title")}
                   value={gmfcsLevel}
                   displayValue={formatClassificationValue(
                     gmfcsLevel,
-                    gmfcsOptions,
+                    translatedGmfcsOptions,
+                    t,
                   )}
-                  options={gmfcsOptions}
+                  options={translatedGmfcsOptions}
                   expanded={expandedSelect === "gmfcs"}
                   setExpandedSelect={setExpandedSelect}
                   onSelect={setGmfcsLevel}
@@ -1617,14 +1879,15 @@ export default function OnboardingScreen() {
 
                 <ClassificationSelect
                   id="fms"
-                  title="Functional Mobility Scale (FMS)"
+                  title={t("onboarding.classification.fms.title")}
                   value={fmsScore}
                   displayValue={formatClassificationValue(
                     fmsScore,
-                    fmsOptions,
-                    "Score",
+                    translatedFmsOptions,
+                    t,
+                    t("onboarding.classification.scorePrefix"),
                   )}
-                  options={fmsOptions}
+                  options={translatedFmsOptions}
                   expanded={expandedSelect === "fms"}
                   setExpandedSelect={setExpandedSelect}
                   onSelect={setFmsScore}
@@ -1632,10 +1895,14 @@ export default function OnboardingScreen() {
 
                 <ClassificationSelect
                   id="macs"
-                  title="Manual Ability Classification System (MACS)"
+                  title={t("onboarding.classification.macs.title")}
                   value={macsLevel}
-                  displayValue={formatClassificationValue(macsLevel, macsOptions)}
-                  options={macsOptions}
+                  displayValue={formatClassificationValue(
+                    macsLevel,
+                    translatedMacsOptions,
+                    t,
+                  )}
+                  options={translatedMacsOptions}
                   expanded={expandedSelect === "macs"}
                   setExpandedSelect={setExpandedSelect}
                   onSelect={setMacsLevel}
@@ -1643,10 +1910,14 @@ export default function OnboardingScreen() {
 
                 <ClassificationSelect
                   id="cfcs"
-                  title="Communication Function Classification System (CFCS)"
+                  title={t("onboarding.classification.cfcs.title")}
                   value={cfcsLevel}
-                  displayValue={formatClassificationValue(cfcsLevel, cfcsOptions)}
-                  options={cfcsOptions}
+                  displayValue={formatClassificationValue(
+                    cfcsLevel,
+                    translatedCfcsOptions,
+                    t,
+                  )}
+                  options={translatedCfcsOptions}
                   expanded={expandedSelect === "cfcs"}
                   setExpandedSelect={setExpandedSelect}
                   onSelect={setCfcsLevel}
@@ -1654,13 +1925,14 @@ export default function OnboardingScreen() {
 
                 <ClassificationSelect
                   id="edacs"
-                  title="Eating and Drinking Ability Classification System (EDACS)"
+                  title={t("onboarding.classification.edacs.title")}
                   value={edacsLevel}
                   displayValue={formatClassificationValue(
                     edacsLevel,
-                    edacsOptions,
+                    translatedEdacsOptions,
+                    t,
                   )}
-                  options={edacsOptions}
+                  options={translatedEdacsOptions}
                   expanded={expandedSelect === "edacs"}
                   setExpandedSelect={setExpandedSelect}
                   onSelect={setEdacsLevel}
@@ -1670,49 +1942,49 @@ export default function OnboardingScreen() {
 
             {stepIndex === 4 ? (
               <StepShell
-                title="Safety"
-                subtitle="Add provider and emergency information that should be easy to find during stressful moments."
+                title={t("onboarding.safety.title")}
+                subtitle={t("onboarding.safety.subtitle")}
               >
-                <SectionLabel title="Primary care provider" />
+                <SectionLabel title={t("onboarding.safety.provider.section")} />
 
                 <Field
-                  label="Provider name"
+                  label={t("onboarding.safety.providerName.label")}
                   value={providerName}
                   onChangeText={setProviderName}
-                  placeholder="Provider name"
+                  placeholder={t("onboarding.safety.providerName.placeholder")}
                 />
 
                 <Field
-                  label="Provider phone"
+                  label={t("onboarding.safety.providerPhone.label")}
                   value={providerPhone}
                   onChangeText={setProviderPhone}
-                  placeholder="Phone number"
+                  placeholder={t("onboarding.safety.providerPhone.placeholder")}
                   keyboardType="phone-pad"
                 />
 
                 <Field
-                  label="Provider email"
+                  label={t("onboarding.safety.providerEmail.label")}
                   value={providerEmail}
                   onChangeText={setProviderEmail}
-                  placeholder="Email address"
+                  placeholder={t("onboarding.safety.providerEmail.placeholder")}
                   keyboardType="email-address"
                   autoCapitalize="none"
                 />
 
-                <SectionLabel title="Emergency and safety" />
+                <SectionLabel title={t("onboarding.safety.emergency.section")} />
 
                 <Field
-                  label="Emergency contact"
+                  label={t("onboarding.safety.emergencyContact.label")}
                   value={emergencyContact}
                   onChangeText={setEmergencyContact}
-                  placeholder="Name and phone number"
+                  placeholder={t("onboarding.safety.emergencyContact.placeholder")}
                 />
 
                 <LargeField
-                  label="Safety notes"
+                  label={t("onboarding.safety.notes.label")}
                   value={safetyNotes}
                   onChangeText={setSafetyNotes}
-                  placeholder="Example: allergies, falls risk, mobility limitations..."
+                  placeholder={t("onboarding.safety.notes.placeholder")}
                 />
 
                 <Pressable
@@ -1724,6 +1996,10 @@ export default function OnboardingScreen() {
                   onPress={() =>
                     setEmergencyDisclaimerAccepted((current) => !current)
                   }
+                  accessibilityRole="button"
+                  accessibilityLabel={t("onboarding.safety.disclaimer.accessibilityLabel")}
+                  accessibilityHint={t("onboarding.safety.disclaimer.accessibilityHint")}
+                  accessibilityState={{ checked: emergencyDisclaimerAccepted }}
                 >
                   <View
                     style={[
@@ -1743,11 +2019,10 @@ export default function OnboardingScreen() {
 
                   <View style={styles.disclaimerTextBlock}>
                     <Text style={styles.disclaimerTitle}>
-                      Emergency disclaimer
+                      {t("onboarding.safety.disclaimer.title")}
                     </Text>
                     <Text style={styles.disclaimerBody}>
-                      I understand this app supports caregiver decisions but does
-                      not replace emergency care or automatically call 911.
+                      {t("onboarding.safety.disclaimer.body")}
                     </Text>
                   </View>
                 </Pressable>
@@ -1758,15 +2033,11 @@ export default function OnboardingScreen() {
               <>
                 <DeviceSetupStep runnerOptions={deviceSetupRunnerOptions} />
                 <View style={styles.optionalFeatureBlock}>
-                  <Text style={styles.optionalFeatureTitle}>Optional Feature</Text>
+                  <Text style={styles.optionalFeatureTitle}>
+                    {t("onboarding.optionalFeature.title")}
+                  </Text>
                   <Text style={styles.optionalFeatureBody}>
-                    The Concierge (on-device AI) and Clinical Knowledge are
-                    optional downloads. They enhance the app with explanations
-                    of alerts, medication checks, care-plan support, and
-                    grounded answers with citations. You can skip them now and
-                    download later from Settings → Models and Clinical
-                    Knowledge. All health monitoring and care-planning
-                    features work without them.
+                    {t("onboarding.optionalFeature.body")}
                   </Text>
                 </View>
               </>
@@ -1774,11 +2045,11 @@ export default function OnboardingScreen() {
 
             {stepIndex === 5 ? (
               <StepShell
-                title="Device"
-                subtitle="Choose the device the patient uses so the app can understand normal patterns over time."
+                title={t("onboarding.device.title")}
+                subtitle={t("onboarding.device.subtitle")}
               >
                 <ChipGroup
-                  label="Device type"
+                  label={t("onboarding.device.type")}
                   options={WEARABLE_DEVICE_OPTIONS}
                   selectedValue={deviceType}
                   onSelect={(value) => {
@@ -1786,13 +2057,16 @@ export default function OnboardingScreen() {
                     setDeviceConnected(false);
                     setBaselineStatus("not_started");
                   }}
+                  getOptionLabel={(option) =>
+                    translateOption(option, wearableDeviceOptionKeys, t)
+                  }
                 />
 
                 <Field
-                  label="Device label"
+                  label={t("onboarding.device.label")}
                   value={deviceLabel}
                   onChangeText={setDeviceLabel}
-                  placeholder="Device label"
+                  placeholder={t("onboarding.device.label.placeholder")}
                 />
 
                 <View style={styles.deviceCard}>
@@ -1808,11 +2082,11 @@ export default function OnboardingScreen() {
                     <View style={styles.deviceTextBlock}>
                       <Text style={styles.deviceTitle}>
                         {deviceConnected
-                          ? "Device connected"
-                          : "Device not connected yet"}
+                          ? t("onboarding.device.connected")
+                          : t("onboarding.device.notConnected")}
                       </Text>
                       <Text style={styles.deviceSubtitle}>
-                        {getBaselineStatusText(baselineStatus)}
+                        {getBaselineStatusText(baselineStatus, t)}
                       </Text>
                     </View>
                   </View>
@@ -1822,22 +2096,23 @@ export default function OnboardingScreen() {
                     onPress={connectAppleWatch}
                   >
                     <Text style={styles.connectButtonText}>
-                      Check device connection
+                      {t("onboarding.device.checkConnection")}
                     </Text>
                   </Pressable>
 
                   <Text style={styles.deviceHelper}>
-                    We’ll use this to understand normal vital and movement
-                    patterns over time.
+                    {t("onboarding.device.helper")}
                   </Text>
                 </View>
 
                 <View style={styles.summaryCard}>
-                  <Text style={styles.summaryTitle}>What this helps with</Text>
+                  <Text style={styles.summaryTitle}>
+                    {t("onboarding.device.summary.title")}
+                  </Text>
 
-                  <SummaryRow text="Baseline vitals and mobility patterns" />
-                  <SummaryRow text="In-app alerts for non-emergency changes" />
-                  <SummaryRow text="Better context before sending too many notifications" />
+                  <SummaryRow text={t("onboarding.device.summary.vitals")} />
+                  <SummaryRow text={t("onboarding.device.summary.alerts")} />
+                  <SummaryRow text={t("onboarding.device.summary.notifications")} />
                 </View>
               </StepShell>
             ) : null}
@@ -1849,13 +2124,11 @@ export default function OnboardingScreen() {
                 styles.primaryButton,
               ]}
               onPress={goNext}
+              accessibilityRole="button"
+              accessibilityLabel={primaryButtonLabel}
             >
               <Text style={styles.primaryButtonText}>
-                {isIntroScreen
-                  ? "Start Onboarding"
-                  : isFinalStep
-                    ? "Continue to Home"
-                    : "Continue"}
+                {primaryButtonLabel}
               </Text>
             </Pressable>
           </View>
@@ -1874,6 +2147,7 @@ function WelcomeStep({
 }) {
   const theme = useTheme();
   const styles = useMemo(() => createThemedStyles(theme), [theme]);
+  const { t } = useTranslation();
   const demoOptions = getDemoOnboardingOptions();
   const [isDemoCasesExpanded, setIsDemoCasesExpanded] = useState(false);
 
@@ -1885,8 +2159,8 @@ function WelcomeStep({
         accessibilityRole="button"
         accessibilityLabel={
           isDemoCasesExpanded
-            ? "Hide demo onboarding cases"
-            : "Show demo onboarding cases"
+            ? t("onboarding.welcome.demo.hide")
+            : t("onboarding.welcome.demo.show")
         }
         accessibilityState={{ expanded: isDemoCasesExpanded }}
       >
@@ -1905,24 +2179,23 @@ function WelcomeStep({
         />
       </View>
 
-      <Text style={styles.welcomeEyebrow}>Caregiver Concierge</Text>
+      <Text style={styles.welcomeEyebrow}>{t("onboarding.welcome.eyebrow")}</Text>
       <Text style={styles.welcomeTitle}>ACCESS-DP</Text>
 
       <Text style={styles.welcomeSubtitle}>
-        Personalized caregiving support for alerts, routines, medications,
-        safety decisions, and device-based health patterns.
+        {t("onboarding.welcome.subtitle")}
       </Text>
 
       <View style={styles.previewCard}>
-        <Text style={styles.previewTitle}>Designed for family caregivers</Text>
+        <Text style={styles.previewTitle}>{t("onboarding.welcome.previewTitle")}</Text>
 
-        <SummaryRow text="Quickly understand your patient’s health status." />
-        <SummaryRow text="Follow confident care pathways while keeping human judgment at the center" />
-        <SummaryRow text="Reduce uncertainty with structured health context" />
+        <SummaryRow text={t("onboarding.welcome.summary.status")} />
+        <SummaryRow text={t("onboarding.welcome.summary.pathways")} />
+        <SummaryRow text={t("onboarding.welcome.summary.context")} />
       </View>
 
       <Text style={styles.privacyText}>
-        Takes about 5 minutes · You can update this later
+        {t("onboarding.welcome.privacy")}
       </Text>
 
       {isDemoCasesExpanded ? (
@@ -1961,14 +2234,20 @@ function WelcomeStep({
   );
 }
 
-function ProgressTracker({ activeIndex }: { activeIndex: number }) {
+function ProgressTracker({
+  activeIndex,
+  labels,
+}: {
+  activeIndex: number;
+  labels: string[];
+}) {
   const theme = useTheme();
   const styles = useMemo(() => createThemedStyles(theme), [theme]);
 
   return (
     <View style={styles.progressBlock}>
       <View style={styles.progressLine}>
-        {formProgressSteps.map((label, index) => {
+        {labels.map((label, index) => {
           const active = index <= activeIndex;
 
           return (
@@ -2065,7 +2344,8 @@ function Field({
 }) {
   const theme = useTheme();
   const styles = useMemo(() => createThemedStyles(theme), [theme]);
-  const helperText = imported ? "Imported from EHR" : helper;
+  const { t } = useTranslation();
+  const helperText = imported ? t("onboarding.field.imported") : helper;
 
   return (
     <View style={styles.fieldBlock}>
@@ -2080,11 +2360,13 @@ function Field({
         autoCapitalize={autoCapitalize}
         editable={editable}
         accessibilityLabel={
-          imported ? `${label}. Imported from EHR. Read only.` : label
+          imported
+            ? t("onboarding.field.importedA11y", { label })
+            : label
         }
         accessibilityHint={
           imported
-            ? "This field was imported from the selected EHR profile and cannot be edited."
+            ? t("onboarding.field.importedHint")
             : undefined
         }
         accessibilityState={{ disabled: !editable }}
@@ -2111,7 +2393,8 @@ function LargeField({
 }) {
   const theme = useTheme();
   const styles = useMemo(() => createThemedStyles(theme), [theme]);
-  const helperText = imported ? "Imported from EHR" : undefined;
+  const { t } = useTranslation();
+  const helperText = imported ? t("onboarding.field.imported") : undefined;
 
   return (
     <View style={styles.fieldBlock}>
@@ -2130,11 +2413,13 @@ function LargeField({
         textAlignVertical="top"
         editable={editable}
         accessibilityLabel={
-          imported ? `${label}. Imported from EHR. Read only.` : label
+          imported
+            ? t("onboarding.field.importedA11y", { label })
+            : label
         }
         accessibilityHint={
           imported
-            ? "This field was imported from the selected EHR profile and cannot be edited."
+            ? t("onboarding.field.importedHint")
             : undefined
         }
         accessibilityState={{ disabled: !editable }}
@@ -2153,52 +2438,53 @@ function AddressFields({
 }) {
   const theme = useTheme();
   const styles = useMemo(() => createThemedStyles(theme), [theme]);
+  const { t } = useTranslation();
 
   return (
     <View>
       <Field
-        label="Street address"
+        label={t("onboarding.address.street")}
         value={address.line1}
         onChangeText={(value) => onChange("line1", value)}
-        placeholder="Street address"
+        placeholder={t("onboarding.address.street")}
       />
 
       <Field
-        label="Apartment, unit, or floor"
+        label={t("onboarding.address.line2")}
         value={address.line2 ?? ""}
         onChangeText={(value) => onChange("line2", value)}
-        placeholder="Optional"
+        placeholder={t("onboarding.address.optional")}
       />
 
       <View style={styles.twoColumnFields}>
         <Field
-          label="City"
+          label={t("onboarding.address.city")}
           value={address.city}
           onChangeText={(value) => onChange("city", value)}
-          placeholder="City"
+          placeholder={t("onboarding.address.city")}
         />
 
         <Field
-          label="State"
+          label={t("onboarding.address.state")}
           value={address.state}
           onChangeText={(value) => onChange("state", value)}
-          placeholder="State"
+          placeholder={t("onboarding.address.state")}
         />
       </View>
 
       <View style={styles.twoColumnFields}>
         <Field
-          label="ZIP"
+          label={t("onboarding.address.zip")}
           value={address.postalCode}
           onChangeText={(value) => onChange("postalCode", value)}
-          placeholder="ZIP"
+          placeholder={t("onboarding.address.zip")}
         />
 
         <Field
-          label="Country"
+          label={t("onboarding.address.country")}
           value={address.country}
           onChangeText={(value) => onChange("country", value)}
-          placeholder="United States"
+          placeholder={t("onboarding.address.unitedStates")}
         />
       </View>
     </View>
@@ -2210,11 +2496,13 @@ function ChipGroup<T extends string>({
   options,
   selectedValue,
   onSelect,
+  getOptionLabel,
 }: {
   label: string;
   options: readonly T[];
   selectedValue: T;
   onSelect: (value: T) => void;
+  getOptionLabel?: (value: T) => string;
 }) {
   const theme = useTheme();
   const styles = useMemo(() => createThemedStyles(theme), [theme]);
@@ -2226,12 +2514,16 @@ function ChipGroup<T extends string>({
       <View style={styles.chipRow}>
         {options.map((option) => {
           const selected = option === selectedValue;
+          const displayLabel = getOptionLabel?.(option) ?? option;
 
           return (
             <Pressable
               key={option}
               style={[styles.chip, selected && styles.chipSelected]}
               onPress={() => onSelect(option)}
+              accessibilityRole="button"
+              accessibilityLabel={displayLabel}
+              accessibilityState={{ selected }}
             >
               <Text
                 style={[
@@ -2239,7 +2531,7 @@ function ChipGroup<T extends string>({
                   selected && styles.chipTextSelected,
                 ]}
               >
-                {option}
+                {displayLabel}
               </Text>
             </Pressable>
           );
@@ -2267,6 +2559,9 @@ function ChoiceCard({
     <Pressable
       style={[styles.choiceCard, selected && styles.choiceCardSelected]}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${body}`}
+      accessibilityState={{ selected }}
     >
       <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
         {selected ? <View style={styles.radioInner} /> : null}
@@ -2374,7 +2669,13 @@ function SelectPanel({
 
   return (
     <View style={styles.selectPanel}>
-      <Pressable style={styles.selectHeader} onPress={onToggle}>
+      <Pressable
+        style={styles.selectHeader}
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityLabel={`${title}: ${value}`}
+        accessibilityState={{ expanded }}
+      >
         <View style={styles.selectTextBlock}>
           <Text style={styles.selectTitle}>{title}</Text>
           <Text style={styles.selectValue}>{value}</Text>
@@ -2400,20 +2701,23 @@ function SummaryRow({ text }: { text: string }) {
   );
 }
 
-function getBaselineStatusText(status: WearableBaselineStatus): string {
+function getBaselineStatusText(
+  status: WearableBaselineStatus,
+  t: TranslateFn,
+): string {
   if (status === "simulated") {
-    return "Baseline is ready for this demo.";
+    return t("onboarding.device.status.simulated");
   }
 
   if (status === "connected") {
-    return "Device connected and baseline is available.";
+    return t("onboarding.device.status.connected");
   }
 
   if (status === "failed") {
-    return "Connection failed. Try again later.";
+    return t("onboarding.device.status.failed");
   }
 
-  return "Tap below to check the device connection.";
+  return t("onboarding.device.status.notStarted");
 }
 
 function createThemedStyles(theme: ReturnType<typeof useTheme>) {

@@ -6,6 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AppIcon } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
 import {
   upsertCaregiver,
   upsertPatient,
@@ -51,6 +52,7 @@ function attachClinicalImportForGate(
 export default function SelectFhirProfileScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const isDark = theme.appBackground === "#000000";
   const { importBundledEhrProfile } = useBundledEhrImport();
@@ -133,10 +135,16 @@ export default function SelectFhirProfileScreen() {
   return (
     <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={["top", "bottom"]}>
       <View style={[styles.header, themedStyles.header]}>
-        <Pressable style={styles.backButton} onPress={() => router.back()} hitSlop={12}>
-            <Text style={[styles.backLink, themedStyles.backLink]}>← Back</Text>
+        <Pressable
+          style={styles.backButton}
+          onPress={() => router.back()}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel={t("common.back")}
+        >
+          <Text style={[styles.backLink, themedStyles.backLink]}>{"\u2190"} {t("common.back")}</Text>
         </Pressable>
-        <Text style={[styles.headerTitle, themedStyles.headerTitle]}>Select a patient profile</Text>
+        <Text style={[styles.headerTitle, themedStyles.headerTitle]}>{t("ehrSelect.title")}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -148,7 +156,7 @@ export default function SelectFhirProfileScreen() {
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListEmptyComponent={
           <Text style={[styles.emptyText, themedStyles.emptyText]}>
-            No patient profiles found in src/data/fhir/patient-profiles.
+            {t("ehrSelect.empty", { path: "src/data/fhir/patient-profiles" })}
           </Text>
         }
         renderItem={({ item }) => (
@@ -157,6 +165,10 @@ export default function SelectFhirProfileScreen() {
               style={styles.rowMain}
               disabled={importingId !== null}
               onPress={() => handleSelectProfile(item)}
+              accessibilityRole="button"
+              accessibilityLabel={t("ehrSelect.importEhrA11y", {
+                profile: item.label,
+              })}
             >
               <View style={[styles.rowIconCircle, themedStyles.rowIconCircle]}>
                 <AppIcon
@@ -168,17 +180,21 @@ export default function SelectFhirProfileScreen() {
               <View style={styles.rowTextBlock}>
                 <Text style={[styles.rowTitle, themedStyles.rowTitle]}>{item.label}</Text>
                 <Text style={[styles.rowSubtitle, themedStyles.rowSubtitle]}>
-                  {importingId === item.id ? "Importing..." : "Import EHR only"}
+                  {importingId === item.id ? t("ehrSelect.importing") : t("ehrSelect.importEhrOnly")}
                 </Text>
               </View>
-              <Text style={[styles.chevron, themedStyles.chevron]}>›</Text>
+              <Text style={[styles.chevron, themedStyles.chevron]}>{"\u203a"}</Text>
             </Pressable>
             <Pressable
               style={[styles.demoButton, themedStyles.demoButton]}
               disabled={importingId !== null}
               onPress={() => handleSelectProfile(item, { includeDemoOnboarding: true })}
+              accessibilityRole="button"
+              accessibilityLabel={t("ehrSelect.demoDataA11y", {
+                profile: item.label,
+              })}
             >
-              <Text style={[styles.demoButtonText, themedStyles.demoButtonText]}>Demo data</Text>
+              <Text style={[styles.demoButtonText, themedStyles.demoButtonText]}>{t("ehrSelect.demoData")}</Text>
             </Pressable>
           </View>
         )}

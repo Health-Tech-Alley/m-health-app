@@ -17,6 +17,11 @@ import {
 import type { Caregiver, Medication, Patient, PatientRecordSnapshot, PatientSafetySnapshot, Provider } from "@/data/types";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
+import {
+  type TranslateFn,
+  type TranslationKey,
+} from "@/localization/i18n";
 import {
   displayClinical,
   displayEntered,
@@ -31,25 +36,24 @@ import {
 } from "@/services/onboarding/onboardingService";
 
 type DetailValue = string | number | boolean | null | undefined;
-type EditableCaregiver = { name?: string; relationship?: string; phone?: string; experience?: string; availability?: string; languagePreference?: string; mainConcern?: string };
+type EditableCaregiver = { name?: string; relationship?: string; phone?: string; experience?: string; availability?: string; mainConcern?: string };
 type EditableProvider = { name?: string | null; phone?: string | null; email?: string | null; role?: string | null };
 type ProviderSaveInput = Parameters<typeof setPrimaryProviderForPatient>[0];
 type PatientSafetySaveInput = Parameters<typeof upsertPatientSafetyProfileForPatient>[0];
 
-type EditableField = "caregiverName" | "caregiverRelationship" | "caregiverPhone" | "caregiverExperience" | "caregiverMainConcern" | "caregiverLanguage" | "patientPreferredName" | "patientName" | "patientAge" | "patientRoutine" | "patientGmfcs" | "patientFms" | "patientMacs" | "patientCfcs" | "patientEdacs" | "providerName" | "providerPhone" | "providerEmail" | "providerRole" | "safetyEmergencyContactName" | "safetyEmergencyContactRelationship" | "safetyEmergencyContactPhone" | "safetyEmergencyInstructions" | "safetyNotes" | "safetyAcknowledgement";
+type EditableField = "caregiverName" | "caregiverRelationship" | "caregiverPhone" | "caregiverExperience" | "caregiverMainConcern" | "patientPreferredName" | "patientName" | "patientAge" | "patientRoutine" | "patientGmfcs" | "patientFms" | "patientMacs" | "patientCfcs" | "patientEdacs" | "providerName" | "providerPhone" | "providerEmail" | "providerRole" | "safetyEmergencyContactName" | "safetyEmergencyContactRelationship" | "safetyEmergencyContactPhone" | "safetyEmergencyInstructions" | "safetyNotes" | "safetyAcknowledgement";
 type EditKind = "number" | "multiline" | "select" | "phone" | "email";
 
-const LANGUAGE_OPTIONS = ["English", "Español", "English + Español", "Other"];
 const LEVEL_OPTIONS = ["Not assessed", "I", "II", "III", "IV", "V"];
 const FMS_OPTIONS = ["Not assessed", "1", "2", "3", "4", "5", "6"];
 const SAFETY_ACKNOWLEDGEMENT_OPTIONS = ["Not provided", "Needs review", "Acknowledged"];
 
-const CAREGIVER_RECORD_KEYS: Partial<Record<EditableField, keyof Caregiver>> = { caregiverName: "name", caregiverRelationship: "relationship", caregiverExperience: "experience", caregiverMainConcern: "mainConcern", caregiverLanguage: "languagePreference" };
-const CAREGIVER_PROFILE_KEYS: Partial<Record<EditableField, keyof EditableCaregiver>> = { caregiverName: "name", caregiverRelationship: "relationship", caregiverPhone: "phone", caregiverExperience: "experience", caregiverMainConcern: "mainConcern", caregiverLanguage: "languagePreference" };
+const CAREGIVER_RECORD_KEYS: Partial<Record<EditableField, keyof Caregiver>> = { caregiverName: "name", caregiverRelationship: "relationship", caregiverExperience: "experience", caregiverMainConcern: "mainConcern" };
+const CAREGIVER_PROFILE_KEYS: Partial<Record<EditableField, keyof EditableCaregiver>> = { caregiverName: "name", caregiverRelationship: "relationship", caregiverPhone: "phone", caregiverExperience: "experience", caregiverMainConcern: "mainConcern" };
 const PATIENT_FIELD_KEYS: Partial<Record<EditableField, keyof Patient>> = { patientPreferredName: "preferredName", patientName: "name", patientAge: "age", patientRoutine: "baselineDailyRoutine", patientGmfcs: "gmfcs", patientFms: "fms", patientMacs: "macs", patientCfcs: "cfcs", patientEdacs: "edacs" };
 const PROVIDER_FIELD_KEYS: Partial<Record<EditableField, keyof EditableProvider>> = { providerName: "name", providerPhone: "phone", providerEmail: "email", providerRole: "role" };
-const EDIT_LABELS: Record<EditableField, string> = { caregiverName: "Caregiver name", caregiverRelationship: "Relationship", caregiverPhone: "Phone", caregiverExperience: "Experience", caregiverMainConcern: "Main concern", caregiverLanguage: "Language", patientPreferredName: "Preferred name", patientName: "Full name", patientAge: "Age", patientRoutine: "Routine", patientGmfcs: "GMFCS", patientFms: "FMS", patientMacs: "MACS", patientCfcs: "CFCS", patientEdacs: "EDACS", providerName: "Provider name", providerPhone: "Provider phone", providerEmail: "Provider email", providerRole: "Provider role", safetyEmergencyContactName: "Emergency contact name", safetyEmergencyContactRelationship: "Relationship", safetyEmergencyContactPhone: "Emergency contact phone", safetyEmergencyInstructions: "Emergency instructions", safetyNotes: "Safety notes", safetyAcknowledgement: "911 acknowledgement" };
-const EDIT_KINDS: Partial<Record<EditableField, EditKind>> = { patientAge: "number", patientRoutine: "multiline", caregiverLanguage: "select", patientGmfcs: "select", patientFms: "select", patientMacs: "select", patientCfcs: "select", patientEdacs: "select", providerPhone: "phone", providerEmail: "email", safetyEmergencyContactPhone: "phone", safetyEmergencyInstructions: "multiline", safetyNotes: "multiline", safetyAcknowledgement: "select" };
+const EDIT_LABEL_KEYS: Record<EditableField, TranslationKey> = { caregiverName: "profile.field.name", caregiverRelationship: "profile.field.relationship", caregiverPhone: "profile.field.phone", caregiverExperience: "profile.field.experience", caregiverMainConcern: "profile.field.mainConcern", patientPreferredName: "profile.field.preferredName", patientName: "profile.field.fullName", patientAge: "profile.field.age", patientRoutine: "profile.field.routine", patientGmfcs: "profile.field.gmfcs", patientFms: "profile.field.fms", patientMacs: "profile.field.macs", patientCfcs: "profile.field.cfcs", patientEdacs: "profile.field.edacs", providerName: "profile.field.name", providerPhone: "profile.field.phone", providerEmail: "profile.field.email", providerRole: "profile.field.role", safetyEmergencyContactName: "profile.field.emergencyContactName", safetyEmergencyContactRelationship: "profile.field.emergencyContactRelationship", safetyEmergencyContactPhone: "profile.field.emergencyContactPhone", safetyEmergencyInstructions: "profile.field.emergencyInstructions", safetyNotes: "profile.field.safetyNotes", safetyAcknowledgement: "profile.field.acknowledgement911" };
+const EDIT_KINDS: Partial<Record<EditableField, EditKind>> = { patientAge: "number", patientRoutine: "multiline", patientGmfcs: "select", patientFms: "select", patientMacs: "select", patientCfcs: "select", patientEdacs: "select", providerPhone: "phone", providerEmail: "email", safetyEmergencyContactPhone: "phone", safetyEmergencyInstructions: "multiline", safetyNotes: "multiline", safetyAcknowledgement: "select" };
 
 function phoneFromCaregiverAvailability(availability?: string | null): string | undefined {
   return availability?.match(/^Phone:\s*(.+)$/i)?.[1]?.trim();
@@ -66,6 +70,7 @@ export default function ProfileScreen() {
   } = usePatientRecord();
   const activePatient = useActivePatientView();
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   const caregiver = useMemo(() => {
@@ -82,7 +87,6 @@ export default function ProfileScreen() {
       availability: phoneFromCaregiverAvailability(cg.availability)
         ? base.availability
         : (cg.availability ?? base.availability),
-      languagePreference: cg.languagePreference ?? base.languagePreference,
       mainConcern: cg.mainConcern ?? base.mainConcern,
     };
   }, [profile.caregiver, snapshot?.caregiver]);
@@ -104,11 +108,11 @@ export default function ProfileScreen() {
   const showLegacyEmergencyContact =
     !hasStructuredEmergencyContact && legacyEmergencyContact.length > 0;
   const caregiverName =
-    activePatient?.caregiver?.name?.trim() || "Not provided";
+    activePatient?.caregiver?.name?.trim() || "";
   const caregiverRole =
-    activePatient?.caregiver?.relationship?.trim() || "Not provided";
+    activePatient?.caregiver?.relationship?.trim() || "";
   const patientName = getPatientDisplayName(activePatient);
-  const formalPatientName = snapshot?.patient?.name?.trim() || "Not provided";
+  const formalPatientName = snapshot?.patient?.name?.trim() || "";
   const patientAge = getPatientAgeDisplay(activePatient);
   const medicationSummary = formatMedicationSummary(snapshot?.medications ?? []);
 
@@ -132,7 +136,7 @@ export default function ProfileScreen() {
     if (!editing || saving) return;
 
     const field = editing;
-    const validation = validateDraft(field, draft, getEditableFieldValue(field, caregiver, snapshot?.patient, provider, patientSafety, patientSafetyNotes));
+    const validation = validateDraft(field, draft, getEditableFieldValue(field, caregiver, snapshot?.patient, provider, patientSafety, patientSafetyNotes), t);
     if (validation.error) {
       setSaveError(validation.error);
       return;
@@ -144,7 +148,7 @@ export default function ProfileScreen() {
 
     const intendedPatientId = activePatientId ?? snapshot?.patient?.patientId;
     if (!intendedPatientId) {
-      setSaveError("No active patient is selected.");
+      setSaveError(t("profile.error.noActivePatient"));
       return;
     }
 
@@ -177,7 +181,13 @@ export default function ProfileScreen() {
           if (!patient || patient.patientId !== intendedPatientId) {
             throw new Error(`Cannot update provider for inactive patient: ${intendedPatientId}`);
           }
-          const prepared = prepareProviderFieldSave(latestSnapshot, field, validation.value, compatibilityProvider);
+          const prepared = prepareProviderFieldSave(
+            latestSnapshot,
+            field,
+            validation.value,
+            compatibilityProvider,
+            t("profile.error.providerNameRequiredBeforeSaving"),
+          );
           providerForPersist = prepared.input;
           needsSnapshotRefresh = prepared.optimisticProvider === null;
           return prepared.optimisticProvider
@@ -254,7 +264,7 @@ export default function ProfileScreen() {
       setEditing(null);
       setDraft("");
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Profile update failed. Try again.");
+      setSaveError(error instanceof Error ? error.message : t("profile.error.updateFailed"));
     } finally {
       setSaving(false);
     }
@@ -314,7 +324,7 @@ export default function ProfileScreen() {
     });
   };
 
-  const editingLabel = editing ? EDIT_LABELS[editing] : "profile field";
+  const editingLabel = editing ? getEditLabel(editing, t) : t("profile.field.fallback");
   const editingKind = editing ? EDIT_KINDS[editing] ?? "text" : "text";
   const keyboardType = editingKind === "number" ? "number-pad" : editingKind === "phone" ? "phone-pad" : editingKind === "email" ? "email-address" : "default";
   const autoCapitalize = editingKind === "email" ? "none" : editing === "providerName" || editing === "safetyEmergencyContactName" ? "words" : undefined;
@@ -325,9 +335,9 @@ export default function ProfileScreen() {
       <View style={[styles.root, themedStyles.screen]}>
         <View style={styles.topBar}>
           <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backButton}>
-            <Text style={styles.backText}>← Back</Text>
+            <Text style={styles.backText}>{t("profile.back")}</Text>
           </Pressable>
-          <Text style={[styles.topTitle, themedStyles.primaryText]}>Profile</Text>
+          <Text style={[styles.topTitle, themedStyles.primaryText]}>{t("profile.title")}</Text>
         </View>
 
         <ScrollView
@@ -342,68 +352,69 @@ export default function ProfileScreen() {
 
             <View style={styles.headerTextBlock}>
               <Text style={[styles.caregiverName, themedStyles.primaryText]}>
-                {formatDetailValue(caregiverName)}
+                {formatDetailValue(caregiverName, t)}
               </Text>
 
               <Text style={[styles.roleText, themedStyles.secondaryText]}>
-                Caregiver · {formatDetailValue(caregiverRole)}
+                {t("profile.role.caregiver")} · {formatDetailValue(caregiverRole, t)}
               </Text>
 
               <Text style={styles.patientLink}>
-                Caring for {formatDetailValue(patientName)},{" "}
-                {formatDetailValue(patientAge)}
+                {t("profile.patientLink", {
+                  patientName: formatDetailValue(patientName, t),
+                  patientAge: formatDetailValue(patientAge, t),
+                })}
               </Text>
             </View>
           </View>
 
-          <ProfileCard title="Caregiver · tap to edit" icon="profile">
-            <EditableDetailRow label="Name" value={caregiver?.name} onPress={() => openEdit("caregiverName")} />
-            <EditableDetailRow label="Relationship" value={caregiver?.relationship} onPress={() => openEdit("caregiverRelationship")} />
-            <EditableDetailRow label="Phone" value={caregiver?.phone} onPress={() => openEdit("caregiverPhone")} />
-            <EditableDetailRow label="Experience" value={caregiver?.experience} onPress={() => openEdit("caregiverExperience")} />
-            <DetailRow label="Availability" value={caregiver?.availability} />
-            <EditableDetailRow label="Main concern" value={caregiver?.mainConcern} onPress={() => openEdit("caregiverMainConcern")} />
-            <EditableDetailRow label="Language" value={caregiver?.languagePreference} onPress={() => openEdit("caregiverLanguage")} />
+          <ProfileCard title={t("profile.card.caregiver")} icon="profile">
+            <EditableDetailRow label={t("profile.field.name")} value={caregiver?.name} onPress={() => openEdit("caregiverName")} />
+            <EditableDetailRow label={t("profile.field.relationship")} value={caregiver?.relationship} onPress={() => openEdit("caregiverRelationship")} />
+            <EditableDetailRow label={t("profile.field.phone")} value={caregiver?.phone} onPress={() => openEdit("caregiverPhone")} />
+            <EditableDetailRow label={t("profile.field.experience")} value={caregiver?.experience} onPress={() => openEdit("caregiverExperience")} />
+            <DetailRow label={t("profile.field.availability")} value={caregiver?.availability} />
+            <EditableDetailRow label={t("profile.field.mainConcern")} value={caregiver?.mainConcern} onPress={() => openEdit("caregiverMainConcern")} />
           </ProfileCard>
 
-          <ProfileCard title="Patient" icon="care">
-            <EditableDetailRow label="Preferred name" value={patientName} onPress={() => openEdit("patientPreferredName")} />
-            <EditableDetailRow label="Full name" value={formalPatientName} onPress={() => openEdit("patientName")} />
-            <EditableDetailRow label="Age" value={patientAge} onPress={() => openEdit("patientAge")} />
-            <DetailRow label="Primary diagnosis" value={getPrimaryDiagnosisDisplay(activePatient)} />
-            <DetailRow label="Comorbidities" value={getComorbiditiesDisplay(activePatient)} />
-            <DetailRow label="SpO₂ cutoff" value={displayClinical(activePatient?.spo2Cutoff)} />
-            <DetailRow label="Baseline HR" value={displayEntered(activePatient?.baselineHeartRate)} />
-            <EditableDetailRow label="GMFCS" value={displayEntered(activePatient?.classifications.gmfcs)} onPress={() => openEdit("patientGmfcs")} />
-            <EditableDetailRow label="FMS" value={displayEntered(activePatient?.classifications.fms)} onPress={() => openEdit("patientFms")} />
-            <EditableDetailRow label="MACS" value={displayEntered(activePatient?.classifications.macs)} onPress={() => openEdit("patientMacs")} />
-            <EditableDetailRow label="CFCS" value={displayEntered(activePatient?.classifications.cfcs)} onPress={() => openEdit("patientCfcs")} />
-            <EditableDetailRow label="EDACS" value={displayEntered(activePatient?.classifications.edacs)} onPress={() => openEdit("patientEdacs")} />
-            <EditableDetailRow label="Routine" value={formatImportedRoutine(activePatient?.baselineDailyRoutine)} multiline onPress={() => openEdit("patientRoutine")} />
+          <ProfileCard title={t("profile.field.patient")} icon="care">
+            <EditableDetailRow label={t("profile.field.preferredName")} value={patientName} onPress={() => openEdit("patientPreferredName")} />
+            <EditableDetailRow label={t("profile.field.fullName")} value={formalPatientName} onPress={() => openEdit("patientName")} />
+            <EditableDetailRow label={t("profile.field.age")} value={patientAge} onPress={() => openEdit("patientAge")} />
+            <DetailRow label={t("profile.field.primaryDiagnosis")} value={getPrimaryDiagnosisDisplay(activePatient)} />
+            <DetailRow label={t("profile.field.comorbidities")} value={getComorbiditiesDisplay(activePatient)} />
+            <DetailRow label={t("profile.field.spo2Cutoff")} value={displayClinical(activePatient?.spo2Cutoff)} />
+            <DetailRow label={t("profile.field.baselineHr")} value={displayEntered(activePatient?.baselineHeartRate)} />
+            <EditableDetailRow label={t("profile.field.gmfcs")} value={displayEntered(activePatient?.classifications.gmfcs)} onPress={() => openEdit("patientGmfcs")} />
+            <EditableDetailRow label={t("profile.field.fms")} value={displayEntered(activePatient?.classifications.fms)} onPress={() => openEdit("patientFms")} />
+            <EditableDetailRow label={t("profile.field.macs")} value={displayEntered(activePatient?.classifications.macs)} onPress={() => openEdit("patientMacs")} />
+            <EditableDetailRow label={t("profile.field.cfcs")} value={displayEntered(activePatient?.classifications.cfcs)} onPress={() => openEdit("patientCfcs")} />
+            <EditableDetailRow label={t("profile.field.edacs")} value={displayEntered(activePatient?.classifications.edacs)} onPress={() => openEdit("patientEdacs")} />
+            <EditableDetailRow label={t("profile.field.routine")} value={formatImportedRoutine(activePatient?.baselineDailyRoutine, t)} multiline onPress={() => openEdit("patientRoutine")} />
             <DetailRow
-              label="Medications"
+              label={t("profile.field.medications")}
               value={displayClinical(medicationSummary)}
               multiline
             />
           </ProfileCard>
 
-          <ProfileCard title="Primary Care Provider" icon="provider">
-            <EditableDetailRow label="Name" value={provider.name} onPress={() => openEdit("providerName")} />
-            <EditableDetailRow label="Phone" value={provider.phone} onPress={() => openEdit("providerPhone")} />
-            <EditableDetailRow label="Email" value={provider.email} onPress={() => openEdit("providerEmail")} />
-            <EditableDetailRow label="Role" value={provider.role} onPress={() => openEdit("providerRole")} />
+          <ProfileCard title={t("profile.field.primaryCareProvider")} icon="provider">
+            <EditableDetailRow label={t("profile.field.name")} value={provider.name} onPress={() => openEdit("providerName")} />
+            <EditableDetailRow label={t("profile.field.phone")} value={provider.phone} onPress={() => openEdit("providerPhone")} />
+            <EditableDetailRow label={t("profile.field.email")} value={provider.email} onPress={() => openEdit("providerEmail")} />
+            <EditableDetailRow label={t("profile.field.role")} value={provider.role} onPress={() => openEdit("providerRole")} />
           </ProfileCard>
 
-          <ProfileCard title="Safety" icon="alert">
-            <EditableDetailRow label="Emergency contact name" value={patientSafety?.emergencyContactName} onPress={() => openEdit("safetyEmergencyContactName")} />
-            <EditableDetailRow label="Relationship" value={patientSafety?.emergencyContactRelationship} onPress={() => openEdit("safetyEmergencyContactRelationship")} />
-            <EditableDetailRow label="Phone" value={patientSafety?.emergencyContactPhone} onPress={() => openEdit("safetyEmergencyContactPhone")} />
-            <EditableDetailRow label="Emergency instructions" value={patientSafety?.emergencyInstructions} multiline onPress={() => openEdit("safetyEmergencyInstructions")} />
-            <EditableDetailRow label="Safety notes" value={patientSafetyNotes} multiline onPress={() => openEdit("safetyNotes")} />
-            <EditableDetailRow label="911 acknowledgement" value={formatSafetyAcknowledgement(patientSafety?.emergencyDisclaimerAccepted)} onPress={() => openEdit("safetyAcknowledgement")} />
+          <ProfileCard title={t("profile.field.safety")} icon="alert">
+            <EditableDetailRow label={t("profile.field.emergencyContactName")} value={patientSafety?.emergencyContactName} onPress={() => openEdit("safetyEmergencyContactName")} />
+            <EditableDetailRow label={t("profile.field.emergencyContactRelationship")} value={patientSafety?.emergencyContactRelationship} onPress={() => openEdit("safetyEmergencyContactRelationship")} />
+            <EditableDetailRow label={t("profile.field.emergencyContactPhone")} value={patientSafety?.emergencyContactPhone} onPress={() => openEdit("safetyEmergencyContactPhone")} />
+            <EditableDetailRow label={t("profile.field.emergencyInstructions")} value={patientSafety?.emergencyInstructions} multiline onPress={() => openEdit("safetyEmergencyInstructions")} />
+            <EditableDetailRow label={t("profile.field.safetyNotes")} value={patientSafetyNotes} multiline onPress={() => openEdit("safetyNotes")} />
+            <EditableDetailRow label={t("profile.field.acknowledgement911")} value={formatSafetyAcknowledgementLabel(patientSafety?.emergencyDisclaimerAccepted, t)} onPress={() => openEdit("safetyAcknowledgement")} />
             {showLegacyEmergencyContact ? (
               <DetailRow
-                label="Previous contact information"
+                label={t("profile.field.previousContactInformation")}
                 value={legacyEmergencyContact}
                 multiline
               />
@@ -414,31 +425,33 @@ export default function ProfileScreen() {
         <Modal visible={editing !== null} transparent animationType="fade" onRequestClose={closeEditor}>
           <Pressable style={styles.editOverlay} onPress={closeEditor}>
             <Pressable style={[styles.editSheet, themedStyles.card]} onPress={(e) => e.stopPropagation()}>
-              <Text style={[styles.editTitle, themedStyles.primaryText]}>Edit {editingLabel}</Text>
+              <Text style={[styles.editTitle, themedStyles.primaryText]}>
+                {t("profile.edit.title", { label: editingLabel })}
+              </Text>
               {editingKind === "select" ? (
                 <View style={styles.optionList}>
                   {selectOptions.map((option) => {
                     const selected = option === draft;
-                    const label = getOptionLabel(editing, option);
+                    const label = getOptionLabel(editing, option, t);
                     return (
-                      <Pressable key={option} style={[styles.optionRow, themedStyles.optionSurface, selected && styles.optionRowSelected]} onPress={() => setDraft(option)} accessibilityRole="button" accessibilityLabel={`Select ${label}`} accessibilityState={{ selected, disabled: saving }} disabled={saving}>
+                      <Pressable key={option} style={[styles.optionRow, themedStyles.optionSurface, selected && styles.optionRowSelected]} onPress={() => setDraft(option)} accessibilityRole="button" accessibilityLabel={t("profile.edit.select", { label })} accessibilityState={{ selected, disabled: saving }} disabled={saving}>
                         <Text style={[styles.optionText, themedStyles.primaryText, selected && styles.optionTextSelected]}>{label}</Text>
                       </Pressable>
                     );
                   })}
                 </View>
               ) : (
-                <TextInput style={[styles.editInput, themedStyles.input, editingKind === "multiline" && styles.editInputMultiline]} value={draft} onChangeText={setDraft} autoFocus multiline={editingKind === "multiline"} keyboardType={keyboardType} autoCapitalize={autoCapitalize} placeholder="Enter value..." placeholderTextColor={theme.appTextMuted} accessibilityLabel={editingLabel} editable={!saving} />
+                <TextInput style={[styles.editInput, themedStyles.input, editingKind === "multiline" && styles.editInputMultiline]} value={draft} onChangeText={setDraft} autoFocus multiline={editingKind === "multiline"} keyboardType={keyboardType} autoCapitalize={autoCapitalize} placeholder={t("profile.edit.placeholder")} placeholderTextColor={theme.appTextMuted} accessibilityLabel={editingLabel} editable={!saving} />
               )}
               {saveError ? (
                 <Text style={styles.editError} accessibilityRole="alert">{saveError}</Text>
               ) : null}
               <View style={styles.editActions}>
-                <Pressable style={[styles.editButton, styles.editCancel, themedStyles.controlSurface]} onPress={closeEditor} accessibilityRole="button" accessibilityLabel="Cancel profile edit" accessibilityState={{ disabled: saving }} disabled={saving}>
-                  <Text style={[styles.editCancelText, themedStyles.secondaryText]}>Cancel</Text>
+                <Pressable style={[styles.editButton, styles.editCancel, themedStyles.controlSurface]} onPress={closeEditor} accessibilityRole="button" accessibilityLabel={t("profile.edit.cancel")} accessibilityState={{ disabled: saving }} disabled={saving}>
+                  <Text style={[styles.editCancelText, themedStyles.secondaryText]}>{t("common.cancel")}</Text>
                 </Pressable>
-                <Pressable style={[styles.editButton, saving && styles.editButtonDisabled]} onPress={saveEdit} accessibilityRole="button" accessibilityLabel={`Save ${editingLabel}`} accessibilityState={{ disabled: saving }} disabled={saving}>
-                  <Text style={styles.editSaveText}>{saving ? "Saving" : "Save"}</Text>
+                <Pressable style={[styles.editButton, saving && styles.editButtonDisabled]} onPress={saveEdit} accessibilityRole="button" accessibilityLabel={t("profile.edit.save", { label: editingLabel })} accessibilityState={{ disabled: saving }} disabled={saving}>
+                  <Text style={styles.editSaveText}>{saving ? t("common.saving") : t("common.save")}</Text>
                 </Pressable>
               </View>
             </Pressable>
@@ -468,21 +481,21 @@ function getEditableFieldValue(
   if (field === "safetyEmergencyInstructions") return safety?.emergencyInstructions ?? "";
   if (field === "safetyNotes") return safetyNotes;
   if (field === "safetyAcknowledgement") {
-    return formatSafetyAcknowledgement(safety?.emergencyDisclaimerAccepted);
+    return safetyAcknowledgementValue(safety?.emergencyDisclaimerAccepted);
   }
   const patientKey = PATIENT_FIELD_KEYS[field];
   return patientKey ? String(patient?.[patientKey] ?? "") : "";
 }
 
-function validateDraft(field: EditableField, draft: string, currentValue: string): { value: string; noop?: boolean; error?: string } {
+function validateDraft(field: EditableField, draft: string, currentValue: string, t: TranslateFn): { value: string; noop?: boolean; error?: string } {
   const value = draft.trim();
   const current = currentValue.trim();
   if (field === "providerName" && !value) {
-    return { value, error: "Provider name is required." };
+    return { value, error: t("profile.error.providerNameRequired") };
   }
   if (value === current) return { value, noop: true };
   if (!value && current && !isOptionalSafetyTextField(field)) {
-    return { value, error: "Leave the existing value in place or enter a new value." };
+    return { value, error: t("profile.error.leaveExistingOrEnterNew") };
   }
   if (!value) {
     return current && isOptionalSafetyTextField(field)
@@ -490,7 +503,7 @@ function validateDraft(field: EditableField, draft: string, currentValue: string
       : { value, noop: true };
   }
   if (field === "patientAge" && !/^\d+$/.test(value)) {
-    return { value, error: "Age must be a nonnegative whole number." };
+    return { value, error: t("profile.error.ageWholeNumber") };
   }
   return { value };
 }
@@ -523,6 +536,7 @@ function prepareProviderFieldSave(
   field: EditableField,
   value: string,
   compatibilityProvider: EditableProvider,
+  requiredMessage: string,
 ): { input: ProviderSaveInput; optimisticProvider: Provider | null } {
   const patientId = latestSnapshot.patient?.patientId ?? "";
   const existingProvider = latestSnapshot.primaryCareProvider ?? null;
@@ -536,7 +550,7 @@ function prepareProviderFieldSave(
   const role = field === "providerRole" ? value : baseRole.trim();
 
   if (!name) {
-    throw new Error("Provider name is required before saving contact details.");
+    throw new Error(requiredMessage);
   }
 
   const input: ProviderSaveInput = {
@@ -618,10 +632,14 @@ function createOptimisticPatientSafety(
   };
 }
 
-function formatSafetyAcknowledgement(value: boolean | null | undefined): string {
+function safetyAcknowledgementValue(value: boolean | null | undefined): string {
   if (value === true) return "Acknowledged";
   if (value === false) return "Needs review";
   return "Not provided";
+}
+
+function formatSafetyAcknowledgementLabel(value: boolean | null | undefined, t: TranslateFn): string {
+  return getSafetyAcknowledgementLabel(safetyAcknowledgementValue(value), t);
 }
 
 function safetyAcknowledgementToValue(value: string): boolean | null {
@@ -642,14 +660,32 @@ function isOptionalSafetyTextField(field: EditableField): boolean {
 
 function getSelectOptions(field: EditableField, currentValue: string): string[] {
   if (field === "safetyAcknowledgement") return SAFETY_ACKNOWLEDGEMENT_OPTIONS;
-  const options = field === "caregiverLanguage" ? LANGUAGE_OPTIONS : field === "patientFms" ? FMS_OPTIONS : EDIT_KINDS[field] === "select" ? LEVEL_OPTIONS : [];
+  const options = field === "patientFms" ? FMS_OPTIONS : EDIT_KINDS[field] === "select" ? LEVEL_OPTIONS : [];
   const customValue = currentValue.trim();
   if (customValue && !options.includes(customValue)) return [customValue, ...options];
   return options;
 }
 
-function getOptionLabel(field: EditableField | null, value: string): string {
-  return field && field !== "patientFms" && LEVEL_OPTIONS.includes(value) && value !== "Not assessed" ? `Level ${value}` : value;
+function getEditLabel(field: EditableField, t: TranslateFn): string {
+  return t(EDIT_LABEL_KEYS[field]);
+}
+
+function getOptionLabel(field: EditableField | null, value: string, t: TranslateFn): string {
+  if (field === "safetyAcknowledgement") {
+    return getSafetyAcknowledgementLabel(value, t);
+  }
+  if (value === "Not assessed") {
+    return t("profile.value.notAssessed");
+  }
+  return field && field !== "patientFms" && LEVEL_OPTIONS.includes(value)
+    ? t("profile.value.level", { level: value })
+    : value;
+}
+
+function getSafetyAcknowledgementLabel(value: string, t: TranslateFn): string {
+  if (value === "Acknowledged") return t("profile.value.safetyAcknowledged");
+  if (value === "Needs review") return t("profile.value.safetyNeedsReview");
+  return t("common.notProvided");
 }
 
 function ProfileCard({
@@ -688,6 +724,7 @@ function DetailRow({
   multiline?: boolean;
 }) {
   const themedStyles = createThemedStyles(useTheme());
+  const { t } = useTranslation();
 
   return (
     <View style={[styles.detailRow, themedStyles.divider, multiline && styles.detailRowMultiline]}>
@@ -695,7 +732,7 @@ function DetailRow({
       <Text
         style={[styles.detailValue, themedStyles.primaryText, multiline && styles.detailValueMultiline]}
       >
-        {formatDetailValue(value)}
+        {formatDetailValue(value, t)}
       </Text>
     </View>
   );
@@ -713,19 +750,20 @@ function EditableDetailRow({
   onPress: () => void;
 }) {
   const themedStyles = createThemedStyles(useTheme());
+  const { t } = useTranslation();
 
   return (
     <Pressable
       style={[styles.detailRow, themedStyles.divider, multiline && styles.detailRowMultiline]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`Edit ${label}`}
+      accessibilityLabel={t("profile.edit.row", { label })}
     >
       <Text style={[styles.detailLabel, themedStyles.secondaryText]}>{label}</Text>
       <Text
         style={[styles.detailValue, themedStyles.primaryText, multiline && styles.detailValueMultiline]}
       >
-        {formatDetailValue(value)}
+        {formatDetailValue(value, t)}
       </Text>
       <Text style={styles.editChevron}>›</Text>
     </Pressable>
@@ -733,9 +771,9 @@ function EditableDetailRow({
 }
 
 function getInitials(name: DetailValue): string {
-  const safeName = formatDetailValue(name);
+  const safeName = name === null || name === undefined ? "" : String(name).trim();
 
-  if (safeName === "Not provided") {
+  if (!safeName) {
     return "CG";
   }
 
@@ -761,22 +799,22 @@ function formatMedicationSummary(medications: Medication[]): string {
     .join("\n");
 }
 
-function formatImportedRoutine(value: string | number | null | undefined): string {
+function formatImportedRoutine(value: string | number | null | undefined, t: TranslateFn): string {
   const text = value === null || value === undefined ? "" : String(value).trim();
-  return text || "Not provided in imported EHR";
+  return text || t("profile.value.notProvidedImportedEhr");
 }
 
-function formatDetailValue(value: DetailValue): string {
+function formatDetailValue(value: DetailValue, t: TranslateFn): string {
   if (value === null || value === undefined) {
-    return "Not provided";
+    return t("common.notProvided");
   }
 
   if (typeof value === "boolean") {
-    return value ? "Yes" : "No";
+    return value ? t("common.yes") : t("common.no");
   }
 
   const text = String(value).trim();
-  return text.length > 0 ? text : "Not provided";
+  return text.length > 0 ? text : t("common.notProvided");
 }
 
 function createThemedStyles(theme: ReturnType<typeof useTheme>) {

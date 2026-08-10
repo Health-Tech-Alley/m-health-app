@@ -22,6 +22,8 @@ import {
   usePatientRecord,
 } from '@/contexts/patient-record-context';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { TranslateFn } from '@/localization/i18n';
 import {
   DAILY_CARE_SKIPPED_REASON_OPTIONS,
   DAILY_CARE_URGENT_SYMPTOM_OPTIONS,
@@ -143,23 +145,121 @@ const FIELD_OPTIONS: Record<DailyCareEditField, Array<{ value: number; label: st
   ],
 };
 
-const FIELD_TITLES: Record<DailyCareEditField, string> = {
-  setsCompleted: 'Daily sets',
-  exerciseRepetitions: 'Repetitions',
-  romDegrees: 'Range of motion',
-  walkingMinutes: 'Walking minutes',
-  painScore: 'Pain',
-  fatigue: 'Fatigue',
-};
+function fieldTitle(field: DailyCareEditField, t: TranslateFn): string {
+  switch (field) {
+    case 'setsCompleted':
+      return t('care.therapy.dailySets');
+    case 'exerciseRepetitions':
+      return t('care.therapy.repetitions');
+    case 'romDegrees':
+      return t('care.therapy.rom');
+    case 'walkingMinutes':
+      return t('care.therapy.walking');
+    case 'painScore':
+      return t('care.therapy.pain');
+    case 'fatigue':
+      return t('care.therapy.fatigue');
+  }
+}
 
-const FIELD_HINTS: Record<DailyCareEditField, string> = {
-  setsCompleted: 'How many sets were completed today?',
-  exerciseRepetitions: 'About how many total reps today? (plan target often ~15–20)',
-  romDegrees: 'Best range of motion measured today (0–90+ degrees).',
-  walkingMinutes: 'About how many minutes of walking today?',
-  painScore: 'Pain level (0 = none, 10 = worst).',
-  fatigue: 'Fatigue level (0 = none, 10 = exhausted).',
-};
+function fieldHint(field: DailyCareEditField, t: TranslateFn): string {
+  switch (field) {
+    case 'setsCompleted':
+      return t('care.therapy.fieldHint.setsCompleted');
+    case 'exerciseRepetitions':
+      return t('care.therapy.fieldHint.exerciseRepetitions');
+    case 'romDegrees':
+      return t('care.therapy.fieldHint.romDegrees');
+    case 'walkingMinutes':
+      return t('care.therapy.fieldHint.walkingMinutes');
+    case 'painScore':
+      return t('care.therapy.fieldHint.painScore');
+    case 'fatigue':
+      return t('care.therapy.fieldHint.fatigue');
+  }
+}
+
+function fieldOptionLabel(
+  field: DailyCareEditField,
+  option: { value: number; label: string },
+  t: TranslateFn,
+): string {
+  if (field !== 'painScore' && field !== 'fatigue') return option.label;
+  switch (option.value) {
+    case 0:
+      return t('care.therapy.option.none', { value: option.value });
+    case 2:
+      return t('care.therapy.option.mild', { value: option.value });
+    case 4:
+      return t('care.therapy.option.moderate', { value: option.value });
+    case 5:
+      return t('care.therapy.option.moderatePlus', { value: option.value });
+    case 6:
+      return t('care.therapy.option.strong', { value: option.value });
+    case 8:
+      return t('care.therapy.option.severe', { value: option.value });
+    case 10:
+      return field === 'fatigue'
+        ? t('care.therapy.option.exhausted', { value: option.value })
+        : t('care.therapy.option.worst', { value: option.value });
+    default:
+      return option.label;
+  }
+}
+
+function skippedReasonLabel(value: string, fallback: string, t: TranslateFn): string {
+  switch (value) {
+    case 'fever':
+      return t('care.therapy.skippedReason.fever');
+    case 'vomiting':
+      return t('care.therapy.skippedReason.vomiting');
+    case 'chest pain':
+      return t('care.therapy.skippedReason.chestPain');
+    case 'shortness of breath':
+      return t('care.therapy.skippedReason.shortnessOfBreath');
+    case 'severe pain':
+      return t('care.therapy.skippedReason.severePain');
+    case 'fall':
+      return t('care.therapy.skippedReason.fall');
+    case 'injury':
+      return t('care.therapy.skippedReason.injury');
+    case 'clinician told us to stop':
+      return t('care.therapy.skippedReason.clinicianStop');
+    case 'doctor told us to stop':
+      return t('care.therapy.skippedReason.doctorStop');
+    case 'nurse told us to stop':
+      return t('care.therapy.skippedReason.nurseStop');
+    case 'urgent':
+      return t('care.therapy.skippedReason.urgent');
+    case 'emergency':
+      return t('care.therapy.skippedReason.emergency');
+    default:
+      return fallback;
+  }
+}
+
+function urgentSymptomLabel(value: DailyCareUrgentSymptomCode, fallback: string, t: TranslateFn): string {
+  switch (value) {
+    case 'new_weakness':
+      return t('care.therapy.urgentSymptom.newWeakness');
+    case 'chest_pain':
+      return t('care.therapy.urgentSymptom.chestPain');
+    case 'shortness_of_breath':
+      return t('care.therapy.urgentSymptom.shortnessOfBreath');
+    case 'severe_sudden_pain':
+      return t('care.therapy.urgentSymptom.severeSuddenPain');
+    case 'severe_pain':
+      return t('care.therapy.urgentSymptom.severePain');
+    case 'fall_with_injury':
+      return t('care.therapy.urgentSymptom.fallWithInjury');
+    case 'confusion':
+      return t('care.therapy.urgentSymptom.confusion');
+    case 'loss_of_consciousness':
+      return t('care.therapy.urgentSymptom.lossOfConsciousness');
+    default:
+      return fallback;
+  }
+}
 
 export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
   const {
@@ -175,6 +275,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
 
   const { mutatePatientRecord, snapshot } = usePatientRecord();
   const theme = useTheme();
+  const { t } = useTranslation();
   const sectionStyles = useMemo(() => createThemedSectionStyles(theme), [theme]);
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
@@ -218,14 +319,22 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
   const assignedExerciseTotalCount = activeAssignedExercises.length;
   const assignedExerciseValueLabel =
     assignedExerciseTotalCount > 0
-      ? `${completedAssignedExerciseCount} / ${assignedExerciseTotalCount}`
-      : 'No exercises assigned';
+      ? t('care.therapy.assignedExercisesValue', {
+          completed: completedAssignedExerciseCount,
+          total: assignedExerciseTotalCount,
+        })
+      : t('care.therapy.noExercisesAssigned');
   const assignedExerciseAccessibilityLabel =
     assignedExerciseTotalCount > 0
-      ? `${completedAssignedExerciseCount} of ${assignedExerciseTotalCount} assigned ${
-          assignedExerciseTotalCount === 1 ? 'exercise' : 'exercises'
-        } completed`
-      : 'No exercises assigned';
+      ? t('care.therapy.assignedExercisesA11y', {
+          completed: completedAssignedExerciseCount,
+          total: assignedExerciseTotalCount,
+          exerciseLabel:
+            assignedExerciseTotalCount === 1
+              ? t('care.therapy.exercise.one')
+              : t('care.therapy.exercise.many'),
+        })
+      : t('care.therapy.noExercisesAssigned');
   const selectedUrgentSymptomCodes: DailyCareUrgentSymptomCode[] = useMemo(
     () =>
       DAILY_CARE_URGENT_SYMPTOM_OPTIONS
@@ -244,11 +353,17 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
   );
 
   const skippedReasonSummary =
-    dailyEntry?.skippedReason ?? (dailyEntry?.therapyCompleted ? 'Completed' : 'No reason recorded');
-  const assignedExercisesSummary = `${activeAssignedExercises.length} active exercises`;
+    dailyEntry?.skippedReason
+      ? skippedReasonLabel(dailyEntry.skippedReason, dailyEntry.skippedReason, t)
+      : dailyEntry?.therapyCompleted
+        ? t('care.therapy.completed')
+        : t('care.therapy.noReasonRecorded');
+  const assignedExercisesSummary = t('care.therapy.activeExercises', {
+    count: activeAssignedExercises.length,
+  });
   const urgentSymptomsSummary = selectedUrgentSymptomCodes.length
-    ? `${selectedUrgentSymptomCodes.length} flagged`
-    : 'None reported today';
+    ? t('care.therapy.flagged', { count: selectedUrgentSymptomCodes.length })
+    : t('care.therapy.noneReportedToday');
 
   useEffect(() => {
     // Reset the field-edit modal when the active patient changes so a stale
@@ -320,22 +435,22 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
         },
       ).catch((error) => {
         console.error('[CarePlanTherapySection] daily care update failed:', error);
-        setUc3CompletionStatus('Care update could not be saved. Please try again.');
+        setUc3CompletionStatus(t('care.therapy.saveFailed'));
       });
     },
-    [activeAssignedExercises, carePlanId, mutatePatientRecord, patientId],
+    [activeAssignedExercises, carePlanId, mutatePatientRecord, patientId, t],
   );
 
   const confirmTherapyCompleted = useCallback(async () => {
     if (uc3CompletionRunning) return;
     setTherapyCompletionConfirmVisible(false);
     setUc3CompletionRunning(true);
-    setUc3CompletionStatus("Concierge is updating rehabilitation progress...");
+    setUc3CompletionStatus(t('care.therapy.progressUpdating'));
     try {
       saveDailyCarePatch({ therapyCompleted: true, skippedReason: null });
       const refreshedSnapshot = getCurrentPatientSnapshot();
       if (!refreshedSnapshot?.patient) {
-        setUc3CompletionStatus("Rehabilitation progress is not ready to update yet.");
+        setUc3CompletionStatus(t('care.therapy.progressNotReady'));
         return;
       }
       const now = new Date();
@@ -346,15 +461,15 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
       const uc3Message =
         uc3Result.status === "success"
           ? uc3Result.persistedResult.eventType === "INSUFFICIENT_DATA"
-            ? "Therapy completion saved. Concierge needs more rehabilitation data before it can summarize progress."
+            ? t('care.therapy.savedNeedsMoreData')
             : uc3Result.persistedResult.emergencyThresholdBreach || uc3Result.persistedResult.severity === "urgent"
-              ? "Therapy completion saved. Rehabilitation progress updated with an urgent safety review result."
+              ? t('care.therapy.savedUrgent')
               : uc3Result.persistedResult.requiresHumanReview
-                ? "Therapy completion saved. Rehabilitation progress updated with a provider review result."
-                : "Therapy completion saved. Rehabilitation progress updated."
+                ? t('care.therapy.savedProviderReview')
+                : t('care.therapy.savedUpdated')
           : uc3Result.status === "not_ready"
-            ? "Therapy completion saved. Concierge needs more rehabilitation data before it can update progress."
-            : "Therapy completion saved. Rehabilitation progress could not be updated.";
+            ? t('care.therapy.savedNotReady')
+            : t('care.therapy.savedUpdateFailed');
       setUc3CompletionStatus(uc3Message);
       if (uc3Result.status !== "success") {
         refresh();
@@ -363,7 +478,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
       refresh();
       const uc4Snapshot = getCurrentPatientSnapshot();
       if (!uc4Snapshot?.patient) {
-        setUc3CompletionStatus(`${uc3Message} Care focus is not ready to update yet.`);
+        setUc3CompletionStatus(`${uc3Message} ${t('care.therapy.focusNotReady')}`);
         return;
       }
       try {
@@ -372,31 +487,31 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
           uc4Result.status === "success"
             ? uc4Result.runStatus === "completed"
               ? uc4Result.cards.length > 0
-                ? "Care focus checklist updated."
-                : "Care focus updated with no new checklist cards."
+                ? t('care.therapy.focusChecklistUpdated')
+                : t('care.therapy.focusNoNewCards')
               : uc4Result.runStatus === "paused"
                 ? uc4Result.pauseReason
-                  ? `Care focus paused: ${uc4Result.pauseReason}.`
-                  : "Care focus paused."
-                : "Care focus updated with no new checklist cards."
+                  ? t('care.therapy.focusPausedWithReason', { reason: uc4Result.pauseReason })
+                  : t('care.therapy.focusPaused')
+                : t('care.therapy.focusNoNewCards')
             : uc4Result.status === "not_ready"
-              ? "Care focus is not ready to update yet."
-              : "Care focus could not be updated.";
+              ? t('care.therapy.focusNotReady')
+              : t('care.therapy.focusUpdateFailed');
         setUc3CompletionStatus(`${uc3Message} ${uc4Message}`);
         if (uc4Result.status === "success") {
           refresh();
         }
       } catch (err) {
         console.error("[CarePlanTherapySection] UC4 update failed:", err);
-        setUc3CompletionStatus(`${uc3Message} Care focus could not be updated.`);
+        setUc3CompletionStatus(`${uc3Message} ${t('care.therapy.focusUpdateFailed')}`);
       }
     } catch (err) {
       console.error("[CarePlanTherapySection] UC3 update failed:", err);
-      setUc3CompletionStatus("Rehabilitation progress could not be updated.");
+      setUc3CompletionStatus(t('care.therapy.savedUpdateFailed'));
     } finally {
       setUc3CompletionRunning(false);
     }
-  }, [uc3CompletionRunning, saveDailyCarePatch, refresh]);
+  }, [uc3CompletionRunning, saveDailyCarePatch, refresh, t]);
 
   const handleTherapyCompletionPress = useCallback(() => {
     if (uc3CompletionRunning) return;
@@ -473,10 +588,10 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
         },
       ).catch((error) => {
         console.error("[CarePlanTherapySection] daily care update failed:", error);
-        setUc3CompletionStatus("Care update could not be saved. Please try again.");
+        setUc3CompletionStatus(t('care.therapy.saveFailed'));
       });
     },
-    [activeAssignmentKeySet, activeAssignedExercises, mutatePatientRecord, patientId],
+    [activeAssignmentKeySet, activeAssignedExercises, mutatePatientRecord, patientId, t],
   );
 
   const toggleSkippedReason = useCallback(
@@ -527,14 +642,17 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
   if (!therapyExpanded) {
     return (
       <View style={sectionStyles.card}>
-        <Text style={sectionStyles.title}>Therapy</Text>
+        <Text style={sectionStyles.title}>{t('care.therapy.title')}</Text>
         <View style={styles.compactStatsRow}>
           <View
             style={[styles.dailyFactBox, themedStyles.controlCard]}
             accessible
-            accessibilityLabel={`Daily logs ${dailyLogCompletedCount} of ${REQUIRED_DAILY_LOG_FIELDS.length} completed`}
+            accessibilityLabel={t('care.therapy.dailyLogsA11y', {
+              completed: dailyLogCompletedCount,
+              total: REQUIRED_DAILY_LOG_FIELDS.length,
+            })}
           >
-            <Text style={[styles.dailyFactLabel, themedStyles.mutedText]}>Daily logs</Text>
+            <Text style={[styles.dailyFactLabel, themedStyles.mutedText]}>{t('care.therapy.dailyLogs')}</Text>
             <Text style={[styles.dailyFactValue, themedStyles.primaryText]}>
               {dailyLogCompletedCount} / {REQUIRED_DAILY_LOG_FIELDS.length}
             </Text>
@@ -544,7 +662,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
             accessible
             accessibilityLabel={assignedExerciseAccessibilityLabel}
           >
-            <Text style={[styles.dailyFactLabel, themedStyles.mutedText]}>Assigned exercises</Text>
+            <Text style={[styles.dailyFactLabel, themedStyles.mutedText]}>{t('care.therapy.assignedExercises')}</Text>
             <Text style={[styles.dailyFactValue, themedStyles.primaryText]}>{assignedExerciseValueLabel}</Text>
           </View>
         </View>
@@ -553,26 +671,26 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
           onPress={() => setTherapyExpanded(true)}
           accessibilityRole="button"
           accessibilityState={{ expanded: false }}
-          accessibilityLabel="Continue therapy session and show details"
+          accessibilityLabel={t('care.therapy.continueA11y')}
         >
-          <Text style={styles.continueButtonText}>Continue</Text>
+          <Text style={styles.continueButtonText}>{t('care.therapy.continue')}</Text>
         </Pressable>
       </View>
     );
   }
 
   return (
-    <View style={sectionStyles.card} accessible accessibilityLabel="Therapy">
+    <View style={sectionStyles.card} accessible accessibilityLabel={t('care.therapy.title')}>
       <View style={sectionStyles.headerRow}>
-        <Text style={sectionStyles.title}>Therapy</Text>
+        <Text style={sectionStyles.title}>{t('care.therapy.title')}</Text>
         <View style={styles.expandedHeaderActions}>
           <Pressable
             onPress={() => setTherapyExpanded(false)}
             accessibilityRole="button"
             accessibilityState={{ expanded: true }}
-            accessibilityLabel="Show less therapy details"
+            accessibilityLabel={t('care.therapy.showLessA11y')}
           >
-            <Text style={[styles.showLessText, themedStyles.mutedText]}>Show less</Text>
+            <Text style={[styles.showLessText, themedStyles.mutedText]}>{t('care.therapy.showLess')}</Text>
           </Pressable>
           <View style={sectionStyles.pill}>
             <Text style={sectionStyles.pillText}>{activeAssignedExercises.length}</Text>
@@ -580,7 +698,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
         </View>
       </View>
       <Text style={sectionStyles.subtitle}>
-        {"Daily rehab check-in and therapy progress. Use this when today\u2019s routine is done or symptoms change."}
+        {t('care.therapy.subtitle')}
       </Text>
 
       <View style={styles.completionRow}>
@@ -593,7 +711,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
             checked: Boolean(dailyEntry?.therapyCompleted),
             disabled: uc3CompletionRunning,
           }}
-          accessibilityLabel="Therapy completed today"
+          accessibilityLabel={t('care.therapy.completedToday')}
         >
           <View
             style={[
@@ -607,9 +725,9 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
             ) : null}
           </View>
           <View style={styles.completionTextBlock}>
-            <Text style={[styles.completionTitle, themedStyles.primaryText]}>Therapy completed today</Text>
+            <Text style={[styles.completionTitle, themedStyles.primaryText]}>{t('care.therapy.completedToday')}</Text>
             <Text style={[styles.completionSubtitle, themedStyles.supportingText]}>
-              {'Mark complete after today\u2019s rehab routine is done.'}
+              {t('care.therapy.markComplete')}
             </Text>
           </View>
         </Pressable>
@@ -626,10 +744,12 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
             onPress={() => setSkippedReasonExpanded((expanded) => !expanded)}
             accessibilityRole="button"
             accessibilityState={{ expanded: skippedReasonExpanded }}
-            accessibilityLabel={`Why wasn't the session completed? ${skippedReasonSummary}`}
+            accessibilityLabel={t('care.therapy.whyNotCompletedA11y', {
+              summary: skippedReasonSummary,
+            })}
           >
             <View style={styles.accordionHeaderText}>
-              <Text style={[styles.accordionTitle, themedStyles.primaryText]}>{'Why wasn\u2019t the session completed?'}</Text>
+              <Text style={[styles.accordionTitle, themedStyles.primaryText]}>{t('care.therapy.whyNotCompleted')}</Text>
               <Text style={[styles.accordionSummary, themedStyles.mutedText]}>{skippedReasonSummary}</Text>
             </View>
             <Text style={[styles.accordionChevron, themedStyles.mutedText]}>{skippedReasonExpanded ? 'v' : '>'}</Text>
@@ -648,7 +768,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
                       accessibilityState={{ selected }}
                     >
                       <Text style={[styles.optionText, themedStyles.primaryText, selected && styles.optionTextSelected, selected && themedStyles.actionText]}>
-                        {option.label}
+                        {skippedReasonLabel(option.value, option.label, t)}
                       </Text>
                     </Pressable>
                   );
@@ -665,10 +785,10 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
           onPress={() => setAssignedExercisesExpanded((expanded) => !expanded)}
           accessibilityRole="button"
           accessibilityState={{ expanded: assignedExercisesExpanded }}
-          accessibilityLabel={`Assigned exercises. ${assignedExercisesSummary}`}
+          accessibilityLabel={`${t('care.therapy.assignedExercises')}. ${assignedExercisesSummary}`}
         >
           <View style={styles.accordionHeaderText}>
-            <Text style={[styles.accordionTitle, themedStyles.primaryText]}>Assigned exercises</Text>
+            <Text style={[styles.accordionTitle, themedStyles.primaryText]}>{t('care.therapy.assignedExercises')}</Text>
             <Text style={[styles.accordionSummary, themedStyles.mutedText]}>{assignedExercisesSummary}</Text>
           </View>
           <Text style={[styles.accordionChevron, themedStyles.mutedText]}>{assignedExercisesExpanded ? 'v' : '>'}</Text>
@@ -687,7 +807,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
                 ))}
               </View>
             ) : (
-              <Text style={[styles.assignedExerciseEmpty, themedStyles.mutedText]}>No exercises assigned.</Text>
+              <Text style={[styles.assignedExerciseEmpty, themedStyles.mutedText]}>{t('care.therapy.noExercisesAssignedSentence')}</Text>
             )}
           </View>
         ) : null}
@@ -695,7 +815,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
 
       <View style={[styles.setsRow, themedStyles.dividerBorder]}>
         <View>
-          <Text style={[styles.setsLabel, themedStyles.mutedText]}>Daily sets</Text>
+          <Text style={[styles.setsLabel, themedStyles.mutedText]}>{t('care.therapy.dailySets')}</Text>
           <Text style={[styles.setsValue, themedStyles.primaryText]}>{formatSets(dailyEntry)}</Text>
         </View>
         {dailyEntry && dailyEntry.recommendedSets > 0 ? (
@@ -716,14 +836,14 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
       </View>
 
       <View style={styles.rehabMetricGrid}>
-        <EditableDailyFactBox label="Repetitions" value={dailyEntry?.exerciseRepetitions} unit="reps" onPress={() => openFieldEdit('exerciseRepetitions')} />
-        <EditableDailyFactBox label="ROM" value={dailyEntry?.romDegrees} unit={'\u00b0'} onPress={() => openFieldEdit('romDegrees')} />
-        <EditableDailyFactBox label="Walking" value={dailyEntry?.walkingMinutes} unit="min" onPress={() => openFieldEdit('walkingMinutes')} />
+        <EditableDailyFactBox label={t('care.therapy.repetitions')} value={dailyEntry?.exerciseRepetitions} unit="reps" onPress={() => openFieldEdit('exerciseRepetitions')} />
+        <EditableDailyFactBox label={t('care.therapy.rom')} value={dailyEntry?.romDegrees} unit={'\u00b0'} onPress={() => openFieldEdit('romDegrees')} />
+        <EditableDailyFactBox label={t('care.therapy.walking')} value={dailyEntry?.walkingMinutes} unit="min" onPress={() => openFieldEdit('walkingMinutes')} />
       </View>
 
       <View style={styles.symptomRow}>
-        <EditableSymptomBox label="Pain" value={dailyEntry?.painScore} onPress={() => openFieldEdit('painScore')} />
-        <EditableSymptomBox label="Fatigue" value={dailyEntry?.fatigue} onPress={() => openFieldEdit('fatigue')} />
+        <EditableSymptomBox label={t('care.therapy.pain')} value={dailyEntry?.painScore} onPress={() => openFieldEdit('painScore')} />
+        <EditableSymptomBox label={t('care.therapy.fatigue')} value={dailyEntry?.fatigue} onPress={() => openFieldEdit('fatigue')} />
       </View>
 
       <View
@@ -740,11 +860,13 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
           onPress={() => setUrgentSymptomsExpanded((expanded) => !expanded)}
           accessibilityRole="button"
           accessibilityState={{ expanded: urgentSymptomsExpanded }}
-          accessibilityLabel={`Urgent symptoms. ${urgentSymptomsSummary}`}
+          accessibilityLabel={t('care.therapy.urgentSymptomsA11y', {
+            summary: urgentSymptomsSummary,
+          })}
         >
           <View style={styles.accordionHeaderText}>
             <Text style={[styles.accordionTitle, themedStyles.primaryText, selectedUrgentSymptomCodes.length > 0 && styles.accordionTitleAlert]}>
-              Urgent symptoms
+              {t('care.therapy.urgentSymptoms')}
             </Text>
             <Text style={[styles.accordionSummary, themedStyles.mutedText]}>{urgentSymptomsSummary}</Text>
           </View>
@@ -756,7 +878,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
               {DAILY_CARE_URGENT_SYMPTOM_OPTIONS.map((option) => (
                 <ExerciseChecklistRow
                   key={option.value}
-                  label={option.label}
+                  label={urgentSymptomLabel(option.value, option.label, t)}
                   checked={selectedUrgentSymptomKeySet.has(option.value)}
                   onPress={() => toggleUrgentSymptom(option.value)}
                 />
@@ -778,7 +900,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
       <InCardMiniChat
         visible={uc3ExplainOpen}
         embedded
-        title="Explain rehabilitation progress"
+        title={t('care.therapy.explainProgress')}
         contextProfile="uc3_therapy"
         seedPrompt={buildUc3ResultExplainPrompt(uc3ResultDisplay, {
           therapySeedSupplement: buildUc3TherapySeedSupplement(
@@ -794,7 +916,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
 
       {cpProgressMeasurements.length > 0 ? (
         <ProgressMetric
-          label="Rehabilitation progress (most recent)"
+          label={t('care.therapy.progressMostRecent')}
           measurements={cpProgressMeasurements}
           target={1}
           maxVal={1}
@@ -804,7 +926,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
 
       <View style={[styles.consentRow, themedStyles.dividerBorder]}>
         <View style={[styles.consentDot, themedStyles.actionBackground]} />
-        <Text style={[styles.consentText, themedStyles.supportingText]}>Sharing with provider enabled</Text>
+        <Text style={[styles.consentText, themedStyles.supportingText]}>{t('care.therapy.sharingEnabled')}</Text>
       </View>
 
       <Modal
@@ -822,22 +944,22 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
           }}
         >
           <Pressable style={[styles.confirmSheet, themedStyles.card]} onPress={(e) => e.stopPropagation()}>
-            <Text style={[styles.confirmTitle, themedStyles.primaryText]}>Confirm therapy completion</Text>
-            <Text style={[styles.confirmMessage, themedStyles.supportingText]}>{'Was today\u2019s therapy session completed?'}</Text>
+            <Text style={[styles.confirmTitle, themedStyles.primaryText]}>{t('care.therapy.confirmTitle')}</Text>
+            <Text style={[styles.confirmMessage, themedStyles.supportingText]}>{t('care.therapy.confirmMessage')}</Text>
             <View style={styles.confirmActions}>
               <Pressable
                 style={[styles.confirmButton, styles.confirmCancelButton, themedStyles.controlCard]}
                 onPress={() => setTherapyCompletionConfirmVisible(false)}
                 disabled={uc3CompletionRunning}
               >
-                <Text style={[styles.confirmCancelText, themedStyles.primaryText]}>Cancel</Text>
+                <Text style={[styles.confirmCancelText, themedStyles.primaryText]}>{t('common.cancel')}</Text>
               </Pressable>
               <Pressable
                 style={[styles.confirmButton, styles.confirmPrimaryButton]}
                 onPress={() => { void confirmTherapyCompleted(); }}
                 disabled={uc3CompletionRunning}
               >
-                <Text style={styles.confirmPrimaryText}>Confirm</Text>
+                <Text style={styles.confirmPrimaryText}>{t('common.confirm')}</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -864,28 +986,32 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
         >
           <Pressable style={[styles.editSheet, themedStyles.card]} onPress={(e) => e.stopPropagation()}>
             <Text style={[styles.editTitle, themedStyles.primaryText]}>
-              {editingField ? `Select ${FIELD_TITLES[editingField]}` : 'Select entry'}
+              {editingField
+                ? t('care.therapy.selectField', { field: fieldTitle(editingField, t) })
+                : t('care.therapy.selectEntry')}
             </Text>
             {editingField ? (
               <Text style={[styles.editHint, themedStyles.supportingText]}>
-                {FIELD_HINTS[editingField].replace('{patientName}', patientName)}
+                {fieldHint(editingField, t).replace('{patientName}', patientName)}
               </Text>
             ) : null}
             <View style={styles.optionGrid}>
               {(editingField ? FIELD_OPTIONS[editingField] : []).map((option) => {
+                const field = editingField;
+                if (!field) return null;
                 const selected = editDraft === String(option.value);
                 return (
                   <Pressable
-                    key={`${editingField}-${option.value}`}
+                    key={`${field}-${option.value}`}
                     style={[styles.option, themedStyles.controlCard, selected && styles.optionSelected, selected && themedStyles.selectedOption]}
-                    onPress={() => editingField && selectFieldOption(editingField, option.value)}
+                    onPress={() => selectFieldOption(field, option.value)}
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
-                  >
-                    <Text style={[styles.optionText, themedStyles.primaryText, selected && styles.optionTextSelected, selected && themedStyles.actionText]}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
+                    >
+                      <Text style={[styles.optionText, themedStyles.primaryText, selected && styles.optionTextSelected, selected && themedStyles.actionText]}>
+                      {fieldOptionLabel(field, option, t)}
+                      </Text>
+                    </Pressable>
                 );
               })}
             </View>
@@ -899,7 +1025,7 @@ export function CarePlanTherapySection(props: CarePlanTherapySectionProps) {
                   setEditError('');
                 }}
               >
-                <Text style={[styles.editCancelText, themedStyles.primaryText]}>Cancel</Text>
+                <Text style={[styles.editCancelText, themedStyles.primaryText]}>{t('common.cancel')}</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -948,6 +1074,7 @@ function EditableDailyFactBox({
   onPress: () => void;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   return (
@@ -955,7 +1082,7 @@ function EditableDailyFactBox({
       style={[styles.dailyFactBox, themedStyles.controlCard]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`Edit ${label}`}
+      accessibilityLabel={t('care.therapy.editA11y', { label })}
     >
       <Text style={[styles.dailyFactLabel, themedStyles.mutedText]}>{label}</Text>
       <Text style={[styles.dailyFactValue, themedStyles.primaryText]}>
@@ -975,6 +1102,7 @@ function EditableSymptomBox({
   onPress: () => void;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   return (
@@ -982,7 +1110,7 @@ function EditableSymptomBox({
       style={[styles.symptomBox, themedStyles.controlCard]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`Edit ${label}`}
+      accessibilityLabel={t('care.therapy.editA11y', { label })}
     >
       <Text style={[styles.symptomLabel, themedStyles.mutedText]}>{label}</Text>
       <Text style={[styles.symptomValue, themedStyles.primaryText]}>{value == null ? '\u2014' : `${value}/10`}</Text>
@@ -1000,6 +1128,7 @@ function Uc3ResultCard({
   explainOpen?: boolean;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const toneStyle =
     display.tone === 'urgent'
@@ -1010,7 +1139,7 @@ function Uc3ResultCard({
   return (
     <View style={[styles.uc3ResultCard, themedStyles.controlCard, toneStyle]}>
       <View style={styles.uc3ResultHeader}>
-        <Text style={[styles.uc3ResultKicker, themedStyles.primaryText]}>Rehabilitation progress</Text>
+        <Text style={[styles.uc3ResultKicker, themedStyles.primaryText]}>{t('care.therapy.progress')}</Text>
         {display.reviewLabel ? (
           <Text style={[styles.uc3ResultBadge, themedStyles.badge]}>{display.reviewLabel}</Text>
         ) : null}
@@ -1036,9 +1165,9 @@ function Uc3ResultCard({
           style={styles.uc3ExplainButton}
           onPress={onExplain}
           accessibilityRole="button"
-          accessibilityLabel="Explain rehabilitation progress"
+          accessibilityLabel={t('care.therapy.explainProgress')}
         >
-          <Text style={styles.uc3ExplainButtonText}>Explain</Text>
+          <Text style={styles.uc3ExplainButtonText}>{t('care.priorities.explain')}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -1059,6 +1188,7 @@ function ProgressMetric({
   unit: string;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const latest = measurements[measurements.length - 1];
   const value = latest?.value ?? 0;
@@ -1089,8 +1219,7 @@ function ProgressMetric({
       </View>
       {target > 0 ? (
         <Text style={[styles.progressTargetLabel, themedStyles.mutedText]}>
-          Target {target}
-          {unit ? ` ${unit}` : ''}
+          {t('care.therapy.target', { target, unit: unit ? ` ${unit}` : '' })}
         </Text>
       ) : null}
     </View>

@@ -13,22 +13,35 @@ import { useEffect, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
+import { useTranslation } from '@/hooks/use-translation';
+import type { AppLanguage, TranslateFn } from '@/localization/i18n';
 import type { PlanPulse } from '@/services/carePlan/planPulseService';
 import type { CarePlanViewModel } from '@/services/carePlan/carePlanViewModel';
 import { formatPossessive, getFirstName } from '@/utils/patientDisplay';
 import { PlanPulseRing } from './PlanPulseRing';
-
-const STATUS_WORD_LABEL: Record<PlanPulse['statusWord'], string> = {
-  activated: 'Activated',
-  needs_review: 'Needs review',
-  view_only: 'View only',
-};
 
 const STATUS_WORD_COLOR: Record<PlanPulse['statusWord'], string> = {
   activated: AppTheme.colors.brand,
   needs_review: AppTheme.colors.attentionAmber,
   view_only: AppTheme.colors.textMuted,
 };
+
+function statusWordLabel(status: PlanPulse['statusWord'], t: TranslateFn): string {
+  switch (status) {
+    case 'activated':
+      return t('care.hero.status.activated');
+    case 'needs_review':
+      return t('care.hero.status.needsReview');
+    case 'view_only':
+      return t('care.hero.status.viewOnly');
+  }
+}
+
+function formatCarePlanTitle(patientName: string, language: AppLanguage, t: TranslateFn): string {
+  const firstName = getFirstName(patientName);
+  const name = language === 'es' ? firstName : formatPossessive(firstName);
+  return t('care.hero.planTitle', { name });
+}
 
 export interface CarePlanHeroCardProps {
   vm: CarePlanViewModel;
@@ -58,6 +71,7 @@ export function CarePlanHeroCard({
   playEntrance = false,
   reduceMotion = false,
 }: CarePlanHeroCardProps) {
+  const { language, t } = useTranslation();
   // State-created Animated.Value (render-safe; refs trip react-hooks/refs).
   const [entrance] = useState(() => new Animated.Value(playEntrance && !reduceMotion ? 0 : 1));
 
@@ -83,35 +97,38 @@ export function CarePlanHeroCard({
     ],
   };
 
-  const planTitle = `${formatPossessive(getFirstName(patientName))} Care Plan`;
+  const planTitle = formatCarePlanTitle(patientName, language, t);
   const caregiverLine =
     caregiverName && caregiverName !== 'Not provided'
       ? caregiverRole && caregiverRole !== 'Not provided'
-        ? `Cared for by ${caregiverName} · ${caregiverRole}`
-        : `Cared for by ${caregiverName}`
+        ? t('care.hero.caredForByWithRole', { caregiverName, role: caregiverRole })
+        : t('care.hero.caredForBy', { caregiverName })
       : null;
   const recentChangesLabel =
-    whatChangedCount === 1 ? '1 recent change' : `${whatChangedCount} recent changes`;
+    whatChangedCount === 1
+      ? t('care.hero.recentChange.one')
+      : t('care.hero.recentChange.many', { count: whatChangedCount });
+  const statusLabel = statusWordLabel(pulse.statusWord, t);
 
   return (
     <Animated.View
       style={[styles.card, animatedStyle]}
       accessible
-      accessibilityLabel={`${planTitle}, ${STATUS_WORD_LABEL[pulse.statusWord]}`}
+      accessibilityLabel={`${planTitle}, ${statusLabel}`}
     >
       {/* Socket on the bottom-left — the spine drops out of the hero here. */}
       <View style={styles.spineSocket} />
 
       <View style={styles.topRow}>
         <View style={styles.titleBlock}>
-          <Text style={styles.eyebrow}>Care plan</Text>
+          <Text style={styles.eyebrow}>{t('care.hero.carePlan')}</Text>
           <Text style={styles.title} numberOfLines={2}>
             {planTitle}
           </Text>
           <View style={styles.statusRow}>
             <View style={[styles.statusDot, { backgroundColor: STATUS_WORD_COLOR[pulse.statusWord] }]} />
             <Text style={[styles.statusWord, { color: STATUS_WORD_COLOR[pulse.statusWord] }]}>
-              {STATUS_WORD_LABEL[pulse.statusWord]}
+              {statusLabel}
             </Text>
           </View>
         </View>
@@ -126,7 +143,7 @@ export function CarePlanHeroCard({
       <View style={styles.divider} />
 
       <Text style={styles.metaLine} numberOfLines={2}>
-        {vm.versionLabel} · Updated {vm.updatedLabel}
+        {t('care.hero.updated', { version: vm.versionLabel, updated: vm.updatedLabel })}
       </Text>
       <Text style={styles.metaLine} numberOfLines={2}>
         {patientName}, {patientAge} · {primaryDiagnosisLabel}

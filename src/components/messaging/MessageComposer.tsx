@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
 
 export function MessageComposer({
   value,
@@ -16,6 +17,7 @@ export function MessageComposer({
   onSendPressed: () => void;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createStyles(theme), [theme]);
   const sendDisabled = disabled || value.trim().length === 0;
 
@@ -25,20 +27,21 @@ export function MessageComposer({
         style={[styles.input, themedStyles.input]}
         value={value}
         onChangeText={onComposeTextChanged}
-        placeholder="Type a message"
+        placeholder={t("messaging.compose.placeholder")}
         placeholderTextColor={theme.appTextMuted}
         multiline
-        accessibilityLabel="Message text"
+        accessibilityLabel={t("messaging.compose.inputA11y")}
         editable={!disabled}
       />
       <Pressable
         style={[styles.sendButton, sendDisabled && styles.sendButtonDisabled, sendDisabled && themedStyles.sendButtonDisabled]}
         disabled={sendDisabled}
         accessibilityRole="button"
-        accessibilityLabel="Send message"
+        accessibilityLabel={t("messaging.compose.sendA11y")}
+        accessibilityState={{ disabled: sendDisabled }}
         onPress={onSendPressed}
       >
-        <Text style={styles.sendButtonText}>Send</Text>
+        <Text style={styles.sendButtonText}>{t("messaging.compose.send")}</Text>
       </Pressable>
     </View>
   );

@@ -22,6 +22,7 @@ import {
   updateCarePlanMode,
   updateConciergeReasoning,
   updateTheme,
+  updateLanguagePreference,
   updateNotificationPreferences,
   updateDemoDefaultModelId,
   updateDynamicSlmLoading,
@@ -51,6 +52,7 @@ interface SettingsContextValue {
   setMode: (mode: AppMode) => void;
   toggleMode: () => void;
   setTheme: (theme: ThemePreference) => void;
+  setLanguagePreference: (languagePreference: string) => void;
   setNotificationPreferences: (prefs: Partial<NotificationPreferences>) => void;
   setDemoDefaultModelId: (modelId: string) => void;
   setDynamicSlmLoading: (enabled: boolean) => void;
@@ -94,6 +96,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const setTheme = useCallback((theme: ThemePreference) => {
     const updated = updateTheme(theme);
+    setSettings(updated);
+  }, []);
+
+  const setLanguagePreference = useCallback((languagePreference: string) => {
+    const updated = updateLanguagePreference(languagePreference);
     setSettings(updated);
   }, []);
 
@@ -161,6 +168,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setMode,
       toggleMode,
       setTheme,
+      setLanguagePreference,
       setNotificationPreferences,
       setDemoDefaultModelId,
       setDynamicSlmLoading,
@@ -179,6 +187,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setMode,
       toggleMode,
       setTheme,
+      setLanguagePreference,
       setNotificationPreferences,
       setDemoDefaultModelId,
       setDynamicSlmLoading,

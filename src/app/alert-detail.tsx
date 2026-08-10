@@ -24,8 +24,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppTheme } from '@/constants/theme';
-import { severityColor, severityLabel } from '@/constants/user-terms';
+import { severityColor } from '@/constants/user-terms';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
 import {
   getAlertById,
   getAnomalyConfidenceRatio,
@@ -46,6 +47,7 @@ import {
 import { executeNextStep } from '@/orchestration/next-steps';
 import type { NextStepActionId } from '@/data/types';
 import { buildAlertExplainPrompt } from '@/services/alerts/alertExplainPrompt';
+import type { TranslateFn, TranslationKey } from '@/localization/i18n';
 
 const TEAL = AppTheme.colors.brand;
 const BG = AppTheme.colors.screen;
@@ -53,9 +55,39 @@ const DARK = AppTheme.colors.text;
 const MUTED = AppTheme.colors.textSoft;
 const RED = AppTheme.colors.danger;
 
+const ALERT_STATUS_LABEL_KEYS: Record<string, TranslationKey> = {
+  open: 'dashboard.alertsLog.status.open',
+  acknowledged: 'dashboard.alertsLog.status.acknowledged',
+  resolved: 'dashboard.alertsLog.status.resolved',
+  escalated: 'dashboard.alertsLog.status.escalated',
+  dismissed: 'dashboard.alertsLog.status.dismissed',
+  removed: 'dashboard.alertsLog.status.removed',
+};
+
+function formatAlertDetailSeverityLabel(
+  severity: number | null | undefined,
+  t: TranslateFn,
+): string {
+  if (severity === 3) return t('dashboard.alertSeverity.urgent');
+  if (severity === 2) return t('dashboard.alertSeverity.needsAttention');
+  if (severity === 1) return t('dashboard.alertSeverity.headsUp');
+  if (severity === 0) return t('dashboard.alertSeverity.info');
+  return t('dashboard.alertSeverity.alert');
+}
+
+function formatAlertDetailStatus(status: string, t: TranslateFn): string {
+  const key = ALERT_STATUS_LABEL_KEYS[status];
+  return key ? t(key) : status;
+}
+
+function formatAnalysisValue(value: string): string {
+  return value.replace(/_/g, ' ').toLowerCase();
+}
+
 export default function AlertDetailScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const isDark = theme.appBackground === '#000000';
   const { alertId } = useLocalSearchParams<{ alertId: string }>();
@@ -76,11 +108,11 @@ export default function AlertDetailScreen() {
 
   const loadedAlert = alertId ? getAlertById(alertId) : null;
   const alertUnavailableMessage = !alertId
-    ? 'No alert was selected.'
+    ? t('alertDetail.unavailable.noneSelected')
     : !loadedAlert
-      ? 'Alert not found.'
+      ? t('alertDetail.unavailable.notFound')
       : activePatientId && loadedAlert.patientId !== activePatientId
-        ? 'This alert belongs to a different patient. Switch back to that patient to view it.'
+        ? t('alertDetail.unavailable.differentPatient')
         : null;
   const alert = alertUnavailableMessage ? null : loadedAlert;
 
@@ -169,9 +201,9 @@ export default function AlertDetailScreen() {
     });
     setNoteText('');
     setNoteOpen(false);
-    setStatusMsg('Note saved.');
+    setStatusMsg(t('alertDetail.status.noteSaved'));
     bump();
-  }, [alert, noteText, bump]);
+  }, [alert, noteText, bump, t]);
 
   const askAssistant = useCallback(() => {
     if (!alert) return;
@@ -197,12 +229,12 @@ export default function AlertDetailScreen() {
     setConciergeRequest({
       title:
         alert.severity === 3
-          ? 'Concierge on this emergency alert'
-          : 'Concierge on this alert',
+          ? t('alertDetail.concierge.emergencyTitle')
+          : t('alertDetail.concierge.title'),
       prompt,
     });
     setConciergeOpen(true);
-  }, [alert, mlDetails, observationCodes, recentHr, recentSpo2]);
+  }, [alert, mlDetails, observationCodes, recentHr, recentSpo2, t]);
 
   const saveObservations = useCallback(async () => {
     if (!alert || observationCodes.length === 0) return;
@@ -225,30 +257,40 @@ export default function AlertDetailScreen() {
         if (result) {
           const post =
             result.postHitlAnomalyType ?? result.post_hitl_anomaly_type ?? 'updated';
+          const severity =
+            result.finalDecision?.final_severity ?? result.post_hitl_severity ?? '-';
           setStatusMsg(
-            `Observations saved · Health Monitor re-run: ${String(post).replace(/_/g, ' ').toLowerCase()} (severity ${result.finalDecision?.final_severity ?? result.post_hitl_severity ?? '—'}).`,
+            t('alertDetail.status.observationsSavedRerun', {
+              post: formatAnalysisValue(String(post)),
+              severity,
+            }),
           );
         } else {
-          setStatusMsg('Observations saved. (No stored vitals for Health Monitor re-run.)');
+          setStatusMsg(t('alertDetail.status.observationsSavedNoVitals'));
         }
       } else {
-        setStatusMsg('Observations saved.');
+        setStatusMsg(t('alertDetail.status.observationsSaved'));
       }
       bump();
     } catch (err) {
-      setStatusMsg(err instanceof Error ? err.message : 'Failed to apply observations.');
+      setStatusMsg(err instanceof Error ? err.message : t('alertDetail.status.applyFailed'));
     } finally {
       setBusy(false);
     }
-  }, [alert, observationCodes, bump, orchestrator]);
+  }, [alert, observationCodes, bump, orchestrator, t]);
 
   if (!alert) {
     return (
       <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={['top', 'bottom']}>
         <View style={styles.missing}>
           <Text style={[styles.muted, themedStyles.supportingText]}>{alertUnavailableMessage}</Text>
-          <Pressable style={styles.button} onPress={() => router.back()}>
-            <Text style={styles.buttonText}>Back</Text>
+          <Pressable
+            style={styles.button}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel={t('common.back')}
+          >
+            <Text style={styles.buttonText}>{t('common.back')}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -267,27 +309,38 @@ export default function AlertDetailScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.topBar}>
-          <Pressable style={styles.backButton} onPress={() => router.back()} hitSlop={12}>
-            <Text style={[styles.backLink, themedStyles.brandText]}>← Back</Text>
+          <Pressable
+            style={styles.backButton}
+            onPress={() => router.back()}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel={t('common.back')}
+          >
+            <Text style={[styles.backLink, themedStyles.brandText]}>{'\u2190'} {t('common.back')}</Text>
           </Pressable>
         </View>
 
         {/* Alert header */}
         <View style={[styles.alertHeader, { backgroundColor: color }]}>
           <Text style={styles.alertEyebrow}>
-            {severityLabel(alert.severity)}
+            {formatAlertDetailSeverityLabel(alert.severity, t)}
           </Text>
           <Text style={styles.alertTitle}>{alert.title}</Text>
           {alert.body ? <Text style={styles.alertBody}>{alert.body}</Text> : null}
-          <Text style={styles.alertStatus}>Status: {alert.status}</Text>
+          <Text style={styles.alertStatus}>
+            {t('alertDetail.statusLabel', {
+              status: formatAlertDetailStatus(alert.status, t),
+            })}
+          </Text>
         </View>
 
         {isEmergency && (
           <View style={[styles.emergencyBanner, themedStyles.emergencyBanner]}>
-            <Text style={[styles.emergencyHeadline, themedStyles.dangerText]}>⚠ This is an emergency</Text>
+            <Text style={[styles.emergencyHeadline, themedStyles.dangerText]}>
+              {t('alertDetail.emergency.title')}
+            </Text>
             <Text style={[styles.emergencySubtext, themedStyles.dangerText]}>
-              If the situation is life-threatening, act now. You can still ask the Concierge
-              for an explanation afterwards.
+              {t('alertDetail.emergency.body')}
             </Text>
           </View>
         )}
@@ -295,41 +348,53 @@ export default function AlertDetailScreen() {
         {/* Vitals context (severity 1–2) */}
         {!isEmergency && (
           <View style={[styles.card, themedStyles.card]}>
-            <Text style={[styles.cardTitle, themedStyles.sectionText]}>Recent Vitals (24h)</Text>
-            <VitalsInline label="SpO2" samples={recentSpo2.map((s) => s.value)} unit="%" />
-            <VitalsInline label="Heart Rate" samples={recentHr.map((s) => s.value)} unit="bpm" />
+            <Text style={[styles.cardTitle, themedStyles.sectionText]}>
+              {t('alertDetail.vitals.title')}
+            </Text>
+            <VitalsInline label={t('alertDetail.vitals.spo2')} samples={recentSpo2.map((s) => s.value)} unit="%" />
+            <VitalsInline label={t('alertDetail.vitals.heartRate')} samples={recentHr.map((s) => s.value)} unit="bpm" />
           </View>
         )}
 
         {/* ML event details (UC2 decision-layer output) */}
         {mlDetails && (
           <View style={[styles.card, themedStyles.card]}>
-            <Text style={[styles.cardTitle, themedStyles.sectionText]}>Health Monitor analysis</Text>
+            <Text style={[styles.cardTitle, themedStyles.sectionText]}>
+              {t('alertDetail.analysis.title')}
+            </Text>
             {mlDetails.event.initialAnomalyType && (
               <Text style={[styles.mlLine, themedStyles.primaryText]}>
-                Pattern: {mlDetails.event.initialAnomalyType.replace(/_/g, ' ').toLowerCase()}
+                {t('alertDetail.analysis.pattern', {
+                  pattern: formatAnalysisValue(mlDetails.event.initialAnomalyType),
+                })}
                 {mlDetails.event.postHitlAnomalyType &&
                 mlDetails.event.postHitlAnomalyType !== mlDetails.event.initialAnomalyType
-                  ? ` → ${mlDetails.event.postHitlAnomalyType.replace(/_/g, ' ').toLowerCase()}`
+                  ? ` \u2192 ${formatAnalysisValue(mlDetails.event.postHitlAnomalyType)}`
                   : ''}
               </Text>
             )}
             {mlDetails.ratio !== null && (
               <Text style={[styles.mlLine, themedStyles.primaryText]}>
-                Confidence ratio: {mlDetails.ratio.toFixed(2)} (higher = more confident)
+                {t('alertDetail.analysis.confidenceRatio', {
+                  ratio: mlDetails.ratio.toFixed(2),
+                })}
               </Text>
             )}
             {mlDetails.ruleEngine && mlDetails.ruleEngine.is_emergency && (
               <Text style={[styles.mlLine, themedStyles.dangerText]}>
-                Rule engine: emergency ({mlDetails.ruleEngine.reasons.join(', ')})
+                {t('alertDetail.analysis.ruleEngineEmergency', {
+                  reasons: mlDetails.ruleEngine.reasons.join(', '),
+                })}
               </Text>
             )}
             {mlDetails.topFeatures.length > 0 && (
               <>
-                <Text style={[styles.mlSubTitle, themedStyles.brandText]}>Top contributing features</Text>
+                <Text style={[styles.mlSubTitle, themedStyles.brandText]}>
+                  {t('alertDetail.analysis.topFeatures')}
+                </Text>
                 {mlDetails.topFeatures.slice(0, 5).map(([name, val]) => (
                   <Text key={name} style={[styles.mlFeatureLine, themedStyles.supportingText]}>
-                    • {name}: {val.toFixed(2)}
+                    {'\u2022'} {name}: {val.toFixed(2)}
                   </Text>
                 ))}
               </>
@@ -340,21 +405,42 @@ export default function AlertDetailScreen() {
         {/* Emergency actions */}
         {isEmergency && (
           <View style={[styles.card, themedStyles.card]}>
-            <Text style={[styles.cardTitle, themedStyles.sectionText]}>Take Action</Text>
-            <ActionRow label="📞 Call 911" onPress={() => handleAction('call_911')} disabled={busy} danger />
-            <ActionRow label="🏥 Go to nearest ER" onPress={() => handleAction('go_to_er')} disabled={busy} danger />
-            <ActionRow label="👨‍⚕️ Contact Provider" onPress={() => handleAction('contact_pcp')} disabled={busy} />
-            <ActionRow label="💊 Find nearby pharmacy / urgent care" onPress={() => handleAction('geofence_service')} disabled={busy} />
+            <Text style={[styles.cardTitle, themedStyles.sectionText]}>{t('alertDetail.actions.title')}</Text>
+            <ActionRow
+              label={t('alertDetail.actions.call911')}
+              accessibilityLabel={t('dashboard.critical.call911')}
+              onPress={() => handleAction('call_911')}
+              disabled={busy}
+              danger
+            />
+            <ActionRow
+              label={t('alertDetail.actions.goToEr')}
+              accessibilityLabel={t('alertDetail.actions.goToErA11y')}
+              onPress={() => handleAction('go_to_er')}
+              disabled={busy}
+              danger
+            />
+            <ActionRow
+              label={t('alertDetail.actions.contactProvider')}
+              accessibilityLabel={t('dashboard.critical.contactProvider')}
+              onPress={() => handleAction('contact_pcp')}
+              disabled={busy}
+            />
+            <ActionRow
+              label={t('alertDetail.actions.findCare')}
+              accessibilityLabel={t('alertDetail.actions.findCareA11y')}
+              onPress={() => handleAction('geofence_service')}
+              disabled={busy}
+            />
           </View>
         )}
 
         {/* Caregiver observations (severity 1-2 HITL) */}
         {!isEmergency && (
           <View style={[styles.card, themedStyles.card]}>
-            <Text style={[styles.cardTitle, themedStyles.sectionText]}>What did you notice?</Text>
+            <Text style={[styles.cardTitle, themedStyles.sectionText]}>{t('alertDetail.observations.title')}</Text>
             <Text style={[styles.observationHint, themedStyles.supportingText]}>
-              Select anything unusual around this time. This feeds the anomaly
-              analysis and is logged to the audit trail.
+              {t('alertDetail.observations.hint')}
             </Text>
             <ObservationPicker
               selected={observationCodes}
@@ -362,7 +448,7 @@ export default function AlertDetailScreen() {
             />
             {observationCodes.length > 0 && (
               <ActionRow
-                label="Save observations"
+                label={t('alertDetail.observations.save')}
                 onPress={saveObservations}
                 disabled={busy}
                 primary
@@ -373,18 +459,18 @@ export default function AlertDetailScreen() {
 
         {/* Explain + note */}
         <View style={[styles.card, themedStyles.card]}>
-          <Text style={[styles.cardTitle, themedStyles.sectionText]}>Concierge & Notes</Text>
+          <Text style={[styles.cardTitle, themedStyles.sectionText]}>{t('alertDetail.notes.title')}</Text>
           <ActionRow
-            label={isEmergency ? 'Ask the Concierge (optional)' : 'Ask the Concierge'}
+            label={isEmergency ? t('alertDetail.notes.askOptional') : t('alertDetail.notes.ask')}
             onPress={askAssistant}
             disabled={busy}
             primary
           />
-          <ActionRow label="Add a note" onPress={() => setNoteOpen(true)} disabled={busy} />
+          <ActionRow label={t('alertDetail.notes.add')} onPress={() => setNoteOpen(true)} disabled={busy} />
           {alert.status !== 'acknowledged' && alert.status !== 'resolved' && (
-            <ActionRow label="Acknowledge alert" onPress={acknowledge} disabled={busy} />
+            <ActionRow label={t('alertDetail.notes.acknowledge')} onPress={acknowledge} disabled={busy} />
           )}
-          <ActionRow label="Dismiss alert" onPress={dismiss} disabled={busy} subtle />
+          <ActionRow label={t('alertDetail.notes.dismiss')} onPress={dismiss} disabled={busy} subtle />
         </View>
 
         {statusMsg ? (
@@ -398,12 +484,12 @@ export default function AlertDetailScreen() {
       <Modal visible={noteOpen} animationType="slide" transparent onRequestClose={() => setNoteOpen(false)}>
         <View style={[styles.modalOverlay, themedStyles.modalOverlay]}>
           <View style={[styles.modalCard, themedStyles.modalCard]}>
-            <Text style={[styles.modalTitle, themedStyles.primaryText]}>Add a note</Text>
+            <Text style={[styles.modalTitle, themedStyles.primaryText]}>{t('alertDetail.notes.add')}</Text>
             <TextInput
               style={[styles.noteInput, themedStyles.noteInput]}
               value={noteText}
               onChangeText={setNoteText}
-              placeholder="Describe what you observed or did…"
+              placeholder={t('alertDetail.notes.placeholder')}
               placeholderTextColor={isDark ? theme.appTextMuted : '#9AA4A8'}
               multiline
               textAlignVertical="top"
@@ -411,10 +497,10 @@ export default function AlertDetailScreen() {
             />
             <View style={styles.modalActions}>
               <Pressable style={styles.modalCancel} onPress={() => setNoteOpen(false)}>
-                <Text style={[styles.modalCancelText, themedStyles.supportingText]}>Cancel</Text>
+                <Text style={[styles.modalCancelText, themedStyles.supportingText]}>{t('common.cancel')}</Text>
               </Pressable>
               <Pressable style={styles.modalSave} onPress={saveNote}>
-                <Text style={styles.buttonText}>Save note</Text>
+                <Text style={styles.buttonText}>{t('alertDetail.notes.save')}</Text>
               </Pressable>
             </View>
           </View>
@@ -428,7 +514,7 @@ export default function AlertDetailScreen() {
           setConciergeOpen(false);
           setConciergeRequest(null);
         }}
-        title={conciergeRequest?.title ?? 'Concierge on this alert'}
+        title={conciergeRequest?.title ?? t('alertDetail.concierge.title')}
         prompt={conciergeRequest?.prompt ?? ''}
         reason="care_explain"
         allowMinimize
@@ -466,6 +552,7 @@ function VitalsInline({ label, samples, unit }: { label: string; samples: number
 
 function ActionRow({
   label,
+  accessibilityLabel,
   onPress,
   disabled,
   danger,
@@ -473,6 +560,7 @@ function ActionRow({
   subtle,
 }: {
   label: string;
+  accessibilityLabel?: string;
   onPress: () => void;
   disabled?: boolean;
   danger?: boolean;
@@ -503,7 +591,14 @@ function ActionRow({
     disabled && themedStyles.actionTextDisabled,
   ];
   return (
-    <Pressable style={style} onPress={onPress} disabled={disabled}>
+    <Pressable
+      style={style}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ disabled: Boolean(disabled) }}
+    >
       <Text style={textStyle}>{label}</Text>
     </Pressable>
   );

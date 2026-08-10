@@ -14,6 +14,7 @@ import { MainTabHeader } from '@/components/MainTabHeader';
 import { AppTheme } from '@/constants/theme';
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/hooks/use-translation';
 import {
   getActiveMedicationSchedules,
   getMedicationConfirmationPreference,
@@ -36,6 +37,7 @@ function loadNotificationPreferences(): NotificationPreferences {
 
 export default function NotificationsRemindersScreen() {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const { patientId, snapshot, refresh } = usePatientRecord();
   const [expandedId, setExpandedId] = useState<SectionId | null>('medications');
@@ -58,7 +60,7 @@ export default function NotificationsRemindersScreen() {
       };
     }
   });
-  const [permissionMessage, setPermissionMessage] = useState('');
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const refreshKey = snapshot?.lastRefreshedAt;
   const schedules = useMemo(
     () => {
@@ -102,6 +104,7 @@ export default function NotificationsRemindersScreen() {
   const toggleExpanded = (sectionId: SectionId) => {
     setExpandedId((current) => (current === sectionId ? null : sectionId));
   };
+
 
   const savePreference = (
     nextPreference: Pick<
@@ -147,7 +150,7 @@ export default function NotificationsRemindersScreen() {
   };
 
   const handleMedicationDeviceToggle = async (enabled: boolean) => {
-    setPermissionMessage('');
+    setPermissionDenied(false);
     const current = notificationPrefs;
     if (!enabled) {
       updateNotificationPreference('medication', current.medication, false);
@@ -156,7 +159,7 @@ export default function NotificationsRemindersScreen() {
 
     const granted = await requestNotificationPermission();
     if (!granted) {
-      setPermissionMessage('Notification permission not granted');
+      setPermissionDenied(true);
       updateNotificationPreference('medication', current.medication, false);
       return;
     }
@@ -164,7 +167,7 @@ export default function NotificationsRemindersScreen() {
   };
 
   const handleAppointmentDeviceToggle = async (enabled: boolean) => {
-    setPermissionMessage('');
+    setPermissionDenied(false);
     const current = notificationPrefs;
     if (!enabled) {
       updateNotificationPreference('appointment', current.appointment, false);
@@ -173,7 +176,7 @@ export default function NotificationsRemindersScreen() {
 
     const granted = await requestNotificationPermission();
     if (!granted) {
-      setPermissionMessage('Notification permission not granted');
+      setPermissionDenied(true);
       updateNotificationPreference('appointment', current.appointment, false);
       return;
     }
@@ -209,41 +212,41 @@ export default function NotificationsRemindersScreen() {
         contentContainerStyle={[styles.content, themedStyles.content]}
         showsVerticalScrollIndicator={false}
       >
-        <MainTabHeader title="Notifications & reminders" eyebrow="Caregiver Concierge" icon="bell" />
+        <MainTabHeader title={t('notifications.title')} eyebrow={t('common.appName')} icon="bell" />
 
         <ExpandableSection
-          title="Health alerts"
+          title={t('notifications.section.health')}
           expanded={expandedId === 'health'}
           onPress={() => toggleExpanded('health')}>
-          <Text style={[styles.mutedText, themedStyles.mutedText]}>Additional preferences not available yet.</Text>
+          <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.additionalUnavailable')}</Text>
         </ExpandableSection>
 
         <ExpandableSection
-          title="Medications"
+          title={t('notifications.section.medications')}
           expanded={expandedId === 'medications'}
           onPress={() => toggleExpanded('medications')}>
           {!patientId ? (
-            <Text style={[styles.mutedText, themedStyles.mutedText]}>No active patient selected</Text>
+            <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.noActivePatient')}</Text>
           ) : !snapshot ? (
-            <Text style={[styles.mutedText, themedStyles.mutedText]}>Medication confirmation preferences unavailable</Text>
+            <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.medicationConfirmationUnavailable')}</Text>
           ) : (
             <>
               <Text style={[styles.helperText, themedStyles.helperText]}>
-                Choose which medication doses you want to confirm. Care-team-required medications cannot be turned off.
+                {t('notifications.medications.helper')}
               </Text>
 
               {preferenceUnavailable ? (
-                <Text style={[styles.mutedText, themedStyles.mutedText]}>Medication confirmation preferences unavailable</Text>
+                <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.medicationConfirmationUnavailable')}</Text>
               ) : (
                 <>
               <View style={styles.modeGroup}>
                 <ModeButton
-                  label="Confirm every scheduled dose"
+                  label={t('notifications.medications.mode.all')}
                   selected={mode === 'all'}
                   onPress={() => savePreference({ confirmationMode: 'all', selectedMedicationIds: selectedIds })}
                 />
                 <ModeButton
-                  label="Confirm only care-team-required doses"
+                  label={t('notifications.medications.mode.requiredOnly')}
                   selected={mode === 'required_only'}
                   onPress={() =>
                     savePreference({
@@ -253,7 +256,7 @@ export default function NotificationsRemindersScreen() {
                   }
                 />
                 <ModeButton
-                  label="Choose medications"
+                  label={t('notifications.medications.mode.personalized')}
                   selected={mode === 'personalized'}
                   onPress={() =>
                     savePreference({
@@ -282,19 +285,19 @@ export default function NotificationsRemindersScreen() {
                   }}
                 />
               ) : (
-                <Text style={[styles.mutedText, themedStyles.mutedText]}>Medication confirmation preferences unavailable</Text>
+                <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.medicationConfirmationUnavailable')}</Text>
               )}
                 </>
               )}
 
               <View style={[styles.divider, themedStyles.divider]} />
-              <Text style={[styles.subsectionTitle, themedStyles.subsectionTitle]}>Reminder delivery</Text>
+              <Text style={[styles.subsectionTitle, themedStyles.subsectionTitle]}>{t('notifications.reminderDelivery')}</Text>
               {notificationUnavailable ? (
-                <Text style={[styles.mutedText, themedStyles.mutedText]}>Reminder delivery preferences unavailable</Text>
+                <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.reminderDeliveryUnavailable')}</Text>
               ) : (
                 <>
                   <PreferenceSwitch
-                    label="Show medication reminders in the app"
+                    label={t('notifications.medications.showInApp')}
                     value={notificationPrefs.medication}
                     onValueChange={(enabled) =>
                       updateNotificationPreference(
@@ -305,31 +308,31 @@ export default function NotificationsRemindersScreen() {
                     }
                   />
                   <PreferenceSwitch
-                    label="Send device notifications"
+                    label={t('notifications.sendDevice')}
                     value={notificationPrefs.medicationDevice}
                     onValueChange={handleMedicationDeviceToggle}
                   />
                 </>
               )}
-              {permissionMessage ? <Text style={styles.warningText}>{permissionMessage}</Text> : null}
+              {permissionDenied ? <Text style={styles.warningText}>{t('notifications.permission.notGranted')}</Text> : null}
               <View style={styles.staticRow}>
-                <Text style={[styles.rowTitle, themedStyles.rowTitle]}>Add medication reminders to calendar</Text>
-                <Text style={[styles.mutedText, themedStyles.mutedText]}>Not available yet</Text>
+                <Text style={[styles.rowTitle, themedStyles.rowTitle]}>{t('notifications.medications.addToCalendar')}</Text>
+                <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.notAvailableYet')}</Text>
               </View>
             </>
           )}
         </ExpandableSection>
 
         <ExpandableSection
-          title="Appointments & scheduling"
+          title={t('notifications.section.appointments')}
           expanded={expandedId === 'appointments'}
           onPress={() => toggleExpanded('appointments')}>
           {notificationUnavailable ? (
-            <Text style={[styles.mutedText, themedStyles.mutedText]}>Reminder delivery preferences unavailable</Text>
+            <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.reminderDeliveryUnavailable')}</Text>
           ) : (
             <>
           <PreferenceSwitch
-            label="Show appointment reminders in the app"
+            label={t('notifications.appointments.showInApp')}
             value={notificationPrefs.appointment}
             onValueChange={(enabled) =>
               updateNotificationPreference(
@@ -340,18 +343,18 @@ export default function NotificationsRemindersScreen() {
             }
           />
           <PreferenceSwitch
-            label="Send device notifications"
+            label={t('notifications.sendDevice')}
             value={notificationPrefs.appointmentDevice}
             onValueChange={handleAppointmentDeviceToggle}
           />
           <View style={styles.inlineControlRow}>
-            <Text style={[styles.rowTitle, themedStyles.rowTitle]}>Reminder lead time</Text>
+            <Text style={[styles.rowTitle, themedStyles.rowTitle]}>{t('notifications.appointments.leadTime')}</Text>
             <TextInput
               style={[styles.numInput, themedStyles.numInput]}
               value={String(notificationPrefs.appointmentLeadTimeMin)}
               keyboardType="numeric"
               onChangeText={setAppointmentLeadTime}
-              accessibilityLabel="Appointment reminder lead time in minutes"
+              accessibilityLabel={t('notifications.appointments.leadTimeA11y')}
             />
           </View>
             </>
@@ -359,10 +362,10 @@ export default function NotificationsRemindersScreen() {
         </ExpandableSection>
 
         <ExpandableSection
-          title="Care tasks"
+          title={t('notifications.section.careTasks')}
           expanded={expandedId === 'careTasks'}
           onPress={() => toggleExpanded('careTasks')}>
-          <Text style={[styles.mutedText, themedStyles.mutedText]}>Additional preferences not available yet.</Text>
+          <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.additionalUnavailable')}</Text>
         </ExpandableSection>
       </ScrollView>
     </SafeAreaView>
@@ -452,10 +455,11 @@ function MedicationPreferenceList({
   onToggleMedication: (medicationId: string, enabled: boolean) => void;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = createThemedStyles(theme);
 
   if (medications.length === 0) {
-    return <Text style={[styles.mutedText, themedStyles.mutedText]}>No medications provided</Text>;
+    return <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.medications.empty')}</Text>;
   }
 
   return (
@@ -481,13 +485,15 @@ function MedicationPreferenceList({
                 <Text style={[styles.rowTitle, themedStyles.rowTitle]}>{medication.name}</Text>
                 {required ? (
                   <View style={[styles.requiredBadge, themedStyles.requiredBadge]}>
-                    <Text style={[styles.requiredBadgeText, themedStyles.requiredBadgeText]}>Required by care team</Text>
+                    <Text style={[styles.requiredBadgeText, themedStyles.requiredBadgeText]}>{t('notifications.medications.requiredByCareTeam')}</Text>
                   </View>
                 ) : null}
               </View>
-              <Text style={[styles.mutedText, themedStyles.mutedText]}>{details || 'Medication details not provided'}</Text>
               <Text style={[styles.mutedText, themedStyles.mutedText]}>
-                {schedule?.timeOfDay ? schedule.timeOfDay : 'Schedule not provided'}
+                {details || t('notifications.medications.detailsNotProvided')}
+              </Text>
+              <Text style={[styles.mutedText, themedStyles.mutedText]}>
+                {schedule?.timeOfDay ? schedule.timeOfDay : t('notifications.medications.scheduleNotProvided')}
               </Text>
             </View>
             <Switch
@@ -496,7 +502,9 @@ function MedicationPreferenceList({
               onValueChange={(enabled) => onToggleMedication(medication.medicationId, enabled)}
               trackColor={{ false: theme.appBorder, true: theme.appBrandSoftSurface }}
               thumbColor={selected ? AppTheme.colors.brand : theme.appSurface}
-              accessibilityLabel={`Confirm doses for ${medication.name}`}
+              accessibilityLabel={t('notifications.medications.confirmDosesA11y', {
+                name: medication.name,
+              })}
               accessibilityState={{ checked: selected, disabled: locked }}
             />
           </View>

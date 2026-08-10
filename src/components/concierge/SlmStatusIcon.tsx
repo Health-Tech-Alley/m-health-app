@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useSLM, type ChatUnloadGrace } from '@/contexts/slm-context';
+import { useTranslation } from '@/hooks/use-translation';
 import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
 
 const COLORS = {
@@ -21,13 +22,6 @@ const COLORS = {
   loading: '#F59E0B',
   error: '#EF4444',
   idle: '#9CA3AF',
-} as const;
-
-const LABELS = {
-  ready: 'Concierge ready',
-  loading: 'Concierge loading',
-  error: 'Concierge error — tap to retry',
-  idle: 'Concierge idle',
 } as const;
 
 const RING_SIZE = 22;
@@ -83,6 +77,7 @@ function useGraceUi(grace: ChatUnloadGrace | null): GraceUi {
 }
 
 export function SlmStatusIcon({ compact = true, onPress, accessibilityLabel }: SlmStatusIconProps) {
+  const { t } = useTranslation();
   const {
     loadStatus,
     currentModelId,
@@ -97,8 +92,16 @@ export function SlmStatusIcon({ compact = true, onPress, accessibilityLabel }: S
   const label =
     accessibilityLabel ??
     (graceActive
-      ? 'Concierge staying loaded briefly after leaving chat'
-      : LABELS[loadStatus]);
+      ? t('assistant.statusIcon.grace')
+      : t(
+          loadStatus === 'ready'
+            ? 'assistant.statusIcon.ready'
+            : loadStatus === 'loading'
+              ? 'assistant.statusIcon.loading'
+              : loadStatus === 'error'
+                ? 'assistant.statusIcon.error'
+                : 'assistant.statusIcon.idle',
+        ));
 
   // Subtle pulse on 'loading' so the dot doesn't look like a static UI element.
   const [pulse] = useState(() => new Animated.Value(0));
@@ -206,7 +209,7 @@ export function SlmStatusIcon({ compact = true, onPress, accessibilityLabel }: S
       {core}
       <Text style={styles.label} numberOfLines={1}>
         {graceActive
-          ? `Concierge cool-down ${graceSecondsLeft}s`
+          ? t('assistant.statusIcon.cooldown', { seconds: graceSecondsLeft })
           : label}
         {!graceActive && loadError ? `: ${loadError.slice(0, 60)}` : null}
       </Text>
