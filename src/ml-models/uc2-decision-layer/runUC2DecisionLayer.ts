@@ -7,6 +7,7 @@ import {
     DecisionLayerResult,
     ExternalMeasurements,
     FeatureQualityTag,
+    FinalDecisionResult,
     FinalNotificationLevel,
     FinalNotificationType,
     FinalSlmPayload,
@@ -19,13 +20,14 @@ import {
     RawObservationInput,
     ScalerParams,
     SensorAnomalyType,
+    SensorClassificationResult,
     Severity,
     UC2ContextualType,
     UC2Scaler,
     CaregiverHitlInput,
 } from "./uc2Types";
 
-import { UC2_FEATURE_ORDER } from "./uc2Constants";
+import { UC2_FEATURE_ORDER, AE_DEFAULT_THRESHOLD } from "./uc2Constants";
 import { buildUC2FeatureVector, buildCompletedFeatureVector } from "./featureEngineering";
 import { scaleFeatures, scaleVector } from "./scaler";
 import { runEmergencyRuleEngine } from "./emergencyRuleEngine";
@@ -49,10 +51,11 @@ import {
     buildAuditEvent,
 } from "./payloadBuilders";
 import { runTinyAutoencoderTflite, TfliteInterpreterLike } from "./tfliteModelAdapter";
-import { evaluatePersonalizedThresholds } from "./personalizedThresholds";
+import { evaluatePersonalizedThresholds, getAdjustedAEThreshold } from "./personalizedThresholds";
 import { evaluateRecurrenceRisk } from "./recurrenceRisk";
-import { validateSignalPhysiologicBounds } from "./signalValidation";
+import { validateSignalPhysiologicBounds, validateWatchWristContact } from "./signalValidation";
 import { evaluateSustainedDuration } from "./sustainedDuration";
+import { AlertHysteresisManager, globalAlertHysteresisManager } from "./anomalyHistoryStore";
 
 // --- Old types for compat ---
 export type TFLiteAutoencoderRunner = (
@@ -419,9 +422,13 @@ export async function runUC2DecisionLayerV2(params: {
      * If not supplied, values are sourced from raw.blood_pressure_systolic etc.
      */
     externalMeasurements?: ExternalMeasurements;
+    /**
+     * Optional custom AlertHysteresisManager (defaults to globalAlertHysteresisManager).
+     */
+    hysteresisManager?: AlertHysteresisManager;
 }): Promise<DecisionLayerResult> {
-
-    // 1. Build 12D Watch-native feature vector
+    const hysteresisMgr = params.hysteresisManager ?? globalAlertHysteresisManager;
+    // 1. Build 12D Watch-native feature vector (runs TTL stream caching)
     const built = buildCompletedFeatureVector(params.raw, params.profile);
 
     // Collect external measurements: prefer explicit param, fall back to raw fields
@@ -431,23 +438,23 @@ export async function runUC2DecisionLayerV2(params: {
         glucose_level: params.raw.glucose_level,
     };
 
-    // 2. Signal artifact validation — BEFORE emergency rules
+    // 2. Signal physiologic rate-of-change validation (Artifact check — MUST run before emergency engine)
+    // Physiologically impossible jumps (e.g. HR 70→170 in 2s) are sensor artifacts;
+    // they must NOT be routed as CRITICAL_EMERGENCY_ALERT.
     const signal_validation = validateSignalPhysiologicBounds({
         current: params.raw,
         previous: params.previous,
     });
 
-    // 3. Artifact path: route to INSUFFICIENT_DATA without triggering emergency
     if (signal_validation.isArtifact) {
-        // Merge artifact quality tags with feature quality tags
         const mergedTags = [
             ...built.feature_quality_tags,
             ...signal_validation.feature_quality_tags,
         ];
 
-        const emergency = runEmergencyRuleEngine(built.features);
-        // Override emergency — artifact signals MUST NOT fire emergency
-        const safeEmergency = { ...emergency, is_emergency: false, emergency: false };
+        // Run emergency engine but override it — artifact signals must NOT fire emergency
+        const artifactEmergency = runEmergencyRuleEngine(built.features);
+        const safeEmergency = { ...artifactEmergency, is_emergency: false, emergency: false };
 
         const final_decision = makeFinalDecision({
             emergency: safeEmergency,
@@ -484,10 +491,20 @@ export async function runUC2DecisionLayerV2(params: {
         };
     }
 
-    // 4. Emergency rules (hard safety thresholds — run after artifact check)
+    // 3. SAFETY OVERRIDE: Emergency rules on validated (non-artifact) vitals.
+    // Hard fast-path (SpO2 <= 88%, HR >= 140 bpm, severe temp) fires even when watch is off-wrist or during suppression cooldown.
     const emergency = runEmergencyRuleEngine(built.features);
 
     if (emergency.is_emergency) {
+        const hysteresisEval = hysteresisMgr.evaluateAndStep({
+            patient_id: params.raw.patient_id,
+            timestamp_iso: params.raw.timestamp_iso,
+            is_anomaly: true,
+            post_hitl_anomaly_type: "CRITICAL_EMERGENCY_ALERT",
+            final_severity: 3,
+            is_emergency: true,
+        });
+
         const final_decision = makeFinalDecision({
             emergency,
             sensor: null,
@@ -495,6 +512,7 @@ export async function runUC2DecisionLayerV2(params: {
             personalized: null,
             recurrence: null,
             sustained: null,
+            suppression: hysteresisEval.suppressionStatus,
         });
 
         return {
@@ -509,37 +527,130 @@ export async function runUC2DecisionLayerV2(params: {
             recurrence: null,
             sustained_duration: null,
             signal_validation: null,
+            alert_hysteresis: hysteresisEval.hysteresisState,
+            suppression_status: hysteresisEval.suppressionStatus,
             final_decision,
             initial_mcp_payload: null,
             final_slm_payload: null,
         };
     }
 
-    // 6. Personalized thresholds (AE features + external measurements)
+    // 4. Watch Off-Wrist Filter check — passive monitoring, bypasses AE
+    const wristCheck = validateWatchWristContact(params.raw);
+    if (wristCheck.isOffWrist) {
+        const mergedTags = [
+            ...built.feature_quality_tags,
+            ...wristCheck.feature_quality_tags,
+        ];
+
+        const sensorClassification: SensorClassificationResult = {
+            sensor_anomaly_type: "INSUFFICIENT_DATA",
+            pre_hitl_severity: 0,
+            reasons: wristCheck.reasons,
+        };
+
+        const offWristFinalDecision: FinalDecisionResult = {
+            post_hitl_anomaly_type: "INSUFFICIENT_DATA",
+            post_hitl_severity: 0,
+            final_severity: 0,
+            final_notification_type: "MONITORING_ADVICE",
+            final_notification_level: "monitor",
+            final_notification_title: "Watch Off-Wrist",
+            final_notification_body: "Patient watch is off wrist",
+            slm_refinement_queued: false,
+            refinement_reason: "Watch off wrist",
+            final_reasons: wristCheck.reasons,
+            should_build_initial_mcp_payload: false,
+            should_build_final_slm_payload: false,
+        };
+
+        return {
+            emergency: { is_emergency: false, emergency: false, severity: 0, reasons: [], reason: null, pipelinePath: "UC2_SLOW_PATH" },
+            features: built.features,
+            feature_vector: built.feature_vector,
+            feature_quality_tags: mergedTags,
+            ae: null,
+            sensor_classification: sensorClassification,
+            caregiver_hitl: null,
+            personalized_thresholds: null,
+            recurrence: null,
+            sustained_duration: null,
+            signal_validation: null,
+            final_decision: offWristFinalDecision,
+            initial_mcp_payload: null,
+            final_slm_payload: null,
+        };
+    }
+
+    // 5. Heart Rate TTL Expiration Check — suppress AE when HR data is stale (>10 min)
+    if (built.heart_rate_ttl_expired) {
+        const ttlSensorClassification: SensorClassificationResult = {
+            sensor_anomaly_type: "INSUFFICIENT_DATA",
+            pre_hitl_severity: 0,
+            reasons: ["Heart rate stream TTL expired (>10 min); flagging INSUFFICIENT_DATA."],
+        };
+
+        const ttlFinalDecision: FinalDecisionResult = {
+            post_hitl_anomaly_type: "INSUFFICIENT_DATA",
+            post_hitl_severity: 0,
+            final_severity: 0,
+            final_notification_type: "MONITORING_ADVICE",
+            final_notification_level: "monitor",
+            final_notification_title: "Insufficient Vital Data",
+            final_notification_body: "Heart rate vital reading is expired",
+            slm_refinement_queued: false,
+            refinement_reason: "Heart rate TTL expired",
+            final_reasons: ["Heart rate vital reading expired (>10m)"],
+            should_build_initial_mcp_payload: false,
+            should_build_final_slm_payload: false,
+        };
+
+        return {
+            emergency: { is_emergency: false, emergency: false, severity: 0, reasons: [], reason: null, pipelinePath: "UC2_SLOW_PATH" },
+            features: built.features,
+            feature_vector: built.feature_vector,
+            feature_quality_tags: built.feature_quality_tags,
+            ae: null,
+            sensor_classification: ttlSensorClassification,
+            caregiver_hitl: null,
+            personalized_thresholds: null,
+            recurrence: null,
+            sustained_duration: null,
+            signal_validation: null,
+            final_decision: ttlFinalDecision,
+            initial_mcp_payload: null,
+            final_slm_payload: null,
+        };
+    }
+
+    // 6. Personalized thresholds & Dynamic AE Threshold adjustment
     const personalized = evaluatePersonalizedThresholds(
         built.features,
         params.profile,
         external
     );
 
-    // 7. Scale 12D vector — strict validation, rejects 18D scalers
-    const scaled = scaleVector(built.feature_vector, params.scaler);
+    const baseThreshold = params.aeThreshold ?? AE_DEFAULT_THRESHOLD;
+    const effectiveAeThreshold = getAdjustedAEThreshold(baseThreshold, params.profile);
 
-    // 8. Run 12D TFLite AE — strict 12D output validation
+    // 7. Adaptive Patient Baseline Normalization & Z-score scaling
+    const scaled = scaleVector(built.feature_vector, params.scaler, params.profile);
+
+    // 8. Run 12D TFLite AE
     const reconstructed = await runTinyAutoencoderTflite(
         scaled,
         params.interpreter
     );
 
-    // 9. Compute 12D AE score
+    // 9. Compute 12D AE score with dynamic effectiveAeThreshold
     const ae = computeAutoencoderScore(
         scaled,
         reconstructed,
         built.features,
-        params.aeThreshold
+        effectiveAeThreshold
     );
 
-    // 10. Classify sensor anomaly (Watch12 routing groups)
+    // 10. Classify sensor anomaly
     const sensor = classifySensorAnomaly(built.features, ae, null);
 
     // 11. Evaluate caregiver HITL
@@ -549,7 +660,7 @@ export async function runUC2DecisionLayerV2(params: {
         sensor.pre_hitl_severity
     );
 
-    // 12. Provisional final decision (feeds recurrence with post_hitl_anomaly_type)
+    // 12. Provisional decision for recurrence & sustained duration
     const provisionalFinal = makeFinalDecision({
         emergency,
         sensor,
@@ -559,7 +670,7 @@ export async function runUC2DecisionLayerV2(params: {
         sustained: null,
     });
 
-    // 13. Evaluate recurrence risk
+    // 13. Recurrence risk & Sustained duration
     const recurrence = evaluateRecurrenceRisk({
         patient_id: params.raw.patient_id,
         timestamp_iso: params.raw.timestamp_iso,
@@ -568,7 +679,6 @@ export async function runUC2DecisionLayerV2(params: {
         emergencyAlreadyDetected: false,
     });
 
-    // 14. Evaluate sustained duration
     const sustained = evaluateSustainedDuration({
         patient_id: params.raw.patient_id,
         timestamp_iso: params.raw.timestamp_iso,
@@ -577,7 +687,19 @@ export async function runUC2DecisionLayerV2(params: {
         history: params.history,
     });
 
-    // 15. Final decision (all floors including sustained)
+    // 14. Evaluate Alert Hysteresis & Suppression
+    const hysteresisEval = hysteresisMgr.evaluateAndStep({
+        patient_id: params.raw.patient_id,
+        timestamp_iso: params.raw.timestamp_iso,
+        is_anomaly: ae.is_anomaly || provisionalFinal.final_severity > 0,
+        sensor_anomaly_type: sensor.sensor_anomaly_type,
+        post_hitl_anomaly_type: provisionalFinal.post_hitl_anomaly_type,
+        pre_hitl_severity: sensor.pre_hitl_severity,
+        final_severity: provisionalFinal.final_severity,
+        is_emergency: false,
+    });
+
+    // 15. Make final decision (with suppression status applied)
     const final_decision = makeFinalDecision({
         emergency,
         sensor,
@@ -585,6 +707,7 @@ export async function runUC2DecisionLayerV2(params: {
         personalized,
         recurrence,
         sustained,
+        suppression: hysteresisEval.suppressionStatus,
     });
 
     // 16. Build payloads
@@ -646,6 +769,8 @@ export async function runUC2DecisionLayerV2(params: {
         recurrence,
         sustained_duration: sustained,
         signal_validation: signal_validation.isArtifact ? signal_validation : null,
+        alert_hysteresis: hysteresisEval.hysteresisState,
+        suppression_status: hysteresisEval.suppressionStatus,
         final_decision,
         initial_mcp_payload,
         final_slm_payload,

@@ -93,7 +93,10 @@ export function buildCompletedFeatureVector(
 
     // Fill any remaining Watch12 AE features via imputation
     // (EHR profile baselines for HR/SpO2/RR/temp/HRV only — not BP/glucose)
-    const filled = fillMissingFeatures(partial, sourceMap, profile);
+    const filled = fillMissingFeatures(partial, sourceMap, profile, {
+        patient_id: raw.patient_id,
+        timestamp_iso: raw.timestamp_iso,
+    });
 
     if (filled.feature_vector.length !== 12) {
         throw new Error(
@@ -105,6 +108,7 @@ export function buildCompletedFeatureVector(
         features: filled.features,
         feature_vector: filled.feature_vector,
         feature_quality_tags: filled.feature_quality_tags,
+        heart_rate_ttl_expired: filled.heart_rate_ttl_expired,
     };
 }
 

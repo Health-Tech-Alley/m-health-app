@@ -201,6 +201,9 @@ export function patientProfileFromPlainObject(
         macs?: string;
         cfcs?: string;
         edacs?: string;
+        rolling_7d_mean?: Partial<Record<import("./uc2Types").FeatureName, number>>;
+        rolling_7d_std?: Partial<Record<import("./uc2Types").FeatureName, number>>;
+        clinical_risk_tier?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
     }
 ): PatientProfile {
     return {
@@ -233,5 +236,51 @@ export function patientProfileFromPlainObject(
         macs: data.macs,
         cfcs: data.cfcs,
         edacs: data.edacs,
+        rolling_7d_mean: data.rolling_7d_mean,
+        rolling_7d_std: data.rolling_7d_std,
+        clinical_risk_tier: data.clinical_risk_tier,
+    };
+}
+
+/**
+ * Compute rolling 7-day mean (mu_p) and standard deviation (sigma_p) from historical observations.
+ */
+export function computeAdaptiveBaselineStats(
+    history: Array<Record<string, number>>
+): {
+    rolling_7d_mean: Partial<Record<import("./uc2Types").FeatureName, number>>;
+    rolling_7d_std: Partial<Record<import("./uc2Types").FeatureName, number>>;
+} {
+    const sumMap: Record<string, number> = {};
+    const countMap: Record<string, number> = {};
+    const valsMap: Record<string, number[]> = {};
+
+    for (const item of history) {
+        for (const [key, val] of Object.entries(item)) {
+            if (typeof val === "number" && Number.isFinite(val)) {
+                sumMap[key] = (sumMap[key] ?? 0) + val;
+                countMap[key] = (countMap[key] ?? 0) + 1;
+                if (!valsMap[key]) valsMap[key] = [];
+                valsMap[key].push(val);
+            }
+        }
+    }
+
+    const meanMap: Partial<Record<import("./uc2Types").FeatureName, number>> = {};
+    const stdMap: Partial<Record<import("./uc2Types").FeatureName, number>> = {};
+
+    for (const [key, vals] of Object.entries(valsMap)) {
+        const count = vals.length;
+        if (count === 0) continue;
+        const mean = sumMap[key] / count;
+        meanMap[key as import("./uc2Types").FeatureName] = mean;
+
+        const variance = vals.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / count;
+        stdMap[key as import("./uc2Types").FeatureName] = Math.sqrt(variance);
+    }
+
+    return {
+        rolling_7d_mean: meanMap,
+        rolling_7d_std: stdMap,
     };
 }

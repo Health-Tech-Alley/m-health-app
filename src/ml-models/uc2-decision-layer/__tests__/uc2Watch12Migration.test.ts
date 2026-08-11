@@ -8,6 +8,9 @@
 import { makeFinalDecision } from "../finalDecision";
 import {
     runUC2DecisionLayerV2,
+    makeFinalDecision,
+    globalAlertHysteresisManager,
+    globalVitalsTTLCache,
     FEATURE_ORDER,
     AE_DEFAULT_THRESHOLD,
     AE_INPUT_DIM,
@@ -20,6 +23,13 @@ import {
     type HistoricalAnomalyEvent,
     type SensorAnomalyType,
 } from "../";
+
+// Reset global singletons before every test to prevent cross-test state contamination
+beforeEach(() => {
+    globalAlertHysteresisManager.clearAll();
+    globalVitalsTTLCache.clear();
+});
+
 
 // ── Shared fixtures ───────────────────────────────────────────────────────────
 
