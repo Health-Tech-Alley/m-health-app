@@ -7,6 +7,7 @@
 
 import {
     runUC2DecisionLayerV2,
+    makeFinalDecision,
     FEATURE_ORDER,
     AE_DEFAULT_THRESHOLD,
     AE_INPUT_DIM,
@@ -535,9 +536,8 @@ describe("7.11 Caregiver critical route severity 3", () => {
         }
     });
 
-    it("non-emergency severity 3 path does not collapse to severity 2", async () => {
+    it("non-emergency severity 3 path does not collapse to severity 2", () => {
         // Directly test that makeFinalDecision honours critical_route_triggered
-        const { makeFinalDecision } = await import("../finalDecision");
         const result = makeFinalDecision({
             emergency: {
                 emergency: false,

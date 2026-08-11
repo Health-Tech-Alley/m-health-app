@@ -1,13 +1,15 @@
-import {
+﻿import {
     AnomalyFamily,
-    AuditEvent,
     AppleWatchVitalsInput,
+    AuditEvent,
     CaregiverFinalAction,
+    CaregiverHitlInput,
     CaregiverObservationCode,
     DecisionLayerResult,
     EmergencyRuleResult,
     ExternalMeasurements,
     FeatureQualityTag,
+    FinalDecisionResult,
     FinalNotificationLevel,
     FinalNotificationType,
     FinalSlmPayload,
@@ -21,43 +23,42 @@ import {
     RawObservationInput,
     ScalerParams,
     SensorAnomalyType,
+    SensorClassificationResult,
     Severity,
     UC2ContextualType,
     UC2Scaler,
-    CaregiverHitlInput,
 } from "./uc2Types";
 
-import { UC2_FEATURE_ORDER } from "./uc2Constants";
-import { buildUC2FeatureVector, buildCompletedFeatureVector } from "./featureEngineering";
-import { scaleFeatures, scaleVector } from "./scaler";
-import { runEmergencyRuleEngine } from "./emergencyRuleEngine";
+import { globalAlertHysteresisManager } from "./anomalyHistoryStore";
 import {
-    reconstructionError,
-    getTopReconstructionContributions,
     computeAutoencoderScore,
+    getTopReconstructionContributions,
+    reconstructionError,
 } from "./anomalyScoring";
+import { evaluateCaregiverHitl, normalizeCaregiverCodes, shouldShowCaregiverPrompt } from "./caregiverHitl";
 import {
     classifyInitialContextualType,
-    fusePostHITLContext,
     classifySensorAnomaly,
+    fusePostHITLContext,
 } from "./contextualRouting";
-import { shouldShowCaregiverPrompt, evaluateCaregiverHitl, normalizeCaregiverCodes } from "./caregiverHitl";
+import { runEmergencyRuleEngine } from "./emergencyRuleEngine";
+import { buildCompletedFeatureVector, buildUC2FeatureVector } from "./featureEngineering";
+import { globalVitalsTTLCache } from "./featureImputation";
 import { finalDecision, makeFinalDecision } from "./finalDecision";
 import {
-    buildInitialMCPPayload,
-    buildFinalSLMPayload,
-    buildInitialMcpPayload,
-    buildFinalSlmPayload,
     buildAuditEvent,
+    buildFinalSLMPayload,
+    buildFinalSlmPayload,
+    buildInitialMCPPayload,
+    buildInitialMcpPayload,
 } from "./payloadBuilders";
-import { runTinyAutoencoderTflite, TfliteInterpreterLike } from "./tfliteModelAdapter";
-import { evaluatePersonalizedThresholds } from "./personalizedThresholds";
+import { evaluatePersonalizedThresholds, getAdjustedAEThreshold } from "./personalizedThresholds";
 import { evaluateRecurrenceRisk } from "./recurrenceRisk";
+import { scaleFeatures, scaleVector } from "./scaler";
 import { validateSignalPhysiologicBounds, validateWatchWristContact } from "./signalValidation";
 import { evaluateSustainedDuration } from "./sustainedDuration";
-import { globalAlertHysteresisManager } from "./anomalyHistoryStore";
-import { globalVitalsTTLCache } from "./featureImputation";
-import { getAdjustedAEThreshold } from "./personalizedThresholds";
+import { runTinyAutoencoderTflite, TfliteInterpreterLike } from "./tfliteModelAdapter";
+import { UC2_FEATURE_ORDER } from "./uc2Constants";
 
 // --- Old types for compat ---
 export type TFLiteAutoencoderRunner = (
@@ -65,7 +66,7 @@ export type TFLiteAutoencoderRunner = (
 ) => Promise<number[]>;
 
 export type UC2DecisionResult = {
-    // ── OLD-COMPATIBLE FIELDS (preserved for existing callers) ─────────────────
+    // â”€â”€ OLD-COMPATIBLE FIELDS (preserved for existing callers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     emergencyResult: ReturnType<typeof runEmergencyRuleEngine>;
     rawFeatures: number[];
     scaledFeatures: number[] | null;
@@ -81,7 +82,7 @@ export type UC2DecisionResult = {
     initialMCPPayload: ReturnType<typeof buildInitialMCPPayload> | InitialMcpPayload | null;
     finalSLMPayload: ReturnType<typeof buildFinalSLMPayload> | FinalSlmPayload | null;
 
-    // ── NEW EXPLICIT V2 FIELDS ─────────────────────────────────────────────────
+    // â”€â”€ NEW EXPLICIT V2 FIELDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // (These mirror the new DecisionLayerResult shape so both call sites work)
     ae_score_mse?: number | null;                           // alias: aeScore
     ml_anomaly_flag?: boolean;                              // alias: isAnomaly
@@ -175,7 +176,7 @@ export async function runUC2DecisionLayer(params: {
         });
 
         return {
-            // ── old-compatible fields ──
+            // â”€â”€ old-compatible fields â”€â”€
             emergencyResult,
             rawFeatures: featureVector.rawFeatures,
             scaledFeatures: null,
@@ -190,7 +191,7 @@ export async function runUC2DecisionLayer(params: {
             finalDecision: decision,
             initialMCPPayload: null,
             finalSLMPayload: null,
-            // ── new v2 fields ──
+            // â”€â”€ new v2 fields â”€â”€
             ae_score_mse: null,
             ml_anomaly_flag: false,
             pre_hitl_severity: 3,
@@ -292,7 +293,7 @@ export async function runUC2DecisionLayer(params: {
         })
         : null;
 
-    // ── Derive v2 field values from legacy-path outputs ───────────────────────
+    // â”€â”€ Derive v2 field values from legacy-path outputs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const legacySensorType = legacyContextualToSensorType(initialAnomalyType);
     const legacyPostHitlType = legacyContextualToPostHitlType(postHitlAnomalyType);
     const legacyPreHitlSeverity: Severity = isAnomaly ? 1 : 0;
@@ -313,7 +314,7 @@ export async function runUC2DecisionLayer(params: {
     });
 
     return {
-        // ── old-compatible fields ──
+        // â”€â”€ old-compatible fields â”€â”€
         emergencyResult,
         rawFeatures: featureVector.rawFeatures,
         scaledFeatures,
@@ -328,7 +329,7 @@ export async function runUC2DecisionLayer(params: {
         finalDecision: decision,
         initialMCPPayload,
         finalSLMPayload,
-        // ── new v2 fields ──
+        // â”€â”€ new v2 fields â”€â”€
         ae_score_mse: aeScore,
         ml_anomaly_flag: isAnomaly,
         pre_hitl_severity: legacyPreHitlSeverity,
@@ -353,31 +354,31 @@ export async function runUC2DecisionLayer(params: {
     };
 }
 
-// Maps old UC2ContextualType → new SensorAnomalyType (best-effort for legacy path)
+// Maps old UC2ContextualType â†’ new SensorAnomalyType (best-effort for legacy path)
 function legacyContextualToSensorType(ctx: UC2ContextualType): SensorAnomalyType {
     switch (ctx) {
-        case "RESPIRATORY_CONCERN":        return "CARDIO_RESPIRATORY_SIGNAL_CHANGE";
-        case "GI_AUTONOMIC_RISK":           return "UNEXPLAINED_PHYSIOLOGIC_STRESS";
-        case "SLEEP_STRESS_RECOVERY":       return "SLEEP_RECOVERY_DEVIATION";
-        case "EXERTION_LIKE_PATTERN":       return "EXERTION_OR_ACTIVITY_PATTERN";
-        case "CRITICAL_EMERGENCY_ALERT":    return "CRITICAL_VITAL_THRESHOLD";
+        case "RESPIRATORY_CONCERN": return "CARDIO_RESPIRATORY_SIGNAL_CHANGE";
+        case "GI_AUTONOMIC_RISK": return "UNEXPLAINED_PHYSIOLOGIC_STRESS";
+        case "SLEEP_STRESS_RECOVERY": return "SLEEP_RECOVERY_DEVIATION";
+        case "EXERTION_LIKE_PATTERN": return "EXERTION_OR_ACTIVITY_PATTERN";
+        case "CRITICAL_EMERGENCY_ALERT": return "CRITICAL_VITAL_THRESHOLD";
         case "GENERAL_MULTIVARIATE_ANOMALY": return "UNEXPLAINED_PHYSIOLOGIC_STRESS";
-        case "NORMAL_PATTERN":              return "NORMAL_PATTERN";
-        default:                            return "NORMAL_PATTERN";
+        case "NORMAL_PATTERN": return "NORMAL_PATTERN";
+        default: return "NORMAL_PATTERN";
     }
 }
 
-// Maps old UC2ContextualType → new PostHitlAnomalyType (best-effort for legacy path)
+// Maps old UC2ContextualType â†’ new PostHitlAnomalyType (best-effort for legacy path)
 function legacyContextualToPostHitlType(ctx: UC2ContextualType): PostHitlAnomalyType {
     switch (ctx) {
-        case "RESPIRATORY_CONCERN":         return "RESPIRATORY_CONCERN";
-        case "GI_AUTONOMIC_RISK":            return "GI_AUTONOMIC_RISK";
-        case "SLEEP_STRESS_RECOVERY":        return "SLEEP_STRESS_RECOVERY";
-        case "EXERTION_LIKE_PATTERN":        return "EXERTION_LIKE_PATTERN";
-        case "CRITICAL_EMERGENCY_ALERT":     return "CRITICAL_EMERGENCY_ALERT";
+        case "RESPIRATORY_CONCERN": return "RESPIRATORY_CONCERN";
+        case "GI_AUTONOMIC_RISK": return "GI_AUTONOMIC_RISK";
+        case "SLEEP_STRESS_RECOVERY": return "SLEEP_STRESS_RECOVERY";
+        case "EXERTION_LIKE_PATTERN": return "EXERTION_LIKE_PATTERN";
+        case "CRITICAL_EMERGENCY_ALERT": return "CRITICAL_EMERGENCY_ALERT";
         case "GENERAL_MULTIVARIATE_ANOMALY": return "PROVIDER_REVIEW_RECOMMENDED";
-        case "NORMAL_PATTERN":               return "NORMAL_PATTERN";
-        default:                             return "NORMAL_PATTERN";
+        case "NORMAL_PATTERN": return "NORMAL_PATTERN";
+        default: return "NORMAL_PATTERN";
     }
 }
 
@@ -387,7 +388,7 @@ function legacyContextualToPostHitlType(ctx: UC2ContextualType): PostHitlAnomaly
  * Pipeline ordering:
  *   1. Build 12D Watch-native feature vector
  *   2. Signal artifact validation (BEFORE emergency rules)
- *   3. If artifact → route to INSUFFICIENT_DATA, return early
+ *   3. If artifact â†’ route to INSUFFICIENT_DATA, return early
  *   4. Run emergency rules (hard safety thresholds)
  *   5. Emergency short-circuits at severity 3
  *   6. Evaluate personalized thresholds (AE features + external measurements)
@@ -403,7 +404,7 @@ function legacyContextualToPostHitlType(ctx: UC2ContextualType): PostHitlAnomaly
  *  16. Build payloads when appropriate
  *
  * Enforces 12D through the entire pipeline.
- * BP/glucose resolved from externalMeasurements — never from AE features.
+ * BP/glucose resolved from externalMeasurements â€” never from AE features.
  */
 export async function runUC2DecisionLayerV2(params: {
     raw: RawObservationInput;
@@ -424,9 +425,14 @@ export async function runUC2DecisionLayerV2(params: {
      * If not supplied, values are sourced from raw.blood_pressure_systolic etc.
      */
     externalMeasurements?: ExternalMeasurements;
+    /**
+     * Optional custom AlertHysteresisManager (defaults to globalAlertHysteresisManager).
+     */
+    hysteresisManager?: import("./anomalyHistoryStore").AlertHysteresisManager;
 }): Promise<DecisionLayerResult> {
+    const hysteresisMgr = params.hysteresisManager ?? globalAlertHysteresisManager;
 
-    // 1. Build 12D Watch-native feature vector
+    // â”€â”€ Step 1: Build 12D Watch-native feature vector â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const built = buildCompletedFeatureVector(params.raw, params.profile);
 
     // Collect external measurements: prefer explicit param, fall back to raw fields
@@ -436,7 +442,7 @@ export async function runUC2DecisionLayerV2(params: {
         glucose_level: params.raw.glucose_level,
     };
 
-    // 2. Update TTL stream cache with current heart_rate reading
+    // â”€â”€ Step 2: Update TTL stream cache with current heart_rate reading â”€â”€â”€â”€â”€â”€â”€
     if (typeof built.features.heart_rate === "number") {
         globalVitalsTTLCache.updateSample(
             params.raw.patient_id,
@@ -446,15 +452,15 @@ export async function runUC2DecisionLayerV2(params: {
         );
     }
 
-    // 3. Signal artifact validation — BEFORE wrist check and emergency rules
+    // â”€â”€ Step 3: Signal artifact validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const signal_validation = validateSignalPhysiologicBounds({
         current: params.raw,
         previous: params.previous,
     });
 
-    // 3a. Check if HR stream has expired (> 10 min TTL).
-    // Only flag expired when there is a PRIOR stale entry — no prior entry means
-    // a fresh session / first observation, which is NOT a stream expiry.
+    // Only flag HR stream as expired when there is no cached reading within TTL.
+    // A first-ever observation is NOT an expiry â€” only a previously-seen HR that
+    // has gone stale (> 10 min with no update AND no current reading) is expired.
     const HR_TTL_MS = 10 * 60 * 1000;
     const priorHrEntry = globalVitalsTTLCache.getCachedSample(
         params.raw.patient_id,
@@ -462,15 +468,61 @@ export async function runUC2DecisionLayerV2(params: {
         params.raw.timestamp_iso,
         HR_TTL_MS
     );
-    // We updated the cache just above, so if HR is present in raw the TTL will be 0 ms old.
-    // hrStreamExpired can only be true when:
-    //   (a) no heart_rate was in the current reading (imputed), AND
-    //   (b) no prior cached reading exists within TTL.
     const hrStreamExpired =
         typeof built.features.heart_rate !== "number" &&
         priorHrEntry === undefined;
 
-    // 4. Off-wrist contact detection — BEFORE emergency rules
+    // Artifact / stale-HR early exit â€” does NOT fire emergency
+    if (signal_validation.isArtifact || hrStreamExpired) {
+        const artifactReasons = [
+            ...signal_validation.reasons,
+            ...(hrStreamExpired ? ["Heart rate stream TTL expired (> 10 min). Passive monitoring only."] : []),
+        ];
+        const mergedTags = [
+            ...built.feature_quality_tags,
+            ...signal_validation.feature_quality_tags,
+        ];
+
+        const artifactEmergency = runEmergencyRuleEngine(built.features);
+        // Override â€” artifact/TTL-expired signals MUST NOT fire emergency
+        const safeEmergency = { ...artifactEmergency, is_emergency: false, emergency: false };
+
+        const artifact_final_decision = makeFinalDecision({
+            emergency: safeEmergency,
+            sensor: {
+                sensor_anomaly_type: "INSUFFICIENT_DATA",
+                pre_hitl_severity: 1,
+                reasons: artifactReasons,
+            },
+            caregiver: null,
+            personalized: null,
+            recurrence: null,
+            sustained: null,
+        });
+
+        return {
+            emergency: safeEmergency,
+            features: built.features,
+            feature_vector: built.feature_vector,
+            feature_quality_tags: mergedTags,
+            ae: null,
+            sensor_classification: {
+                sensor_anomaly_type: "INSUFFICIENT_DATA",
+                pre_hitl_severity: 1,
+                reasons: artifactReasons,
+            },
+            caregiver_hitl: null,
+            personalized_thresholds: null,
+            recurrence: null,
+            sustained_duration: null,
+            signal_validation,
+            final_decision: artifact_final_decision,
+            initial_mcp_payload: null,
+            final_slm_payload: null,
+        };
+    }
+
+    // â”€â”€ Step 4: Off-wrist contact detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const wristCheck = validateWatchWristContact(params.raw);
     if (wristCheck.isOffWrist) {
         const mergedOffWristTags = [
@@ -515,61 +567,20 @@ export async function runUC2DecisionLayerV2(params: {
         };
     }
 
-    // 5. Artifact path: route to INSUFFICIENT_DATA without triggering emergency
-    if (signal_validation.isArtifact || hrStreamExpired) {
-        const artifactReasons = [
-            ...signal_validation.reasons,
-            ...(hrStreamExpired ? ["Heart rate stream TTL expired (> 10 min). Passive monitoring only."] : []),
-        ];
-        // Merge artifact quality tags with feature quality tags
-        const mergedTags = [
-            ...built.feature_quality_tags,
-            ...signal_validation.feature_quality_tags,
-        ];
-
-        const artifactEmergency = runEmergencyRuleEngine(built.features);
-        // Override emergency — artifact/TTL-expired signals MUST NOT fire emergency
-        const safeEmergency = { ...artifactEmergency, is_emergency: false, emergency: false };
-
-        const artifact_final_decision = makeFinalDecision({
-            emergency: safeEmergency,
-            sensor: {
-                sensor_anomaly_type: "INSUFFICIENT_DATA",
-                pre_hitl_severity: 1,
-                reasons: artifactReasons,
-            },
-            caregiver: null,
-            personalized: null,
-            recurrence: null,
-            sustained: null,
-        });
-
-        return {
-            emergency: safeEmergency,
-            features: built.features,
-            feature_vector: built.feature_vector,
-            feature_quality_tags: mergedTags,
-            ae: null,
-            sensor_classification: {
-                sensor_anomaly_type: "INSUFFICIENT_DATA",
-                pre_hitl_severity: 1,
-                reasons: artifactReasons,
-            },
-            caregiver_hitl: null,
-            personalized_thresholds: null,
-            recurrence: null,
-            sustained_duration: null,
-            signal_validation,
-            final_decision: artifact_final_decision,
-            initial_mcp_payload: null,
-            final_slm_payload: null,
-        };
-    }
-
-    // 4. Emergency rules (hard safety thresholds — run after artifact check)
+    // â”€â”€ Step 5: Emergency engine â€” hard safety thresholds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Fires AFTER signal validation and off-wrist check so vitals are clean.
     const emergency = runEmergencyRuleEngine(built.features);
 
     if (emergency.is_emergency) {
+        const hysteresisEval = hysteresisMgr.evaluateAndStep({
+            patient_id: params.raw.patient_id,
+            timestamp_iso: params.raw.timestamp_iso,
+            is_anomaly: true,
+            post_hitl_anomaly_type: "CRITICAL_EMERGENCY_ALERT",
+            final_severity: 3,
+            is_emergency: true,
+        });
+
         const final_decision = makeFinalDecision({
             emergency,
             sensor: null,
@@ -577,6 +588,7 @@ export async function runUC2DecisionLayerV2(params: {
             personalized: null,
             recurrence: null,
             sustained: null,
+            suppression: hysteresisEval.suppressionStatus,
         });
 
         return {
@@ -591,32 +603,34 @@ export async function runUC2DecisionLayerV2(params: {
             recurrence: null,
             sustained_duration: null,
             signal_validation: null,
+            alert_hysteresis: hysteresisEval.hysteresisState,
+            suppression_status: hysteresisEval.suppressionStatus,
             final_decision,
             initial_mcp_payload: null,
             final_slm_payload: null,
         };
     }
 
-    // 6. Personalized thresholds (AE features + external measurements)
+    // â”€â”€ Step 6: Personalized thresholds (AE features + external measurements) â”€
     const personalized = evaluatePersonalizedThresholds(
         built.features,
         params.profile,
         external
     );
 
-    // 7. Compute adaptive AE threshold from patient risk tier / GMFCS
+    // â”€â”€ Step 7: Adaptive AE threshold from patient risk tier / GMFCS â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const adjustedAeThreshold = getAdjustedAEThreshold(params.aeThreshold ?? 0.5, params.profile);
 
-    // 8. Scale 12D vector — strict validation, with adaptive patient baseline shift
+    // â”€â”€ Step 8: Scale 12D vector with adaptive patient baseline shift â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const scaled = scaleVector(built.feature_vector, params.scaler, params.profile);
 
-    // 9. Run 12D TFLite AE — strict 12D output validation
+    // â”€â”€ Step 9: Run 12D TFLite AE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const reconstructed = await runTinyAutoencoderTflite(
         scaled,
         params.interpreter
     );
 
-    // 10. Compute 12D AE score (with adaptive threshold)
+    // â”€â”€ Step 10: Compute 12D AE score with adaptive threshold â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const ae = computeAutoencoderScore(
         scaled,
         reconstructed,
@@ -624,17 +638,17 @@ export async function runUC2DecisionLayerV2(params: {
         adjustedAeThreshold
     );
 
-    // 11. Classify sensor anomaly (Watch12 routing groups)
+    // â”€â”€ Step 11: Classify sensor anomaly (Watch12 routing groups) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const sensor = classifySensorAnomaly(built.features, ae, null);
 
-    // 12. Evaluate caregiver HITL
+    // â”€â”€ Step 12: Evaluate caregiver HITL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const caregiver = evaluateCaregiverHitl(
         params.caregiverInput,
         sensor.sensor_anomaly_type,
         sensor.pre_hitl_severity
     );
 
-    // 13. Provisional final decision (feeds recurrence with post_hitl_anomaly_type)
+    // â”€â”€ Step 13: Provisional final decision (feeds recurrence) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const provisionalFinal = makeFinalDecision({
         emergency,
         sensor,
@@ -644,7 +658,7 @@ export async function runUC2DecisionLayerV2(params: {
         sustained: null,
     });
 
-    // 14. Evaluate recurrence risk
+    // â”€â”€ Step 14: Recurrence risk â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const recurrence = evaluateRecurrenceRisk({
         patient_id: params.raw.patient_id,
         timestamp_iso: params.raw.timestamp_iso,
@@ -653,7 +667,7 @@ export async function runUC2DecisionLayerV2(params: {
         emergencyAlreadyDetected: false,
     });
 
-    // 15. Evaluate sustained duration
+    // â”€â”€ Step 15: Sustained duration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const sustained = evaluateSustainedDuration({
         patient_id: params.raw.patient_id,
         timestamp_iso: params.raw.timestamp_iso,
@@ -662,7 +676,19 @@ export async function runUC2DecisionLayerV2(params: {
         history: params.history,
     });
 
-    // 16. Final decision (all floors including sustained)
+    // â”€â”€ Step 16: Alert Hysteresis & Suppression Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const hysteresisEval = hysteresisMgr.evaluateAndStep({
+        patient_id: params.raw.patient_id,
+        timestamp_iso: params.raw.timestamp_iso,
+        is_anomaly: ae.is_anomaly || provisionalFinal.final_severity > 0,
+        sensor_anomaly_type: sensor.sensor_anomaly_type,
+        post_hitl_anomaly_type: provisionalFinal.post_hitl_anomaly_type,
+        pre_hitl_severity: sensor.pre_hitl_severity,
+        final_severity: provisionalFinal.final_severity,
+        is_emergency: false,
+    });
+
+    // â”€â”€ Step 17: Final decision (all floors, including hysteresis suppression) â”€
     const final_decision = makeFinalDecision({
         emergency,
         sensor,
@@ -670,24 +696,10 @@ export async function runUC2DecisionLayerV2(params: {
         personalized,
         recurrence,
         sustained,
+        suppression: hysteresisEval.suppressionStatus,
     });
 
-    // 17. Alert Hysteresis & Suppression Engine
-    const { hysteresisState, suppressionStatus } = globalAlertHysteresisManager.evaluateAndStep({
-        patient_id: params.raw.patient_id,
-        timestamp_iso: params.raw.timestamp_iso,
-        is_anomaly: ae.is_anomaly,
-        sensor_anomaly_type: sensor.sensor_anomaly_type,
-        post_hitl_anomaly_type: final_decision.post_hitl_anomaly_type,
-        pre_hitl_severity: sensor.pre_hitl_severity,
-        final_severity: final_decision.post_hitl_severity ?? 0,
-        is_emergency: emergency.is_emergency,
-    });
-
-    // Attach suppression status to final decision
-    final_decision.suppression_status = suppressionStatus;
-
-    // 16. Build payloads
+    // â”€â”€ Step 18: Build payloads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const initial_mcp_payload =
         final_decision.should_build_initial_mcp_payload && ae.is_anomaly
             ? buildInitialMcpPayload({
@@ -746,8 +758,8 @@ export async function runUC2DecisionLayerV2(params: {
         recurrence,
         sustained_duration: sustained,
         signal_validation: signal_validation.isArtifact ? signal_validation : null,
-        alert_hysteresis: hysteresisState,
-        suppression_status: suppressionStatus,
+        alert_hysteresis: hysteresisEval.hysteresisState,
+        suppression_status: hysteresisEval.suppressionStatus,
         final_decision,
         initial_mcp_payload,
         final_slm_payload,

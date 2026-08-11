@@ -1,15 +1,16 @@
 import {
+    AlertSuppressionStatus,
     CaregiverFinalAction,
-    FinalDecisionResult,
-    UC2ContextualType,
     CaregiverHitlResult,
     EmergencyRuleResult,
+    FinalDecisionResult,
     PersonalizedThresholdResult,
     PostHitlAnomalyType,
     RecurrenceRiskResult,
     SensorClassificationResult,
     Severity,
     SustainedDurationResult,
+    UC2ContextualType,
 } from "./uc2Types";
 
 // @compat Old function preserved
@@ -59,7 +60,7 @@ export function finalDecision(params: {
             post_hitl_severity: 0,
             should_build_initial_mcp_payload: false,
             should_build_final_slm_payload: false,
-            final_reasons: [],
+            final_reasons: ["No prompt shown; baseline monitoring."],
         };
     }
 
@@ -147,6 +148,10 @@ export function makeFinalDecision(params: {
      * Added in migration from 18D to 12D architecture.
      */
     sustained?: SustainedDurationResult | null;
+    /**
+     * Watch12: alert hysteresis suppression status.
+     */
+    suppression?: AlertSuppressionStatus | null;
 }): FinalDecisionResult {
     if (params.emergency.is_emergency) {
         return {
