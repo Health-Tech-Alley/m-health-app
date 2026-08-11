@@ -14,6 +14,7 @@
  * Artifact routing: sensor_anomaly_type = "INSUFFICIENT_DATA"
  */
 
+import { SIGNAL_ARTIFACT_RULES } from "./uc2Constants";
 import type {
     FeatureName,
     FeatureQualityTag,
@@ -21,7 +22,6 @@ import type {
     RawObservationInput,
     SignalValidationResult,
 } from "./uc2Types";
-import { SIGNAL_ARTIFACT_RULES } from "./uc2Constants";
 
 /**
  * Validate physiologic rate-of-change between the current and previous observation.
