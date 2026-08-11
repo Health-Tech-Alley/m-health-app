@@ -10,7 +10,6 @@ import {
     SensorClassificationResult,
     Severity,
     SustainedDurationResult,
-    AlertSuppressionStatus,
 } from "./uc2Types";
 
 // @compat Old function preserved
@@ -148,7 +147,6 @@ export function makeFinalDecision(params: {
      * Added in migration from 18D to 12D architecture.
      */
     sustained?: SustainedDurationResult | null;
-    suppression?: AlertSuppressionStatus | null;
 }): FinalDecisionResult {
     if (params.emergency.is_emergency) {
         return {
@@ -169,31 +167,6 @@ export function makeFinalDecision(params: {
             ],
             should_build_initial_mcp_payload: false,
             should_build_final_slm_payload: false,
-            suppression_status: params.suppression ?? undefined,
-        };
-    }
-
-    // Check suppression
-    if (params.suppression?.is_suppressed) {
-        const postType = inferPostHitlType(params);
-        return {
-            post_hitl_anomaly_type: postType,
-            post_hitl_severity: 0,
-            final_severity: 0,
-            final_notification_type: "DISMISSED_WITH_AUDIT",
-            final_notification_level: "logged_only",
-            final_notification_title: "Alert Suppressed",
-            final_notification_body:
-                params.suppression.reason ?? "Identical alert suppressed during quiet cooldown window.",
-            slm_refinement_queued: false,
-            refinement_reason: params.suppression.reason ?? "Suppressed due to cooldown",
-            final_reasons: [
-                ...(params.suppression.reason ? [params.suppression.reason] : []),
-                ...collectReasons(params),
-            ],
-            should_build_initial_mcp_payload: false,
-            should_build_final_slm_payload: false,
-            suppression_status: params.suppression,
         };
     }
 
@@ -238,7 +211,6 @@ export function makeFinalDecision(params: {
             ],
             should_build_initial_mcp_payload: true,
             should_build_final_slm_payload: false,
-            suppression_status: params.suppression ?? undefined,
         };
     }
 
@@ -256,7 +228,6 @@ export function makeFinalDecision(params: {
             final_reasons: ["No alert after ML/context evaluation."],
             should_build_initial_mcp_payload: false,
             should_build_final_slm_payload: false,
-            suppression_status: params.suppression ?? undefined,
         };
     }
 
@@ -275,7 +246,6 @@ export function makeFinalDecision(params: {
             final_reasons: collectReasons(params),
             should_build_initial_mcp_payload: true,
             should_build_final_slm_payload: false,
-            suppression_status: params.suppression ?? undefined,
         };
     }
 
@@ -296,7 +266,6 @@ export function makeFinalDecision(params: {
             final_reasons: collectReasons(params),
             should_build_initial_mcp_payload: false,
             should_build_final_slm_payload: true,
-            suppression_status: params.suppression ?? undefined,
         };
     }
 
@@ -315,7 +284,6 @@ export function makeFinalDecision(params: {
         final_reasons: collectReasons(params),
         should_build_initial_mcp_payload: true,
         should_build_final_slm_payload: true,
-        suppression_status: params.suppression ?? undefined,
     };
 }
 
