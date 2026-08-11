@@ -1,5 +1,5 @@
-import type { ScalerParams, UC2Scaler, PatientProfile } from "./uc2Types";
 import { AE_INPUT_DIM, FEATURE_ORDER } from "./uc2Constants";
+import type { PatientProfile, ScalerParams, UC2Scaler } from "./uc2Types";
 
 // ── Watch12 12D scaler (production path) ─────────────────────────────────────
 

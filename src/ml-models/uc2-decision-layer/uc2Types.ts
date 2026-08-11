@@ -585,9 +585,9 @@ export interface CaregiverHitlInput {
 export interface CaregiverMatrixCell {
     severity_delta: 0 | 1 | 2 | 3;
     critical_route:
-        | "none"
-        | "route_critical"
-        | "route_critical_if_severe_dehydration_or_altered_state";
+    | "none"
+    | "route_critical"
+    | "route_critical_if_severe_dehydration_or_altered_state";
     reason: string;
 }
 
@@ -610,11 +610,11 @@ export interface CaregiverHitlResult {
     observation_reasons: string[];
     data_quality_warning: boolean;
     human_context:
-        | "caregiver_concern"
-        | "no_observed_concern"
-        | "sensor_issue"
-        | "not_sure"
-        | "not_provided";
+    | "caregiver_concern"
+    | "no_observed_concern"
+    | "sensor_issue"
+    | "not_sure"
+    | "not_provided";
     anomaly_family: AnomalyFamily | undefined;
     max_matrix_delta: 0 | 1 | 2 | 3;
     critical_route_triggered: boolean;
