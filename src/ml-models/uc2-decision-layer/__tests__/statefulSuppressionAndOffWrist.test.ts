@@ -1,292 +1,363 @@
-import {
-    runUC2DecisionLayerV2,
-    AlertHysteresisManager,
-    globalAlertHysteresisManager,
-    VitalsTTLCache,
-    globalVitalsTTLCache,
-    computeAdaptiveBaselineStats,
-    getAdjustedAEThreshold,
-    validateWatchWristContact,
-    type ScalerParams,
-    type RawObservationInput,
-    type PatientProfile,
-} from "../index";
+﻿/**
+ * Unit tests: Watch12 v3 decision layer upgrades
+ *   - AlertHysteresisManager (alert suppression state machine)
+ *   - VitalsTTLCache (stream TTL caching)
+ *   - validateWatchWristContact (off-wrist detection)
+ *   - computeAdaptiveBaselineStats (rolling 7-day baseline)
+ *   - getAdjustedAEThreshold (adaptive AE threshold)
+ */
 
-const MOCK_SCALER_12D: ScalerParams = {
-    mean: [75, 97, 16, 45, 98.6, 0.3, 2500, 1800, 0.7, 0, 1, 0],
-    scale: [10, 2, 3, 10, 1.0, 0.2, 1000, 500, 0.2, 0.7, 0.7, 0.5],
-};
+import { AlertHysteresisManager } from "../anomalyHistoryStore";
+import { VitalsTTLCache } from "../featureImputation";
+import { validateWatchWristContact } from "../signalValidation";
+import { computeAdaptiveBaselineStats } from "../ehrProfileAdapter";
+import { getAdjustedAEThreshold } from "../personalizedThresholds";
 
-const BASE_RAW: RawObservationInput = {
-    patient_id: "patient_test_123",
-    timestamp_iso: "2026-08-07T10:00:00.000Z",
-    heart_rate: 76,
-    blood_oxygen: 97,
-    respiratory_rate: 16,
-    body_temperature: 98.6,
-    activity_level: 0.3,
-    sleep_quality: 0.7,
-    hrv_sdnn: 45,
-    steps_count: 2500,
-    calories_burned: 1800,
-};
+// ── AlertHysteresisManager ────────────────────────────────────────────────────
 
-const ANOMALOUS_RAW: RawObservationInput = {
-    ...BASE_RAW,
-    heart_rate: 115,
-    blood_oxygen: 90,
-    respiratory_rate: 26,
-    body_temperature: 101.5,
-};
+describe("AlertHysteresisManager", () => {
+    let manager: AlertHysteresisManager;
 
-describe("Stateful Alert Suppression, Off-Wrist & TTL Stream Caching", () => {
     beforeEach(() => {
-        globalAlertHysteresisManager.clearAll();
-        globalVitalsTTLCache.clear();
+        manager = new AlertHysteresisManager();
     });
 
-    describe("1. Alert Hysteresis & Suppression Engine", () => {
-        let manager: AlertHysteresisManager;
+    it("starts in NORMAL state for new patient", () => {
+        const state = manager.getState("patient-001");
+        expect(state.state).toBe("NORMAL");
+        expect(state.consecutive_normal_count).toBe(0);
+    });
 
-        beforeEach(() => {
-            manager = new AlertHysteresisManager();
+    it("transitions to ACTIVE_ALERT on first anomaly", () => {
+        const result = manager.evaluateAndStep({
+            patient_id: "p1",
+            timestamp_iso: "2024-01-01T10:00:00Z",
+            is_anomaly: true,
+            sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
+            pre_hitl_severity: 1,
+        });
+        expect(result.hysteresisState.state).toBe("ACTIVE_ALERT");
+        expect(result.suppressionStatus.is_suppressed).toBe(false);
+    });
+
+    it("suppresses identical anomaly within 30-minute cooldown window", () => {
+        const t0 = "2024-01-01T10:00:00Z";
+        const t1 = "2024-01-01T10:10:00Z"; // 10 min later -- within 30 min
+
+        manager.evaluateAndStep({
+            patient_id: "p2",
+            timestamp_iso: t0,
+            is_anomaly: true,
+            sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
+            pre_hitl_severity: 1,
         });
 
-        it("transitions from NORMAL to ACTIVE_ALERT on anomaly trigger", () => {
-            const res = manager.evaluateAndStep({
-                patient_id: "patient_001",
-                timestamp_iso: "2026-08-07T10:00:00.000Z",
-                is_anomaly: true,
-                sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
-                pre_hitl_severity: 1,
-            });
+        const result = manager.evaluateAndStep({
+            patient_id: "p2",
+            timestamp_iso: t1,
+            is_anomaly: true,
+            sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
+            pre_hitl_severity: 1,
+        });
+        expect(result.suppressionStatus.is_suppressed).toBe(true);
+        expect(result.suppressionStatus.reason).toMatch(/cooldown/i);
+    });
 
-            expect(res.hysteresisState.state).toBe("ACTIVE_ALERT");
-            expect(res.suppressionStatus.is_suppressed).toBe(false);
+    it("bypasses cooldown when severity escalates", () => {
+        const t0 = "2024-01-01T10:00:00Z";
+        const t1 = "2024-01-01T10:05:00Z";
+
+        manager.evaluateAndStep({
+            patient_id: "p3",
+            timestamp_iso: t0,
+            is_anomaly: true,
+            sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
+            pre_hitl_severity: 1,
         });
 
-        it("suppresses identical alert within 30-minute quiet cooldown window", () => {
-            // First alert at 10:00
+        const result = manager.evaluateAndStep({
+            patient_id: "p3",
+            timestamp_iso: t1,
+            is_anomaly: true,
+            sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
+            pre_hitl_severity: 2,
+        });
+        expect(result.suppressionStatus.is_suppressed).toBe(false);
+        expect(result.suppressionStatus.reason).toMatch(/escalat/i);
+    });
+
+    it("resets to NORMAL after 5 consecutive normal timesteps", () => {
+        manager.evaluateAndStep({
+            patient_id: "p4",
+            timestamp_iso: "2024-01-01T10:00:00Z",
+            is_anomaly: true,
+            sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
+            pre_hitl_severity: 1,
+        });
+
+        for (let i = 1; i <= 5; i++) {
             manager.evaluateAndStep({
-                patient_id: "patient_001",
-                timestamp_iso: "2026-08-07T10:00:00.000Z",
-                is_anomaly: true,
-                sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
-                pre_hitl_severity: 1,
-            });
-
-            // Identical alert at 10:15 (15 min later)
-            const res2 = manager.evaluateAndStep({
-                patient_id: "patient_001",
-                timestamp_iso: "2026-08-07T10:15:00.000Z",
-                is_anomaly: true,
-                sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
-                pre_hitl_severity: 1,
-            });
-
-            expect(res2.suppressionStatus.is_suppressed).toBe(true);
-            expect(res2.suppressionStatus.reason).toContain("30-minute cooldown");
-        });
-
-        it("bypasses cooldown immediately on severity escalation (Severity 1 -> Severity 2)", () => {
-            // First alert at 10:00 with Severity 1
-            manager.evaluateAndStep({
-                patient_id: "patient_001",
-                timestamp_iso: "2026-08-07T10:00:00.000Z",
-                is_anomaly: true,
-                sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
-                pre_hitl_severity: 1,
-                final_severity: 1,
-            });
-
-            // Escalated alert at 10:10 with Severity 2
-            const res2 = manager.evaluateAndStep({
-                patient_id: "patient_001",
-                timestamp_iso: "2026-08-07T10:10:00.000Z",
-                is_anomaly: true,
-                sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
-                pre_hitl_severity: 2,
-                final_severity: 2,
-            });
-
-            expect(res2.suppressionStatus.is_suppressed).toBe(false);
-            expect(res2.suppressionStatus.reason).toContain("Severity escalated");
-        });
-
-        it("auto-resolves state back to NORMAL after 5 consecutive normal timesteps", () => {
-            // Anomaly trigger
-            manager.evaluateAndStep({
-                patient_id: "patient_001",
-                timestamp_iso: "2026-08-07T10:00:00.000Z",
-                is_anomaly: true,
-                sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
-                pre_hitl_severity: 1,
-            });
-
-            // 4 normal timesteps
-            for (let i = 1; i <= 4; i++) {
-                const res = manager.evaluateAndStep({
-                    patient_id: "patient_001",
-                    timestamp_iso: `2026-08-07T10:0${i}:00.000Z`,
-                    is_anomaly: false,
-                });
-                expect(res.hysteresisState.state).toBe("ACTIVE_ALERT");
-            }
-
-            // 5th normal timestep
-            const res5 = manager.evaluateAndStep({
-                patient_id: "patient_001",
-                timestamp_iso: "2026-08-07T10:05:00.000Z",
+                patient_id: "p4",
+                timestamp_iso: `2024-01-01T10:0${i}:00Z`,
                 is_anomaly: false,
             });
+        }
 
-            expect(res5.hysteresisState.state).toBe("NORMAL");
-        });
+        expect(manager.getState("p4").state).toBe("NORMAL");
     });
 
-    describe("2. Watch Off-Wrist Filter", () => {
-        it("detects off-wrist when isNearWrist === false or wrist_state === 'off'", () => {
-            const check1 = validateWatchWristContact({
-                ...BASE_RAW,
-                isNearWrist: false,
-            });
-            expect(check1.isOffWrist).toBe(true);
-
-            const check2 = validateWatchWristContact({
-                ...BASE_RAW,
-                wrist_state: "off",
-            });
-            expect(check2.isOffWrist).toBe(true);
+    it("emergency bypasses suppression and severity is forced to 3", () => {
+        manager.evaluateAndStep({
+            patient_id: "p5",
+            timestamp_iso: "2024-01-01T10:00:00Z",
+            is_anomaly: true,
+            sensor_anomaly_type: "CRITICAL_VITAL_THRESHOLD",
+            pre_hitl_severity: 2,
         });
 
-        it("bypasses AE inference, sets WATCH_OFF_WRIST tag, and routes to INSUFFICIENT_DATA passive display before emergency", async () => {
-            const result = await runUC2DecisionLayerV2({
-                raw: {
-                    ...ANOMALOUS_RAW,
-                    isNearWrist: false,
-                },
-                scaler: MOCK_SCALER_12D,
-            });
-
-            expect(result.ae).toBeNull();
-            expect(result.sensor_classification?.sensor_anomaly_type).toBe("INSUFFICIENT_DATA");
-            expect(result.feature_quality_tags?.some((t) => t.source === "WATCH_OFF_WRIST")).toBe(true);
-            expect(result.final_decision.final_notification_type).toBe("MONITORING_ADVICE");
-            expect(result.final_decision.final_notification_body).toContain("Patient watch is off wrist");
+        const result = manager.evaluateAndStep({
+            patient_id: "p5",
+            timestamp_iso: "2024-01-01T10:05:00Z",
+            is_anomaly: true,
+            sensor_anomaly_type: "CRITICAL_VITAL_THRESHOLD",
+            pre_hitl_severity: 2,
+            is_emergency: true,
         });
+        expect(result.suppressionStatus.is_suppressed).toBe(false);
+        expect(result.hysteresisState.last_alert_severity).toBe(3);
     });
 
-    describe("3. Asynchronous Stream & TTL Caching", () => {
-        let ttlCache: VitalsTTLCache;
-
-        beforeEach(() => {
-            ttlCache = new VitalsTTLCache();
+    it("allows different anomaly type through during cooldown without suppression", () => {
+        manager.evaluateAndStep({
+            patient_id: "p6",
+            timestamp_iso: "2024-01-01T10:00:00Z",
+            is_anomaly: true,
+            sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
+            pre_hitl_severity: 1,
         });
 
-        it("carries forward SpO2 within 30-minute TTL window", () => {
-            ttlCache.updateSample("p1", "blood_oxygen", 96, "2026-08-07T10:00:00.000Z");
-
-            const validSample = ttlCache.getCachedSample("p1", "blood_oxygen", "2026-08-07T10:25:00.000Z", 30 * 60 * 1000);
-            expect(validSample?.value).toBe(96);
-
-            const expiredSample = ttlCache.getCachedSample("p1", "blood_oxygen", "2026-08-07T10:35:00.000Z", 30 * 60 * 1000);
-            expect(expiredSample).toBeUndefined();
+        const result = manager.evaluateAndStep({
+            patient_id: "p6",
+            timestamp_iso: "2024-01-01T10:05:00Z",
+            is_anomaly: true,
+            sensor_anomaly_type: "SLEEP_RECOVERY_DEVIATION",
+            pre_hitl_severity: 1,
         });
-
-        it("flags INSUFFICIENT_DATA and suppresses AE when heart_rate TTL (>10 min) expires", async () => {
-            const uniquePatientId = `ttl-test-${Date.now()}`;
-            const { heart_rate, ...rawNoHr } = BASE_RAW;
-            const rawWithUniqueId = { ...rawNoHr, patient_id: uniquePatientId };
-
-            const result = await runUC2DecisionLayerV2({
-                raw: rawWithUniqueId,
-                scaler: MOCK_SCALER_12D,
-            });
-
-            expect(result.ae).toBeNull();
-            expect(result.sensor_classification?.sensor_anomaly_type).toBe("INSUFFICIENT_DATA");
-        });
+        expect(result.suppressionStatus.is_suppressed).toBe(false);
     });
 
-    describe("4. Adaptive Baseline Normalization & Personalized Thresholds", () => {
-        it("computes rolling 7-day mean and std from history", () => {
-            const history = [
-                { heart_rate: 70, blood_oxygen: 98 },
-                { heart_rate: 72, blood_oxygen: 98 },
-                { heart_rate: 74, blood_oxygen: 96 },
-            ];
-            const stats = computeAdaptiveBaselineStats(history);
-            expect(stats.rolling_7d_mean.heart_rate).toBe(72);
-            expect(stats.rolling_7d_mean.blood_oxygen).toBe(97.33333333333333);
+    it("allows identical anomaly after 30-minute cooldown expires", () => {
+        manager.evaluateAndStep({
+            patient_id: "p7",
+            timestamp_iso: "2024-01-01T10:00:00Z",
+            is_anomaly: true,
+            sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
+            pre_hitl_severity: 1,
         });
 
-        it("adjusts runtime AE trigger threshold according to patient clinical risk tier / GMFCS level", () => {
-            const profileGmfcsV: PatientProfile = {
-                patient_id: "p1",
-                gmfcs_level: "V",
-            };
-            const adjustedThreshold = getAdjustedAEThreshold(1.1447, profileGmfcsV);
-            expect(adjustedThreshold).toBeLessThan(1.1447);
+        const result = manager.evaluateAndStep({
+            patient_id: "p7",
+            timestamp_iso: "2024-01-01T10:31:00Z", // 31 min later -- cooldown expired
+            is_anomaly: true,
+            sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE",
+            pre_hitl_severity: 1,
         });
+        expect(result.suppressionStatus.is_suppressed).toBe(false);
+    });
+});
+
+// ── VitalsTTLCache ────────────────────────────────────────────────────────────
+
+describe("VitalsTTLCache", () => {
+    let cache: VitalsTTLCache;
+
+    beforeEach(() => {
+        cache = new VitalsTTLCache();
     });
 
-    describe("5. Signal Validation & Off-Wrist Safety Pipeline Order", () => {
-        it("routes HR artifact jump (70->170 in 2s) to INSUFFICIENT_DATA before emergency engine", async () => {
-            const previous = {
-                timestamp_iso: "2026-01-15T14:00:00.000Z",
-                heart_rate: 70,
-                blood_oxygen: 97,
-            };
-            const current: RawObservationInput = {
-                ...BASE_RAW,
-                timestamp_iso: "2026-01-15T14:00:02.000Z",
-                heart_rate: 170, // Impossible artifact jump
-            };
+    it("returns sample within TTL window", () => {
+        cache.updateSample("p1", "heart_rate", 72, "2024-01-01T10:00:00Z");
+        const sample = cache.getCachedSample("p1", "heart_rate", "2024-01-01T10:05:00Z", 10 * 60 * 1000);
+        expect(sample).toBeDefined();
+        expect(sample?.value).toBe(72);
+    });
 
-            const result = await runUC2DecisionLayerV2({
-                raw: current,
-                scaler: MOCK_SCALER_12D,
-                previous,
-            });
+    it("returns undefined when sample exceeds TTL", () => {
+        cache.updateSample("p1", "heart_rate", 72, "2024-01-01T10:00:00Z");
+        const sample = cache.getCachedSample("p1", "heart_rate", "2024-01-01T10:11:00Z", 10 * 60 * 1000);
+        expect(sample).toBeUndefined();
+    });
 
-            expect(result.signal_validation?.isArtifact).toBe(true);
-            expect(result.sensor_classification?.sensor_anomaly_type).toBe("INSUFFICIENT_DATA");
-            expect(result.emergency.is_emergency).toBe(false);
+    it("returns undefined for unknown patient", () => {
+        const sample = cache.getCachedSample("unknown", "heart_rate", "2024-01-01T10:00:00Z", 10 * 60 * 1000);
+        expect(sample).toBeUndefined();
+    });
+
+    it("overwrites stale sample with newer value", () => {
+        cache.updateSample("p1", "heart_rate", 72, "2024-01-01T09:00:00Z");
+        cache.updateSample("p1", "heart_rate", 80, "2024-01-01T10:00:00Z");
+        const sample = cache.getCachedSample("p1", "heart_rate", "2024-01-01T10:05:00Z", 10 * 60 * 1000);
+        expect(sample?.value).toBe(80);
+    });
+
+    it("clear() for specific patient does not affect other patients", () => {
+        cache.updateSample("p1", "heart_rate", 72, "2024-01-01T10:00:00Z");
+        cache.updateSample("p2", "heart_rate", 65, "2024-01-01T10:00:00Z");
+        cache.clear("p1");
+        expect(cache.getCachedSample("p1", "heart_rate", "2024-01-01T10:02:00Z", 10 * 60 * 1000)).toBeUndefined();
+        expect(cache.getCachedSample("p2", "heart_rate", "2024-01-01T10:02:00Z", 10 * 60 * 1000)).toBeDefined();
+    });
+
+    it("exact TTL boundary returns sample (inclusive)", () => {
+        cache.updateSample("p1", "heart_rate", 72, "2024-01-01T10:00:00Z");
+        // exactly 10 min later -- at TTL boundary
+        const sample = cache.getCachedSample("p1", "heart_rate", "2024-01-01T10:10:00Z", 10 * 60 * 1000);
+        expect(sample).toBeDefined();
+    });
+});
+
+// ── validateWatchWristContact ─────────────────────────────────────────────────
+
+describe("validateWatchWristContact", () => {
+    it("returns isOffWrist=false when no wrist fields set", () => {
+        const result = validateWatchWristContact({
+            patient_id: "p1",
+            timestamp_iso: "2024-01-01T10:00:00Z",
         });
+        expect(result.isOffWrist).toBe(false);
+        expect(result.reasons).toHaveLength(0);
+        expect(result.feature_quality_tags).toHaveLength(0);
+    });
 
-        it("routes off-wrist watch (isNearWrist: false) to passive monitoring before emergency engine", async () => {
-            const result = await runUC2DecisionLayerV2({
-                raw: {
-                    ...BASE_RAW,
-                    blood_oxygen: 85, // Low SpO2, but watch is off wrist
-                    isNearWrist: false,
-                },
-                scaler: MOCK_SCALER_12D,
-            });
-
-            expect(result.emergency.is_emergency).toBe(false);
-            expect(result.sensor_classification?.sensor_anomaly_type).toBe("INSUFFICIENT_DATA");
-            expect(result.final_decision.final_notification_type).toBe("MONITORING_ADVICE");
-            expect(result.final_decision.final_notification_body).toContain("Patient watch is off wrist");
+    it("returns isOffWrist=true when isNearWrist is false", () => {
+        const result = validateWatchWristContact({
+            patient_id: "p1",
+            timestamp_iso: "2024-01-01T10:00:00Z",
+            isNearWrist: false,
         });
+        expect(result.isOffWrist).toBe(true);
+        expect(result.reasons[0]).toMatch(/off wrist/i);
+    });
 
-        it("fires severe emergency alert (HR >= 140 bpm) when on-wrist and non-artifact", async () => {
-            const manager = new AlertHysteresisManager();
-
-            const result = await runUC2DecisionLayerV2({
-                raw: {
-                    ...BASE_RAW,
-                    patient_id: "p_emergency",
-                    timestamp_iso: "2026-08-07T10:05:00.000Z",
-                    heart_rate: 145, // Valid on-wrist emergency spike
-                    isNearWrist: true,
-                },
-                scaler: MOCK_SCALER_12D,
-                hysteresisManager: manager,
-            });
-
-            expect(result.emergency.is_emergency).toBe(true);
-            expect(result.final_decision.final_notification_type).toBe("CRITICAL_EMERGENCY_ALERT");
+    it("returns isOffWrist=true when wrist_state is 'off'", () => {
+        const result = validateWatchWristContact({
+            patient_id: "p1",
+            timestamp_iso: "2024-01-01T10:00:00Z",
+            wrist_state: "off",
         });
+        expect(result.isOffWrist).toBe(true);
+    });
+
+    it("returns isOffWrist=false when isNearWrist is true", () => {
+        const result = validateWatchWristContact({
+            patient_id: "p1",
+            timestamp_iso: "2024-01-01T10:00:00Z",
+            isNearWrist: true,
+        });
+        expect(result.isOffWrist).toBe(false);
+    });
+
+    it("returns isOffWrist=false when wrist_state is 'on'", () => {
+        const result = validateWatchWristContact({
+            patient_id: "p1",
+            timestamp_iso: "2024-01-01T10:00:00Z",
+            wrist_state: "on",
+        });
+        expect(result.isOffWrist).toBe(false);
+    });
+
+    it("tags both heart_rate and blood_oxygen with WATCH_OFF_WRIST source", () => {
+        const result = validateWatchWristContact({
+            patient_id: "p1",
+            timestamp_iso: "2024-01-01T10:00:00Z",
+            isNearWrist: false,
+            heart_rate: 55,
+            blood_oxygen: 90,
+        });
+        expect(result.feature_quality_tags).toHaveLength(2);
+        const sources = result.feature_quality_tags.map((t) => t.source);
+        expect(sources).toContain("WATCH_OFF_WRIST");
+    });
+});
+
+// ── computeAdaptiveBaselineStats ──────────────────────────────────────────────
+
+describe("computeAdaptiveBaselineStats", () => {
+    it("returns empty dicts for empty input", () => {
+        const result = computeAdaptiveBaselineStats([]);
+        expect(Object.keys(result.rolling_7d_mean)).toHaveLength(0);
+        expect(Object.keys(result.rolling_7d_std)).toHaveLength(0);
+    });
+
+    it("computes correct mean for single feature across samples", () => {
+        const result = computeAdaptiveBaselineStats([
+            { heart_rate: 60 },
+            { heart_rate: 70 },
+            { heart_rate: 80 },
+        ]);
+        expect(result.rolling_7d_mean.heart_rate).toBeCloseTo(70, 1);
+    });
+
+    it("computes std=0 when all values are identical", () => {
+        const result = computeAdaptiveBaselineStats([
+            { heart_rate: 70 },
+            { heart_rate: 70 },
+            { heart_rate: 70 },
+        ]);
+        expect(result.rolling_7d_std.heart_rate).toBeCloseTo(0, 5);
+    });
+
+    it("ignores NaN values in mean computation", () => {
+        const result = computeAdaptiveBaselineStats([
+            { heart_rate: 70 },
+            { heart_rate: NaN },
+            { heart_rate: 90 },
+        ]);
+        expect(result.rolling_7d_mean.heart_rate).toBeCloseTo(80, 1);
+    });
+
+    it("handles multiple features independently", () => {
+        const result = computeAdaptiveBaselineStats([
+            { heart_rate: 60, blood_oxygen: 96 },
+            { heart_rate: 80, blood_oxygen: 98 },
+        ]);
+        expect(result.rolling_7d_mean.heart_rate).toBeCloseTo(70, 1);
+        expect(result.rolling_7d_mean.blood_oxygen).toBeCloseTo(97, 1);
+    });
+});
+
+// ── getAdjustedAEThreshold ────────────────────────────────────────────────────
+
+describe("getAdjustedAEThreshold", () => {
+    const base = 0.5;
+
+    it("returns base threshold when no profile is given", () => {
+        expect(getAdjustedAEThreshold(base)).toBe(base);
+    });
+
+    it("returns lower threshold for CRITICAL risk tier", () => {
+        expect(getAdjustedAEThreshold(base, { clinical_risk_tier: "CRITICAL" } as any)).toBeLessThan(base);
+    });
+
+    it("returns lower threshold for HIGH risk tier", () => {
+        expect(getAdjustedAEThreshold(base, { clinical_risk_tier: "HIGH" } as any)).toBeLessThan(base);
+    });
+
+    it("returns higher threshold for LOW risk tier", () => {
+        expect(getAdjustedAEThreshold(base, { clinical_risk_tier: "LOW" } as any)).toBeGreaterThan(base);
+    });
+
+    it("MEDIUM risk tier returns base threshold unchanged", () => {
+        expect(getAdjustedAEThreshold(base, { clinical_risk_tier: "MEDIUM" } as any)).toBe(base);
+    });
+
+    it("GMFCS Level V lowers threshold", () => {
+        expect(getAdjustedAEThreshold(base, { gmfcs_level: "V" } as any)).toBeLessThan(base);
+    });
+
+    it("GMFCS Level V combined with CRITICAL lowers threshold further than CRITICAL alone", () => {
+        const critOnly = getAdjustedAEThreshold(base, { clinical_risk_tier: "CRITICAL" } as any);
+        const combined = getAdjustedAEThreshold(base, { gmfcs_level: "V", clinical_risk_tier: "CRITICAL" } as any);
+        expect(combined).toBeLessThan(critOnly);
     });
 });

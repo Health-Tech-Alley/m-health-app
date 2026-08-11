@@ -23,7 +23,7 @@
  *   const profile = patientProfileFromPlainObject(patientId, rawProfileData);
  */
 
-import type { FhirBundle, PatientProfile } from "./uc2Types";
+import type { FhirBundle, PatientProfile, FeatureName } from "./uc2Types";
 
 // ── FHIR helpers ──────────────────────────────────────────────────────────────
 
@@ -201,9 +201,6 @@ export function patientProfileFromPlainObject(
         macs?: string;
         cfcs?: string;
         edacs?: string;
-        rolling_7d_mean?: Partial<Record<import("./uc2Types").FeatureName, number>>;
-        rolling_7d_std?: Partial<Record<import("./uc2Types").FeatureName, number>>;
-        clinical_risk_tier?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
     }
 ): PatientProfile {
     return {
@@ -236,51 +233,64 @@ export function patientProfileFromPlainObject(
         macs: data.macs,
         cfcs: data.cfcs,
         edacs: data.edacs,
-        rolling_7d_mean: data.rolling_7d_mean,
-        rolling_7d_std: data.rolling_7d_std,
-        clinical_risk_tier: data.clinical_risk_tier,
     };
 }
 
 /**
- * Compute rolling 7-day mean (mu_p) and standard deviation (sigma_p) from historical observations.
+ * Compute rolling 7-day mean and std per feature from historical vital samples.
  */
 export function computeAdaptiveBaselineStats(
-    history: Array<Record<string, number>>
+    historySamples: Array<Partial<Record<FeatureName, number>>>
 ): {
-    rolling_7d_mean: Partial<Record<import("./uc2Types").FeatureName, number>>;
-    rolling_7d_std: Partial<Record<import("./uc2Types").FeatureName, number>>;
+    rolling_7d_mean: Partial<Record<FeatureName, number>>;
+    rolling_7d_std: Partial<Record<FeatureName, number>>;
 } {
-    const sumMap: Record<string, number> = {};
-    const countMap: Record<string, number> = {};
-    const valsMap: Record<string, number[]> = {};
+    const sums: Partial<Record<FeatureName, number>> = {};
+    const counts: Partial<Record<FeatureName, number>> = {};
 
-    for (const item of history) {
-        for (const [key, val] of Object.entries(item)) {
-            if (typeof val === "number" && Number.isFinite(val)) {
-                sumMap[key] = (sumMap[key] ?? 0) + val;
-                countMap[key] = (countMap[key] ?? 0) + 1;
-                if (!valsMap[key]) valsMap[key] = [];
-                valsMap[key].push(val);
+    for (const sample of historySamples) {
+        for (const [feat, val] of Object.entries(sample)) {
+            if (typeof val === "number" && !isNaN(val)) {
+                const fn = feat as FeatureName;
+                sums[fn] = (sums[fn] ?? 0) + val;
+                counts[fn] = (counts[fn] ?? 0) + 1;
             }
         }
     }
 
-    const meanMap: Partial<Record<import("./uc2Types").FeatureName, number>> = {};
-    const stdMap: Partial<Record<import("./uc2Types").FeatureName, number>> = {};
+    const mean: Partial<Record<FeatureName, number>> = {};
+    for (const fn of Object.keys(sums) as FeatureName[]) {
+        const c = counts[fn] ?? 0;
+        if (c > 0) {
+            mean[fn] = sums[fn]! / c;
+        }
+    }
 
-    for (const [key, vals] of Object.entries(valsMap)) {
-        const count = vals.length;
-        if (count === 0) continue;
-        const mean = sumMap[key] / count;
-        meanMap[key as import("./uc2Types").FeatureName] = mean;
+    const sqDiffSums: Partial<Record<FeatureName, number>> = {};
+    for (const sample of historySamples) {
+        for (const [feat, val] of Object.entries(sample)) {
+            if (typeof val === "number" && !isNaN(val)) {
+                const fn = feat as FeatureName;
+                const m = mean[fn];
+                if (typeof m === "number") {
+                    const diff = val - m;
+                    sqDiffSums[fn] = (sqDiffSums[fn] ?? 0) + diff * diff;
+                }
+            }
+        }
+    }
 
-        const variance = vals.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / count;
-        stdMap[key as import("./uc2Types").FeatureName] = Math.sqrt(variance);
+    const std: Partial<Record<FeatureName, number>> = {};
+    for (const fn of Object.keys(sqDiffSums) as FeatureName[]) {
+        const c = counts[fn] ?? 0;
+        if (c > 0) {
+            std[fn] = Math.sqrt(sqDiffSums[fn]! / c);
+        }
     }
 
     return {
-        rolling_7d_mean: meanMap,
-        rolling_7d_std: stdMap,
+        rolling_7d_mean: mean,
+        rolling_7d_std: std,
     };
 }
+

@@ -10,98 +10,33 @@ import {
 
 import { DEFAULT_PATIENT_PROFILE, DEFAULT_FEATURE_VALUES, FEATURE_ORDER } from "./uc2Constants";
 
-// ── Asynchronous Stream TTL Cache ─────────────────────────────────────────────
-
-export const VITAL_TTL_BOUNDS_MS = {
-    heart_rate: 10 * 60 * 1000,          // 10 minutes
-    blood_oxygen: 30 * 60 * 1000,        // 30 minutes
-    respiratory_rate: 6 * 60 * 60 * 1000,// 6 hours
-    hrv_sdnn: 12 * 60 * 60 * 1000,        // 12 hours
-    body_temperature: 24 * 60 * 60 * 1000,// 24 hours
-} as const;
-
-export interface CachedVitalSample {
-    value: number;
-    timestamp_iso: string;
-}
-
-export class VitalsTTLCache {
-    private cache = new Map<string, Partial<Record<FeatureName, CachedVitalSample>>>();
-
-    public updateSample(patient_id: string, feature: FeatureName, value: number, timestamp_iso: string): void {
-        let pCache = this.cache.get(patient_id);
-        if (!pCache) {
-            pCache = {};
-            this.cache.set(patient_id, pCache);
-        }
-        pCache[feature] = { value, timestamp_iso };
-    }
-
-    public getCachedSample(
-        patient_id: string,
-        feature: FeatureName,
-        currentTimestampIso: string,
-        ttlMs: number
-    ): CachedVitalSample | undefined {
-        const pCache = this.cache.get(patient_id);
-        if (!pCache) return undefined;
-        const sample = pCache[feature];
-        if (!sample) return undefined;
-        const currentMs = Date.parse(currentTimestampIso);
-        const sampleMs = Date.parse(sample.timestamp_iso);
-        const ageMs = currentMs - sampleMs;
-        if (ageMs >= 0 && ageMs <= ttlMs) {
-            return sample;
-        }
-        return undefined;
-    }
-
-    public clear(patient_id?: string): void {
-        if (patient_id) {
-            this.cache.delete(patient_id);
-        } else {
-            this.cache.clear();
-        }
-    }
-}
-
-export const globalVitalsTTLCache = new VitalsTTLCache();
-
 /**
  * Fill missing Watch12 AE features using the profile baseline and population defaults.
- * Integrates asynchronous TTL stream caching.
+ *
+ * Only the 12 canonical Watch AE features are filled here.
+ * BP, glucose, pulse_pressure, MAP, and stress_level are NOT AE features
+ * and must NOT be included in the returned features or feature_vector.
+ *
+ * EHR baseline values may be used for:
+ *   heart_rate (from resting_heart_rate), blood_oxygen, respiratory_rate,
+ *   body_temperature, hrv_sdnn
+ *
+ * Missing EHR BP/glucose must NOT:
+ *   - create AE feature-quality warnings
+ *   - alter the AE feature vector
+ *   - affect AE reconstruction error
  */
 export function fillMissingFeatures(
     partial: Partial<CompletedFeatureVector>,
     sourceMap: Partial<Record<FeatureName, FeatureQualityTag>>,
-    profile?: PatientProfile,
-    options?: {
-        patient_id?: string;
-        timestamp_iso?: string;
-        ttlCache?: VitalsTTLCache;
-    }
+    profile?: PatientProfile
 ): {
     features: CompletedFeatureVector;
     feature_vector: number[];
     feature_quality_tags: FeatureQualityTag[];
-    heart_rate_ttl_expired?: boolean;
 } {
     const completed = {} as CompletedFeatureVector;
     const tags: FeatureQualityTag[] = [];
-    let heart_rate_ttl_expired = false;
-
-    const ttlCache = options?.ttlCache ?? globalVitalsTTLCache;
-    const patientId = options?.patient_id ?? profile?.patient_id;
-    const timestampIso = options?.timestamp_iso;
-
-    // Update TTL cache for present observed samples
-    if (patientId && timestampIso) {
-        for (const feature of FEATURE_ORDER) {
-            if (typeof partial[feature] === "number") {
-                ttlCache.updateSample(patientId, feature, partial[feature]!, timestampIso);
-            }
-        }
-    }
 
     for (const feature of FEATURE_ORDER) {
         if (typeof partial[feature] === "number") {
@@ -115,27 +50,6 @@ export function fillMissingFeatures(
                 }
             );
             continue;
-        }
-
-        // Try TTL cached value if available and unexpired
-        if (patientId && timestampIso && feature in VITAL_TTL_BOUNDS_MS) {
-            const ttlMs = VITAL_TTL_BOUNDS_MS[feature as keyof typeof VITAL_TTL_BOUNDS_MS];
-            const cached = ttlCache.getCachedSample(patientId, feature, timestampIso, ttlMs);
-            if (cached) {
-                completed[feature] = cached.value;
-                tags.push({
-                    feature,
-                    value: cached.value,
-                    source: "observed_watch",
-                    warning: `Carried forward cached ${feature} sample within TTL.`,
-                });
-                continue;
-            }
-        }
-
-        // Heart rate TTL expired/missing check
-        if (feature === "heart_rate" && patientId && timestampIso) {
-            heart_rate_ttl_expired = true;
         }
 
         const baselineValue = baselineForWatchFeature(feature, profile);
@@ -167,7 +81,6 @@ export function fillMissingFeatures(
         features: completed,
         feature_vector,
         feature_quality_tags: tags,
-        heart_rate_ttl_expired,
     };
 }
 
@@ -316,3 +229,65 @@ export function imputeUnavailableFeatures(
         featureQuality,
     };
 }
+
+// ── Stream TTL Caching Engine ──────────────────────────────────────────────────
+
+export interface CachedVitalSample {
+    feature: FeatureName;
+    value: number;
+    timestamp_iso: string;
+}
+
+export class VitalsTTLCache {
+    private cache = new Map<string, Map<FeatureName, CachedVitalSample>>();
+
+    public updateSample(
+        patient_id: string,
+        feature: FeatureName,
+        value: number,
+        timestamp_iso: string
+    ): void {
+        let patientMap = this.cache.get(patient_id);
+        if (!patientMap) {
+            patientMap = new Map<FeatureName, CachedVitalSample>();
+            this.cache.set(patient_id, patientMap);
+        }
+        patientMap.set(feature, { feature, value, timestamp_iso });
+    }
+
+    public getCachedSample(
+        patient_id: string,
+        feature: FeatureName,
+        currentTimestampIso: string,
+        ttlMs: number
+    ): CachedVitalSample | undefined {
+        const patientMap = this.cache.get(patient_id);
+        if (!patientMap) return undefined;
+
+        const sample = patientMap.get(feature);
+        if (!sample) return undefined;
+
+        const sampleTime = Date.parse(sample.timestamp_iso);
+        const currentTime = Date.parse(currentTimestampIso);
+
+        if (isNaN(sampleTime) || isNaN(currentTime)) return undefined;
+
+        const ageMs = currentTime - sampleTime;
+        if (ageMs >= 0 && ageMs <= ttlMs) {
+            return sample;
+        }
+
+        return undefined;
+    }
+
+    public clear(patient_id?: string): void {
+        if (patient_id) {
+            this.cache.delete(patient_id);
+        } else {
+            this.cache.clear();
+        }
+    }
+}
+
+export const globalVitalsTTLCache = new VitalsTTLCache();
+

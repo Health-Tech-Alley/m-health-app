@@ -5,31 +5,20 @@
  * These tests verify that the production runtime is truly 12D end-to-end.
  */
 
-import { makeFinalDecision } from "../finalDecision";
 import {
-    runUC2DecisionLayerV2,
-    makeFinalDecision,
-    globalAlertHysteresisManager,
-    globalVitalsTTLCache,
-    FEATURE_ORDER,
     AE_DEFAULT_THRESHOLD,
     AE_INPUT_DIM,
+    evaluateSustainedDuration,
+    FEATURE_ORDER,
+    runUC2DecisionLayerV2,
     scaleVector,
     validateSignalPhysiologicBounds,
-    evaluateSustainedDuration,
-    type ScalerParams,
-    type RawObservationInput,
-    type PatientProfile,
     type HistoricalAnomalyEvent,
-    type SensorAnomalyType,
+    type PatientProfile,
+    type RawObservationInput,
+    type ScalerParams,
+    type SensorAnomalyType
 } from "../";
-
-// Reset global singletons before every test to prevent cross-test state contamination
-beforeEach(() => {
-    globalAlertHysteresisManager.clearAll();
-    globalVitalsTTLCache.clear();
-});
-
 
 // ── Shared fixtures ───────────────────────────────────────────────────────────
 
@@ -548,6 +537,7 @@ describe("7.11 Caregiver critical route severity 3", () => {
 
     it("non-emergency severity 3 path does not collapse to severity 2", async () => {
         // Directly test that makeFinalDecision honours critical_route_triggered
+        const { makeFinalDecision } = await import("../finalDecision");
         const result = makeFinalDecision({
             emergency: {
                 emergency: false,
