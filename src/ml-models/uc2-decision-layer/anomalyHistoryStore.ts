@@ -19,14 +19,13 @@
  */
 
 import type {
+    AlertHysteresisState,
+    AlertSuppressionStatus,
     HistoricalAnomalyEvent,
     PostHitlAnomalyType,
     SensorAnomalyType,
     Severity,
-    AlertHysteresisState,
-    AlertSuppressionStatus,
 } from "./uc2Types";
-
 
 // ── Alert Hysteresis & Suppression Engine ─────────────────────────────────────
 
@@ -429,30 +428,30 @@ export class SQLiteAnomalyHistoryStore implements AnomalyHistoryStore {
         const db = getDatabase();
         const rows = cutoff
             ? db.getAllSync<{
-                  anomaly_type: string;
-                  severity: number;
-                  timestamp: string;
-                  caregiver_confirmed: number;
-              }>(
-                  `SELECT anomaly_type, severity, timestamp, caregiver_confirmed
+                anomaly_type: string;
+                severity: number;
+                timestamp: string;
+                caregiver_confirmed: number;
+            }>(
+                `SELECT anomaly_type, severity, timestamp, caregiver_confirmed
                    FROM anomaly_history
                    WHERE patient_id = ? AND timestamp >= ?
                    ORDER BY timestamp DESC;`,
-                  patient_id,
-                  cutoff
-              )
+                patient_id,
+                cutoff
+            )
             : db.getAllSync<{
-                  anomaly_type: string;
-                  severity: number;
-                  timestamp: string;
-                  caregiver_confirmed: number;
-              }>(
-                  `SELECT anomaly_type, severity, timestamp, caregiver_confirmed
+                anomaly_type: string;
+                severity: number;
+                timestamp: string;
+                caregiver_confirmed: number;
+            }>(
+                `SELECT anomaly_type, severity, timestamp, caregiver_confirmed
                    FROM anomaly_history
                    WHERE patient_id = ?
                    ORDER BY timestamp DESC;`,
-                  patient_id
-              );
+                patient_id
+            );
 
         return rows.map((row) => ({
             patient_id,

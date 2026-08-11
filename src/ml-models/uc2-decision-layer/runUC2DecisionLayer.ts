@@ -9,7 +9,6 @@
     EmergencyRuleResult,
     ExternalMeasurements,
     FeatureQualityTag,
-    FinalDecisionResult,
     FinalNotificationLevel,
     FinalNotificationType,
     FinalSlmPayload,
@@ -23,7 +22,6 @@
     RawObservationInput,
     ScalerParams,
     SensorAnomalyType,
-    SensorClassificationResult,
     Severity,
     UC2ContextualType,
     UC2Scaler,
@@ -488,107 +486,254 @@ export async function runUC2DecisionLayerV2(params: {
         const safeEmergency = { ...artifactEmergency, is_emergency: false, emergency: false };
 
         const artifact_final_decision = makeFinalDecision({
-            emergency: safeEmergency,
-            sensor: {
-                sensor_anomaly_type: "INSUFFICIENT_DATA",
-                pre_hitl_severity: 1,
-                reasons: artifactReasons,
-            },
-            caregiver: null,
-            personalized: null,
-            recurrence: null,
-            sustained: null,
-        });
+            const artifact_final_decision = makeFinalDecision({
+                emergency: safeEmergency,
+                sensor: {
+                    sensor_anomaly_type: "INSUFFICIENT_DATA",
+                    pre_hitl_severity: 1,
+                    reasons: artifactReasons,
+                    reasons: artifactReasons,
+                },
+                caregiver: null,
+                personalized: null,
+                recurrence: null,
+                sustained: null,
+            });
 
-        return {
-            emergency: safeEmergency,
-            features: built.features,
-            feature_vector: built.feature_vector,
-            feature_quality_tags: mergedTags,
-            ae: null,
-            sensor_classification: {
-                sensor_anomaly_type: "INSUFFICIENT_DATA",
-                pre_hitl_severity: 1,
-                reasons: artifactReasons,
-            },
-            caregiver_hitl: null,
-            personalized_thresholds: null,
-            recurrence: null,
-            sustained_duration: null,
-            signal_validation,
-            final_decision: artifact_final_decision,
-            initial_mcp_payload: null,
-            final_slm_payload: null,
-        };
-    }
+            return {
+                emergency: safeEmergency,
+                features: built.features,
+                feature_vector: built.feature_vector,
+                feature_quality_tags: mergedTags,
+                ae: null,
+                sensor_classification: {
+                    sensor_anomaly_type: "INSUFFICIENT_DATA",
+                    pre_hitl_severity: 1,
+                    reasons: artifactReasons,
+                    reasons: artifactReasons,
+                },
+                caregiver_hitl: null,
+                personalized_thresholds: null,
+                recurrence: null,
+                sustained_duration: null,
+                signal_validation,
+                final_decision: artifact_final_decision,
+                initial_mcp_payload: null,
+                final_slm_payload: null,
+            };
+        }
 
     // â”€â”€ Step 4: Off-wrist contact detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const wristCheck = validateWatchWristContact(params.raw);
-    if (wristCheck.isOffWrist) {
-        const mergedOffWristTags = [
-            ...built.feature_quality_tags,
-            ...wristCheck.feature_quality_tags,
-        ];
-        const offWristEmergency = {
-            is_emergency: false, emergency: false, reasons: wristCheck.reasons,
-            severity: 0 as Severity, reason: null, pipelinePath: "UC2_SLOW_PATH" as PipelinePath,
-        } satisfies EmergencyRuleResult;
-        const offWristFinal = makeFinalDecision({
-            emergency: offWristEmergency,
-            sensor: {
-                sensor_anomaly_type: "WATCH_OFF_WRIST",
-                pre_hitl_severity: 0,
-                reasons: wristCheck.reasons,
-            },
-            caregiver: null,
-            personalized: null,
+        if (wristCheck.isOffWrist) {
+            const mergedOffWristTags = [
+                ...built.feature_quality_tags,
+                ...wristCheck.feature_quality_tags,
+            ];
+            const offWristEmergency = {
+                is_emergency: false, emergency: false, reasons: wristCheck.reasons,
+                severity: 0 as Severity, reason: null, pipelinePath: "UC2_SLOW_PATH" as PipelinePath,
+            } satisfies EmergencyRuleResult;
+            const offWristFinal = makeFinalDecision({
+                emergency: offWristEmergency,
+                sensor: {
+                    sensor_anomaly_type: "WATCH_OFF_WRIST",
+                    pre_hitl_severity: 0,
+                    reasons: wristCheck.reasons,
+                },
+                caregiver: null,
+                personalized: null,
+                recurrence: null,
+                sustained: null,
+            });
+            return {
+                emergency: offWristEmergency,
+                features: built.features,
+                feature_vector: built.feature_vector,
+                feature_quality_tags: mergedOffWristTags,
+                ae: null,
+                sensor_classification: {
+                    sensor_anomaly_type: "WATCH_OFF_WRIST",
+                    pre_hitl_severity: 0,
+                    reasons: wristCheck.reasons,
+                },
+                caregiver_hitl: null,
+                personalized_thresholds: null,
+                recurrence: null,
+                sustained_duration: null,
+                signal_validation: null,
+                final_decision: offWristFinal,
+                initial_mcp_payload: null,
+                final_slm_payload: null,
+            };
+        }
+
+        // â”€â”€ Step 5: Emergency engine â€” hard safety thresholds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Fires AFTER signal validation and off-wrist check so vitals are clean.
+        const emergency = runEmergencyRuleEngine(built.features);
+
+        if (emergency.is_emergency) {
+            const final_decision = makeFinalDecision({
+                emergency,
+                sensor: null,
+                caregiver: null,
+                personalized: null,
+                recurrence: null,
+                sustained: null,
+            });
+
+            return {
+                emergency,
+                features: built.features,
+                feature_vector: built.feature_vector,
+                feature_quality_tags: built.feature_quality_tags,
+                ae: null,
+                sensor_classification: null,
+                caregiver_hitl: null,
+                personalized_thresholds: null,
+                recurrence: null,
+                sustained_duration: null,
+                signal_validation: null,
+                final_decision,
+                initial_mcp_payload: null,
+                final_slm_payload: null,
+            };
+        }
+
+        // â”€â”€ Step 6: Personalized thresholds (AE features + external measurements) â”€
+        const personalized = evaluatePersonalizedThresholds(
+            built.features,
+            params.profile,
+            external
+        );
+
+        // â”€â”€ Step 7: Adaptive AE threshold from patient risk tier / GMFCS â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        const adjustedAeThreshold = getAdjustedAEThreshold(params.aeThreshold ?? 0.5, params.profile);
+
+        // â”€â”€ Step 8: Scale 12D vector with adaptive patient baseline shift â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        const scaled = scaleVector(built.feature_vector, params.scaler, params.profile);
+
+        // â”€â”€ Step 9: Run 12D TFLite AE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        const reconstructed = await runTinyAutoencoderTflite(
+            scaled,
+            params.interpreter
+        );
+
+        // â”€â”€ Step 10: Compute 12D AE score with adaptive threshold â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        const ae = computeAutoencoderScore(
+            scaled,
+            reconstructed,
+            built.features,
+            adjustedAeThreshold
+        adjustedAeThreshold
+        );
+
+        // â”€â”€ Step 11: Classify sensor anomaly (Watch12 routing groups) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        const sensor = classifySensorAnomaly(built.features, ae, null);
+
+        // â”€â”€ Step 12: Evaluate caregiver HITL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        const caregiver = evaluateCaregiverHitl(
+            params.caregiverInput,
+            sensor.sensor_anomaly_type,
+            sensor.pre_hitl_severity
+        );
+
+        // â”€â”€ Step 13: Provisional final decision (feeds recurrence) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        const provisionalFinal = makeFinalDecision({
+            emergency,
+            sensor,
+            caregiver,
+            personalized,
             recurrence: null,
             sustained: null,
         });
-        return {
-            emergency: offWristEmergency,
-            features: built.features,
-            feature_vector: built.feature_vector,
-            feature_quality_tags: mergedOffWristTags,
-            ae: null,
-            sensor_classification: {
-                sensor_anomaly_type: "WATCH_OFF_WRIST",
-                pre_hitl_severity: 0,
-                reasons: wristCheck.reasons,
-            },
-            caregiver_hitl: null,
-            personalized_thresholds: null,
-            recurrence: null,
-            sustained_duration: null,
-            signal_validation: null,
-            final_decision: offWristFinal,
-            initial_mcp_payload: null,
-            final_slm_payload: null,
-        };
-    }
 
-    // â”€â”€ Step 5: Emergency engine â€” hard safety thresholds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // Fires AFTER signal validation and off-wrist check so vitals are clean.
-    const emergency = runEmergencyRuleEngine(built.features);
+        // â”€â”€ Step 14: Recurrence risk â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        const recurrence = evaluateRecurrenceRisk({
+            patient_id: params.raw.patient_id,
+            timestamp_iso: params.raw.timestamp_iso,
+            current_post_hitl_type: provisionalFinal.post_hitl_anomaly_type ?? "NORMAL_PATTERN",
+            history: params.history,
+            emergencyAlreadyDetected: false,
+        });
 
-    if (emergency.is_emergency) {
+        // â”€â”€ Step 15: Sustained duration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        const sustained = evaluateSustainedDuration({
+            patient_id: params.raw.patient_id,
+            timestamp_iso: params.raw.timestamp_iso,
+            current_sensor_anomaly_type: sensor.sensor_anomaly_type,
+            current_pre_hitl_severity: sensor.pre_hitl_severity,
+            history: params.history,
+        });
+
+        // â”€â”€ Step 16: Alert Hysteresis & Suppression Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         const hysteresisEval = hysteresisMgr.evaluateAndStep({
             patient_id: params.raw.patient_id,
             timestamp_iso: params.raw.timestamp_iso,
-            is_anomaly: true,
-            post_hitl_anomaly_type: "CRITICAL_EMERGENCY_ALERT",
-            final_severity: 3,
-            is_emergency: true,
+            is_anomaly: ae.is_anomaly || provisionalFinal.final_severity > 0,
+            sensor_anomaly_type: sensor.sensor_anomaly_type,
+            post_hitl_anomaly_type: provisionalFinal.post_hitl_anomaly_type,
+            pre_hitl_severity: sensor.pre_hitl_severity,
+            final_severity: provisionalFinal.final_severity,
+            is_emergency: false,
         });
 
+        // â”€â”€ Step 17: Final decision (all floors, including hysteresis suppression) â”€
         const final_decision = makeFinalDecision({
             emergency,
-            sensor: null,
-            caregiver: null,
-            personalized: null,
-            recurrence: null,
-            sustained: null,
+            sensor,
+            caregiver,
+            personalized,
+            recurrence,
+            sustained,
             suppression: hysteresisEval.suppressionStatus,
+        });
+
+        // â”€â”€ Step 18: Build payloads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        const initial_mcp_payload =
+            final_decision.should_build_initial_mcp_payload && ae.is_anomaly
+                ? buildInitialMcpPayload({
+                    patient_id: params.raw.patient_id,
+                    timestamp_iso: params.raw.timestamp_iso,
+                    sensor,
+                    ae,
+                    feature_quality_tags: built.feature_quality_tags,
+                    signal_validation,
+                })
+                : null;
+
+        const final_slm_payload =
+            final_decision.should_build_final_slm_payload
+                ? buildFinalSlmPayload({
+                    patient_id: params.raw.patient_id,
+                    timestamp_iso: params.raw.timestamp_iso,
+                    profile: params.profile,
+                    ae,
+                    sensor,
+                    caregiver,
+                    caregiverInput: params.caregiverInput,
+                    personalized,
+                    recurrence,
+                    final: final_decision,
+                    feature_quality_tags: built.feature_quality_tags,
+                    sustained,
+                    signal_validation,
+                })
+                : null;
+
+        const audit_event = buildAuditEvent({
+            event_id: `uc2v2-${params.raw.patient_id}-${Date.now()}`,
+            patient_id: params.raw.patient_id,
+            timestamp_iso: params.raw.timestamp_iso,
+            emergency,
+            ae_score: ae.ae_score,
+            pre_hitl_severity: sensor.pre_hitl_severity,
+            post_hitl_severity: final_decision.post_hitl_severity ?? 0,
+            final_notification_type: final_decision.final_notification_type,
+            caregiver_selected_codes: caregiver?.caregiver_selected_codes ?? [],
+            quality_warnings: (built.feature_quality_tags ?? [])
+                .filter((t) => t.warning)
+                .map((t) => t.warning!),
         });
 
         return {
@@ -596,173 +741,18 @@ export async function runUC2DecisionLayerV2(params: {
             features: built.features,
             feature_vector: built.feature_vector,
             feature_quality_tags: built.feature_quality_tags,
-            ae: null,
-            sensor_classification: null,
-            caregiver_hitl: null,
-            personalized_thresholds: null,
-            recurrence: null,
-            sustained_duration: null,
-            signal_validation: null,
-            alert_hysteresis: hysteresisEval.hysteresisState,
-            suppression_status: hysteresisEval.suppressionStatus,
+            ae,
+            sensor_classification: sensor,
+            caregiver_hitl: caregiver,
+            personalized_thresholds: personalized,
+            recurrence,
+            sustained_duration: sustained,
+            signal_validation: signal_validation.isArtifact ? signal_validation : null,
+            alert_hysteresis: hysteresisState,
+            suppression_status: suppressionStatus,
             final_decision,
-            initial_mcp_payload: null,
-            final_slm_payload: null,
+            initial_mcp_payload,
+            final_slm_payload,
+            audit_event,
         };
     }
-
-    // â”€â”€ Step 6: Personalized thresholds (AE features + external measurements) â”€
-    const personalized = evaluatePersonalizedThresholds(
-        built.features,
-        params.profile,
-        external
-    );
-
-    // â”€â”€ Step 7: Adaptive AE threshold from patient risk tier / GMFCS â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const adjustedAeThreshold = getAdjustedAEThreshold(params.aeThreshold ?? 0.5, params.profile);
-
-    // â”€â”€ Step 8: Scale 12D vector with adaptive patient baseline shift â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const scaled = scaleVector(built.feature_vector, params.scaler, params.profile);
-
-    // â”€â”€ Step 9: Run 12D TFLite AE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const reconstructed = await runTinyAutoencoderTflite(
-        scaled,
-        params.interpreter
-    );
-
-    // â”€â”€ Step 10: Compute 12D AE score with adaptive threshold â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const ae = computeAutoencoderScore(
-        scaled,
-        reconstructed,
-        built.features,
-        adjustedAeThreshold
-    );
-
-    // â”€â”€ Step 11: Classify sensor anomaly (Watch12 routing groups) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const sensor = classifySensorAnomaly(built.features, ae, null);
-
-    // â”€â”€ Step 12: Evaluate caregiver HITL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const caregiver = evaluateCaregiverHitl(
-        params.caregiverInput,
-        sensor.sensor_anomaly_type,
-        sensor.pre_hitl_severity
-    );
-
-    // â”€â”€ Step 13: Provisional final decision (feeds recurrence) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const provisionalFinal = makeFinalDecision({
-        emergency,
-        sensor,
-        caregiver,
-        personalized,
-        recurrence: null,
-        sustained: null,
-    });
-
-    // â”€â”€ Step 14: Recurrence risk â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const recurrence = evaluateRecurrenceRisk({
-        patient_id: params.raw.patient_id,
-        timestamp_iso: params.raw.timestamp_iso,
-        current_post_hitl_type: provisionalFinal.post_hitl_anomaly_type ?? "NORMAL_PATTERN",
-        history: params.history,
-        emergencyAlreadyDetected: false,
-    });
-
-    // â”€â”€ Step 15: Sustained duration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const sustained = evaluateSustainedDuration({
-        patient_id: params.raw.patient_id,
-        timestamp_iso: params.raw.timestamp_iso,
-        current_sensor_anomaly_type: sensor.sensor_anomaly_type,
-        current_pre_hitl_severity: sensor.pre_hitl_severity,
-        history: params.history,
-    });
-
-    // â”€â”€ Step 16: Alert Hysteresis & Suppression Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const hysteresisEval = hysteresisMgr.evaluateAndStep({
-        patient_id: params.raw.patient_id,
-        timestamp_iso: params.raw.timestamp_iso,
-        is_anomaly: ae.is_anomaly || provisionalFinal.final_severity > 0,
-        sensor_anomaly_type: sensor.sensor_anomaly_type,
-        post_hitl_anomaly_type: provisionalFinal.post_hitl_anomaly_type,
-        pre_hitl_severity: sensor.pre_hitl_severity,
-        final_severity: provisionalFinal.final_severity,
-        is_emergency: false,
-    });
-
-    // â”€â”€ Step 17: Final decision (all floors, including hysteresis suppression) â”€
-    const final_decision = makeFinalDecision({
-        emergency,
-        sensor,
-        caregiver,
-        personalized,
-        recurrence,
-        sustained,
-        suppression: hysteresisEval.suppressionStatus,
-    });
-
-    // â”€â”€ Step 18: Build payloads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const initial_mcp_payload =
-        final_decision.should_build_initial_mcp_payload && ae.is_anomaly
-            ? buildInitialMcpPayload({
-                patient_id: params.raw.patient_id,
-                timestamp_iso: params.raw.timestamp_iso,
-                sensor,
-                ae,
-                feature_quality_tags: built.feature_quality_tags,
-                signal_validation,
-            })
-            : null;
-
-    const final_slm_payload =
-        final_decision.should_build_final_slm_payload
-            ? buildFinalSlmPayload({
-                patient_id: params.raw.patient_id,
-                timestamp_iso: params.raw.timestamp_iso,
-                profile: params.profile,
-                ae,
-                sensor,
-                caregiver,
-                caregiverInput: params.caregiverInput,
-                personalized,
-                recurrence,
-                final: final_decision,
-                feature_quality_tags: built.feature_quality_tags,
-                sustained,
-                signal_validation,
-            })
-            : null;
-
-    const audit_event = buildAuditEvent({
-        event_id: `uc2v2-${params.raw.patient_id}-${Date.now()}`,
-        patient_id: params.raw.patient_id,
-        timestamp_iso: params.raw.timestamp_iso,
-        emergency,
-        ae_score: ae.ae_score,
-        pre_hitl_severity: sensor.pre_hitl_severity,
-        post_hitl_severity: final_decision.post_hitl_severity ?? 0,
-        final_notification_type: final_decision.final_notification_type,
-        caregiver_selected_codes: caregiver?.caregiver_selected_codes ?? [],
-        quality_warnings: (built.feature_quality_tags ?? [])
-            .filter((t) => t.warning)
-            .map((t) => t.warning!),
-    });
-
-    return {
-        emergency,
-        features: built.features,
-        feature_vector: built.feature_vector,
-        feature_quality_tags: built.feature_quality_tags,
-        ae,
-        sensor_classification: sensor,
-        caregiver_hitl: caregiver,
-        personalized_thresholds: personalized,
-        recurrence,
-        sustained_duration: sustained,
-        signal_validation: signal_validation.isArtifact ? signal_validation : null,
-        alert_hysteresis: hysteresisEval.hysteresisState,
-        suppression_status: hysteresisEval.suppressionStatus,
-        final_decision,
-        initial_mcp_payload,
-        final_slm_payload,
-        audit_event,
-    };
-}
