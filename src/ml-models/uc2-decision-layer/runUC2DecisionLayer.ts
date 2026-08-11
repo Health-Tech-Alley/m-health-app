@@ -491,51 +491,8 @@ export async function runUC2DecisionLayerV2(params: {
         };
     }
 
-    // 3. SAFETY OVERRIDE: Emergency rules on validated (non-artifact) vitals.
-    // Hard fast-path (SpO2 <= 88%, HR >= 140 bpm, severe temp) fires even when watch is off-wrist or during suppression cooldown.
-    const emergency = runEmergencyRuleEngine(built.features);
-
-    if (emergency.is_emergency) {
-        const hysteresisEval = hysteresisMgr.evaluateAndStep({
-            patient_id: params.raw.patient_id,
-            timestamp_iso: params.raw.timestamp_iso,
-            is_anomaly: true,
-            post_hitl_anomaly_type: "CRITICAL_EMERGENCY_ALERT",
-            final_severity: 3,
-            is_emergency: true,
-        });
-
-        const final_decision = makeFinalDecision({
-            emergency,
-            sensor: null,
-            caregiver: null,
-            personalized: null,
-            recurrence: null,
-            sustained: null,
-            suppression: hysteresisEval.suppressionStatus,
-        });
-
-        return {
-            emergency,
-            features: built.features,
-            feature_vector: built.feature_vector,
-            feature_quality_tags: built.feature_quality_tags,
-            ae: null,
-            sensor_classification: null,
-            caregiver_hitl: null,
-            personalized_thresholds: null,
-            recurrence: null,
-            sustained_duration: null,
-            signal_validation: null,
-            alert_hysteresis: hysteresisEval.hysteresisState,
-            suppression_status: hysteresisEval.suppressionStatus,
-            final_decision,
-            initial_mcp_payload: null,
-            final_slm_payload: null,
-        };
-    }
-
-    // 4. Watch Off-Wrist Filter check — passive monitoring, bypasses AE
+    // 3. Watch Off-Wrist Filter check (MUST run before emergency engine)
+    // Off-wrist optical noise or missing wrist contact must NOT fire emergency alerts.
     const wristCheck = validateWatchWristContact(params.raw);
     if (wristCheck.isOffWrist) {
         const mergedTags = [
@@ -582,7 +539,7 @@ export async function runUC2DecisionLayerV2(params: {
         };
     }
 
-    // 5. Heart Rate TTL Expiration Check — suppress AE when HR data is stale (>10 min)
+    // 4. Heart Rate TTL Expiration Check — suppress AE when HR data is stale (>10 min)
     if (built.heart_rate_ttl_expired) {
         const ttlSensorClassification: SensorClassificationResult = {
             sensor_anomaly_type: "INSUFFICIENT_DATA",
@@ -618,6 +575,50 @@ export async function runUC2DecisionLayerV2(params: {
             sustained_duration: null,
             signal_validation: null,
             final_decision: ttlFinalDecision,
+            initial_mcp_payload: null,
+            final_slm_payload: null,
+        };
+    }
+
+    // 5. SAFETY OVERRIDE: Emergency rules on validated, on-wrist vitals.
+    // Hard fast-path (SpO2 <= 88%, HR >= 140 bpm, severe temp) fires for valid on-wrist readings.
+    const emergency = runEmergencyRuleEngine(built.features);
+
+    if (emergency.is_emergency) {
+        const hysteresisEval = hysteresisMgr.evaluateAndStep({
+            patient_id: params.raw.patient_id,
+            timestamp_iso: params.raw.timestamp_iso,
+            is_anomaly: true,
+            post_hitl_anomaly_type: "CRITICAL_EMERGENCY_ALERT",
+            final_severity: 3,
+            is_emergency: true,
+        });
+
+        const final_decision = makeFinalDecision({
+            emergency,
+            sensor: null,
+            caregiver: null,
+            personalized: null,
+            recurrence: null,
+            sustained: null,
+            suppression: hysteresisEval.suppressionStatus,
+        });
+
+        return {
+            emergency,
+            features: built.features,
+            feature_vector: built.feature_vector,
+            feature_quality_tags: built.feature_quality_tags,
+            ae: null,
+            sensor_classification: null,
+            caregiver_hitl: null,
+            personalized_thresholds: null,
+            recurrence: null,
+            sustained_duration: null,
+            signal_validation: null,
+            alert_hysteresis: hysteresisEval.hysteresisState,
+            suppression_status: hysteresisEval.suppressionStatus,
+            final_decision,
             initial_mcp_payload: null,
             final_slm_payload: null,
         };
