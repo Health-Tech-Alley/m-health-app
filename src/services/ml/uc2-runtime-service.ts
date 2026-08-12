@@ -34,14 +34,20 @@ export function toRawObservationInput(input: AppleWatchVitalsInput): RawObservat
   return {
     patient_id: input.patient_id,
     timestamp_iso: input.timestamp,
+    isNearWrist: input.isNearWrist,
+    wrist_state: input.wrist_state,
     heart_rate: input.heart_rate,
     blood_oxygen: input.blood_oxygen,
+    hrv_sdnn: input.hrv_sdnn,
     blood_pressure_systolic: input.blood_pressure_systolic,
     blood_pressure_diastolic: input.blood_pressure_diastolic,
     glucose_level: input.glucose_level,
     body_temperature: input.body_temperature,
     respiratory_rate: input.respiratory_rate,
     steps_count: input.steps_count,
+    calories_burned: input.calories_burned,
+    sleep_quality: input.sleep_quality,
+    activity_level: input.activity_level,
   };
 }
 
