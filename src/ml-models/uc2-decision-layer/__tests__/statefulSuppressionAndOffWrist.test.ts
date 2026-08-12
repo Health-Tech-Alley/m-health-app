@@ -8,10 +8,10 @@
  */
 
 import { AlertHysteresisManager } from "../anomalyHistoryStore";
-import { VitalsTTLCache } from "../featureImputation";
-import { validateWatchWristContact } from "../signalValidation";
 import { computeAdaptiveBaselineStats } from "../ehrProfileAdapter";
+import { VitalsTTLCache } from "../featureImputation";
 import { getAdjustedAEThreshold } from "../personalizedThresholds";
+import { validateWatchWristContact } from "../signalValidation";
 
 // ── AlertHysteresisManager ────────────────────────────────────────────────────
 
@@ -125,6 +125,25 @@ describe("AlertHysteresisManager", () => {
         });
         expect(result.suppressionStatus.is_suppressed).toBe(false);
         expect(result.hysteresisState.last_alert_severity).toBe(3);
+    });
+
+    it("makeFinalDecision attaches suppression_status and demotes notifications when suppressed", () => {
+        const { makeFinalDecision } = require("../finalDecision");
+        const suppression = { is_suppressed: true, reason: "test suppression" };
+        const res = makeFinalDecision({
+            emergency: { emergency: false, is_emergency: false, severity: 0, reason: null, pipelinePath: "UC2_SLOW_PATH" },
+            sensor: { sensor_anomaly_type: "CARDIO_RESPIRATORY_SIGNAL_CHANGE", pre_hitl_severity: 1, reasons: [] },
+            caregiver: null,
+            personalized: null,
+            recurrence: null,
+            sustained: null,
+            suppression,
+        });
+
+        expect(res.suppression_status).toBeDefined();
+        expect(res.suppression_status?.is_suppressed).toBe(true);
+        expect(res.final_notification_type).toBe("MONITORING_ADVICE");
+        expect(res.should_build_initial_mcp_payload).toBe(false);
     });
 
     it("allows different anomaly type through during cooldown without suppression", () => {
