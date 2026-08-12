@@ -6,19 +6,17 @@ import type {
   HealthSample,
   HealthSampleType,
   NormalizedActivePatient,
-  NormalizedBloodPressurePair,
   NormalizedVitalMetric,
-  NormalizedVitalReading,
-  PatientCondition,
+  PatientCondition
 } from '@/data/types';
 import { store, type AppDispatch } from '@/store';
 import {
   clearVitalsForPatient,
   hydrationFailed,
   hydrationStarted,
-  hydrationSucceeded,
-  isProductionWearableSource,
+  hydrationSucceeded
 } from '@/store/reducers/vitalsSlice';
+import { runInBackground } from '@/utils/commonFunctions';
 
 const CLINICAL_VITALS: {
   key: HealthSampleType;
@@ -70,27 +68,20 @@ const ACTIVE_COMORBIDITY_ORDER = new Map([
  * WeeklyVitalsCard can render live monitoring readings alongside the
  * imported FHIR clinical vitals.
  */
-export function hydrateLiveVitals(
-  patientId: string,
-  dispatch: AppDispatch = store.dispatch,
-): void {
+export function hydrateLiveVitals(patientId: string, dispatch: AppDispatch = store.dispatch): void {
   dispatch(hydrationStarted({ patientId }));
-  try {
-    const since = new Date(
-      Date.now() - RECENT_MONITORING_WINDOW_DAYS * 24 * 60 * 60 * 1000,
-    ).toISOString();
-    const samples = LIVE_MONITORING_TYPES.flatMap((type) =>
-      getRecentHealthSamples(patientId, type, since, 100),
-    ).filter((sample) => isProductionWearableSource(sample.source));
-    dispatch(hydrationSucceeded({ patientId, samples }));
-  } catch (error) {
-    dispatch(
-      hydrationFailed({
-        patientId,
-        error: error instanceof Error ? error.message : String(error),
-      }),
-    );
-  }
+  // make the fucntion non-blocking 
+  runInBackground(() => {
+    try {
+      const since = new Date(Date.now() - RECENT_MONITORING_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      const samples = LIVE_MONITORING_TYPES.flatMap((type) =>
+        getRecentHealthSamples(patientId, type, since, 100),
+      ).filter((sample) => sample.source !== 'fhir');
+      dispatch(hydrationSucceeded({ patientId, samples }));
+    } catch (error) {
+      dispatch(hydrationFailed({ patientId, error: String(error) }));
+    }
+  });
 }
 
 export function clearLiveVitals(dispatch: AppDispatch = store.dispatch): void {

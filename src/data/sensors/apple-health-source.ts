@@ -28,6 +28,7 @@ export type AppleHealthSourceOptions = {
 
 type HealthKitModule = typeof import('@kingstinct/react-native-healthkit');
 let _hkModule: HealthKitModule | null | undefined;
+const MAX_ANCHOR_STALENESS_MS = 12 * 60 * 60 * 1000; // 1/2 day — (12h)
 
 async function getHealthKitModule(): Promise<HealthKitModule | null> {
   if (_hkModule !== undefined) return _hkModule;
@@ -133,8 +134,15 @@ export class AppleHealthSource implements SensorSource {
           const sensorSample = this.convertToSensorSample(s, type);
           if (sensorSample) results.push(sensorSample);
         }
-      } catch (err) {
-        console.warn(`[AppleHealthSource] query failed for ${type}:`, err);
+      } catch (err: any) {
+        console.warn(`[AppleHealthSource] query failed for ${type}:`, JSON.stringify({
+          name: err?.name,
+          message: err?.message,
+          code: err?.code,
+          domain: err?.domain,
+          stack: err?.stack,
+          error: String(err),
+        }));
       }
     }
     return results;
@@ -161,8 +169,16 @@ export class AppleHealthSource implements SensorSource {
             },
           );
           unsubscribers.push(() => sub.remove());
-        } catch (err) {
-          console.warn(`[AppleHealthSource] subscribe failed for ${type}:`, err);
+        } catch (err: any) {
+          console.warn(`[AppleHealthSource] subscribe failed for ${type}:`, 
+            JSON.stringify({
+              name: err?.name,
+              message: err?.message,
+              code: err?.code,
+              domain: err?.domain,
+              stack: err?.stack,
+              error: String(err),
+            }));
         }
       }
     })();
@@ -199,8 +215,16 @@ async primeAnchorsToNow(): Promise<void> {
         setSyncCursor(cursorKey, type, response.newAnchor);
         console.log(`[AppleHealthSource] Primed anchor to now for ${type}`);
       }
-    } catch (err) {
-      console.warn(`[AppleHealthSource] anchor priming failed for ${type}:`, err);
+    } catch (err: any) {
+      console.warn(`[AppleHealthSource] anchor priming failed for ${type}:`,
+        JSON.stringify({
+          name: err?.name,
+          message: err?.message,
+          code: err?.code,
+          domain: err?.domain,
+          stack: err?.stack,
+          error: String(err),
+        }));
     }
   }
 }
@@ -224,65 +248,103 @@ async primeAnchorsToNow(): Promise<void> {
     };
   }
 
-  async incrementalSync(type: HealthSampleType): Promise<SensorSample[]> {
-    const hk = await getHealthKitModule();
-    if (!hk) return [];
+// if the syncing can't keep up with the backlog (eg: too many vitals), the fucntion reset the anchor 
+// to "now" and skip the backlog. This is a tradeoff: we lose historical data but avoid overwhelming the app with too many samples at once.  
+private static readonly MAX_ANCHOR_STALENESS_MS = 24 * 60 * 60 * 1000; // 1 day — tune as needed
 
-    const hkType = HK_TYPE_BY_SAMPLE_TYPE[type];
-    if (!hkType) return [];
+async incrementalSync(type: HealthSampleType): Promise<SensorSample[]> {
+  const hk = await getHealthKitModule();
+  if (!hk) return [];
 
-    const cursorKey = 'apple-health';
+  const hkType = HK_TYPE_BY_SAMPLE_TYPE[type];
+  if (!hkType) return [];
+
+  const cursorKey = 'apple-health';
+
+  try {
     const lastAnchor = getSyncCursor(cursorKey, type);
+    const response = await hk.queryQuantitySamplesWithAnchor(
+      hkType as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[0],
+      { limit: 10, anchor: lastAnchor ?? undefined } as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[1],
+    );
 
-    try {
-      const response = await hk.queryQuantitySamplesWithAnchor(
+    // Moving window: if the oldest sample in this page is too old, the
+    // anchor is stuck deep in a backlog that will take forever to drain
+    // at limit:10. Abandon it and jump straight to "now" instead.
+    const oldestSample = response.samples[0];
+    const isStale =
+      oldestSample &&
+      Date.now() - new Date(oldestSample.startDate).getTime() > AppleHealthSource.MAX_ANCHOR_STALENESS_MS;
+
+    if (isStale) {
+      console.warn(`[AppleHealthSource] ${type} backlog is stale (oldest pending: ${oldestSample.startDate}). Resetting anchor to now, skipping backlog.`);
+
+      const skipResponse = await hk.queryQuantitySamplesWithAnchor(
         hkType as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[0],
-        { limit: 10, anchor: lastAnchor ?? undefined } as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[1],
+        { limit: 0 } as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[1], // anchor-only, no data
       );
-
-      if (response.newAnchor) {
-        setSyncCursor(cursorKey, type, response.newAnchor);
+      if (skipResponse.newAnchor) {
+        setSyncCursor(cursorKey, type, skipResponse.newAnchor);
       }
-
-      const sensorSamples: SensorSample[] = [];
-      for (const s of response.samples) {
-        const sensorSample = this.convertToSensorSample(s, type);
-        if (sensorSample) sensorSamples.push(sensorSample);
-      }
-
-      console.log(`[AppleHealthSource] incremental sync for ${type} returned ${sensorSamples.length} samples`);
-
-      if (sensorSamples.length > 0) {
-        const readings = sensorSamples.map((sample) => ({
-          patientId: sample.patientId,
-          sampleId: sample.sampleId,
-          type: sample.type,
-          value: typeof sample.value === 'number' ? sample.value : 0,
-          unit: sample.unit,
-          source: sample.source,
-          recordedAt: sample.recordedAt,
-          receivedAt: sample.receivedAt,
-        }));
-
-        // Defer the Redux dispatch + bus publish so they don't block the
-        // current frame/interaction. Chunked so even a full 500-sample
-        // batch doesn't lock up the JS thread in one go.
-        runInBackground(async () => {
-          await dispatchReadingsInChunks(readings);
-
-          const bus = getEventBus();
-          for (const sample of sensorSamples) {
-            this.publishVitalsEvent(sample, bus);
-          }
-        });
-      }
-
-      return sensorSamples;
-    } catch (err) {
-      console.warn(`[AppleHealthSource] incremental sync failed for ${type}:`, err);
       return [];
     }
+
+    if (response.newAnchor) {
+      setSyncCursor(cursorKey, type, response.newAnchor);
+    }
+
+    const sensorSamples: SensorSample[] = [];
+    for (const s of response.samples) {
+      const sensorSample = this.convertToSensorSample(s, type);
+      if (sensorSample) sensorSamples.push(sensorSample);
+    }
+
+    console.log(`[AppleHealthSource] incremental sync for ${type} returned ${sensorSamples.length} samples`);
+
+    if (sensorSamples.length > 0) {
+      const readings = sensorSamples.map((sample) => ({
+        patientId: sample.patientId,
+        sampleId: sample.sampleId,
+        type: sample.type,
+        value: typeof sample.value === 'number' ? sample.value : 0,
+        unit: sample.unit,
+        source: sample.source,
+        recordedAt: sample.recordedAt,
+        receivedAt: sample.receivedAt,
+      }));
+
+      runInBackground(async () => {
+        for (const sample of sensorSamples) {
+          const healthSample: HealthSample = {
+            sampleId: sample.sampleId,
+            patientId: sample.patientId,
+            source: 'apple-health',
+            type: sample.type,
+            value: typeof sample.value === 'number' ? sample.value : 0,
+            valueJson: typeof sample.value === 'number' ? undefined : JSON.stringify(sample.value),
+            unit: sample.unit,
+            recordedAt: sample.recordedAt,
+            receivedAt: sample.receivedAt,
+            metadataJson: sample.metadataJson,
+          };
+          insertHealthSample(healthSample);
+        }
+
+        await dispatchReadingsInChunks(readings);
+
+        const bus = getEventBus();
+        for (const sample of sensorSamples) {
+          this.publishVitalsEvent(sample, bus);
+        }
+      });
+    }
+
+    return sensorSamples;
+  } catch (err) {
+    console.warn(`[AppleHealthSource] incremental sync failed for ${type}:`, err);
+    return [];
   }
+}
 
   private publishVitalsEvent(
     sample: SensorSample,
@@ -332,8 +394,15 @@ async primeAnchorsToNow(): Promise<void> {
           if (response.newAnchor) {
             setSyncCursor(cursorKey, type, response.newAnchor);
           }
-        } catch (err) {
-          console.warn(`[AppleHealthSource] anchor init failed for ${type}:`, err);
+        } catch (err: any) {
+          console.warn(`[AppleHealthSource] anchor init failed for ${type}:`, JSON.stringify({
+            name: err?.name,
+            message: err?.message,
+            code: err?.code,
+            domain: err?.domain,
+            stack: err?.stack,
+            error: String(err),
+          }));
         }
       }
     }
@@ -385,8 +454,15 @@ async primeAnchorsToNow(): Promise<void> {
         }
       }
       console.warn('[AppleHealthSource] Could not identify Apple Watch device from samples');
-    } catch (err) {
-      console.warn('[AppleHealthSource] captureWatchDeviceId failed:', err);
+    } catch (err: any) {
+      console.warn('[AppleHealthSource] captureWatchDeviceId failed:', JSON.stringify({
+        name: err?.name,
+        message: err?.message,
+        code: err?.code,
+        domain: err?.domain,
+        stack: err?.stack,
+        error: String(err),
+      }));
     }
   }
 
@@ -443,7 +519,7 @@ async primeAnchorsToNow(): Promise<void> {
       metadataJson: sample.metadataJson,
     };
     console.log(`[AppleHealthSource] Persisting sample: ${JSON.stringify(healthSample)}`);
-    insertHealthSample(healthSample);
+    // insertHealthSample(healthSample);
 
     const scalar = typeof sample.value === 'number' ? sample.value : 0;
     const event: Extract<OrchestrationEvent, { type: 'vitals_sample' }> = {

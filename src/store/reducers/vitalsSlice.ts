@@ -31,7 +31,7 @@ export interface VitalsState {
   hydratedAt: string | null;
 }
 
-const READING_LIMIT = 100;
+const READING_LIMIT = 100; // Limit the number of readings per type 
 const PRODUCTION_WEARABLE_SOURCES: readonly HealthSampleSource[] = [
   'apple-health',
   'health-connect',
@@ -82,8 +82,20 @@ function sortNewestFirst(readings: LiveVitalReading[]): LiveVitalReading[] {
   return withTime.map((x) => x.r);
 }
 
+// Limit the number of readings per type to avoid unbounded growth in the Redux store.
 function bounded(readings: LiveVitalReading[]): LiveVitalReading[] {
-  return sortNewestFirst(readings).slice(0, READING_LIMIT);
+  const byType = new Map<HealthSampleType, LiveVitalReading[]>();
+  for (const r of readings) {
+    const group = byType.get(r.type) ?? [];
+    group.push(r);
+    byType.set(r.type, group);
+  }
+
+  const result: LiveVitalReading[] = [];
+  for (const group of byType.values()) {
+    result.push(...sortNewestFirst(group).slice(0, READING_LIMIT));
+  }
+  return result;
 }
 
 function resolveSinceMs(options: LiveVitalReadingFilter): number | null {

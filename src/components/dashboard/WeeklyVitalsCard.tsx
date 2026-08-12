@@ -7,16 +7,16 @@ import { useSensor } from "@/contexts/sensor-context";
 import { getLatestHealthSample } from "@/data/repositories/healthSampleRepository";
 import { getActiveThresholdsForVital } from "@/data/repositories/thresholdRepository";
 import type { HealthSampleType, NormalizedActivePatient } from "@/data/types";
+import { useTheme } from "@/hooks/use-theme";
+import { useTranslation } from "@/hooks/use-translation";
 import { useActivePatientView } from "@/hooks/useActivePatientView";
+import type { AppLocale, TranslateFn, TranslationKey } from "@/localization/i18n";
 import { useAppSelector } from "@/store/hooks";
 import type { LiveVitalReading } from "@/store/reducers/vitalsSlice";
 import {
   selectLiveVitalsState,
   selectProductionWearableReadingsForPatient,
 } from "@/store/reducers/vitalsSlice";
-import { useTheme } from "@/hooks/use-theme";
-import { useTranslation } from "@/hooks/use-translation";
-import type { AppLocale, TranslateFn, TranslationKey } from "@/localization/i18n";
 
 type MetricTone = "critical" | "warning" | "good";
 
@@ -281,7 +281,7 @@ export function WeeklyVitalsCard() {
   }, [activePatientId, isRealHealth]);
 
   useEffect(() => {
-    console.log('[DEBUG] Weekly vitals updated:', productionReadings.length, 'readings for patient', activePatientId);
+    console.log('[DEBUG] Weekly vitals updated:', productionReadings.length, 'readings for patient', activePatientId, ', categories received: ', metrics.map(m => m.key).join(', '));
   }, [activePatientId, productionReadings]);
 
   const selectedMetric =
@@ -458,6 +458,10 @@ function buildMetrics(
     group.push(reading);
     byType.set(reading.type, group);
   }
+  console.log('[DEBUG buildMetrics] types with readings in 7-day window:', [...byType.keys()]);
+  console.log('[DEBUG buildMetrics] heart_rate readings outside window? latest heart_rate overall:',
+    readings.filter(r => r.type === 'heart_rate').sort((a,b) => Date.parse(b.recordedAt) - Date.parse(a.recordedAt))[0]?.recordedAt
+  );
 
   return PREFERRED_METRIC_ORDER
     .filter((type) => type !== "blood_pressure_diastolic")

@@ -207,6 +207,7 @@ function initializePatientRecord(): PatientRecordInitState {
     }
 
     setPatientId(selectedId, false);
+    hydrateLiveVitals(selectedId);
     return { patientId: selectedId, error: null, initialized: true };
   } catch (error) {
     currentSnapshot = null;
