@@ -60,9 +60,7 @@
       [
         "expo-notifications",
         {
-          "icons": [
-            "./assets/images/icon.png"
-          ]
+          "icon": "./assets/images/access-dp-notification-small-icon.png"
         }
       ],
       [

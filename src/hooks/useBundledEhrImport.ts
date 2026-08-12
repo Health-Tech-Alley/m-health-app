@@ -10,7 +10,7 @@ import {
 } from "@/data";
 import type { PatientProfileEntry } from "@/data/fhir/patient-profiles";
 import { useTranslation } from "@/hooks/use-translation";
-import { emitInAppBanner } from "@/services/notifications";
+import { dispatchImmediate } from "@/services/notifications";
 import { useAppDispatch } from "@/store/hooks";
 import { addPatient } from "@/store/reducers/patientSlice";
 
@@ -105,7 +105,9 @@ export function useBundledEhrImport() {
         location: bundleLocation,
       });
 
-      emitInAppBanner({
+      await dispatchImmediate({
+        patientId: importedPatientId,
+        scope: "care_task",
         title: t("ehrImport.banner.title"),
         body: t("ehrImport.banner.body", { profile: profile.label }),
         severity: 1,
