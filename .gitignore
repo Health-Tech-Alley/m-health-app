@@ -87,3 +87,5 @@ assets/models/nlu/_tf_saved_model/
 planning/model.safetensors
 planning/python-testing/.venv/
 planning/python-testing/work/
+
+*.gradle/
