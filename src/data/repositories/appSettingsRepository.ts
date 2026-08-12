@@ -21,7 +21,7 @@ type AppSettingsDatabase = ReturnType<typeof getDatabase>;
 const DEFAULT_SETTINGS: AppSettings = {
   mode: 'demo',
   demoDefaultModelId: DEFAULT_SLM_MODEL_ID,
-  theme: 'system',
+  theme: 'dark',
   languagePreference: 'English',
   notifications: {
     anomaly: true,
