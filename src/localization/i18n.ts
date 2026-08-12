@@ -1335,6 +1335,17 @@ const ENGLISH_TRANSLATIONS = {
   "notifications.section.medications": "Medications",
   "notifications.section.appointments": "Appointments & scheduling",
   "notifications.section.careTasks": "Care tasks",
+  "notifications.health.dnd.title":
+    "Allow emergency alerts through Do Not Disturb",
+  "notifications.health.dnd.body":
+    "Android can let urgent health alerts use the emergency channel when you allow Do Not Disturb access.",
+  "notifications.health.dnd.status.enabled": "Enabled",
+  "notifications.health.dnd.status.notEnabled": "Not enabled",
+  "notifications.health.dnd.action": "Open Android settings",
+  "notifications.health.dnd.actionA11y":
+    "Open Android Do Not Disturb access settings",
+  "notifications.health.dnd.openError":
+    "Android Do Not Disturb settings could not be opened.",
   "notifications.additionalUnavailable": "Additional preferences not available yet.",
   "notifications.noActivePatient": "No active patient selected",
   "notifications.medicationConfirmationUnavailable":
@@ -3454,6 +3465,17 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "notifications.section.medications": "Medicamentos",
   "notifications.section.appointments": "Citas y programación",
   "notifications.section.careTasks": "Tareas de cuidado",
+  "notifications.health.dnd.title":
+    "Permitir alertas de emergencia durante No molestar",
+  "notifications.health.dnd.body":
+    "Android puede permitir que las alertas de salud urgentes usen el canal de emergencia cuando permites el acceso a No molestar.",
+  "notifications.health.dnd.status.enabled": "Activado",
+  "notifications.health.dnd.status.notEnabled": "No activado",
+  "notifications.health.dnd.action": "Abrir configuración de Android",
+  "notifications.health.dnd.actionA11y":
+    "Abrir configuración de acceso a No molestar en Android",
+  "notifications.health.dnd.openError":
+    "No se pudo abrir la configuración de No molestar de Android.",
   "notifications.additionalUnavailable": "Preferencias adicionales no disponibles todavía.",
   "notifications.noActivePatient": "No hay paciente activo seleccionado",
   "notifications.medicationConfirmationUnavailable":

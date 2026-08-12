@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import {
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -27,7 +28,11 @@ import {
   type MedicationConfirmationPreference,
   type NotificationPreferences,
 } from '@/data';
-import { requestNotificationPermission } from '@/services/notifications/notificationService';
+import {
+  getEmergencyDndBypassEnabled,
+  openAndroidNotificationPolicySettings,
+  requestNotificationPermission,
+} from '@/services/notifications/notificationService';
 import { rescheduleAll } from '@/services/notifications/reminderEngine';
 
 type SectionId = 'health' | 'medications' | 'appointments' | 'careTasks';
@@ -63,6 +68,8 @@ export default function NotificationsRemindersScreen() {
     }
   });
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [emergencyDndEnabled, setEmergencyDndEnabled] = useState(false);
+  const [dndSettingsError, setDndSettingsError] = useState(false);
   const refreshKey = snapshot?.lastRefreshedAt;
   const schedules = useMemo(
     () => {
@@ -74,6 +81,17 @@ export default function NotificationsRemindersScreen() {
       }
     },
     [patientId, refreshKey],
+  );
+
+  const refreshEmergencyDndStatus = useCallback(async () => {
+    if (Platform.OS !== 'android') return;
+    setEmergencyDndEnabled(await getEmergencyDndBypassEnabled());
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshEmergencyDndStatus();
+    }, [refreshEmergencyDndStatus]),
   );
 
   useEffect(() => {
@@ -192,6 +210,16 @@ export default function NotificationsRemindersScreen() {
     updateNotificationPreference('appointment', current.appointment, true);
   };
 
+  const handleOpenEmergencyDndSettings = async () => {
+    setDndSettingsError(false);
+    const opened = await openAndroidNotificationPolicySettings();
+    if (!opened) {
+      setDndSettingsError(true);
+      return;
+    }
+    void refreshEmergencyDndStatus();
+  };
+
   const setAppointmentLeadTime = (value: string) => {
     const leadTime = parseInt(value, 10);
     if (Number.isNaN(leadTime)) return;
@@ -236,7 +264,51 @@ export default function NotificationsRemindersScreen() {
           title={t('notifications.section.health')}
           expanded={expandedId === 'health'}
           onPress={() => toggleExpanded('health')}>
-          <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.additionalUnavailable')}</Text>
+          {Platform.OS === 'android' ? (
+            <View style={styles.staticRow}>
+              <View style={styles.dndStatusRow}>
+                <View style={styles.rowTextBlock}>
+                  <Text style={[styles.rowTitle, themedStyles.rowTitle]}>
+                    {t('notifications.health.dnd.title')}
+                  </Text>
+                  <Text style={[styles.mutedText, themedStyles.mutedText]}>
+                    {t('notifications.health.dnd.body')}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.dndStatusBadge,
+                    themedStyles.dndStatusBadge,
+                    emergencyDndEnabled && themedStyles.dndStatusBadgeEnabled,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.dndStatusText,
+                      themedStyles.dndStatusText,
+                      emergencyDndEnabled && themedStyles.dndStatusTextEnabled,
+                    ]}>
+                    {emergencyDndEnabled
+                      ? t('notifications.health.dnd.status.enabled')
+                      : t('notifications.health.dnd.status.notEnabled')}
+                  </Text>
+                </View>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('notifications.health.dnd.actionA11y')}
+                onPress={handleOpenEmergencyDndSettings}
+                style={[styles.dndSettingsButton, themedStyles.dndSettingsButton]}>
+                <Text style={[styles.dndSettingsButtonText, themedStyles.dndSettingsButtonText]}>
+                  {t('notifications.health.dnd.action')}
+                </Text>
+              </Pressable>
+              {dndSettingsError ? (
+                <Text style={styles.warningText}>{t('notifications.health.dnd.openError')}</Text>
+              ) : null}
+            </View>
+          ) : (
+            <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.additionalUnavailable')}</Text>
+          )}
         </ExpandableSection>
 
         <ExpandableSection
@@ -603,6 +675,25 @@ function createThemedStyles(theme: ReturnType<typeof useTheme>) {
     },
     divider: { backgroundColor: theme.appBorder },
     subsectionTitle: { color: theme.appSectionText },
+    dndStatusBadge: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    dndStatusBadgeEnabled: {
+      backgroundColor: theme.appBrandSoftSurface,
+      borderColor: AppTheme.colors.brand,
+    },
+    dndStatusText: { color: theme.appTextSupporting },
+    dndStatusTextEnabled: {
+      color: isDark ? theme.appText : AppTheme.colors.brand,
+    },
+    dndSettingsButton: {
+      backgroundColor: theme.appBrandSoftSurface,
+      borderColor: AppTheme.colors.brand,
+    },
+    dndSettingsButtonText: {
+      color: isDark ? theme.appText : AppTheme.colors.brand,
+    },
     numInput: {
       backgroundColor: theme.appInputBackground,
       borderColor: theme.appBorder,
@@ -794,6 +885,41 @@ const styles = StyleSheet.create({
   staticRow: {
     gap: 2,
     paddingTop: 2,
+  },
+  dndStatusRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  dndStatusBadge: {
+    borderRadius: AppTheme.radius.pill,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    backgroundColor: AppTheme.colors.softSurface,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  dndStatusText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  dndSettingsButton: {
+    minHeight: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.brand,
+    backgroundColor: AppTheme.colors.brandSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  dndSettingsButtonText: {
+    color: AppTheme.colors.brand,
+    fontSize: 13,
+    fontWeight: '900',
   },
   inlineControlRow: {
     minHeight: 48,

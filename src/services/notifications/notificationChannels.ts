@@ -12,7 +12,7 @@
 
 import { Platform } from 'react-native';
 
-export type NotificationChannelId = 'anomaly-critical' | 'medication' | 'appointment';
+export type NotificationChannelId = 'anomaly-critical' | 'anomaly' | 'medication' | 'appointment';
 
 export interface NotificationChannelMeta {
   id: NotificationChannelId;
@@ -20,6 +20,7 @@ export interface NotificationChannelMeta {
   description: string;
   /** Android importance: 'high' (pops heads-up) or 'default'. */
   importance: 'high' | 'default';
+  bypassDnd?: boolean;
   scopes: ('anomaly' | 'medication' | 'appointment' | 'care_task')[];
 }
 
@@ -28,6 +29,14 @@ export const NOTIFICATION_CHANNELS: Record<NotificationChannelId, NotificationCh
     id: 'anomaly-critical',
     name: 'Critical anomaly alerts',
     description: 'Severity-3 vitals anomalies. High priority, bypasses DND when permitted.',
+    importance: 'high',
+    bypassDnd: true,
+    scopes: ['anomaly'],
+  },
+  anomaly: {
+    id: 'anomaly',
+    name: 'Health anomaly alerts',
+    description: 'Non-emergency vitals anomalies. High priority, does not bypass DND.',
     importance: 'high',
     scopes: ['anomaly'],
   },
@@ -54,8 +63,8 @@ export function channelForScope(
   scope: 'anomaly' | 'medication' | 'appointment' | 'care_task',
   severity?: number,
 ): NotificationChannelId {
-  if (scope === 'anomaly' && severity === 3) return 'anomaly-critical';
-  if (scope === 'anomaly') return 'anomaly-critical';
+  if (severity === 3) return 'anomaly-critical';
+  if (scope === 'anomaly') return 'anomaly';
   if (scope === 'medication') return 'medication';
   return 'appointment';
 }
@@ -78,6 +87,7 @@ export async function setupNotificationChannels(notificationsModule: any): Promi
           description: meta.description,
           importance: meta.importance === 'high' ? notificationsModule.AndroidImportance?.HIGH ?? 4 : notificationsModule.AndroidImportance?.DEFAULT ?? 3,
           enableVibrate: meta.importance === 'high',
+          ...(meta.bypassDnd ? { bypassDnd: true } : {}),
         });
       } catch (err) {
         console.warn('[notificationChannels] failed to create channel', meta.id, err);

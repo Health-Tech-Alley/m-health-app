@@ -14,7 +14,7 @@
  * within a 60-second window.
  */
 
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 import type { NotificationRecord, NotificationScope } from '@/data';
 import {
@@ -29,6 +29,7 @@ import { channelForScope, setupNotificationChannels } from './notificationChanne
 import { emitInAppBanner } from './notificationFallback';
 
 const DEDUPE_WINDOW_MS = 60_000;
+const ANDROID_NOTIFICATION_POLICY_SETTINGS = 'android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS';
 
 let notificationsModule: any | null | undefined;
 let initPromise: Promise<void> | null = null;
@@ -106,6 +107,34 @@ export async function requestNotificationPermission(): Promise<boolean> {
     return granted;
   } catch (err) {
     console.warn('[notificationService] permission request failed:', err);
+    return false;
+  }
+}
+
+export async function getEmergencyDndBypassEnabled(): Promise<boolean> {
+  if (Platform.OS !== 'android') return false;
+  const mod = loadNotificationsModule();
+  if (!mod || typeof mod.getNotificationChannelAsync !== 'function') {
+    return false;
+  }
+  try {
+    const channel = await mod.getNotificationChannelAsync(channelForScope('anomaly', 3));
+    return channel?.bypassDnd === true;
+  } catch (err) {
+    console.warn('[notificationService] failed to inspect emergency DND channel:', err);
+    return false;
+  }
+}
+
+export async function openAndroidNotificationPolicySettings(): Promise<boolean> {
+  if (Platform.OS !== 'android' || typeof Linking.sendIntent !== 'function') {
+    return false;
+  }
+  try {
+    await Linking.sendIntent(ANDROID_NOTIFICATION_POLICY_SETTINGS);
+    return true;
+  } catch (err) {
+    console.warn('[notificationService] failed to open Android notification policy settings:', err);
     return false;
   }
 }
@@ -239,6 +268,10 @@ export async function dispatchImmediate(params: DispatchParams): Promise<string 
   try {
 
     console.log('[notificationService] dispatchImmediate: scheduling via expo-notifications');
+    const trigger =
+      Platform.OS === 'android' && params.severity === 3
+        ? { channelId: channelForScope(params.scope, params.severity) }
+        : null;
     await mod.scheduleNotificationAsync({
       content: {
         title: params.title,
@@ -246,7 +279,7 @@ export async function dispatchImmediate(params: DispatchParams): Promise<string 
         data: { notificationId: id, scope: params.scope, triggerRef: params.triggerRef ?? null },
         ...(params.severity === 3 ? { interruptionLevel: 'critical' } : {}),
       },
-      trigger: null,
+      trigger,
     });
     console.log('[notificationService] dispatchImmediate: scheduled, updating delivered timestamp', id, nowIso);
     updateNotificationDelivered(id, nowIso);
