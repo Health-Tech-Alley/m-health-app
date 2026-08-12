@@ -1071,7 +1071,7 @@ export default function OnboardingScreen() {
   }
 
   function handlePrimaryActionPress() {
-    if (isIntroScreen && !patientId) {
+    if (isIntroScreen && !patientId && !selectedDemoProfileId) {
       setExpandedSelect(null);
       setNoPatientDialogVisible(true);
       return;
