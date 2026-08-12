@@ -1474,6 +1474,11 @@ const ENGLISH_TRANSLATIONS = {
   "onboarding.action.back": "Back",
   "onboarding.action.start": "Start Onboarding",
   "onboarding.action.continueHome": "Continue to Home",
+  "onboarding.noPatientDialog.title": "No patient selected",
+  "onboarding.noPatientDialog.message":
+    "You haven't selected a patient. You can choose a demo case or continue onboarding without one.",
+  "onboarding.noPatientDialog.chooseDemoCase": "Choose a demo case",
+  "onboarding.noPatientDialog.continueWithoutPatient": "Continue without a patient",
   "onboarding.welcome.demo.hide": "Hide demo cases",
   "onboarding.welcome.demo.show": "Show demo cases",
   "onboarding.welcome.eyebrow": "Caregiver Concierge",
@@ -3589,6 +3594,11 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "onboarding.action.back": "Atrás",
   "onboarding.action.start": "Comenzar",
   "onboarding.action.continueHome": "Continuar al inicio",
+  "onboarding.noPatientDialog.title": "Ningún paciente seleccionado",
+  "onboarding.noPatientDialog.message":
+    "No has seleccionado un paciente. Puedes elegir un caso de demostración o continuar sin uno.",
+  "onboarding.noPatientDialog.chooseDemoCase": "Elegir un caso de demostración",
+  "onboarding.noPatientDialog.continueWithoutPatient": "Continuar sin paciente",
   "onboarding.welcome.demo.hide": "Ocultar casos de demostración",
   "onboarding.welcome.demo.show": "Mostrar casos de demostración",
   "onboarding.welcome.eyebrow": "Asistente para cuidadores",

@@ -1,9 +1,10 @@
 import { useRouter } from "expo-router";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -64,6 +65,7 @@ import {
 
 const totalScreens = 7;
 const formStepCount = 6;
+const demoCasesScrollMargin = 18;
 
 const experienceOptions: CaregivingExperience[] = [
   "First time",
@@ -592,7 +594,10 @@ export default function OnboardingScreen() {
   const styles = useMemo(() => createThemedStyles(theme), [theme]);
   const { t, setTemporaryLanguagePreference, clearTemporaryLanguagePreference } = useTranslation();
   const existingProfile = getOnboardingProfile();
-  const { snapshot, ready } = usePatientRecord();
+  const { snapshot, ready, patientId } = usePatientRecord();
+  const onboardingScrollRef = useRef<ScrollView | null>(null);
+  const demoCasesYRef = useRef<number | null>(null);
+  const pendingDemoCasesScrollRef = useRef(false);
   const {
     settings,
     setTheme,
@@ -607,6 +612,8 @@ export default function OnboardingScreen() {
     useState<EhrImportRequest | null>(null);
   const [ehrImporting, setEhrImporting] = useState(false);
   const [ehrImportError, setEhrImportError] = useState<string | null>(null);
+  const [noPatientDialogVisible, setNoPatientDialogVisible] = useState(false);
+  const [demoCasesExpanded, setDemoCasesExpanded] = useState(false);
   const [importedEhrFields, setImportedEhrFields] =
     useState<ImportedEhrFieldLocks>({});
   const [
@@ -1061,6 +1068,49 @@ export default function OnboardingScreen() {
     setStepIndex((current) => Math.min(current + 1, totalScreens - 1));
   }
 
+  function handlePrimaryActionPress() {
+    if (isIntroScreen && !patientId) {
+      setExpandedSelect(null);
+      setNoPatientDialogVisible(true);
+      return;
+    }
+
+    goNext();
+  }
+
+  function closeNoPatientDialog() {
+    setNoPatientDialogVisible(false);
+  }
+
+  function scrollToDemoCases(y: number) {
+    pendingDemoCasesScrollRef.current = false;
+    onboardingScrollRef.current?.scrollTo({
+      y: Math.max(y - demoCasesScrollMargin, 0),
+      animated: true,
+    });
+  }
+
+  function handleDemoCasesLayout(y: number) {
+    demoCasesYRef.current = y;
+    if (pendingDemoCasesScrollRef.current) {
+      scrollToDemoCases(y);
+    }
+  }
+
+  function chooseDemoCaseBeforeOnboarding() {
+    setNoPatientDialogVisible(false);
+    pendingDemoCasesScrollRef.current = true;
+    setDemoCasesExpanded(true);
+    if (demoCasesExpanded && demoCasesYRef.current !== null) {
+      requestAnimationFrame(() => scrollToDemoCases(demoCasesYRef.current ?? 0));
+    }
+  }
+
+  function continueWithoutPatient() {
+    setNoPatientDialogVisible(false);
+    goNext();
+  }
+
   async function finishOnboardingFromDeviceSetup() {
     persistLanguagePreference(languagePreference);
     // First-run guard: never leave the developer "Simulate missing Concierge /
@@ -1334,6 +1384,7 @@ export default function OnboardingScreen() {
       >
         <View style={styles.root}>
           <ScrollView
+            ref={onboardingScrollRef}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={[
               styles.content,
@@ -1376,6 +1427,9 @@ export default function OnboardingScreen() {
               <WelcomeStep
                 selectedDemoProfileId={selectedDemoProfileId}
                 onSelectDemoProfile={handleSelectDemoProfile}
+                isDemoCasesExpanded={demoCasesExpanded}
+                onToggleDemoCases={() => setDemoCasesExpanded((expanded) => !expanded)}
+                onDemoCasesLayout={handleDemoCasesLayout}
               />
             ) : null}
 
@@ -2123,7 +2177,7 @@ export default function OnboardingScreen() {
               style={[
                 styles.primaryButton,
               ]}
-              onPress={goNext}
+              onPress={handlePrimaryActionPress}
               accessibilityRole="button"
               accessibilityLabel={primaryButtonLabel}
             >
@@ -2134,6 +2188,51 @@ export default function OnboardingScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={noPatientDialogVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeNoPatientDialog}
+      >
+        <View style={styles.noPatientModalOverlay}>
+          <View
+            style={[styles.summaryCard, styles.noPatientDialog]}
+            accessibilityViewIsModal
+          >
+            <Text style={styles.deviceTitle}>
+              {t("onboarding.noPatientDialog.title")}
+            </Text>
+            <Text style={styles.deviceSubtitle}>
+              {t("onboarding.noPatientDialog.message")}
+            </Text>
+
+            <View style={styles.noPatientDialogActions}>
+              <Pressable
+                style={[styles.primaryButton, styles.noPatientDialogSecondaryButton]}
+                onPress={chooseDemoCaseBeforeOnboarding}
+                accessibilityRole="button"
+                accessibilityLabel={t("onboarding.noPatientDialog.chooseDemoCase")}
+              >
+                <Text style={[styles.primaryButtonText, styles.noPatientDialogSecondaryText]}>
+                  {t("onboarding.noPatientDialog.chooseDemoCase")}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.primaryButton}
+                onPress={continueWithoutPatient}
+                accessibilityRole="button"
+                accessibilityLabel={t("onboarding.noPatientDialog.continueWithoutPatient")}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {t("onboarding.noPatientDialog.continueWithoutPatient")}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -2141,21 +2240,26 @@ export default function OnboardingScreen() {
 function WelcomeStep({
   selectedDemoProfileId,
   onSelectDemoProfile,
+  isDemoCasesExpanded,
+  onToggleDemoCases,
+  onDemoCasesLayout,
 }: {
   selectedDemoProfileId: DemoOnboardingProfileId | null;
   onSelectDemoProfile: (profileId: DemoOnboardingProfileId) => void;
+  isDemoCasesExpanded: boolean;
+  onToggleDemoCases: () => void;
+  onDemoCasesLayout: (y: number) => void;
 }) {
   const theme = useTheme();
   const styles = useMemo(() => createThemedStyles(theme), [theme]);
   const { t } = useTranslation();
   const demoOptions = getDemoOnboardingOptions();
-  const [isDemoCasesExpanded, setIsDemoCasesExpanded] = useState(false);
 
   return (
     <View style={styles.welcome}>
       <Pressable
         style={styles.demoDisclosure}
-        onPress={() => setIsDemoCasesExpanded((expanded) => !expanded)}
+        onPress={onToggleDemoCases}
         accessibilityRole="button"
         accessibilityLabel={
           isDemoCasesExpanded
@@ -2204,7 +2308,10 @@ function WelcomeStep({
       </Text>
 
       {isDemoCasesExpanded ? (
-        <View style={styles.demoProfileBlock}>
+        <View
+          style={styles.demoProfileBlock}
+          onLayout={(event) => onDemoCasesLayout(event.nativeEvent.layout.y)}
+        >
           {demoOptions.map((option) => {
             const selected = selectedDemoProfileId === option.id;
 
@@ -3633,6 +3740,33 @@ function createThemedStyles(theme: ReturnType<typeof useTheme>) {
     color: AppTheme.colors.white,
     fontSize: 17,
     fontWeight: "900",
+  },
+  noPatientModalOverlay: {
+    flex: 1,
+    backgroundColor: isDark ? "rgba(0,0,0,0.72)" : "rgba(7,26,51,0.48)",
+    justifyContent: "center",
+    padding: 24,
+  },
+  noPatientDialog: {
+    padding: 22,
+    gap: 14,
+    shadowColor: "#000",
+    shadowOpacity: isDark ? 0.35 : 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  noPatientDialogActions: {
+    gap: 10,
+    marginTop: 4,
+  },
+  noPatientDialogSecondaryButton: {
+    backgroundColor: colors.softSurface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  noPatientDialogSecondaryText: {
+    color: colors.text,
   },
   });
 }
