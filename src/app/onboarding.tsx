@@ -55,7 +55,6 @@ import {
   type CaregivingExperience,
   type EmergencyComfortLevel,
   type MedicalComfortLevel,
-  type NotificationStyle,
   type ImportedPatientManualFields,
   type OnboardingProfile,
   type SymptomProfile,
@@ -81,13 +80,6 @@ const availabilityOptions: Availability[] = [
   "Mornings",
   "Evenings & weekends",
   "On-call only",
-];
-
-const notificationOptions: NotificationStyle[] = [
-  "Push + sound",
-  "Vibrate only",
-  "Push only",
-  "Text message",
 ];
 
 const languageOptions = SUPPORTED_APP_LANGUAGE_PREFERENCES;
@@ -122,13 +114,6 @@ const availabilityOptionKeys: Record<Availability, TranslationKey> = {
   Mornings: "onboarding.caregiving.availability.mornings",
   "Evenings & weekends": "onboarding.caregiving.availability.eveningsWeekends",
   "On-call only": "onboarding.caregiving.availability.onCallOnly",
-};
-
-const notificationOptionKeys: Record<NotificationStyle, TranslationKey> = {
-  "Push + sound": "onboarding.notifications.pushSound",
-  "Vibrate only": "onboarding.notifications.vibrateOnly",
-  "Push only": "onboarding.notifications.pushOnly",
-  "Text message": "onboarding.notifications.textMessage",
 };
 
 const medicalComfortOptionKeys: Record<MedicalComfortLevel, TranslationKey> = {
@@ -651,10 +636,6 @@ export default function OnboardingScreen() {
   const [availability, setAvailability] = useState<Availability>(
     existingProfile.caregiver.availability ?? "Evenings & weekends",
   );
-  const [notificationStyle, setNotificationStyle] =
-    useState<NotificationStyle>(
-      existingProfile.caregiver.notificationStyle ?? "Push + sound",
-    );
   const [languagePreference, setLanguagePreference] =
     useState<SupportedAppLanguagePreference>(
       normalizeSupportedLanguagePreference(settings.languagePreference),
@@ -1171,7 +1152,6 @@ export default function OnboardingScreen() {
         address: caregiverAddress,
         experience,
         availability,
-        notificationStyle,
         languagePreference,
         medicalComfortLevel,
         emergencyComfortLevel,
@@ -1497,16 +1477,6 @@ export default function OnboardingScreen() {
                 />
 
                 <SectionLabel title={t("onboarding.preferences")} />
-
-                <ChipGroup
-                  label={t("onboarding.notifications")}
-                  options={notificationOptions}
-                  selectedValue={notificationStyle}
-                  onSelect={setNotificationStyle}
-                  getOptionLabel={(option) =>
-                    translateOption(option, notificationOptionKeys, t)
-                  }
-                />
 
                 <ChipGroup
                   label={t("onboarding.language.label")}
