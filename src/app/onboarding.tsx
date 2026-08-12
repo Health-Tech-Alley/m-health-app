@@ -66,6 +66,8 @@ import {
 const totalScreens = 7;
 const formStepCount = 6;
 const demoCasesScrollMargin = 18;
+const accessDpLightLogo = require("@/assets/images/access-dp-adaptive-foreground.png");
+const accessDpDarkLogo = require("@/assets/images/access-dp-dark-logo.png");
 
 const experienceOptions: CaregivingExperience[] = [
   "First time",
@@ -2252,6 +2254,8 @@ function WelcomeStep({
 }) {
   const theme = useTheme();
   const styles = useMemo(() => createThemedStyles(theme), [theme]);
+  const accessDpLogoSource =
+    theme.appBackground === "#000000" ? accessDpDarkLogo : accessDpLightLogo;
   const { t } = useTranslation();
   const demoOptions = getDemoOnboardingOptions();
 
@@ -2277,7 +2281,7 @@ function WelcomeStep({
 
       <View style={styles.heroLogoCard}>
         <Image
-          source={require("@/assets/images/access-dp-adaptive-foreground.png")}
+          source={accessDpLogoSource}
           style={styles.heroLogoImage}
           resizeMode="contain"
           accessible={false}
@@ -2968,9 +2972,9 @@ function createThemedStyles(theme: ReturnType<typeof useTheme>) {
     width: 160,
     height: 132,
     borderRadius: 28,
-    backgroundColor: isDark ? AppTheme.colors.white : "transparent",
-    borderWidth: isDark ? 1 : 0,
-    borderColor: isDark ? "rgba(255, 255, 255, 0.18)" : "transparent",
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    borderColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 6,

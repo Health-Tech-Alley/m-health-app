@@ -6,6 +6,8 @@ import { SlmStatusIcon } from "@/components/concierge/SlmStatusIcon";
 import { AppTheme } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 
+const accessDpDarkLogo = require("@/assets/images/access-dp-dark-logo.png");
+
 type MainTabHeaderProps = {
   title: string;
   subtitle?: string;
@@ -30,6 +32,10 @@ export function MainTabHeader({
   const theme = useTheme();
   const themedStyles = useMemo(() => createStyles(theme), [theme]);
   const showBrandText = Boolean(brandText && logoSource);
+  const resolvedLogoSource =
+    showBrandText && brandText === "ACCESS-DP" && theme.appBackground === "#000000"
+      ? accessDpDarkLogo
+      : logoSource;
 
   return (
     <View style={[styles.header, themedStyles.header]}>
@@ -45,8 +51,11 @@ export function MainTabHeader({
             accessible={false}
           >
             <Image
-              source={logoSource}
-              style={[styles.logoImage, showBrandText && styles.brandLogoImage]}
+              source={resolvedLogoSource}
+              style={[
+                styles.logoImage,
+                showBrandText && styles.brandLogoImage,
+              ]}
               resizeMode="contain"
               accessible={false}
               accessibilityIgnoresInvertColors
@@ -128,9 +137,9 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       backgroundColor: AppTheme.colors.brand,
     },
     brandLogoCircle: {
-      backgroundColor: isDark ? AppTheme.colors.white : "transparent",
-      borderColor: isDark ? "rgba(255, 255, 255, 0.18)" : "transparent",
-      borderWidth: isDark ? 1 : 0,
+      backgroundColor: "transparent",
+      borderColor: "transparent",
+      borderWidth: 0,
     },
     iconCircle: {
       backgroundColor: AppTheme.colors.brand,
