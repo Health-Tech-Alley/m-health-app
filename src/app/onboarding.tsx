@@ -67,7 +67,7 @@ const totalScreens = 7;
 const formStepCount = 6;
 const demoCasesScrollMargin = 18;
 const accessDpLightLogo = require("@/assets/images/access-dp-adaptive-foreground.png");
-const accessDpDarkLogo = require("@/assets/images/access-dp-dark-logo.png");
+const accessDpDarkLogo = require("@/assets/images/access-dp-foreground-dark.png");
 
 const experienceOptions: CaregivingExperience[] = [
   "First time",

@@ -6,7 +6,7 @@ import { SlmStatusIcon } from "@/components/concierge/SlmStatusIcon";
 import { AppTheme } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 
-const accessDpDarkLogo = require("@/assets/images/access-dp-dark-logo.png");
+const accessDpDarkLogo = require("@/assets/images/access-dp-foreground-dark.png");
 
 type MainTabHeaderProps = {
   title: string;
