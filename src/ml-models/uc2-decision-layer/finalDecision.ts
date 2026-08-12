@@ -154,7 +154,7 @@ export function makeFinalDecision(params: {
     suppression?: AlertSuppressionStatus | null;
 }): FinalDecisionResult {
     if (params.emergency.is_emergency) {
-        return {
+        const out: FinalDecisionResult = {
             post_hitl_anomaly_type: "CRITICAL_EMERGENCY_ALERT",
             post_hitl_severity: 3,
             final_notification_type: "CRITICAL_EMERGENCY_ALERT",
@@ -172,7 +172,10 @@ export function makeFinalDecision(params: {
             ],
             should_build_initial_mcp_payload: false,
             should_build_final_slm_payload: false,
+            suppression_status: params.suppression ?? undefined,
         };
+
+        return out;
     }
 
     const sensorSeverity = params.sensor?.pre_hitl_severity ?? 0;
@@ -195,12 +198,15 @@ export function makeFinalDecision(params: {
 
     const postType = inferPostHitlType(params);
 
+    // Build a result object for later possible suppression demotion
+    let out: FinalDecisionResult;
+
     if (
         params.caregiver?.data_quality_warning &&
         sensorSeverity <= 1 &&
         postHitlSeverity <= 1
     ) {
-        return {
+        out = {
             post_hitl_anomaly_type: postType,
             post_hitl_severity: 1,
             final_severity: 1,
@@ -216,11 +222,10 @@ export function makeFinalDecision(params: {
             ],
             should_build_initial_mcp_payload: true,
             should_build_final_slm_payload: false,
+            suppression_status: params.suppression ?? undefined,
         };
-    }
-
-    if (postHitlSeverity === 0) {
-        return {
+    } else if (postHitlSeverity === 0) {
+        out = {
             post_hitl_anomaly_type: postType,
             post_hitl_severity: 0,
             final_severity: 0,
@@ -233,11 +238,10 @@ export function makeFinalDecision(params: {
             final_reasons: ["No alert after ML/context evaluation."],
             should_build_initial_mcp_payload: false,
             should_build_final_slm_payload: false,
+            suppression_status: params.suppression ?? undefined,
         };
-    }
-
-    if (postHitlSeverity === 1) {
-        return {
+    } else if (postHitlSeverity === 1) {
+        out = {
             post_hitl_anomaly_type: postType,
             post_hitl_severity: 1,
             final_severity: 1,
@@ -251,13 +255,10 @@ export function makeFinalDecision(params: {
             final_reasons: collectReasons(params),
             should_build_initial_mcp_payload: true,
             should_build_final_slm_payload: false,
+            suppression_status: params.suppression ?? undefined,
         };
-    }
-
-    // Severity 3: caregiver critical route (e.g. critical_route_triggered)
-    // MUST be handled explicitly to avoid collapse to severity 2.
-    if (postHitlSeverity >= 3 || params.caregiver?.critical_route_triggered) {
-        return {
+    } else if (postHitlSeverity >= 3 || params.caregiver?.critical_route_triggered) {
+        out = {
             post_hitl_anomaly_type: postType,
             post_hitl_severity: 3,
             final_severity: 3,
@@ -271,25 +272,36 @@ export function makeFinalDecision(params: {
             final_reasons: collectReasons(params),
             should_build_initial_mcp_payload: false,
             should_build_final_slm_payload: true,
+            suppression_status: params.suppression ?? undefined,
+        };
+    } else {
+        // Severity 2: significant anomaly or composite floor
+        out = {
+            post_hitl_anomaly_type: postType,
+            post_hitl_severity: 2,
+            final_severity: 2,
+            final_notification_type: "SLM_SUMMARY_AND_PROVIDER_NOTE",
+            final_notification_level: "follow_up",
+            final_notification_title: "Follow-up recommended",
+            final_notification_body:
+                "A concerning health pattern was detected. Follow up may be needed.",
+            slm_refinement_queued: true,
+            refinement_reason: "Significant anomaly or caregiver concern.",
+            final_reasons: collectReasons(params),
+            should_build_initial_mcp_payload: true,
+            should_build_final_slm_payload: true,
+            suppression_status: params.suppression ?? undefined,
         };
     }
 
-    // Severity 2: significant anomaly or composite floor
-    return {
-        post_hitl_anomaly_type: postType,
-        post_hitl_severity: 2,
-        final_severity: 2,
-        final_notification_type: "SLM_SUMMARY_AND_PROVIDER_NOTE",
-        final_notification_level: "follow_up",
-        final_notification_title: "Follow-up recommended",
-        final_notification_body:
-            "A concerning health pattern was detected. Follow up may be needed.",
-        slm_refinement_queued: true,
-        refinement_reason: "Significant anomaly or caregiver concern.",
-        final_reasons: collectReasons(params),
-        should_build_initial_mcp_payload: true,
-        should_build_final_slm_payload: true,
-    };
+    // If the alert is suppressed by hysteresis, demote notifications but keep severity for logging
+    if (params.suppression?.is_suppressed) {
+        out.final_notification_type = "MONITORING_ADVICE";
+        out.final_notification_level = "monitor";
+        out.should_build_initial_mcp_payload = false;
+    }
+
+    return out;
 }
 
 function inferPostHitlType(params: {
