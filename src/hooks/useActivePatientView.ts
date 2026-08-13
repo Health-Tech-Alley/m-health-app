@@ -43,12 +43,17 @@ function clean(value: string | number | null | undefined): string {
 const LIVE_MONITORING_TYPES: HealthSampleType[] = [
   'spo2',
   'heart_rate',
+  'resting_heart_rate',
   'respiratory_rate',
   'blood_pressure_systolic',
   'blood_pressure_diastolic',
   'temperature',
   'blood_glucose',
   'steps',
+  'calories_burned',
+  'flights_climbed',
+  'hrv_sdnn',
+  'sleep'
 ];
 
 const RECENT_MONITORING_WINDOW_DAYS = 7;
