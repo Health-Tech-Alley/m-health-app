@@ -9,7 +9,6 @@ import { AppTheme } from "@/constants/theme";
 import { useSettings } from "@/contexts/settings-context";
 import { useTheme } from "@/hooks/use-theme";
 import { useTranslation } from "@/hooks/use-translation";
-import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
 
 import { useActivePatientView } from '@/hooks/useActivePatientView';
 import {
@@ -22,7 +21,6 @@ import {
 export default function MoreScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ focus?: string }>();
-  const profile = getOnboardingProfile();
   const activePatient = useActivePatientView();
   const patientName = getPatientDisplayName(activePatient);
   const patientAge = getPatientAgeDisplay(activePatient);
@@ -177,8 +175,9 @@ export default function MoreScreen() {
             <SettingsRow
               icon="doctor"
               title={t("more.row.providerSettings.title")}
-              subtitle={profile.primaryCareProvider.name}
-              disabled
+              subtitle={t("more.row.providerSettings.subtitle")}
+              onPress={() => router.push("/care-providers" as never)}
+              accessibilityLabel={t("more.row.providerSettings.a11y")}
               soonLabel={t("more.row.soon")}
             />
           </SettingsSection>

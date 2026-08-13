@@ -743,79 +743,64 @@ export function PreferencesScreen() {
   );
 }
 
-export function AdvancedDeveloperSettingsScreen() {
+export function CareProvidersScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const { t } = useTranslation();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
-  const developerPlaceholderColor =
-    theme.appBackground === '#000000' ? theme.appTextMuted : mutedText;
-  const {
-    settings,
-    isDeveloper,
-    toggleMode,
-    setDemoDefaultModelId,
-    setDynamicSlmLoading,
-    setConciergeReasoning,
-    setNluDevelopmentFallback,
-    setEvidenceDevelopmentFallback,
-    setKnowledgeGraphExpansion,
-    setLiveClinicalFetch,
-    setSimulateMissingOptionalFeatures,
-  } = useSettings();
-  const slm = useSLM();
-  const modelQueue = useModelDownloadQueue();
-  // Effective default — a single installed model is always the default.
-  const effectiveDefaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
-    modelQueue.rows.some((r) => r.id === id && r.status === 'installed'),
+
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/more' as never);
+  }, [router]);
+
+  return (
+    <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={['top', 'bottom']}>
+      <ScrollView style={themedStyles.safeArea} contentContainerStyle={[styles.content, themedStyles.content]}>
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={handleBack}
+            hitSlop={12}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel={t('careProviders.backToMoreA11y')}>
+            <Text style={styles.backText}>{t('settings.backToMenu')}</Text>
+          </Pressable>
+          <View style={styles.topBarSpacer} />
+        </View>
+
+        <ScreenHeader eyebrow={t('careProviders.eyebrow')} title={t('careProviders.title')} />
+
+        <Section title={t('careProviders.section.simulatedProviderInput')}>
+          <View style={styles.devSection}>
+            <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
+              {t('careProviders.simulatedProviderInput.description')}
+            </Text>
+          </View>
+        </Section>
+
+        <ProviderSimulationTools />
+      </ScrollView>
+    </SafeAreaView>
   );
-  const memoryInfo = useMemoryInfo(2000);
-  const hasNativeMemory = isNativeMemoryAvailable();
-  const patientId = useOrchestratorPatientId();
+}
+
+function ProviderSimulationTools() {
+  const theme = useTheme();
+  const { t } = useTranslation();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const {
     patientId: patientRecordPatientId,
     snapshot,
     refresh,
     mutatePatientRecord,
   } = usePatientRecord();
-  const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
-  const [ncbiKeyInput, setNcbiKeyInput] = useState('');
-  const [openfdaKeyInput, setOpenfdaKeyInput] = useState('');
-  const [ncbiKeyStored, setNcbiKeyStored] = useState(false);
-  const [openfdaKeyStored, setOpenfdaKeyStored] = useState(false);
-
-  const refreshKeyStatus = useCallback(async () => {
-    setNcbiKeyStored(Boolean(await getNcbiApiKey()));
-    setOpenfdaKeyStored(Boolean(await getOpenFdaApiKey()));
-  }, []);
-
-  // On mount, read the secure-store to show stored/empty badges for each key.
-  // This is a legit external-system sync (expo-secure-store), not a cascading render.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void refreshKeyStatus(); }, [refreshKeyStatus]);
-
-  useEffect(() => {
-    const tag = 'settings-downloads';
-    if (modelQueue.anyDownloading) {
-      void activateKeepAwakeAsync(tag).catch(() => undefined);
-    } else {
-      void deactivateKeepAwake(tag).catch(() => undefined);
-    }
-    return () => {
-      void deactivateKeepAwake(tag).catch(() => undefined);
-    };
-  }, [modelQueue.anyDownloading]);
-
-  const [thresholdRecs, setThresholdRecs] = useState<ThresholdRecommendation[]>([]);
-  const [recVersion, setRecVersion] = useState(0);
-  const [rerunningDemo, setRerunningDemo] = useState(false);
   const [runningUc3Evaluation, setRunningUc3Evaluation] = useState(false);
   const [uc3EvaluationStatus, setUc3EvaluationStatus] =
     useState<Uc3DeveloperEvaluationStatus | null>(null);
-  const [runningUc4Evaluation, setRunningUc4Evaluation] = useState(false);
-  const [uc4EvaluationStatus, setUc4EvaluationStatus] =
-    useState<Uc3DeveloperEvaluationStatus | null>(null);
-  const [importingEhr, setImportingEhr] = useState(false);
-  const [importProgress, setImportProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const activeCarePlan = snapshot?.carePlan ?? null;
   const rehabExerciseAssignments = useMemo(
     () => snapshot?.rehabExerciseAssignments ?? [],
@@ -885,6 +870,156 @@ export function AdvancedDeveloperSettingsScreen() {
       setRunningUc3Evaluation(false);
     }
   }, [refresh, snapshot]);
+
+  return (
+    <>
+      <Section title={t('careProviders.section.uc3ExerciseAssignment')}>
+        <View style={styles.devSection}>
+          {!patientRecordPatientId || !snapshot?.patient ? (
+            <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>No active patient selected.</Text>
+          ) : !activeCarePlan ? (
+            <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>No active CarePlan available.</Text>
+          ) : !uc3ExerciseAssignmentEligible ? (
+            <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
+              Active patient is not eligible for UC3 stroke rehabilitation exercise assignment.
+            </Text>
+          ) : (
+            <>
+              <Text style={[styles.devInfo, themedStyles.devInfo]}>
+                Development-only assignments for the active patient and active CarePlan.
+              </Text>
+              {DEVELOPMENT_UC3_REHAB_EXERCISES.map((exercise) => (
+                <View key={exercise.key} style={styles.inlineControlRow}>
+                  <Text style={[styles.inlineControlLabel, themedStyles.inlineControlLabel]}>{exercise.label}</Text>
+                  <Switch
+                    value={assignedExerciseKeySet.has(exercise.key)}
+                    onValueChange={() => handleUc3ExerciseAssignmentToggle(exercise.key)}
+                    trackColor={{ false: theme.appBorder, true: AppTheme.colors.brandSoft }}
+                    thumbColor={
+                      assignedExerciseKeySet.has(exercise.key)
+                        ? AppTheme.colors.brand
+                        : theme.appSurface
+                    }
+                    accessibilityRole="switch"
+                    accessibilityLabel={exercise.label}
+                    accessibilityState={{ checked: assignedExerciseKeySet.has(exercise.key) }}
+                  />
+                </View>
+              ))}
+            </>
+          )}
+          <Pressable
+            style={[
+              styles.actionButton,
+              runningUc3Evaluation && styles.disabledActionButton,
+              runningUc3Evaluation && themedStyles.disabledActionButton,
+            ]}
+            onPress={handleRunUc3Evaluation}
+            disabled={runningUc3Evaluation}
+            accessibilityRole="button"
+            accessibilityLabel="Run UC3 evaluation"
+          >
+            <Text style={styles.actionButtonText}>Run UC3 evaluation</Text>
+          </Pressable>
+          {uc3EvaluationStatus ? (
+            <View style={[styles.uc3EvaluationStatusCard, themedStyles.uc3EvaluationStatusCard]}>
+              <Text style={[styles.uc3EvaluationStatusTitle, themedStyles.uc3EvaluationStatusTitle]}>
+                {uc3EvaluationStatus.title}
+              </Text>
+              {uc3EvaluationStatus.lines.map((line) => (
+                <Text key={line} style={[styles.uc3EvaluationStatusLine, themedStyles.uc3EvaluationStatusLine]}>
+                  {line}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      </Section>
+
+      <Section title={t('careProviders.section.medicationConfirmation')}>
+        <DemoMedicationConfirmationSettings
+          patientId={patientRecordPatientId ?? ''}
+          snapshot={snapshot}
+          mutatePatientRecord={mutatePatientRecord}
+        />
+      </Section>
+
+      <Section title={t('careProviders.section.diagnosisCuration')}>
+        <DiagnosisCurationSettings
+          patientId={patientRecordPatientId ?? ''}
+          snapshot={snapshot}
+          mutatePatientRecord={mutatePatientRecord}
+        />
+      </Section>
+    </>
+  );
+}
+
+export function AdvancedDeveloperSettingsScreen() {
+  const router = useRouter();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const developerPlaceholderColor =
+    theme.appBackground === '#000000' ? theme.appTextMuted : mutedText;
+  const {
+    settings,
+    isDeveloper,
+    toggleMode,
+    setDemoDefaultModelId,
+    setDynamicSlmLoading,
+    setConciergeReasoning,
+    setNluDevelopmentFallback,
+    setEvidenceDevelopmentFallback,
+    setKnowledgeGraphExpansion,
+    setLiveClinicalFetch,
+    setSimulateMissingOptionalFeatures,
+  } = useSettings();
+  const slm = useSLM();
+  const modelQueue = useModelDownloadQueue();
+  // Effective default — a single installed model is always the default.
+  const effectiveDefaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
+    modelQueue.rows.some((r) => r.id === id && r.status === 'installed'),
+  );
+  const memoryInfo = useMemoryInfo(2000);
+  const hasNativeMemory = isNativeMemoryAvailable();
+  const patientId = useOrchestratorPatientId();
+  const { snapshot, refresh } = usePatientRecord();
+  const [expandedId, setExpandedId] = useState<ExpandableId | null>(null);
+  const [ncbiKeyInput, setNcbiKeyInput] = useState('');
+  const [openfdaKeyInput, setOpenfdaKeyInput] = useState('');
+  const [ncbiKeyStored, setNcbiKeyStored] = useState(false);
+  const [openfdaKeyStored, setOpenfdaKeyStored] = useState(false);
+
+  const refreshKeyStatus = useCallback(async () => {
+    setNcbiKeyStored(Boolean(await getNcbiApiKey()));
+    setOpenfdaKeyStored(Boolean(await getOpenFdaApiKey()));
+  }, []);
+
+  // On mount, read the secure-store to show stored/empty badges for each key.
+  // This is a legit external-system sync (expo-secure-store), not a cascading render.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void refreshKeyStatus(); }, [refreshKeyStatus]);
+
+  useEffect(() => {
+    const tag = 'settings-downloads';
+    if (modelQueue.anyDownloading) {
+      void activateKeepAwakeAsync(tag).catch(() => undefined);
+    } else {
+      void deactivateKeepAwake(tag).catch(() => undefined);
+    }
+    return () => {
+      void deactivateKeepAwake(tag).catch(() => undefined);
+    };
+  }, [modelQueue.anyDownloading]);
+
+  const [thresholdRecs, setThresholdRecs] = useState<ThresholdRecommendation[]>([]);
+  const [recVersion, setRecVersion] = useState(0);
+  const [rerunningDemo, setRerunningDemo] = useState(false);
+  const [runningUc4Evaluation, setRunningUc4Evaluation] = useState(false);
+  const [uc4EvaluationStatus, setUc4EvaluationStatus] =
+    useState<Uc3DeveloperEvaluationStatus | null>(null);
+  const [importingEhr, setImportingEhr] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
 
   const handleRunUc4Evaluation = useCallback(() => {
     if (!snapshot?.patient) {
@@ -1651,71 +1786,6 @@ export function AdvancedDeveloperSettingsScreen() {
         </Section>
 
         {__DEV__ && isDeveloper ? (
-          <Section title="UC3 exercise assignment">
-            <View style={styles.devSection}>
-              {!patientRecordPatientId || !snapshot?.patient ? (
-                <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>No active patient selected.</Text>
-              ) : !activeCarePlan ? (
-                <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>No active CarePlan available.</Text>
-              ) : !uc3ExerciseAssignmentEligible ? (
-                <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
-                  Active patient is not eligible for UC3 stroke rehabilitation exercise assignment.
-                </Text>
-              ) : (
-                <>
-                  <Text style={[styles.devInfo, themedStyles.devInfo]}>
-                    Development-only assignments for the active patient and active CarePlan.
-                  </Text>
-                  {DEVELOPMENT_UC3_REHAB_EXERCISES.map((exercise) => (
-                    <View key={exercise.key} style={styles.inlineControlRow}>
-                      <Text style={[styles.inlineControlLabel, themedStyles.inlineControlLabel]}>{exercise.label}</Text>
-                      <Switch
-                        value={assignedExerciseKeySet.has(exercise.key)}
-                        onValueChange={() => handleUc3ExerciseAssignmentToggle(exercise.key)}
-                        trackColor={{ false: theme.appBorder, true: AppTheme.colors.brandSoft }}
-                        thumbColor={
-                          assignedExerciseKeySet.has(exercise.key)
-                            ? AppTheme.colors.brand
-                            : theme.appSurface
-                        }
-                        accessibilityRole="switch"
-                        accessibilityLabel={exercise.label}
-                        accessibilityState={{ checked: assignedExerciseKeySet.has(exercise.key) }}
-                      />
-                    </View>
-                  ))}
-                </>
-              )}
-              <Pressable
-                style={[
-                  styles.actionButton,
-                  runningUc3Evaluation && styles.disabledActionButton,
-                  runningUc3Evaluation && themedStyles.disabledActionButton,
-                ]}
-                onPress={handleRunUc3Evaluation}
-                disabled={runningUc3Evaluation}
-                accessibilityRole="button"
-                accessibilityLabel="Run UC3 evaluation"
-              >
-                <Text style={styles.actionButtonText}>Run UC3 evaluation</Text>
-              </Pressable>
-              {uc3EvaluationStatus ? (
-                <View style={[styles.uc3EvaluationStatusCard, themedStyles.uc3EvaluationStatusCard]}>
-                  <Text style={[styles.uc3EvaluationStatusTitle, themedStyles.uc3EvaluationStatusTitle]}>
-                    {uc3EvaluationStatus.title}
-                  </Text>
-                  {uc3EvaluationStatus.lines.map((line) => (
-                    <Text key={line} style={[styles.uc3EvaluationStatusLine, themedStyles.uc3EvaluationStatusLine]}>
-                      {line}
-                    </Text>
-                  ))}
-                </View>
-              ) : null}
-            </View>
-          </Section>
-        ) : null}
-
-        {__DEV__ && isDeveloper ? (
           <Section title="UC4 priority evaluation">
             <View style={styles.devSection}>
               <Text style={[styles.devInfo, themedStyles.devInfo]}>
@@ -1750,25 +1820,6 @@ export function AdvancedDeveloperSettingsScreen() {
           </Section>
         ) : null}
 
-        {isDeveloper ? (
-          <Section title="Diagnosis curation">
-            <DiagnosisCurationSettings
-              patientId={patientRecordPatientId ?? ''}
-              snapshot={snapshot}
-              mutatePatientRecord={mutatePatientRecord}
-            />
-          </Section>
-        ) : null}
-
-        {isDeveloper ? (
-          <Section title="Simulate care-team-required confirmation">
-            <DemoMedicationConfirmationSettings
-              patientId={patientRecordPatientId ?? ''}
-              snapshot={snapshot}
-              mutatePatientRecord={mutatePatientRecord}
-            />
-          </Section>
-        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
