@@ -8,7 +8,6 @@ import { upsertPatientLongitudinalObservation } from '../repositories/patientLon
 import { upsertPatientTimelineEvent } from '../repositories/patientTimelineEventRepository';
 import { upsertRehabilitationMeasurement } from '../repositories/rehabilitationMeasurementRepository';
 import { seedAdcpV1FromSnapshot } from '../repositories/adcpRepository';
-import { seedDevelopmentRehabExercisesIfEligible } from '../repositories/rehabExerciseAssignmentRepository';
 import { getPatientRecordSnapshot } from '../repositories/patientRecordRepository';
 import type {
   CarePlanRehabMetric,
@@ -117,24 +116,6 @@ export function saveFHIRBundleToDB(bundle: any): string | null {
       }
     }
   });
-
-  // UC3 rehab exercise seed: for post-stroke personas (SNOMED stroke codes +
-  // active care plan) assign the development rehab exercises so the Care
-  // therapy card shows exercises immediately after import instead of
-  // "0 active exercises". Non-eligible personas are untouched. Runs BEFORE
-  // the ADCP seed so the therapy contract mirrors the assignments.
-  try {
-    const importSnapshot = getPatientRecordSnapshot(canonicalPatientId);
-    if (importSnapshot.carePlan) {
-      seedDevelopmentRehabExercisesIfEligible({
-        patientId: canonicalPatientId,
-        carePlanId: importSnapshot.carePlan.planId,
-        conditions: importSnapshot.conditions,
-      });
-    }
-  } catch (err) {
-    console.error('[FHIR Import] Rehab exercise seed failed:', err);
-  }
 
   // ADCP v1 seed (planning/39 §3.5). After the FHIR imports, the snapshot has
   // the new patient, conditions, meds, thresholds, and CarePlan; we read that
