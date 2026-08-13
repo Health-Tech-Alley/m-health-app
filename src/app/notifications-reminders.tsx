@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
+  AppState,
   Platform,
   Pressable,
   ScrollView,
@@ -29,8 +30,8 @@ import {
   type NotificationPreferences,
 } from '@/data';
 import {
-  getEmergencyDndBypassEnabled,
   openAndroidNotificationPolicySettings,
+  refreshEmergencyDndBypassEnabled,
   requestNotificationPermission,
 } from '@/services/notifications/notificationService';
 import { rescheduleAll } from '@/services/notifications/reminderEngine';
@@ -85,12 +86,25 @@ export default function NotificationsRemindersScreen() {
 
   const refreshEmergencyDndStatus = useCallback(async () => {
     if (Platform.OS !== 'android') return;
-    setEmergencyDndEnabled(await getEmergencyDndBypassEnabled());
+    setEmergencyDndEnabled(await refreshEmergencyDndBypassEnabled());
   }, []);
 
   useFocusEffect(
     useCallback(() => {
+      if (Platform.OS !== 'android') return undefined;
       void refreshEmergencyDndStatus();
+
+      let previousState = AppState.currentState;
+      const subscription = AppState.addEventListener('change', (nextState) => {
+        const returningToForeground =
+          nextState === 'active' && (previousState === 'background' || previousState === 'inactive');
+        previousState = nextState;
+        if (returningToForeground) {
+          void refreshEmergencyDndStatus();
+        }
+      });
+
+      return () => subscription.remove();
     }, [refreshEmergencyDndStatus]),
   );
 

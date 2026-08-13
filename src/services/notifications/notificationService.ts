@@ -32,9 +32,15 @@ const DEDUPE_WINDOW_MS = 60_000;
 const ANDROID_NOTIFICATION_POLICY_SETTINGS = 'android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS';
 
 let notificationsModule: any | null | undefined;
+let notificationPolicyModule: NotificationPolicyModule | null = null;
+let notificationPolicyModuleResolved = false;
 let initPromise: Promise<void> | null = null;
 let responseHandler: ((notificationId: string, action?: string) => void) | null = null;
 let responseListener: any = null;
+
+type NotificationPolicyModule = {
+  isNotificationPolicyAccessGranted(): boolean;
+};
 
 /**
  * Lazily require `expo-notifications`. Returns `null` if the module is not
@@ -50,6 +56,22 @@ function loadNotificationsModule(): any | null {
     notificationsModule = null;
   }
   return notificationsModule;
+}
+
+function loadNotificationPolicyModule(): NotificationPolicyModule | null {
+  if (Platform.OS !== 'android') return null;
+  if (notificationPolicyModuleResolved) return notificationPolicyModule;
+  notificationPolicyModuleResolved = true;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { requireOptionalNativeModule } = require('expo-modules-core') as typeof import('expo-modules-core');
+    const mod = requireOptionalNativeModule<NotificationPolicyModule>('NotificationPolicy');
+    notificationPolicyModule =
+      mod && typeof mod.isNotificationPolicyAccessGranted === 'function' ? mod : null;
+  } catch {
+    notificationPolicyModule = null;
+  }
+  return notificationPolicyModule;
 }
 
 function makeId(prefix: string): string {
@@ -113,7 +135,32 @@ export async function requestNotificationPermission(): Promise<boolean> {
 
 export async function getEmergencyDndBypassEnabled(): Promise<boolean> {
   if (Platform.OS !== 'android') return false;
+  if (!isAndroidNotificationPolicyAccessGranted()) return false;
   const mod = loadNotificationsModule();
+  return readEmergencyDndBypassEnabled(mod);
+}
+
+export async function refreshEmergencyDndBypassEnabled(): Promise<boolean> {
+  if (Platform.OS !== 'android') return false;
+  if (!isAndroidNotificationPolicyAccessGranted()) return false;
+  const mod = loadNotificationsModule();
+  if (!mod) return false;
+  await setupNotificationChannels(mod);
+  return readEmergencyDndBypassEnabled(mod);
+}
+
+export function isAndroidNotificationPolicyAccessGranted(): boolean {
+  if (Platform.OS !== 'android') return false;
+  const mod = loadNotificationPolicyModule();
+  if (!mod) return false;
+  try {
+    return mod.isNotificationPolicyAccessGranted() === true;
+  } catch {
+    return false;
+  }
+}
+
+async function readEmergencyDndBypassEnabled(mod: any | null): Promise<boolean> {
   if (!mod || typeof mod.getNotificationChannelAsync !== 'function') {
     return false;
   }
