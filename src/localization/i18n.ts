@@ -1331,20 +1331,30 @@ const ENGLISH_TRANSLATIONS = {
   "logs.sendByEmailA11y": "Send logs by email",
   "notifications.backA11y": "Back to preferences",
   "notifications.title": "Notifications & reminders",
+  "notifications.group.reminders": "Reminders",
+  "notifications.group.health": "Health",
+  "notifications.group.emergency": "Emergency",
+  "notifications.group.device": "Device",
   "notifications.section.health": "Health alerts",
-  "notifications.section.medications": "Medications",
-  "notifications.section.appointments": "Appointments & scheduling",
-  "notifications.section.careTasks": "Care tasks",
-  "notifications.health.dnd.title":
+  "notifications.section.medications": "Medication reminders",
+  "notifications.section.appointments": "Appointment reminders",
+  "notifications.section.careTasks": "Care task reminders",
+  "notifications.section.emergency": "Emergency alerts",
+  "notifications.section.device": "Sound & vibration",
+  "notifications.health.body":
+    "Health-related alerts are managed separately from routine reminders.",
+  "notifications.emergency.body":
+    "Emergency alerts are handled separately from routine reminders.",
+  "notifications.emergency.dnd.title":
     "Allow emergency alerts through Do Not Disturb",
-  "notifications.health.dnd.body":
+  "notifications.emergency.dnd.body":
     "Android can let urgent health alerts use the emergency channel when you allow Do Not Disturb access.",
-  "notifications.health.dnd.status.enabled": "Enabled",
-  "notifications.health.dnd.status.notEnabled": "Not enabled",
-  "notifications.health.dnd.action": "Open Android settings",
-  "notifications.health.dnd.actionA11y":
+  "notifications.emergency.dnd.status.enabled": "Enabled",
+  "notifications.emergency.dnd.status.notEnabled": "Not enabled",
+  "notifications.emergency.dnd.action": "Open Android settings",
+  "notifications.emergency.dnd.actionA11y":
     "Open Android Do Not Disturb access settings",
-  "notifications.health.dnd.openError":
+  "notifications.emergency.dnd.openError":
     "Android Do Not Disturb settings could not be opened.",
   "notifications.additionalUnavailable": "Additional preferences not available yet.",
   "notifications.noActivePatient": "No active patient selected",
@@ -1359,15 +1369,19 @@ const ENGLISH_TRANSLATIONS = {
   "notifications.reminderDelivery": "Reminder delivery",
   "notifications.reminderDeliveryUnavailable":
     "Reminder delivery preferences unavailable",
-  "notifications.medications.showInApp": "Show medication reminders in the app",
+  "notifications.medications.showInApp": "Medication reminders",
   "notifications.sendDevice": "Send device notifications",
   "notifications.permission.notGranted": "Notification permission not granted",
   "notifications.medications.addToCalendar": "Add medication reminders to calendar",
   "notifications.notAvailableYet": "Not available yet",
-  "notifications.appointments.showInApp": "Show appointment reminders in the app",
+  "notifications.careTasks.comingLater": "Coming later",
+  "notifications.appointments.showInApp": "Appointment reminders",
   "notifications.appointments.leadTime": "Reminder lead time",
   "notifications.appointments.leadTimeA11y":
     "Appointment reminder lead time in minutes",
+  "notifications.device.title": "Managed in device settings",
+  "notifications.device.body":
+    "Sound, vibration, and quiet behavior are controlled by the device. The app does not add separate sound, vibration, or SMS preferences here.",
   "notifications.medications.empty": "No medications provided",
   "notifications.medications.requiredByCareTeam": "Required by care team",
   "notifications.medications.detailsNotProvided": "Medication details not provided",
@@ -2000,7 +2014,7 @@ const ENGLISH_TRANSLATIONS = {
   "settings.section.privacyConsent": "Privacy & Consent",
   "settings.notifications.label": "Notifications & reminders",
   "settings.notifications.explanation":
-    "Manage alert, medication, appointment, and care-task reminder delivery preferences.",
+    "Health alerts, medication reminders, appointments, and care.",
   "settings.notifications.open": "Open Notifications & reminders",
   "settings.notifications.openA11y": "Open Notifications and reminders",
   "settings.appearance.label": "Appearance",
@@ -3456,20 +3470,30 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "logs.sendByEmailA11y": "Enviar registros por correo",
   "notifications.backA11y": "Volver a preferencias",
   "notifications.title": "Notificaciones y recordatorios",
+  "notifications.group.reminders": "Recordatorios",
+  "notifications.group.health": "Salud",
+  "notifications.group.emergency": "Emergencia",
+  "notifications.group.device": "Dispositivo",
   "notifications.section.health": "Alertas de salud",
-  "notifications.section.medications": "Medicamentos",
-  "notifications.section.appointments": "Citas y programación",
-  "notifications.section.careTasks": "Tareas de cuidado",
-  "notifications.health.dnd.title":
+  "notifications.section.medications": "Recordatorios de medicamentos",
+  "notifications.section.appointments": "Recordatorios de citas",
+  "notifications.section.careTasks": "Recordatorios de tareas de cuidado",
+  "notifications.section.emergency": "Alertas de emergencia",
+  "notifications.section.device": "Sonido y vibración",
+  "notifications.health.body":
+    "Las alertas relacionadas con la salud se administran por separado de los recordatorios de rutina.",
+  "notifications.emergency.body":
+    "Las alertas de emergencia se manejan por separado de los recordatorios de rutina.",
+  "notifications.emergency.dnd.title":
     "Permitir alertas de emergencia durante No molestar",
-  "notifications.health.dnd.body":
+  "notifications.emergency.dnd.body":
     "Android puede permitir que las alertas de salud urgentes usen el canal de emergencia cuando permites el acceso a No molestar.",
-  "notifications.health.dnd.status.enabled": "Activado",
-  "notifications.health.dnd.status.notEnabled": "No activado",
-  "notifications.health.dnd.action": "Abrir configuración de Android",
-  "notifications.health.dnd.actionA11y":
+  "notifications.emergency.dnd.status.enabled": "Activado",
+  "notifications.emergency.dnd.status.notEnabled": "No activado",
+  "notifications.emergency.dnd.action": "Abrir configuración de Android",
+  "notifications.emergency.dnd.actionA11y":
     "Abrir configuración de acceso a No molestar en Android",
-  "notifications.health.dnd.openError":
+  "notifications.emergency.dnd.openError":
     "No se pudo abrir la configuración de No molestar de Android.",
   "notifications.additionalUnavailable": "Preferencias adicionales no disponibles todavía.",
   "notifications.noActivePatient": "No hay paciente activo seleccionado",
@@ -3484,15 +3508,19 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "notifications.reminderDelivery": "Entrega de recordatorios",
   "notifications.reminderDeliveryUnavailable":
     "Las preferencias de entrega de recordatorios no están disponibles",
-  "notifications.medications.showInApp": "Mostrar recordatorios de medicamentos en la app",
+  "notifications.medications.showInApp": "Recordatorios de medicamentos",
   "notifications.sendDevice": "Enviar notificaciones del dispositivo",
   "notifications.permission.notGranted": "No se concedió permiso para notificaciones",
   "notifications.medications.addToCalendar": "Agregar recordatorios de medicamentos al calendario",
   "notifications.notAvailableYet": "No disponible todavía",
-  "notifications.appointments.showInApp": "Mostrar recordatorios de citas en la app",
+  "notifications.careTasks.comingLater": "Próximamente",
+  "notifications.appointments.showInApp": "Recordatorios de citas",
   "notifications.appointments.leadTime": "Tiempo de anticipación del recordatorio",
   "notifications.appointments.leadTimeA11y":
     "Tiempo de anticipación del recordatorio de cita en minutos",
+  "notifications.device.title": "Administrado en la configuración del dispositivo",
+  "notifications.device.body":
+    "El sonido, la vibración y el silencio se controlan en el dispositivo. La app no agrega preferencias separadas de sonido, vibración ni SMS aquí.",
   "notifications.medications.empty": "No se proporcionaron medicamentos",
   "notifications.medications.requiredByCareTeam": "Requerido por el equipo de cuidado",
   "notifications.medications.detailsNotProvided": "No se proporcionaron detalles del medicamento",
@@ -4131,7 +4159,7 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "settings.section.privacyConsent": "Privacidad y consentimiento",
   "settings.notifications.label": "Notificaciones y recordatorios",
   "settings.notifications.explanation":
-    "Administra las preferencias de entrega de alertas, medicamentos, citas y recordatorios de tareas de cuidado.",
+    "Alertas de salud, recordatorios de medicamentos, citas y cuidado.",
   "settings.notifications.open": "Abrir Notificaciones y recordatorios",
   "settings.notifications.openA11y": "Abrir Notificaciones y recordatorios",
   "settings.appearance.label": "Apariencia",

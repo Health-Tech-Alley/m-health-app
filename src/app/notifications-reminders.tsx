@@ -35,7 +35,7 @@ import {
 } from '@/services/notifications/notificationService';
 import { rescheduleAll } from '@/services/notifications/reminderEngine';
 
-type SectionId = 'health' | 'medications' | 'appointments' | 'careTasks';
+type SectionId = 'health' | 'emergency' | 'medications' | 'appointments' | 'careTasks' | 'device';
 
 function loadNotificationPreferences(): NotificationPreferences {
   return getNotificationPreferences();
@@ -260,56 +260,7 @@ export default function NotificationsRemindersScreen() {
 
         <MainTabHeader title={t('notifications.title')} eyebrow={t('common.appName')} icon="bell" />
 
-        <ExpandableSection
-          title={t('notifications.section.health')}
-          expanded={expandedId === 'health'}
-          onPress={() => toggleExpanded('health')}>
-          {Platform.OS === 'android' ? (
-            <View style={styles.staticRow}>
-              <View style={styles.dndStatusRow}>
-                <View style={styles.rowTextBlock}>
-                  <Text style={[styles.rowTitle, themedStyles.rowTitle]}>
-                    {t('notifications.health.dnd.title')}
-                  </Text>
-                  <Text style={[styles.mutedText, themedStyles.mutedText]}>
-                    {t('notifications.health.dnd.body')}
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    styles.dndStatusBadge,
-                    themedStyles.dndStatusBadge,
-                    emergencyDndEnabled && themedStyles.dndStatusBadgeEnabled,
-                  ]}>
-                  <Text
-                    style={[
-                      styles.dndStatusText,
-                      themedStyles.dndStatusText,
-                      emergencyDndEnabled && themedStyles.dndStatusTextEnabled,
-                    ]}>
-                    {emergencyDndEnabled
-                      ? t('notifications.health.dnd.status.enabled')
-                      : t('notifications.health.dnd.status.notEnabled')}
-                  </Text>
-                </View>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t('notifications.health.dnd.actionA11y')}
-                onPress={handleOpenEmergencyDndSettings}
-                style={[styles.dndSettingsButton, themedStyles.dndSettingsButton]}>
-                <Text style={[styles.dndSettingsButtonText, themedStyles.dndSettingsButtonText]}>
-                  {t('notifications.health.dnd.action')}
-                </Text>
-              </Pressable>
-              {dndSettingsError ? (
-                <Text style={styles.warningText}>{t('notifications.health.dnd.openError')}</Text>
-              ) : null}
-            </View>
-          ) : (
-            <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.additionalUnavailable')}</Text>
-          )}
-        </ExpandableSection>
+        <Text style={[styles.subsectionTitle, themedStyles.subsectionTitle]}>{t('notifications.group.reminders')}</Text>
 
         <ExpandableSection
           title={t('notifications.section.medications')}
@@ -455,7 +406,80 @@ export default function NotificationsRemindersScreen() {
           title={t('notifications.section.careTasks')}
           expanded={expandedId === 'careTasks'}
           onPress={() => toggleExpanded('careTasks')}>
-          <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.additionalUnavailable')}</Text>
+          <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.careTasks.comingLater')}</Text>
+        </ExpandableSection>
+
+        <Text style={[styles.subsectionTitle, themedStyles.subsectionTitle]}>{t('notifications.group.health')}</Text>
+
+        <ExpandableSection
+          title={t('notifications.section.health')}
+          expanded={expandedId === 'health'}
+          onPress={() => toggleExpanded('health')}>
+          <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.health.body')}</Text>
+        </ExpandableSection>
+
+        <Text style={[styles.subsectionTitle, themedStyles.subsectionTitle]}>{t('notifications.group.emergency')}</Text>
+
+        <ExpandableSection
+          title={t('notifications.section.emergency')}
+          expanded={expandedId === 'emergency'}
+          onPress={() => toggleExpanded('emergency')}>
+          <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.emergency.body')}</Text>
+          {Platform.OS === 'android' ? (
+            <View style={styles.staticRow}>
+              <View style={styles.dndStatusRow}>
+                <View style={styles.rowTextBlock}>
+                  <Text style={[styles.rowTitle, themedStyles.rowTitle]}>
+                    {t('notifications.emergency.dnd.title')}
+                  </Text>
+                  <Text style={[styles.mutedText, themedStyles.mutedText]}>
+                    {t('notifications.emergency.dnd.body')}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.dndStatusBadge,
+                    themedStyles.dndStatusBadge,
+                    emergencyDndEnabled && themedStyles.dndStatusBadgeEnabled,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.dndStatusText,
+                      themedStyles.dndStatusText,
+                      emergencyDndEnabled && themedStyles.dndStatusTextEnabled,
+                    ]}>
+                    {emergencyDndEnabled
+                      ? t('notifications.emergency.dnd.status.enabled')
+                      : t('notifications.emergency.dnd.status.notEnabled')}
+                  </Text>
+                </View>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('notifications.emergency.dnd.actionA11y')}
+                onPress={handleOpenEmergencyDndSettings}
+                style={[styles.dndSettingsButton, themedStyles.dndSettingsButton]}>
+                <Text style={[styles.dndSettingsButtonText, themedStyles.dndSettingsButtonText]}>
+                  {t('notifications.emergency.dnd.action')}
+                </Text>
+              </Pressable>
+              {dndSettingsError ? (
+                <Text style={styles.warningText}>{t('notifications.emergency.dnd.openError')}</Text>
+              ) : null}
+            </View>
+          ) : null}
+        </ExpandableSection>
+
+        <Text style={[styles.subsectionTitle, themedStyles.subsectionTitle]}>{t('notifications.group.device')}</Text>
+
+        <ExpandableSection
+          title={t('notifications.section.device')}
+          expanded={expandedId === 'device'}
+          onPress={() => toggleExpanded('device')}>
+          <View style={styles.staticRow}>
+            <Text style={[styles.rowTitle, themedStyles.rowTitle]}>{t('notifications.device.title')}</Text>
+            <Text style={[styles.mutedText, themedStyles.mutedText]}>{t('notifications.device.body')}</Text>
+          </View>
         </ExpandableSection>
       </ScrollView>
     </SafeAreaView>
