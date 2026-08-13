@@ -402,24 +402,16 @@ export function WeeklyVitalsCard() {
         <>
           <View style={[styles.divider, themedStyles.divider]} />
 
-          <View
-            style={[
-              styles.bottomStats,
-              fontScale >= 1.8 && styles.bottomStatsStack,
-              fontScale >= 1.25 && fontScale < 1.8 && styles.bottomStatsTwo,
-            ]}
-          >
+          <View style={styles.bottomStats}>
             {summaryMetrics.map((metric) => (
-              <SmallStat
-                key={metric.key}
-                label={metric.label}
-                value={metric.value}
-                unit={metric.unit}
-                tone={metric.statusTone}
-                size={
-                  fontScale >= 1.8 ? "block" : fontScale >= 1.25 ? "half" : "row"
-                }
-              />
+              <View key={metric.key} style={styles.smallStatItem}>
+                <SmallStat
+                  label={metric.label}
+                  value={metric.value}
+                  unit={metric.unit}
+                  tone={metric.statusTone}
+                />
+              </View>
             ))}
           </View>
         </>
@@ -1427,16 +1419,11 @@ const styles = StyleSheet.create({
   },
   bottomStats: {
     flexDirection: "row",
-    gap: 20,
-  },
-  bottomStatsTwo: {
-    flexDirection: "row",
     flexWrap: "wrap",
-    gap: 16,
-  },
-  bottomStatsStack: {
-    flexDirection: "column",
-    gap: 14,
+    gap: 15,
+    },
+  smallStatItem: {
+    width: "21%", // roughly (100% - 3 gaps) / 4 — tune against your `gap` value
   },
   smallStat: {
     flex: 1,
