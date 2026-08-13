@@ -50,6 +50,7 @@ const LIVE_MONITORING_TYPES: HealthSampleType[] = [
   'temperature',
   'blood_glucose',
   'steps',
+  'distance',
   'calories_burned',
   'flights_climbed',
   'hrv_sdnn',
