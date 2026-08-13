@@ -1,5 +1,6 @@
 import type { NormalizedFhirClinicalImportPackage } from '@/data/fhir';
 import { getDatabase } from '@/data/db';
+import patientProfiles from '@/data/fhir/patient-profiles';
 import {
   clearActivePatientId,
   getActivePatientId,
@@ -233,6 +234,39 @@ export type OnboardingSeedResult = {
   patientId?: string;
   error?: string;
 };
+
+function getCanonicalPatientIdFromBundleData(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const entries = (data as { entry?: unknown }).entry;
+  if (!Array.isArray(entries)) return null;
+
+  const patientResources = entries
+    .map((entry) =>
+      entry && typeof entry === 'object'
+        ? (entry as { resource?: unknown }).resource
+        : null,
+    )
+    .filter(
+      (resource): resource is { resourceType?: unknown; id?: unknown } =>
+        !!resource &&
+        typeof resource === 'object' &&
+        (resource as { resourceType?: unknown }).resourceType === 'Patient',
+    );
+
+  if (patientResources.length !== 1) return null;
+  const patientId = patientResources[0].id;
+  return typeof patientId === 'string' && patientId.trim()
+    ? patientId.trim()
+    : null;
+}
+
+function resolveLocalDemoPatientId(profile: OnboardingProfile): string | undefined {
+  const demoProfileId = profile.demoProfileId?.trim();
+  if (!demoProfileId) return undefined;
+  const bundledProfile = patientProfiles.find((entry) => entry.id === demoProfileId);
+  const canonicalPatientId = getCanonicalPatientIdFromBundleData(bundledProfile?.data);
+  return canonicalPatientId ? `demo-${canonicalPatientId}` : undefined;
+}
 
 export type ImportedPatientManualFields = {
   fullName?: string;
@@ -491,7 +525,11 @@ export async function completeOnboardingProfile(
   profile: OnboardingProfile,
 ): Promise<OnboardingSeedResult> {
   saveOnboardingProfile(profile);
-  const patientId = seedDatabaseFromProfile(getOnboardingProfile());
+  const savedProfile = getOnboardingProfile();
+  const patientId = seedDatabaseFromProfile(
+    savedProfile,
+    resolveLocalDemoPatientId(savedProfile),
+  );
 
   // First-run guard: a stale "Simulate missing Concierge / knowledge" flag
   // from a previous dev session must not survive onboarding — it would hide

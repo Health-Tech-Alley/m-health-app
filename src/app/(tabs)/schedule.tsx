@@ -1,5 +1,5 @@
 import { useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -18,6 +18,7 @@ import { AppIcon } from "@/components/AppIcon";
 import { MainTabHeader } from "@/components/MainTabHeader";
 import { AppTheme } from "@/constants/theme";
 import { usePatientRecord } from "@/contexts/patient-record-context";
+import patientProfiles from "@/data/fhir/patient-profiles";
 import { useTheme } from "@/hooks/use-theme";
 import { useTranslation } from "@/hooks/use-translation";
 import type { AppLocale, TranslateFn } from "@/localization/i18n";
@@ -30,7 +31,6 @@ import {
 import { audit } from "@/services/audit/auditService";
 import { dispatchImmediate } from "@/services/notifications/notificationService";
 import { getOnboardingProfile } from "@/services/onboarding/onboardingService";
-import { useAppSelector } from '@/store/hooks';
 
 /* ---------------------------------------------------------------------- */
 /* athenahealth — inline, minimal setup                                    */
@@ -253,6 +253,52 @@ function emptyForm(profile: ReturnType<typeof getOnboardingProfile>) {
   };
 }
 
+function getCanonicalPatientIdFromBundleData(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const entries = (data as { entry?: unknown }).entry;
+  if (!Array.isArray(entries)) return null;
+
+  const patientResources = entries
+    .map((entry) =>
+      entry && typeof entry === "object"
+        ? (entry as { resource?: unknown }).resource
+        : null,
+    )
+    .filter(
+      (resource): resource is { resourceType?: unknown; id?: unknown } =>
+        !!resource &&
+        typeof resource === "object" &&
+        (resource as { resourceType?: unknown }).resourceType === "Patient",
+    );
+
+  if (patientResources.length !== 1) return null;
+  const patientId = patientResources[0].id;
+  return typeof patientId === "string" && patientId.trim()
+    ? patientId.trim()
+    : null;
+}
+
+const trustedProjectPatientIds = new Set(
+  patientProfiles
+    .map((profileEntry) => getCanonicalPatientIdFromBundleData(profileEntry.data))
+    .filter((patientId): patientId is string => patientId !== null),
+);
+
+const DEMO_PATIENT_ID_PREFIX = "demo-";
+
+function resolveTrustedAthenaPatientId(patientId: string | null | undefined): string | null {
+  const normalized = patientId?.trim();
+  if (!normalized) return null;
+  if (trustedProjectPatientIds.has(normalized)) return normalized;
+
+  if (normalized.startsWith(DEMO_PATIENT_ID_PREFIX)) {
+    const canonicalCandidate = normalized.slice(DEMO_PATIENT_ID_PREFIX.length).trim();
+    return trustedProjectPatientIds.has(canonicalCandidate) ? canonicalCandidate : null;
+  }
+
+  return null;
+}
+
 export default function ScheduleScreen() {
   const theme = useTheme();
   const { locale, t } = useTranslation();
@@ -262,10 +308,16 @@ export default function ScheduleScreen() {
   const dangerAccent = isDark ? AppTheme.colors.dangerLight : AppTheme.colors.danger;
   const profile = getOnboardingProfile();
   const { patientId } = usePatientRecord();
-  // let athenaPatientId = '-1';
-  const { patient, loading, error, lastSynced } = useAppSelector(state => state.patient);
-  const [athenaPatientId, setAthenaPatientId] = useState<string>('-1');
-  const latestReloadPatientIdRef = useRef<string>('-1');
+  const athenaPatientId = useMemo(
+    () => resolveTrustedAthenaPatientId(patientId),
+    [patientId],
+  );
+  const scheduleContextKey = patientId && athenaPatientId
+    ? `${patientId}:${athenaPatientId}`
+    : null;
+  const activeScheduleContextRef = useRef<string | null>(scheduleContextKey);
+  const loadedAppointmentsContextRef = useRef<string | null>(null);
+  const loadedSlotsContextRef = useRef<string | null>(null);
   const [form, setForm] = useState(() => emptyForm(profile));
   const [upcoming, setUpcoming] = useState<Appointment[]>([]);
   const [appointmentLoadError, setAppointmentLoadError] = useState<string | null>(null);
@@ -295,29 +347,46 @@ export default function ScheduleScreen() {
       return Number.isFinite(appointmentMs) && appointmentMs >= todayStartMs;
     }) ?? sortedUpcoming[0];
 
+  useEffect(() => {
+    activeScheduleContextRef.current = scheduleContextKey;
+    loadedAppointmentsContextRef.current = null;
+    loadedSlotsContextRef.current = null;
+    setUpcoming([]);
+    setSlots([]);
+    setSelectedSlot(null);
+    setEditing(null);
+    setSearchingSlots(false);
+    setBooking(false);
+    setCancelingId(null);
+    setAppointmentLoadError(scheduleContextKey ? null : "athena-unavailable");
+  }, [scheduleContextKey]);
+
   const reload = useCallback(async () => {
     setUpcoming([]); // clear while loading
+    loadedAppointmentsContextRef.current = null;
+    setSlots([]);
+    loadedSlotsContextRef.current = null;
+    setSelectedSlot(null);
     setAppointmentLoadError(null);
 
-    const patientRecord = patient?.entry?.filter((entry: any) => entry && entry.resource && entry.resource.resourceType === "Patient");
-    const nextAthenaPatientId = patientRecord?.[0]?.resource?.id ?? '-1';
-    setAthenaPatientId(nextAthenaPatientId);
-    latestReloadPatientIdRef.current = nextAthenaPatientId;
-    if (nextAthenaPatientId === '-1') {
+    if (!athenaPatientId || !scheduleContextKey) {
+      setAppointmentLoadError("athena-unavailable");
       return;
     }
 
     try {
-      const nextUpcoming = await searchUpcomingAppointments(nextAthenaPatientId, todayIsoDate(), addDaysIso(todayIsoDate(), 90));
-      if (latestReloadPatientIdRef.current !== nextAthenaPatientId) return;
+      const nextUpcoming = await searchUpcomingAppointments(athenaPatientId, todayIsoDate(), addDaysIso(todayIsoDate(), 90));
+      if (activeScheduleContextRef.current !== scheduleContextKey) return;
+      loadedAppointmentsContextRef.current = scheduleContextKey;
       setUpcoming(nextUpcoming);
     } catch (err) {
-      if (latestReloadPatientIdRef.current !== nextAthenaPatientId) return;
+      if (activeScheduleContextRef.current !== scheduleContextKey) return;
       console.error("Failed to load Athena appointments", err);
       setUpcoming([]);
+      loadedAppointmentsContextRef.current = null;
       setAppointmentLoadError(err instanceof Error ? err.message : String(err));
     }
-  }, [patient]);
+  }, [athenaPatientId, scheduleContextKey]);
 
   useFocusEffect(
     useCallback(() => {
@@ -342,55 +411,90 @@ export default function ScheduleScreen() {
   };
 
   const handleFindTimes = async () => {
+    if (!scheduleContextKey) {
+      loadedSlotsContextRef.current = null;
+      setSlots([]);
+      setSelectedSlot(null);
+      setAppointmentLoadError("athena-unavailable");
+      Alert.alert(t("schedule.error.appointmentsUnavailable"));
+      return;
+    }
+
     setSearchingSlots(true);
     setSelectedSlot(null);
+    setSlots([]);
+    loadedSlotsContextRef.current = null;
     try {
       const results = await searchOpenSlots(rangeStart, rangeEnd);
+      if (activeScheduleContextRef.current !== scheduleContextKey) return;
+      loadedSlotsContextRef.current = scheduleContextKey;
       setSlots(results);
       if (results.length === 0) {
         Alert.alert(t("schedule.alert.noOpenTimes.title"), t("schedule.alert.noOpenTimes.body"));
       }
     } catch (err) {
+      if (activeScheduleContextRef.current !== scheduleContextKey) return;
       Alert.alert(t("schedule.alert.loadTimesFailed"), err instanceof Error ? err.message : String(err));
       setSlots([]);
+      loadedSlotsContextRef.current = null;
     } finally {
-      setSearchingSlots(false);
+      if (activeScheduleContextRef.current === scheduleContextKey) {
+        setSearchingSlots(false);
+      }
     }
   };
 
   const handleSchedule = async () => {
-    if (!patientId || !selectedSlot) return;
+    const requestPatientId = patientId;
+    const requestAthenaPatientId = athenaPatientId;
+    const requestContextKey = scheduleContextKey;
+    const slot = selectedSlot;
+    if (
+      !requestPatientId ||
+      !requestAthenaPatientId ||
+      !requestContextKey ||
+      !slot ||
+      loadedSlotsContextRef.current !== requestContextKey
+    ) {
+      return;
+    }
     setBooking(true);
 
     try {
       await dispatchImmediate({
-          patientId: patientId,
+          patientId: requestPatientId,
           scope: 'anomaly',
           title: t("schedule.notification.requested.title"),
           body: t("schedule.notification.requested.body"),
           severity: 1,
         });
-      const response = await bookSlot(selectedSlot.appointmentid, athenaPatientId);
+      if (activeScheduleContextRef.current !== requestContextKey) return;
+
+      const response = await bookSlot(slot.appointmentid, requestAthenaPatientId);
+      if (activeScheduleContextRef.current !== requestContextKey) return;
+
       if (response) {
         await dispatchImmediate({
-          patientId: patientId,
+          patientId: requestPatientId,
           scope: 'anomaly',
           title: t("schedule.notification.booked.title"),
           body: t("schedule.notification.booked.body"),
           severity: 1,
         });
       }
+      if (activeScheduleContextRef.current !== requestContextKey) return;
+
       const appt = insertAppointment({
-        patientId,
+        patientId: requestPatientId,
         type: form.appointmentType,
         provider: form.providerName,
-        date: selectedSlot.date,
-        time: selectedSlot.starttime,
+        date: slot.date,
+        time: slot.starttime,
         location: form.location,
         reason: form.reason,
         reminder: form.reminder,
         status: "scheduled",
-        appointmentid: selectedSlot.date + " " + selectedSlot.starttime + Math.floor(Math.random() * 100),
+        appointmentid: slot.date + " " + slot.starttime + Math.floor(Math.random() * 100),
       });
 
       audit({
@@ -398,18 +502,23 @@ export default function ScheduleScreen() {
         action: "schedule_appointment",
         resourceType: "appointment",
         resourceId: appt.appointmentid,
-        patientId,
-        payload: { type: appt.type, date: appt.date, athenaAppointmentId: selectedSlot.appointmentid },
+        patientId: requestPatientId,
+        payload: { type: appt.type, date: appt.date, athenaAppointmentId: slot.appointmentid },
       });
 
+      if (activeScheduleContextRef.current !== requestContextKey) return;
       reload();
       setForm(emptyForm(profile));
       setSlots([]);
+      loadedSlotsContextRef.current = null;
       setSelectedSlot(null);
     } catch (err) {
+      if (activeScheduleContextRef.current !== requestContextKey) return;
       Alert.alert(t("schedule.alert.bookFailed"), err instanceof Error ? err.message : String(err));
     } finally {
-      setBooking(false);
+      if (activeScheduleContextRef.current === requestContextKey) {
+        setBooking(false);
+      }
     }
   };
 
@@ -448,7 +557,15 @@ export default function ScheduleScreen() {
   };
 
   const handleDelete = (appt: Appointment) => {
-    if (!patientId) return;
+    const requestPatientId = patientId;
+    const requestContextKey = scheduleContextKey;
+    if (
+      !requestPatientId ||
+      !requestContextKey ||
+      loadedAppointmentsContextRef.current !== requestContextKey
+    ) {
+      return;
+    }
     const appointmentId = appt.appointmentid ?? appt.appointmentId;
     const appointmentType = formatAppointmentDisplayType(appt, t);
     Alert.alert(
@@ -463,10 +580,18 @@ export default function ScheduleScreen() {
           text: t("common.delete"),
           style: "destructive",
           onPress: async () => {
+            if (
+              activeScheduleContextRef.current !== requestContextKey ||
+              loadedAppointmentsContextRef.current !== requestContextKey
+            ) {
+              return;
+            }
             setCancelingId(appointmentId);
             try {
               await cancelAthenaAppointment(appointmentId);
+              if (activeScheduleContextRef.current !== requestContextKey) return;
             } catch (err) {
+              if (activeScheduleContextRef.current !== requestContextKey) return;
               Alert.alert(
                 t("schedule.alert.cancelAthenaFailed.title"),
                 t("schedule.alert.cancelAthenaFailed.body", {
@@ -474,13 +599,14 @@ export default function ScheduleScreen() {
                 }),
               );
             }
+            if (activeScheduleContextRef.current !== requestContextKey) return;
             deleteAppointment(appointmentId);
             audit({
               actor: "caregiver",
               action: "delete_appointment",
               resourceType: "appointment",
               resourceId: appointmentId,
-              patientId,
+              patientId: requestPatientId,
             });
             setCancelingId(null);
             reload();
@@ -780,9 +906,12 @@ export default function ScheduleScreen() {
                   </View>
 
                   <Pressable
-                    style={[styles.scheduleButton, searchingSlots && styles.scheduleButtonDisabled]}
+                    style={[
+                      styles.scheduleButton,
+                      (searchingSlots || !scheduleContextKey) && styles.scheduleButtonDisabled,
+                    ]}
                     onPress={handleFindTimes}
-                    disabled={searchingSlots}
+                    disabled={searchingSlots || !scheduleContextKey}
                     accessibilityRole="button"
                     accessibilityLabel={t("schedule.action.findAvailableTimesA11y")}
                   >
@@ -869,10 +998,10 @@ export default function ScheduleScreen() {
               <Pressable
                 style={[
                   styles.scheduleButton,
-                  (!selectedSlot || booking) && styles.scheduleButtonDisabled,
+                  (!selectedSlot || booking || !scheduleContextKey) && styles.scheduleButtonDisabled,
                 ]}
                 onPress={handleSchedule}
-                disabled={!selectedSlot || booking}
+                disabled={!selectedSlot || booking || !scheduleContextKey}
                 accessibilityRole="button"
                 accessibilityLabel={t("schedule.action.bookAppointmentA11y")}
               >

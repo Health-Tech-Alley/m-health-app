@@ -50,7 +50,6 @@ function makeId(prefix: string): string {
 }
 
 const DEFAULT_PATIENT_ID = 'default-patient';
-const DEFAULT_CAREGIVER_ID = 'default-caregiver';
 
 type SeedConditionInput = {
   code?: string;
@@ -106,7 +105,7 @@ export function seedDatabaseFromProfile(
   patientId = DEFAULT_PATIENT_ID,
 ): string {
   const now = new Date().toISOString();
-  const caregiverId = DEFAULT_CAREGIVER_ID;
+  const caregiverId = `caregiver-${patientId}`;
 
   // -- Patient --------------------------------------------------------------
   upsertPatient({
