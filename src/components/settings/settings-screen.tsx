@@ -155,6 +155,8 @@ const initialRecordConsentState: Record<RecordConsentScope | 'adcp_backup', bool
 };
 
 const EMPTY_CONDITIONS: PatientCondition[] = [];
+const DEVELOPER_PIN = '0000';
+const DEVELOPER_PIN_LENGTH = 4;
 const SETTINGS_LANGUAGE_OPTIONS = SUPPORTED_APP_LANGUAGE_PREFERENCES;
 type LocalizedMessage =
   | { key: TranslationKey; params?: TranslationParams }
@@ -952,6 +954,115 @@ function ProviderSimulationTools() {
         />
       </Section>
     </>
+  );
+}
+
+export function AdvancedSettingsGateScreen() {
+  const router = useRouter();
+  const theme = useTheme();
+  const { t } = useTranslation();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
+
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/more' as never);
+  }, [router]);
+
+  const handlePinChange = useCallback((value: string) => {
+    setPin(value.replace(/\D/g, '').slice(0, DEVELOPER_PIN_LENGTH));
+    setPinError(false);
+  }, []);
+
+  const handleContinue = useCallback(() => {
+    if (pin === DEVELOPER_PIN) {
+      setPin('');
+      setPinError(false);
+      setUnlocked(true);
+      return;
+    }
+
+    setPin('');
+    setPinError(true);
+  }, [pin]);
+
+  if (unlocked) {
+    return <AdvancedDeveloperSettingsScreen />;
+  }
+
+  const canSubmit = pin.length === DEVELOPER_PIN_LENGTH;
+
+  return (
+    <SafeAreaView style={[styles.safeArea, themedStyles.safeArea]} edges={['top', 'bottom']}>
+      <ScrollView
+        style={themedStyles.safeArea}
+        contentContainerStyle={[styles.content, themedStyles.content]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={handleBack}
+            hitSlop={12}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel={t('advancedSettings.pin.backA11y')}>
+            <Text style={styles.backText}>{t('settings.backToMenu')}</Text>
+          </Pressable>
+          <View style={styles.topBarSpacer} />
+        </View>
+
+        <ScreenHeader eyebrow={t('advancedSettings.pin.eyebrow')} title={t('advancedSettings.title')} />
+
+        <Section title={t('advancedSettings.pin.heading')}>
+          <View style={styles.devSection}>
+            <Text style={[styles.thresholdMuted, themedStyles.thresholdMuted]}>
+              {t('advancedSettings.pin.description')}
+            </Text>
+            <TextInput
+              value={pin}
+              onChangeText={handlePinChange}
+              onSubmitEditing={canSubmit ? handleContinue : undefined}
+              maxLength={DEVELOPER_PIN_LENGTH}
+              keyboardType="number-pad"
+              secureTextEntry
+              autoFocus
+              autoCapitalize="none"
+              autoCorrect={false}
+              inputMode="numeric"
+              placeholder={t('advancedSettings.pin.placeholder')}
+              placeholderTextColor={theme.appTextMuted}
+              selectionColor={AppTheme.colors.brand}
+              style={[styles.ncbiInput, themedStyles.ncbiInput, styles.pinInput, pinError && styles.pinInputError]}
+              accessibilityLabel={t('advancedSettings.pin.inputA11y')}
+            />
+            {pinError ? (
+              <Text style={styles.pinErrorText} accessibilityLiveRegion="polite">
+                {t('advancedSettings.pin.error')}
+              </Text>
+            ) : null}
+            <Pressable
+              onPress={handleContinue}
+              disabled={!canSubmit}
+              style={[
+                styles.actionButton,
+                !canSubmit && styles.disabledActionButton,
+                !canSubmit && themedStyles.disabledActionButton,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={t('advancedSettings.pin.continueA11y')}
+              accessibilityState={{ disabled: !canSubmit }}
+            >
+              <Text style={styles.actionButtonText}>{t('advancedSettings.pin.continue')}</Text>
+            </Pressable>
+          </View>
+        </Section>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -3414,6 +3525,15 @@ const styles = StyleSheet.create({
     color: darkText,
     marginBottom: 8,
   },
+  pinInput: {
+    minHeight: 56,
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: 0,
+    textAlign: 'center',
+  },
+  pinInputError: { borderColor: dangerRed },
+  pinErrorText: { color: dangerRed, fontSize: 13, fontWeight: '800' },
   disabledButton: { opacity: 0.4 },
   dangerSmallButton: { backgroundColor: dangerRed },
   auditList: { marginTop: 8, gap: 4 },

@@ -1,8 +1,7 @@
 /**
- * Advanced developer settings route.
+ * Advanced settings route.
  *
- * Keeps demo, model, API, diagnostic, and reset tools out of caregiver-facing
- * Preferences while preserving their existing actions.
+ * Keeps the PIN gate at the existing route while reusing the settings screen
+ * implementation.
  */
-
-export { AdvancedDeveloperSettingsScreen as default } from "@/components/settings/settings-screen";
+export { AdvancedSettingsGateScreen as default } from "@/components/settings/settings-screen";
