@@ -209,7 +209,7 @@ async primeAnchorsToNow(): Promise<void> {
     try {
       const response = await hk.queryQuantitySamplesWithAnchor(
         hkType as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[0],
-        { limit: 0 } as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[1], // limit 0 = anchor only, no data pulled
+        { limit: 1 } as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[1], // limit 0 = anchor only, no data pulled
       );
       if (response.newAnchor) {
         setSyncCursor(cursorKey, type, response.newAnchor);
@@ -281,7 +281,7 @@ async incrementalSync(type: HealthSampleType): Promise<SensorSample[]> {
 
       const skipResponse = await hk.queryQuantitySamplesWithAnchor(
         hkType as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[0],
-        { limit: 0 } as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[1], // anchor-only, no data
+        { limit: 1 } as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[1], // anchor-only, no data
       );
       if (skipResponse.newAnchor) {
         setSyncCursor(cursorKey, type, skipResponse.newAnchor);
