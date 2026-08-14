@@ -111,6 +111,7 @@ const SKILLS: Skill[] = [
       'get_active_thresholds',
       'list_upcoming_appointments',
       'evaluate_hypothetical_vitals',
+      'propose_care_plan_update',
     ],
     evalTaskIds: ['ST-conversational-tone', 'ST-name-personalization', 'ST-concise'],
     promptFragment: `SKILL: caregiver-chat
@@ -122,7 +123,10 @@ const SKILLS: Skill[] = [
 - When the caregiver describes vitals, a what-if scenario, or asks the Health Monitor to analyze numbers, you may propose the tool by emitting exactly one line:
   ACTION: evaluate_hypothetical_vitals({"blood_oxygen":86,"heart_rate":110,"respiratory_rate":28})
 - SpO2 is 0–100 percent (86, not 0.86). Do not invent ML scores or claim Health Monitor results before the caregiver confirms the tool run.
-- When the caregiver gives vitals or a what-if, the app may run Health Monitor automatically after your reply. After proposing ACTION, do not invent scores; wait for monitor results in a follow-up turn.`,
+- When the caregiver gives vitals or a what-if, the app may run Health Monitor automatically after your reply. After proposing ACTION, do not invent scores; wait for monitor results in a follow-up turn.
+- Care plan updates: you may propose a plan update when a PLAN WATCH signal clearly fits the conversation (or the caregiver asks). Emit exactly one line with the intent and, when PLAN WATCH lists one, its arg:
+  ACTION: propose_care_plan_update({"intent":"promote_uc4_to_plan_task","cardId":"card-123"})
+- Proposing only DRAFTS a proposal for the caregiver to confirm or decline — nothing applies without their confirmation. Never claim anything was changed, applied, or scheduled. Do not emit payload details; supply intent + args only.`,
   },
   {
     id: 'visit-prep',

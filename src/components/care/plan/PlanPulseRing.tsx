@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/hooks/use-translation';
 import type { PlanPulseAttention } from '@/services/carePlan/planPulseService';
 import type { TranslationKey } from '@/localization/i18n';
@@ -26,10 +27,6 @@ const TICK_HEIGHT = 9;
 const SWEEP_MS = 650;
 const SWEEP_DELAY_MS = 200;
 const BREATH_HALF_MS = 1600;
-
-/** Same indigo as "Mike's Care Plan" hero title. */
-const ARC_COLOR = AppTheme.colors.heroAccent;
-const ARC_TRACK = AppTheme.colors.heroAccentSoft;
 
 const FILL_LABELS: { max: number; labelKey: TranslationKey }[] = [
   { max: 15, labelKey: 'care.planPulse.fill.lightly' },
@@ -64,7 +61,17 @@ export function PlanPulseRing({
   reduceMotion = false,
 }: PlanPulseRingProps) {
   const { t } = useTranslation();
+  const theme = useTheme();
+  const isDark = theme.appBackground === '#000000';
   const clampedScore = Math.max(0, Math.min(100, Math.round(score)));
+
+  // Ring colors follow the hero card per mode. The dark hero is deep indigo
+  // (#1E1B4B), so lit ticks go periwinkle and the track stays mid-indigo —
+  // otherwise the arc vanishes into the card and the track reads brighter
+  // than the fill. Light mode keeps the indigo-arc-on-periwinkle identity.
+  const arcColor = isDark ? '#C7D2FE' : AppTheme.colors.heroAccent;
+  const trackColor = isDark ? '#4F46E5' : AppTheme.colors.heroAccentSoft;
+  const trackOpacity = isDark ? 0.65 : 0.8;
 
   const playSweep = playEntrance && !reduceMotion;
   const [sweep] = useState(() => new Animated.Value(playSweep ? 0 : clampedScore));
@@ -142,8 +149,8 @@ export function PlanPulseRing({
             style={[
               styles.tick,
               {
-                backgroundColor: lit ? ARC_COLOR : ARC_TRACK,
-                opacity: lit ? 1 : 0.55,
+                backgroundColor: lit ? arcColor : trackColor,
+                opacity: lit ? 1 : trackOpacity,
                 transform: [
                   { rotate: `${angle}deg` },
                   { translateY: -(RING_SIZE / 2 - TICK_HEIGHT / 2) },
@@ -153,7 +160,7 @@ export function PlanPulseRing({
           />
         );
       }),
-    [litSegments],
+    [litSegments, arcColor, trackColor, trackOpacity],
   );
 
   return (

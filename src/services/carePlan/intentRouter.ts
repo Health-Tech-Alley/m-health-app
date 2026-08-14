@@ -30,7 +30,6 @@ import type {
 } from '@/data/adcp/types';
 import {
   enqueueProposal,
-  caregiverConfirmProposal,
 } from './mlPlanProposalService';
 
 export interface RunIntentOptions<I extends AnyIntentInputs> {
@@ -137,16 +136,6 @@ export async function runIntent<O extends AnyIntentOutput>(
     enqueuedProposalIds,
     proposalQueueStatus,
   };
-}
-
-export async function runIntentAndConfirm<O extends AnyIntentOutput>(
-  options: RunIntentOptions<any> & { setupNote?: string },
-): Promise<RunIntentResult<O>> {
-  const result = await runIntent<O>(options);
-  for (const id of result.enqueuedProposalIds) {
-    caregiverConfirmProposal(id, { note: options.setupNote });
-  }
-  return result;
 }
 
 export function intentCatalogList(): Array<{

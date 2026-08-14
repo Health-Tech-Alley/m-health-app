@@ -17,7 +17,9 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  AppState,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -52,7 +54,7 @@ import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
 import { useOrchestratorSafe, useOrchestratorRetriever, useOrchestratorPatientId } from '@/contexts/orchestrator-context';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/hooks/use-translation';
-import { languagePreferenceLabel, type TranslateFn } from '@/localization/i18n';
+import { languagePreferenceLabel, type TranslateFn, type TranslationKey } from '@/localization/i18n';
 import type { ChatMessage as ProviderChatMessage } from '@/inference/inference-provider';
 import { DEFAULT_SLM_MODEL_ID } from '@/inference/model-catalog';
 import {
@@ -71,8 +73,23 @@ import {
   publishUc2ResultAsAlert,
   vitalsArgsToAppleWatchInput,
 } from '@/services/ml/publish-uc2-alert';
+import {
+  parseProposeCarePlanUpdate,
+  stripProposeCarePlanUpdateAction,
+} from '@/services/slm/plan-tool-nlp';
+import {
+  buildPlanWatchBlock,
+  detectPlanOpportunities,
+} from '@/services/carePlan/planOpportunities';
+import {
+  caregiverConfirmProposal,
+  caregiverRejectProposal,
+} from '@/services/carePlan/mlPlanProposalService';
+import { getIntentDefinition, runIntent } from '@/services/carePlan/intentRouter';
+import { runSlmCompletion } from '@/services/carePlan/careSlmAdapter';
 import type { UC2DecisionResult } from '@/ml-models/uc2-decision-layer';
 import { stripControlTokens } from '@/utils/stripControlTokens';
+import { getProposalById } from '@/data';
 import type { Medication, PatientCondition } from '@/data/types';
 import { ObservationPicker } from '@/components/ObservationPicker';
 import {
@@ -80,13 +97,119 @@ import {
   type InChatScheduleResult,
 } from '@/components/concierge/InChatScheduleAppointmentCard';
 import { ConciergeSuggestionBox } from '@/components/concierge/ConciergeSuggestionBox';
-import { CarePlanInsightSheet } from '@/components/careConcierge/CarePlanInsightSheet';
-import { getIntentDefinition } from '@/services/carePlan/intentRouter';
-import type { AdcpProposalIntentId } from '@/data/adcp/types';
-import type { CareIntentDefinition } from '@/services/carePlan/intentCatalog';
+import type { AdcpProposalIntentId, AdcpProposalPayload } from '@/data/adcp/types';
+import { DEFAULT_NLU_STAGE_TIMEOUT_MS } from '@/nlu';
 
-/** Cap Pre-SLM NLU (embedder is preloaded; budget covers intent + retrieval). */
-const NLU_TIMEOUT_MS = 12_000;
+/**
+ * Shared Pre-SLM NLU stage budget (intent + entity + retrieval). Embedder
+ * warm-up is preloaded on tab focus; this cap bounds the race in
+ * prepareSlmTurn.
+ */
+const NLU_TIMEOUT_MS = DEFAULT_NLU_STAGE_TIMEOUT_MS;
+/** Max wait for the focus acquire to finish when the first send races it. */
+const LOAD_JOIN_TIMEOUT_MS = 15_000;
+/** Chat history budget sent to the provider (leave room for system + answer). */
+const HISTORY_BUDGET_CHARS = 3600;
+const HISTORY_MAX_MESSAGES = 16;
+
+/**
+ * Trim the oldest chat turns so the provider never sees an unbounded
+ * transcript (Gemma runs on a 4K–8K context window). Keeps the newest
+ * messages until the char/message budget is spent.
+ */
+function trimChatHistory(
+  messages: { role: 'system' | 'user' | 'assistant'; content: string }[],
+): { role: 'system' | 'user' | 'assistant'; content: string }[] {
+  const kept: { role: 'system' | 'user' | 'assistant'; content: string }[] = [];
+  let used = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (kept.length >= HISTORY_MAX_MESSAGES) break;
+    const size = messages[i].content.length;
+    if (used + size > HISTORY_BUDGET_CHARS && kept.length > 0) break;
+    kept.unshift(messages[i]);
+    used += size;
+  }
+  return kept;
+}
+
+/**
+ * Plan-write intents that must stay behind an explicit chip tap.
+ * Narrative intents (weekly review, explains, logging, handoff) auto-run
+ * when they are the only suggestion — chat does not apply those writes.
+ */
+function isInvasiveCareChatIntent(intent: AdcpProposalIntentId): boolean {
+  return (
+    intent === 'review_monitoring_contract' ||
+    intent === 'propose_therapy_contract_patch' ||
+    intent === 'promote_uc4_to_plan_task'
+  );
+}
+
+/** Turn a Care catalog intent into a normal Concierge chat prompt. */
+function chatPromptForCareIntent(
+  intent: AdcpProposalIntentId,
+  args?: Record<string, unknown>,
+): string {
+  switch (intent) {
+    case 'weekly_care_plan_review':
+      return (
+        "Walk me through this week's care plan: the main goals, what changed recently, " +
+        'and what I should focus on first.'
+      );
+    case 'suggest_todays_logging':
+      return 'Based on the current care plan and recent patterns, what are the most useful things for me to log today?';
+    case 'explain_uc4_card':
+      return 'Explain my current care focus items: what each one means, why it was raised, and what I should log or watch for next.';
+    case 'handoff_summary':
+      return 'Help me prepare a short summary for the care team: recent concerns, what I have been logging, and questions to bring up at the next visit.';
+    case 'review_monitoring_contract':
+      return (
+        'Review the active monitoring thresholds on the care plan and tell me what, if anything, I should consider changing. ' +
+        'Propose an update only if it clearly fits — nothing applies until I confirm.'
+      );
+    case 'propose_therapy_contract_patch':
+      return (
+        'Look at therapy progress and suggest a therapy plan update if progress has stalled. ' +
+        'Propose only — nothing applies until I confirm.'
+      );
+    case 'promote_uc4_to_plan_task': {
+      const cardId = typeof args?.cardId === 'string' ? args.cardId : '';
+      return cardId
+        ? `Add the current care-focus priority (${cardId}) to the care plan as a durable priority. Propose only — nothing applies until I confirm.`
+        : 'Add the current top care-focus priority to the care plan. Propose only — nothing applies until I confirm.';
+    }
+    case 'explain_uc3_result':
+      return 'How is therapy going? Explain the latest therapy progress and what I should focus on next.';
+    case 'explain_uc2_alert':
+      return 'Explain the latest Health Monitor result and what I should do next.';
+    default:
+      return getIntentDefinition(intent).caregiverLabel;
+  }
+}
+
+/** Localized caregiver-facing severity label (never the raw integer). */
+function chatReviewSeverityKey(severity: number): TranslationKey {
+  if (severity === 3) return 'dashboard.alertSeverity.urgent';
+  if (severity === 2) return 'dashboard.alertSeverity.needsAttention';
+  if (severity === 1) return 'dashboard.alertSeverity.headsUp';
+  return 'dashboard.alertSeverity.alert';
+}
+
+/** Plain-language one-liner for a proposal payload (chat HITL card). */
+function proposalPayloadSummary(payload: AdcpProposalPayload): string {
+  switch (payload.kind) {
+    case 'threshold_patch':
+      return `Monitoring update - ${payload.thresholds.length} cutoff change(s).`;
+    case 'therapy_patch':
+      return 'Therapy plan update.';
+    case 'priority_promote':
+      return `Promote: ${payload.priority.title || 'care focus priority'}`;
+    case 'goal_patch':
+      return `Goals update - ${payload.goalsPatch.length} goal(s).`;
+    case 'note_wording':
+      return 'Care note wording update.';
+  }
+}
 
 type MessageStatus = 'streaming' | 'done' | 'stopped' | 'error';
 
@@ -146,17 +269,44 @@ export type PendingScheduleFollowUp = {
   defaultReason: string;
 };
 
+/**
+ * In-chat care-plan proposal HITL card. Proposals sit at awaiting_hitl until
+ * the caregiver confirms (→ awaiting_ml_vet) or declines (→ rejected_by_caregiver)
+ * here. Nothing ever applies from this card.
+ */
+export type PlanProposalReview = {
+  proposalIds: string[];
+  intentLabel: string;
+  summaries: string[];
+  status: 'awaiting_hitl' | 'confirmed' | 'rejected' | 'error';
+  /** Optional error detail for the error status. */
+  errorDetail?: string | null;
+};
+
+/** Mid-confidence Care intents surfaced as tappable chips in chat. */
+export type CareChipSuggestion = {
+  chipId: string;
+  label: string;
+  intent: AdcpProposalIntentId;
+  args: Record<string, unknown>;
+};
+
 function needsChatCaregiverReview(ml: {
   emergencyResult?: { emergency?: boolean };
   isAnomaly?: boolean;
   promptShown?: boolean;
-  finalDecision?: { final_severity?: number };
+  finalDecision?: {
+    final_severity?: number;
+    suppression_status?: { is_suppressed?: boolean };
+  };
   post_hitl_severity?: number;
 } | null): boolean {
   if (!ml) return false;
   const severity =
     ml.finalDecision?.final_severity ?? ml.post_hitl_severity ?? 0;
   if (ml.emergencyResult?.emergency || severity === 3) return false;
+  // Hysteresis-suppressed results are demoted monitoring advice — no review.
+  if (ml.finalDecision?.suppression_status?.is_suppressed) return false;
   return (
     !!ml.promptShown ||
     !!ml.isAnomaly ||
@@ -342,6 +492,10 @@ interface ChatMessage {
    * schedule or dismiss, then final Concierge answer.
    */
   pendingScheduleFollowUp?: PendingScheduleFollowUp | null;
+  /** Care-plan proposal HITL card (awaiting caregiver confirm / decline). */
+  pendingPlanProposal?: PlanProposalReview | null;
+  /** Mid-confidence Care intent chips (single_chip / multi_chip resolutions). */
+  pendingCareChips?: CareChipSuggestion[] | null;
   /** User message that triggered this assistant turn (for turn-2 grounding). */
   sourceUserText?: string;
   /** Sources for assistant messages (for display) */
@@ -364,6 +518,8 @@ type ChatAction =
         pendingHealthMonitor?: HypotheticalVitalsArgs | null;
         pendingCaregiverReview?: PendingCaregiverReview | null;
         pendingScheduleFollowUp?: PendingScheduleFollowUp | null;
+        pendingPlanProposal?: PlanProposalReview | null;
+        pendingCareChips?: CareChipSuggestion[] | null;
         sourceUserText?: string;
         /** Sources for display (not embedded in text) */
         sources?: { label: string; count?: number }[];
@@ -395,6 +551,28 @@ type ChatAction =
         assistantId: string;
         schedule: PendingScheduleFollowUp | null;
         interimText?: string;
+      };
+    }
+  | {
+      type: 'set-pending-plan-proposal';
+      payload: {
+        assistantId: string;
+        review: PlanProposalReview | null;
+      };
+    }
+  | {
+      type: 'set-care-chips';
+      payload: {
+        assistantId: string;
+        chips: CareChipSuggestion[] | null;
+      };
+    }
+  | {
+      type: 'update-plan-proposal-status';
+      payload: {
+        assistantId: string;
+        status: PlanProposalReview['status'];
+        errorDetail?: string | null;
       };
     }
   | { type: 'new-conversation' };
@@ -454,6 +632,14 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
                 pendingScheduleFollowUp:
                   action.payload.pendingScheduleFollowUp !== undefined
                     ? action.payload.pendingScheduleFollowUp
+                    : null,
+                pendingPlanProposal:
+                  action.payload.pendingPlanProposal !== undefined
+                    ? action.payload.pendingPlanProposal
+                    : null,
+                pendingCareChips:
+                  action.payload.pendingCareChips !== undefined
+                    ? action.payload.pendingCareChips
                     : null,
                 sourceUserText,
                 sources,
@@ -607,6 +793,57 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         ),
       };
 
+    case 'set-pending-plan-proposal':
+      // Message-only update: this lands AFTER send-success, and often while
+      // a follow-up turn is already streaming (the draft is a second async
+      // generation). Touching runStatus here would mark that turn done.
+      return {
+        ...state,
+        messages: state.messages.map((m) =>
+          m.id === action.payload.assistantId
+            ? {
+                ...m,
+                pendingPlanProposal: action.payload.review,
+              }
+            : m,
+        ),
+      };
+
+    case 'set-care-chips':
+      return {
+        ...state,
+        runStatus: 'done',
+        messages: state.messages.map((m) =>
+          m.id === action.payload.assistantId
+            ? {
+                ...m,
+                status: 'done' as const,
+                finishedAt: Date.now(),
+                answerStarted: true,
+                phase: 3,
+                pendingCareChips: action.payload.chips,
+              }
+            : m,
+        ),
+      };
+
+    case 'update-plan-proposal-status':
+      return {
+        ...state,
+        messages: state.messages.map((m) =>
+          m.id === action.payload.assistantId && m.pendingPlanProposal
+            ? {
+                ...m,
+                pendingPlanProposal: {
+                  ...m.pendingPlanProposal,
+                  status: action.payload.status,
+                  errorDetail: action.payload.errorDetail ?? null,
+                },
+              }
+            : m,
+        ),
+      };
+
     case 'new-conversation':
       return initialState();
 
@@ -666,14 +903,64 @@ export default function SLMScreen({
   const [reviewCodesByMessage, setReviewCodesByMessage] = useState<
     Record<string, string[]>
   >({});
-  const [activeSuggestionIntent, setActiveSuggestionIntent] =
-    useState<CareIntentDefinition<any, any> | null>(null);
-  const [activeSuggestionIntentArgs, setActiveSuggestionIntentArgs] = useState<
-    Record<string, unknown> | undefined
-  >(undefined);
+  /** Latest assistant message id — HITL cards attach to it. */
   const allowDevelopmentNluFallback =
     __DEV__ && isDeveloper && settings.nluDevelopmentFallback === true;
   const canUseLocalAppointmentDemo = __DEV__ && isDeveloper;
+
+  /** Deterministic plan opportunities for the empty-state suggestion chips. */
+  const suggestionOpportunities = useMemo(
+    () => (state.messages.length === 0 ? detectPlanOpportunities(snapshot) : []),
+    [snapshot, state.messages.length],
+  );
+
+  /** In-chat card Confirm → awaiting_ml_vet (nothing applies yet). */
+  const handleConfirmPlanProposal = useCallback(
+    (assistantId: string, review: PlanProposalReview) => {
+      let failed = false;
+      for (const id of review.proposalIds) {
+        try {
+          caregiverConfirmProposal(id);
+        } catch (err) {
+          failed = true;
+          console.warn('[SLM Chat] proposal confirm failed:', err);
+        }
+      }
+      dispatch({
+        type: 'update-plan-proposal-status',
+        payload: {
+          assistantId,
+          status: failed ? 'error' : 'confirmed',
+          errorDetail: failed ? t('assistant.planProposal.error') : null,
+        },
+      });
+    },
+    [t],
+  );
+
+  /** In-chat card Decline → rejected_by_caregiver. */
+  const handleRejectPlanProposal = useCallback(
+    (assistantId: string, review: PlanProposalReview) => {
+      let failed = false;
+      for (const id of review.proposalIds) {
+        try {
+          caregiverRejectProposal(id, 'caregiver_rejected');
+        } catch (err) {
+          failed = true;
+          console.warn('[SLM Chat] proposal reject failed:', err);
+        }
+      }
+      dispatch({
+        type: 'update-plan-proposal-status',
+        payload: {
+          assistantId,
+          status: failed ? 'error' : 'rejected',
+          errorDetail: failed ? t('assistant.planProposal.error') : null,
+        },
+      });
+    },
+    [t],
+  );
 
   const medicationNames = useMemo(
     () =>
@@ -748,10 +1035,48 @@ export default function SLMScreen({
     }, CHAT_UNLOAD_GRACE_MS);
   }, [startChatUnloadGrace, taskQueue, unloadModel]);
 
+  /** Immediate release (no grace) — used when the app backgrounds. */
+  const releaseChatLeaseNow = useCallback(() => {
+    if (chatGraceTimerRef.current) {
+      clearTimeout(chatGraceTimerRef.current);
+      chatGraceTimerRef.current = null;
+    }
+    cancelChatUnloadGrace();
+    chatLeaseRef.current?.release();
+    chatLeaseRef.current = null;
+  }, [cancelChatUnloadGrace]);
+
+  const acquireChatLease = useCallback(async () => {
+    if (chatLeaseRef.current) return;
+    const acquireGen = ++chatAcquireGenRef.current;
+    try {
+      const lease = await acquireSlm('caregiver_chat');
+      // Stale acquire (re-focus raced) — drop this lease immediately.
+      if (acquireGen !== chatAcquireGenRef.current) {
+        lease.release();
+        return;
+      }
+      if (!chatFocusedRef.current) {
+        // Blurred while acquiring — hold through grace, then release.
+        chatLeaseRef.current = lease;
+        scheduleChatLeaseRelease();
+        return;
+      }
+      // Another concurrent acquire already filled the ref — release orphan.
+      if (chatLeaseRef.current) {
+        lease.release();
+        return;
+      }
+      chatLeaseRef.current = lease;
+    } catch {
+      // RAM gate / not installed — chat send surfaces the unavailable state.
+    }
+  }, [acquireSlm, scheduleChatLeaseRelease]);
+
   useFocusEffect(
     useCallback(() => {
       chatFocusedRef.current = true;
-      const acquireGen = ++chatAcquireGenRef.current;
+      chatAcquireGenRef.current += 1;
 
       // Re-focused: cancel pending grace unload and keep existing lease.
       if (chatGraceTimerRef.current) {
@@ -766,29 +1091,7 @@ export default function SLMScreen({
           .then(({ preloadTfliteEmbedder }) => preloadTfliteEmbedder())
           .catch(() => {});
 
-        if (chatLeaseRef.current) return;
-        try {
-          const lease = await acquireSlm('caregiver_chat');
-          // Stale acquire (re-focus raced) — drop this lease immediately.
-          if (acquireGen !== chatAcquireGenRef.current) {
-            lease.release();
-            return;
-          }
-          if (!chatFocusedRef.current) {
-            // Blurred while acquiring — hold through grace, then release.
-            chatLeaseRef.current = lease;
-            scheduleChatLeaseRelease();
-            return;
-          }
-          // Another concurrent acquire already filled the ref — release orphan.
-          if (chatLeaseRef.current) {
-            lease.release();
-            return;
-          }
-          chatLeaseRef.current = lease;
-        } catch {
-          // RAM gate / not installed — chat send surfaces the unavailable state.
-        }
+        await acquireChatLease();
       })();
 
       return () => {
@@ -801,8 +1104,36 @@ export default function SLMScreen({
         }
         scheduleChatLeaseRelease();
       };
-    }, [acquireSlm, cancelChatUnloadGrace, scheduleChatLeaseRelease]),
+    }, [acquireChatLease, cancelChatUnloadGrace, scheduleChatLeaseRelease]),
   );
+
+  // ── AppState: background releases the focus lease; foreground re-acquires ──
+  // The provider's AppState hook only unloads when the queue refcount is 0 —
+  // a focused Concierge lease kept the ~2.4 GB model resident while the app
+  // sat in the background. Release it here (unless a generation is mid-stream;
+  // its finally block releases once the app is backgrounded) and re-acquire
+  // when the app returns and the Concierge tab is still focused.
+  const appBackgroundedRef = useRef(false);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background') {
+        appBackgroundedRef.current = true;
+        if (!abortControllerRef.current) {
+          releaseChatLeaseNow();
+        }
+      } else if (state === 'active') {
+        appBackgroundedRef.current = false;
+        if (
+          chatFocusedRef.current &&
+          !chatLeaseRef.current &&
+          !abortControllerRef.current
+        ) {
+          void acquireChatLease();
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [acquireChatLease, releaseChatLeaseNow]);
 
   // Full unmount: do not yank the lease if a blur grace is already running
   // (tab switch / short leave). Only force-release if we still hold a lease
@@ -826,9 +1157,15 @@ export default function SLMScreen({
     flatListRef.current?.scrollToEnd({ animated: true });
   }, [state.messages]);
 
-  const handleAskAssistant = useCallback(async (overrideText?: string) => {
+  const handleAskAssistant = useCallback(async (
+    overrideText?: string,
+    options?: { skipCareRoute?: boolean },
+  ) => {
     const trimmed = (typeof overrideText === 'string' ? overrideText : inputText).trim();
     if (!trimmed || state.runStatus === 'streaming') return;
+
+    // Dismiss the keyboard so the streaming answer and sources stay visible.
+    Keyboard.dismiss();
 
     const userMessage: ChatMessage = {
       id: generateId(),
@@ -857,7 +1194,6 @@ export default function SLMScreen({
       phase: 0,
       answerStarted: false,
     };
-
     dispatch({ type: 'send-start', payload: { userMessage, assistantMessage } });
     setInputText('');
     // Phase 0 = Understanding (NLU). Phase 1 = Concierge (SLM).
@@ -866,10 +1202,15 @@ export default function SLMScreen({
     // Deterministic safety refuses (ACL Protocol 9-Delta, dose changes, auto-911).
     // Must run before NLU/SLM so the model cannot improvise unknown protocols.
     try {
-      const { evaluateSafetyRefuseGate } = await import(
-        '@/services/slm/safety-refuse-guardrails'
+      const [{ evaluateSafetyRefuseGate }, { buildPatientNluContext }] =
+        await Promise.all([
+          import('@/services/slm/safety-refuse-guardrails'),
+          import('@/nlu/patient-nlu-context'),
+        ]);
+      const safety = evaluateSafetyRefuseGate(
+        trimmed,
+        buildPatientNluContext(snapshot),
       );
-      const safety = evaluateSafetyRefuseGate(trimmed);
       if (safety.refuse) {
         console.log(
           `[SLM Chat] safety refuse kind=${safety.kind} latency_ms=${Date.now() - assistantMessage.startedAt}`,
@@ -892,29 +1233,71 @@ export default function SLMScreen({
     }
 
     // Care soft-route first (phrase/surface map works without chat SLM loaded).
-    // Structured Care intents open CarePlanInsightSheet, which acquires its own lease.
+    // Mid-confidence matches become in-chat chips; a selected chip (or a
+    // high-confidence preselect) continues as a normal Concierge turn.
     try {
       const { resolveCareText } = await import('@/services/carePlan/coaching');
-      const careResolution = await resolveCareText(trimmed, {
-        snapshot,
-        timeoutMs: NLU_TIMEOUT_MS,
-      });
+      const careResolution = options?.skipCareRoute
+        ? { kind: 'concierge_handoff' as const, carryText: trimmed, reason: 'chip_or_intent' }
+        : await resolveCareText(trimmed, {
+            snapshot,
+            timeoutMs: NLU_TIMEOUT_MS,
+          });
       if (careResolution.kind === 'preselect') {
+        if (isInvasiveCareChatIntent(careResolution.intent)) {
+          dispatch({
+            type: 'send-success',
+            payload: {
+              assistantId: assistantMessage.id,
+              finalText: t('care.ask.didYouMean'),
+              reasoningContent: null,
+              pendingHealthMonitor: null,
+              pendingCareChips: [
+                {
+                  chipId: `care:${careResolution.intent}`,
+                  label: getIntentDefinition(careResolution.intent).caregiverLabel,
+                  intent: careResolution.intent,
+                  args: careResolution.args,
+                },
+              ],
+              sourceUserText: trimmed,
+              emptyFallback: t('assistant.responseFallback'),
+            },
+          });
+          return;
+        }
         console.log(
-          `[SLM Chat] Care soft-route intent=${careResolution.intent} conf=${careResolution.confidence.toFixed(2)} source=${careResolution.source}`,
+          `[SLM Chat] Care soft-route intent=${careResolution.intent} conf=${careResolution.confidence.toFixed(2)} source=${careResolution.source} — continuing as chat turn`,
         );
-        const def = getIntentDefinition(careResolution.intent);
-        setActiveSuggestionIntent(def);
-        setActiveSuggestionIntentArgs(careResolution.args);
+      } else if (careResolution.kind === 'single_chip') {
+        const only = careResolution.chips[0];
+        if (only && isInvasiveCareChatIntent(only.intent)) {
+          dispatch({
+            type: 'send-success',
+            payload: {
+              assistantId: assistantMessage.id,
+              finalText: t('care.ask.didYouMean'),
+              reasoningContent: null,
+              pendingHealthMonitor: null,
+              pendingCareChips: careResolution.chips,
+              sourceUserText: trimmed,
+              emptyFallback: t('assistant.responseFallback'),
+            },
+          });
+          return;
+        }
+        console.log(
+          `[SLM Chat] Care soft-route single chip ${only?.intent ?? 'none'} — continuing as chat turn`,
+        );
+      } else if (careResolution.kind === 'multi_chip') {
         dispatch({
           type: 'send-success',
           payload: {
             assistantId: assistantMessage.id,
-            finalText:
-              `I can run **${def.caregiverLabel}** for you. ` +
-              'Review the sheet that opened — nothing is applied until you confirm.',
+            finalText: t('care.ask.tryOne'),
             reasoningContent: null,
             pendingHealthMonitor: null,
+            pendingCareChips: careResolution.chips,
             sourceUserText: trimmed,
             emptyFallback: t('assistant.responseFallback'),
           },
@@ -942,8 +1325,19 @@ export default function SLMScreen({
     }
 
     // No production fallback: normal caregiver chat must not synthesize a
-    // Concierge answer when the native model is unavailable.
-    if (slm.loadStatus !== 'ready') {
+    // Concierge answer when the native model is unavailable. But if the focus
+    // acquire is still loading, join it briefly instead of failing the send.
+    if (slm.loadStatus === 'loading') {
+      const pending = slm.getLoadPromise();
+      if (pending) {
+        await Promise.race([
+          pending.then(() => undefined).catch(() => undefined),
+          new Promise<void>((resolve) => setTimeout(resolve, LOAD_JOIN_TIMEOUT_MS)),
+        ]);
+      }
+    }
+
+    if (slm.loadStatus !== 'ready' || slm.provider.getModelInfo() === null) {
       const message =
         slm.loadStatus === 'loading'
           ? 'Concierge reasoning is still loading. Please retry once the native model is ready.'
@@ -988,13 +1382,53 @@ export default function SLMScreen({
         `nlu_ms=${nluMs}`,
     );
 
+    // ── Care soft-route pass 2 (chat-head parity) ──
+    // Reuse this turn's chat NLU head so draft_care_plan / mid-confidence
+    // Care intents are reachable by text without a second embedder load.
+    const planOpportunities = detectPlanOpportunities(snapshot);
+    try {
+      if (nluPacket?.intent && !options?.skipCareRoute) {
+        const { resolveCareText } = await import('@/services/carePlan/coaching');
+        const careResolution2 = await resolveCareText(trimmed, {
+          snapshot,
+          chatHead: {
+            primary: nluPacket.intent.primary,
+            confidence: nluPacket.intent.confidence,
+            entities: nluPacket.entities,
+          },
+          timeoutMs: NLU_TIMEOUT_MS,
+        });
+        if (careResolution2.kind === 'preselect') {
+          console.log(
+            `[SLM Chat] Care soft-route pass 2 intent=${careResolution2.intent} — continuing as chat turn`,
+          );
+        } else if (
+          careResolution2.kind === 'single_chip' ||
+          careResolution2.kind === 'multi_chip'
+        ) {
+          console.log(
+            `[SLM Chat] Care soft-route pass 2 chips=${careResolution2.kind} — continuing as chat turn`,
+          );
+        }
+      }
+    } catch (careRouteErr2) {
+      console.warn('[SLM Chat] Care soft-route pass 2 skipped:', careRouteErr2);
+    }
+
+    // PLAN WATCH: deterministic plan signals + propose_care_plan_update
+    // emission format, appended to the chat-only system context.
+    const planWatchBlock = buildPlanWatchBlock(snapshot, planOpportunities);
+    const finalSystemContext = planWatchBlock
+      ? `${systemContext}\n\n${planWatchBlock}`
+      : systemContext;
+
     // NLU done → Concierge (SLM) stage
     dispatch({ type: 'set-phase', payload: { assistantId: assistantMessage.id, phase: 1 } });
     console.log('[SLM Chat] SLM start');
 
     const messages: ProviderChatMessage[] = [
-      { role: 'system', content: systemContext },
-      ...state.messages.map((m) => ({ role: m.role, content: m.text })),
+      { role: 'system', content: finalSystemContext },
+      ...trimChatHistory(state.messages.map((m) => ({ role: m.role, content: m.text }))),
       { role: 'user', content: userContent },
     ];
 
@@ -1071,6 +1505,20 @@ export default function SLMScreen({
         resolveHypotheticalVitalsCandidate(trimmed, result.text);
       finalText = stripEvaluateHypotheticalAction(finalText);
 
+      // ── propose_care_plan_update tool (chat) ──
+      // The SLM may propose a plan update via one ACTION line. The line is
+      // always stripped from the displayed answer (even when the parse
+      // rejects it — raw ACTION text must never reach the caregiver). A valid
+      // call triggers the canonical intent draft pass below, which lands on
+      // the in-chat HITL card.
+      finalText = stripProposeCarePlanUpdateAction(finalText);
+      const planCall = parseProposeCarePlanUpdate(result.text);
+      if (planCall) {
+        console.log(
+          `[SLM Chat] propose_care_plan_update intent=${planCall.intent} args=${JSON.stringify(planCall.args)}`,
+        );
+      }
+
       // Sources footer without chunk indices (caregiver-facing).
       const withFootnotes = formatAnswerWithFootnotes(
         finalText,
@@ -1092,6 +1540,72 @@ export default function SLMScreen({
           emptyFallback: t('assistant.responseFallback'),
         },
       });
+
+      // Canonical draft pass for a proposed plan update: runIntent builds the
+      // full ADCP/UC prompt context, the SLM drafts the payload (second
+      // generation, schema-validated), and the proposal is enqueued at
+      // awaiting_hitl. The HITL card renders when the draft lands.
+      if (planCall && snapshot) {
+        const draftAssistantId = assistantMessage.id;
+        void (async () => {
+          try {
+            const def = getIntentDefinition(planCall.intent);
+            const draftResult = await runIntent({
+              snapshot,
+              intent: planCall.intent,
+              args: planCall.args,
+              completePrompt: async (params) =>
+                runSlmCompletion({
+                  provider: slm.provider,
+                  systemContext: params.systemContext,
+                  userPrompt: params.userPrompt,
+                }),
+            });
+            const ids = draftResult.enqueuedProposalIds;
+            if (ids.length === 0) {
+              if (draftResult.blocked) {
+                dispatch({
+                  type: 'set-pending-plan-proposal',
+                  payload: {
+                    assistantId: draftAssistantId,
+                    review: {
+                      proposalIds: [],
+                      intentLabel: def.caregiverLabel,
+                      summaries: [draftResult.blockMessage ?? ''],
+                      status: 'error',
+                      errorDetail: draftResult.blockMessage ?? null,
+                    },
+                  },
+                });
+              }
+              return;
+            }
+            const summaries = ids
+              .map((id) => {
+                const proposal = getProposalById(id);
+                return proposal ? proposalPayloadSummary(proposal.payload) : '';
+              })
+              .filter((s): s is string => Boolean(s));
+            dispatch({
+              type: 'set-pending-plan-proposal',
+              payload: {
+                assistantId: draftAssistantId,
+                review: {
+                  proposalIds: ids,
+                  intentLabel: def.caregiverLabel,
+                  summaries,
+                  status: 'awaiting_hitl',
+                },
+              },
+            });
+          } catch (err) {
+            console.warn(
+              '[SLM Chat] care-plan proposal draft failed:',
+              err instanceof Error ? err.message : err,
+            );
+          }
+        })();
+      }
 
       if (monitorArgs && orchestrator && runHealthMonitorPipelineRef.current) {
         // Auto-run Health Monitor (no confirm). Sev 1–2 may still show
@@ -1151,6 +1665,12 @@ export default function SLMScreen({
       }
     } finally {
       abortControllerRef.current = null;
+      // A generation finished while the app was backgrounded — the background
+      // handler skipped the release so the stream could complete. Release now
+      // so the dynamic queue unloads the model.
+      if (appBackgroundedRef.current) {
+        releaseChatLeaseNow();
+      }
     }
   }, [
     inputText,
@@ -1162,6 +1682,7 @@ export default function SLMScreen({
     orchestrator,
     allowDevelopmentNluFallback,
     t,
+    releaseChatLeaseNow,
   ]);
 
   const handleStop = useCallback(() => {
@@ -2018,7 +2539,7 @@ export default function SLMScreen({
               <View style={[styles.healthMonitorConfirmCard, themedStyles.healthMonitorConfirmCard]}>
                 <Text style={[styles.healthMonitorConfirmTitle, themedStyles.primaryText]}>
                   {t('assistant.review.title', {
-                    severity: item.pendingCaregiverReview.severity,
+                    label: t(chatReviewSeverityKey(item.pendingCaregiverReview.severity)),
                   })}
                 </Text>
                 <Text style={[styles.healthMonitorConfirmBody, themedStyles.supportingText]}>
@@ -2080,6 +2601,85 @@ export default function SLMScreen({
               </View>
             ) : null}
 
+            {item.pendingCareChips && item.status === 'done' ? (
+              <View style={[styles.healthMonitorConfirmCard, themedStyles.healthMonitorConfirmCard]}>
+                <View style={styles.careChipsRow}>
+                  {item.pendingCareChips.map((chip) => (
+                    <Pressable
+                      key={chip.chipId}
+                      style={[styles.careChip, themedStyles.careChip]}
+                      onPress={() => {
+                        void handleAskAssistant(
+                          chatPromptForCareIntent(chip.intent, chip.args),
+                          { skipCareRoute: true },
+                        );
+                      }}
+                      disabled={state.runStatus === 'streaming'}
+                      accessibilityRole="button"
+                      accessibilityLabel={chip.label}
+                    >
+                      <Text style={[styles.careChipText, themedStyles.accentText]}>{chip.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+
+            {item.pendingPlanProposal && item.status === 'done' ? (
+              <View style={[styles.healthMonitorConfirmCard, themedStyles.healthMonitorConfirmCard]}>
+                <Text style={[styles.healthMonitorConfirmTitle, themedStyles.primaryText]}>
+                  {item.pendingPlanProposal.intentLabel || t('assistant.planProposal.title')}
+                </Text>
+                {item.pendingPlanProposal.status === 'awaiting_hitl' ? (
+                  <>
+                    {item.pendingPlanProposal.summaries.map((summary, index) => (
+                      <Text
+                        key={`${item.id}-proposal-${index}`}
+                        style={[styles.healthMonitorConfirmBody, themedStyles.supportingText]}
+                      >
+                        {'\u2022'} {summary}
+                      </Text>
+                    ))}
+                    <Text style={[styles.healthMonitorConfirmBody, themedStyles.mutedText]}>
+                      {t('assistant.planProposal.footnote')}
+                    </Text>
+                    <View style={styles.healthMonitorConfirmRow}>
+                      <Pressable
+                        style={[styles.healthMonitorButton, styles.healthMonitorButtonPrimary]}
+                        onPress={() => handleConfirmPlanProposal(item.id, item.pendingPlanProposal!)}
+                        disabled={state.runStatus === 'streaming'}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('assistant.planProposal.confirm')}
+                      >
+                        <Text style={styles.healthMonitorButtonPrimaryText}>
+                          {t('assistant.planProposal.confirm')}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.healthMonitorButton, styles.healthMonitorButtonSecondary, themedStyles.secondaryAction]}
+                        onPress={() => handleRejectPlanProposal(item.id, item.pendingPlanProposal!)}
+                        disabled={state.runStatus === 'streaming'}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('assistant.planProposal.reject')}
+                      >
+                        <Text style={[styles.healthMonitorButtonSecondaryText, themedStyles.accentText]}>
+                          {t('assistant.planProposal.reject')}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </>
+                ) : (
+                  <Text style={[styles.healthMonitorConfirmBody, themedStyles.supportingText]}>
+                    {item.pendingPlanProposal.status === 'confirmed'
+                      ? t('assistant.planProposal.confirmed')
+                      : item.pendingPlanProposal.status === 'rejected'
+                        ? t('assistant.planProposal.rejected')
+                        : item.pendingPlanProposal.errorDetail ?? t('assistant.planProposal.error')}
+                  </Text>
+                )}
+              </View>
+            ) : null}
+
             {showReasoningToggle ? (
               <View style={styles.reasoningSection}>
                 <Pressable onPress={() => toggleReasoning(item.id)}>
@@ -2120,7 +2720,7 @@ export default function SLMScreen({
   if (!optionalGate.ready) {
     return (
       <SafeAreaView
-        style={[styles.container, { backgroundColor: AppTheme.colors.screen }]}
+        style={[styles.container, themedStyles.container]}
         edges={showBackButton ? ['top', 'bottom'] : ['top']}
       >
         {showBackButton ? (
@@ -2382,11 +2982,13 @@ export default function SLMScreen({
             <>
               <ConciergeSuggestionBox
                 onSendPrompt={(prompt) => void handleAskAssistant(prompt)}
-                onLaunchIntent={(intentId: AdcpProposalIntentId) => {
-                  setActiveSuggestionIntent(getIntentDefinition(intentId));
-                  setActiveSuggestionIntentArgs(undefined);
+                onLaunchIntent={(intentId: AdcpProposalIntentId, args?: Record<string, unknown>) => {
+                  void handleAskAssistant(chatPromptForCareIntent(intentId, args), {
+                    skipCareRoute: true,
+                  });
                 }}
                 disabled={state.runStatus === 'streaming'}
+                opportunities={suggestionOpportunities}
               />
               <View style={[styles.howToCard, themedStyles.softCard]}>
                 <Pressable
@@ -2498,20 +3100,6 @@ export default function SLMScreen({
         </View>
       </KeyboardAvoidingView>
 
-      <CarePlanInsightSheet
-        visible={activeSuggestionIntent !== null}
-        intent={activeSuggestionIntent}
-        snapshot={snapshot}
-        intentArgs={activeSuggestionIntentArgs}
-        onClose={() => {
-          setActiveSuggestionIntent(null);
-          setActiveSuggestionIntentArgs(undefined);
-        }}
-        onProposalResolved={() => {
-          setActiveSuggestionIntent(null);
-          setActiveSuggestionIntentArgs(undefined);
-        }}
-      />
     </SafeAreaView>
   );
 }
@@ -2593,6 +3181,9 @@ function createThemedStyles(theme: ReturnType<typeof useTheme>) {
     healthMonitorConfirmCard: {
       backgroundColor: isDark ? theme.appControlSurface : '#F0F7F6',
       borderColor: accentText,
+    },
+    careChip: {
+      backgroundColor: isDark ? theme.appSurface : AppTheme.colors.brandSoft,
     },
     secondaryAction: {
       backgroundColor: isDark ? theme.appInputBackground : '#FFFFFF',
@@ -2790,6 +3381,22 @@ const styles = StyleSheet.create({
     color: '#526866',
     lineHeight: 18,
     marginBottom: 12,
+  },
+  careChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  careChip: {
+    backgroundColor: AppTheme.colors.brandSoft,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  careChipText: {
+    color: AppTheme.colors.brand,
+    fontSize: 13,
+    fontWeight: '800',
   },
   healthMonitorConfirmRow: {
     flexDirection: 'row',

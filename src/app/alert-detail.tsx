@@ -258,11 +258,14 @@ export default function AlertDetailScreen() {
           const post =
             result.postHitlAnomalyType ?? result.post_hitl_anomaly_type ?? 'updated';
           const severity =
-            result.finalDecision?.final_severity ?? result.post_hitl_severity ?? '-';
+            result.finalDecision?.final_severity ?? result.post_hitl_severity ?? null;
           setStatusMsg(
             t('alertDetail.status.observationsSavedRerun', {
               post: formatAnalysisValue(String(post)),
-              severity,
+              severity:
+                typeof severity === 'number'
+                  ? formatAlertDetailSeverityLabel(severity, t)
+                  : '-',
             }),
           );
         } else {

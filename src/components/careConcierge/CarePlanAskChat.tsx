@@ -43,6 +43,7 @@ import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
 import { getConciergeGeneration } from '@/constants/concierge';
+import { stripKnownToolActionLines } from '@/services/slm/strip-tool-action-lines';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 import {
   resolveCareText,
@@ -286,6 +287,8 @@ export function CarePlanAskChat({
       leaseRef.current = lease;
 
       if (!provider.getModelInfo()) {
+        leaseRef.current?.release();
+        leaseRef.current = null;
         const installed = MODEL_CATALOG.filter(isModelInstalled);
         const err =
           installed.length === 0
@@ -296,6 +299,31 @@ export function CarePlanAskChat({
         );
         setStatusLine(t('care.miniChat.status.error', { error: err }));
         setBusy(false);
+        return;
+      }
+
+      // Follow-up turns get the same deterministic safety refuses as the
+      // composer (unknown protocols, dose changes, auto-911, diagnosis).
+      const [{ evaluateSafetyRefuseGate }, { buildPatientNluContext }] =
+        await Promise.all([
+          import('@/services/slm/safety-refuse-guardrails'),
+          import('@/nlu/patient-nlu-context'),
+        ]);
+      const followUpSafety = evaluateSafetyRefuseGate(
+        trimmed,
+        buildPatientNluContext(snapshot),
+      );
+      if (followUpSafety.refuse) {
+        setRefuseMessage(followUpSafety.message);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, text: followUpSafety.message, status: 'done' } : m,
+          ),
+        );
+        setStatusLine(t('care.miniChat.status.refused'));
+        setBusy(false);
+        leaseRef.current?.release();
+        leaseRef.current = null;
         return;
       }
 
@@ -337,7 +365,9 @@ export function CarePlanAskChat({
           getConciergeGeneration(defaultModelId, 'deep'),
         );
         if (cancelRef.current) return;
-        const cleaned = stripControlTokens(result.text).answer;
+        const cleaned = stripKnownToolActionLines(
+          stripControlTokens(result.text).answer,
+        );
         historyRef.current.push({ role: 'assistant', content: cleaned });
         setMessages((prev) =>
           prev.map((m) =>
@@ -424,6 +454,8 @@ export function CarePlanAskChat({
       leaseRef.current = lease;
 
       if (!provider.getModelInfo()) {
+        leaseRef.current?.release();
+        leaseRef.current = null;
         const installed = MODEL_CATALOG.filter(isModelInstalled);
         const err =
           installed.length === 0
@@ -501,7 +533,7 @@ export function CarePlanAskChat({
           outputAny?.rationale?.trim() ||
           answerAcc ||
           '';
-        const cleaned = stripControlTokens(raw).answer;
+        const cleaned = stripKnownToolActionLines(stripControlTokens(raw).answer);
         const collapsed = formatAnswerWithCollapsedSources(cleaned, mergedCitations);
         const display = collapsed.displayText || cleaned || t('slmSheet.noResponse');
         const sources = citationsToSources(mergedCitations);
@@ -620,10 +652,15 @@ export function CarePlanAskChat({
     setRefuseMessage(null);
     setResolution(null);
     try {
-      const { evaluateSafetyRefuseGate } = await import(
-        '@/services/slm/safety-refuse-guardrails'
+      const [{ evaluateSafetyRefuseGate }, { buildPatientNluContext }] =
+        await Promise.all([
+          import('@/services/slm/safety-refuse-guardrails'),
+          import('@/nlu/patient-nlu-context'),
+        ]);
+      const safety = evaluateSafetyRefuseGate(
+        trimmed,
+        buildPatientNluContext(snapshot),
       );
-      const safety = evaluateSafetyRefuseGate(trimmed);
       if (safety.refuse) {
         setRefuseMessage(safety.message);
         return;

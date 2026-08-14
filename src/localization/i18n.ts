@@ -77,7 +77,7 @@ const ENGLISH_TRANSLATIONS = {
   "tabs.care": "Care",
   "tabs.meds": "Meds",
   "tabs.schedule": "Schedule",
-  "tabs.concierge": "Asistente",
+  "tabs.concierge": "Concierge",
   "medications.header.title": "Medication Management",
   "medications.header.eyebrow": "Caregiver Concierge",
   "medications.value.unnamedMedication": "Unnamed medication",
@@ -266,7 +266,7 @@ const ENGLISH_TRANSLATIONS = {
     "SpO2 is percent (86, not 0.86). Pure med/schedule questions skip Health Monitor.",
   "assistant.safetyNote":
     "Concierge is a caregiver support prototype and does not replace emergency care or professional medical advice.",
-  "assistant.review.title": "Caregiver review (severity {severity})",
+  "assistant.review.title": "Your review ({label})",
   "assistant.review.body":
     "{summary}. Select anything you observed, then continue. Severity 3 emergencies skip this step.",
   "assistant.review.apply": "Apply review & continue",
@@ -319,6 +319,7 @@ const ENGLISH_TRANSLATIONS = {
     "Sample prompts by category - tap to expand",
   "assistant.suggestions.subtitle":
     "A few starting points, grouped so they are easier to scan.",
+  "assistant.suggestions.forYourPlan": "For your plan",
   "assistant.suggestions.group.understand": "Understand the plan",
   "assistant.suggestions.group.dailyCare": "Daily care",
   "assistant.suggestions.group.reviewPrepare": "Review & prepare",
@@ -385,12 +386,22 @@ const ENGLISH_TRANSLATIONS = {
   "assistant.careIntentSheet.regenerateA11y": "Regenerate",
   "assistant.careIntentSheet.proposalQueued": "Plan proposal queued",
   "assistant.careIntentSheet.proposalMeta":
-    "Concierge drafted a plan update. Confirm below to send to ML vetting.",
+    "Concierge drafted a plan update. Send it to the conversation to confirm or decline — nothing changes until you confirm.",
   "assistant.careIntentSheet.sendForReview": "Send for your review",
+  "assistant.careIntentSheet.reject": "Decline",
   "assistant.careIntentSheet.sentRefresh":
-    "Sent - refresh to see updated plan.",
+    "Sent for your review - confirm or decline in the conversation.",
   "assistant.careIntentSheet.noPlanChange":
     "No plan change suggested - explanation only.",
+  "assistant.planProposal.title": "Plan proposal - your review",
+  "assistant.planProposal.confirm": "Confirm",
+  "assistant.planProposal.reject": "Decline",
+  "assistant.planProposal.confirmed":
+    "Confirmed - sent for Health Monitor review. Nothing applies until that review passes.",
+  "assistant.planProposal.rejected": "Declined - no plan change.",
+  "assistant.planProposal.error": "Couldn't update this proposal.",
+  "assistant.planProposal.footnote":
+    "Nothing changes until you confirm, and a final review pass decides what applies.",
   "assistant.careIntentSheet.footnote":
     "Concierge guidance - not a diagnosis. Confirm any plan change with the care team.",
   "assistant.careIntentSheet.status.preparing": "Preparing...",
@@ -634,6 +645,7 @@ const ENGLISH_TRANSLATIONS = {
   "care.miniChat.status.complete": "Complete",
   "care.miniChat.status.completeModel": "Complete · {modelId}",
   "care.miniChat.status.error": "Error: {error}",
+  "care.miniChat.status.refused": "Concierge declined for safety",
   "care.miniChat.error.noModel": "Concierge is unavailable - no model is installed.",
   "care.miniChat.error.loadFailed": "Concierge could not load a model.",
   "care.miniChat.stopDialog.title": "Stop Concierge?",
@@ -707,6 +719,9 @@ const ENGLISH_TRANSLATIONS = {
   "care.vitals.emptyBody":
     "Import the latest care record from Settings to add observations and vitals.",
   "care.vitals.import": "Import from Settings",
+  "care.vitals.syncNow": "Sync now",
+  "care.vitals.syncing": "Syncing…",
+  "care.vitals.syncA11y": "Sync Apple Health now",
   "care.vitals.noRangeTitle": "No readings in this range",
   "care.vitals.noRangeBody": "Try a longer range or import a newer care record.",
   "care.vitals.range.6m": "6 months",
@@ -1206,7 +1221,7 @@ const ENGLISH_TRANSLATIONS = {
   "dashboard.alertSeverity.alert": "Alert",
   "dashboard.alertsLog.title": "Alerts Log",
   "dashboard.alertsLog.empty":
-    "No alerts recorded yet. Alerts from the ML care analysis demo will appear here, grouped by active and inactive.",
+    "No alerts recorded yet. Alerts from Health Monitor will appear here, grouped by active and inactive.",
   "dashboard.alertsLog.activeCount": "Active - {count}",
   "dashboard.alertsLog.inactiveCount": "Inactive - {count}",
   "dashboard.alertsLog.status.open": "Active",
@@ -1218,6 +1233,8 @@ const ENGLISH_TRANSLATIONS = {
   "dashboard.alertsLog.severity": "Severity {severity}",
   "dashboard.alertsLog.removeA11y": "Remove alert from log",
   "dashboard.alertsLog.openA11y": "Open alert details for {title}",
+  "dashboard.alertsLog.openGroupedA11y":
+    "Open alert details for {title} - {count} similar alerts",
   "dashboard.alertsLog.removeDialog.title": "Remove from log?",
   "dashboard.alertsLog.removeDialog.body":
     "This hides the alert from your alerts log. The record is kept for the audit trail.",
@@ -1255,7 +1272,7 @@ const ENGLISH_TRANSLATIONS = {
   "alertDetail.statusLabel": "Status: {status}",
   "alertDetail.status.noteSaved": "Note saved.",
   "alertDetail.status.observationsSavedRerun":
-    "Observations saved · Health Monitor re-run: {post} (severity {severity}).",
+    "Observations saved · Health Monitor re-run: {post} ({severity}).",
   "alertDetail.status.observationsSavedNoVitals":
     "Observations saved. (No stored vitals for Health Monitor re-run.)",
   "alertDetail.status.observationsSaved": "Observations saved.",
@@ -1433,7 +1450,7 @@ const ENGLISH_TRANSLATIONS = {
   "ehrComplete.helper.gmfcs":
     "Cerebral Palsy mobility scale. Leave 'Not assessed' if unknown.",
   "ehrComplete.helper.medicalComfort":
-    "Controls the SLM's tone - clinical terms vs plain language.",
+    "Controls the Concierge's tone - clinical terms vs plain language.",
   "ehrComplete.a11y.patientNameHint":
     "If the CDA showed Patient Redacted, enter the real or demo patient name.",
   "ehrComplete.a11y.locationHint":
@@ -2428,7 +2445,7 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
     "SpO2 es porcentaje (86, no 0.86). Las preguntas solo de medicamentos o agenda omiten el Monitor de salud.",
   "assistant.safetyNote":
     "El asistente es un prototipo de apoyo para cuidadores y no reemplaza la atención de emergencia ni el consejo médico profesional.",
-  "assistant.review.title": "Revisión del cuidador (severidad {severity})",
+  "assistant.review.title": "Tu revisión ({label})",
   "assistant.review.body":
     "{summary}. Selecciona cualquier cosa que observaste y luego continúa. Las emergencias de severidad 3 omiten este paso.",
   "assistant.review.apply": "Aplicar revisión y continuar",
@@ -2481,6 +2498,7 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
     "Ejemplos por categoría; toca para expandir",
   "assistant.suggestions.subtitle":
     "Algunos puntos de partida, agrupados para escanearlos con más facilidad.",
+  "assistant.suggestions.forYourPlan": "Para tu plan",
   "assistant.suggestions.group.understand": "Entender el plan",
   "assistant.suggestions.group.dailyCare": "Cuidado diario",
   "assistant.suggestions.group.reviewPrepare": "Revisar y preparar",
@@ -2547,12 +2565,22 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "assistant.careIntentSheet.regenerateA11y": "Regenerar",
   "assistant.careIntentSheet.proposalQueued": "Propuesta del plan en cola",
   "assistant.careIntentSheet.proposalMeta":
-    "El asistente preparó una actualización del plan. Confirma abajo para enviarla a revisión de ML.",
+    "El Concierge preparó una actualización del plan. Envíala a la conversación para confirmarla o rechazarla; nada cambia hasta que confirmes.",
   "assistant.careIntentSheet.sendForReview": "Enviar para tu revisión",
+  "assistant.careIntentSheet.reject": "Rechazar",
   "assistant.careIntentSheet.sentRefresh":
-    "Enviado; actualiza para ver el plan actualizado.",
+    "Enviada para tu revisión; confirma o rechaza en la conversación.",
   "assistant.careIntentSheet.noPlanChange":
     "No se sugirió ningún cambio del plan; solo explicación.",
+  "assistant.planProposal.title": "Propuesta del plan - tu revisión",
+  "assistant.planProposal.confirm": "Confirmar",
+  "assistant.planProposal.reject": "Rechazar",
+  "assistant.planProposal.confirmed":
+    "Confirmada - enviada a la revisión del Monitor de salud. Nada se aplica hasta que esa revisión pase.",
+  "assistant.planProposal.rejected": "Rechazada - sin cambios en el plan.",
+  "assistant.planProposal.error": "No se pudo actualizar esta propuesta.",
+  "assistant.planProposal.footnote":
+    "Nada cambia hasta que confirmes, y una revisión final decide qué se aplica.",
   "assistant.careIntentSheet.footnote":
     "La orientación del asistente no es un diagnóstico. Confirma cualquier cambio del plan con el equipo de cuidado.",
   "assistant.careIntentSheet.status.preparing": "Preparando...",
@@ -2796,6 +2824,7 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "care.miniChat.status.complete": "Completado",
   "care.miniChat.status.completeModel": "Completado · {modelId}",
   "care.miniChat.status.error": "Error: {error}",
+  "care.miniChat.status.refused": "Concierge rechazó por seguridad",
   "care.miniChat.error.noModel": "Concierge no está disponible; no hay un modelo instalado.",
   "care.miniChat.error.loadFailed": "Concierge no pudo cargar un modelo.",
   "care.miniChat.stopDialog.title": "¿Detener Concierge?",
@@ -2869,6 +2898,9 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "care.vitals.emptyBody":
     "Importa el expediente de cuidado más reciente desde Configuración para agregar observaciones y signos vitales.",
   "care.vitals.import": "Importar desde Configuración",
+  "care.vitals.syncNow": "Sincronizar ahora",
+  "care.vitals.syncing": "Sincronizando…",
+  "care.vitals.syncA11y": "Sincronizar Apple Health ahora",
   "care.vitals.noRangeTitle": "No hay lecturas en este rango",
   "care.vitals.noRangeBody": "Prueba un rango más largo o importa un expediente de cuidado más nuevo.",
   "care.vitals.range.6m": "6 meses",
@@ -3368,7 +3400,7 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "dashboard.alertSeverity.alert": "Alerta",
   "dashboard.alertsLog.title": "Registro de alertas",
   "dashboard.alertsLog.empty":
-    "Aún no hay alertas registradas. Las alertas de la demostración de análisis de cuidado ML aparecerán aquí, agrupadas por activas e inactivas.",
+    "Aún no hay alertas registradas. Las alertas del Monitor de salud aparecerán aquí, agrupadas por activas e inactivas.",
   "dashboard.alertsLog.activeCount": "Activas - {count}",
   "dashboard.alertsLog.inactiveCount": "Inactivas - {count}",
   "dashboard.alertsLog.status.open": "Activa",
@@ -3380,6 +3412,8 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "dashboard.alertsLog.severity": "Gravedad {severity}",
   "dashboard.alertsLog.removeA11y": "Eliminar alerta del registro",
   "dashboard.alertsLog.openA11y": "Abrir detalles de la alerta para {title}",
+  "dashboard.alertsLog.openGroupedA11y":
+    "Abrir detalles de la alerta para {title} - {count} alertas similares",
   "dashboard.alertsLog.removeDialog.title": "¿Eliminar del registro?",
   "dashboard.alertsLog.removeDialog.body":
     "Esto oculta la alerta de tu registro de alertas. El registro se conserva para la auditoría.",
@@ -3417,7 +3451,7 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "alertDetail.statusLabel": "Estado: {status}",
   "alertDetail.status.noteSaved": "Nota guardada.",
   "alertDetail.status.observationsSavedRerun":
-    "Observaciones guardadas · Monitor de salud volvió a ejecutarse: {post} (gravedad {severity}).",
+    "Observaciones guardadas · Monitor de salud volvió a ejecutarse: {post} ({severity}).",
   "alertDetail.status.observationsSavedNoVitals":
     "Observaciones guardadas. (No hay signos vitales guardados para volver a ejecutar el Monitor de salud.)",
   "alertDetail.status.observationsSaved": "Observaciones guardadas.",
@@ -3596,7 +3630,7 @@ const SPANISH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
   "ehrComplete.helper.gmfcs":
     "Escala de movilidad para parálisis cerebral. Deja 'No evaluado' si no se sabe.",
   "ehrComplete.helper.medicalComfort":
-    "Controla el tono del SLM: términos clínicos o lenguaje sencillo.",
+    "Controla el tono del Concierge: términos clínicos o lenguaje sencillo.",
   "ehrComplete.a11y.patientNameHint":
     "Si el CDA mostraba Patient Redacted, ingresa el nombre real o de demostración del paciente.",
   "ehrComplete.a11y.locationHint":

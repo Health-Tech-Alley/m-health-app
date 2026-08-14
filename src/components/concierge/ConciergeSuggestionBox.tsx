@@ -6,8 +6,8 @@
  * overwhelming. Hybrid behavior:
  *   - explanation-style suggestions send a pre-written chat prompt (the
  *     normal NLU + skills pipeline answers it);
- *   - plan-action suggestions open the structured intent sheet (proposal
- *     flow with caregiver review).
+ *   - plan-action suggestions also send a chat turn (the host drafts any
+ *     proposal via the in-conversation review card).
  *
  * Categories are collapsed by default; tap a group header to expand sample prompts.
  */
@@ -20,6 +20,7 @@ import type { AdcpProposalIntentId } from '@/data/adcp/types';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/hooks/use-translation';
 import type { TranslationKey } from '@/localization/i18n';
+import type { PlanOpportunity } from '@/services/carePlan/planOpportunities';
 
 export interface ConciergeSuggestion {
   id: string;
@@ -30,6 +31,8 @@ export interface ConciergeSuggestion {
   prompt?: string;
   /** For kind 'intent': the structured intent to launch. */
   intentId?: AdcpProposalIntentId;
+  /** Optional prefilled args (e.g. UC4 cardId) for the intent. */
+  intentArgs?: Record<string, unknown>;
 }
 
 interface SuggestionGroup {
@@ -51,7 +54,7 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
         labelKey: 'assistant.suggestions.weeklyReview',
         kind: 'chat',
         prompt:
-          'Walk me through this week\u2019s care plan for my patient in plain language: the main goals, what changed recently, and what I should focus on first.',
+          'Walk me through this week\u2019s care plan: the main goals, what changed recently, and what I should focus on first.',
       },
       {
         id: 'explain-focus',
@@ -133,17 +136,28 @@ const SUGGESTION_GROUPS: SuggestionGroup[] = [
   },
 ];
 
+/** Localized chip labels for the mutating intents the detector may surface. */
+const OPPORTUNITY_LABEL_KEYS: Partial<Record<AdcpProposalIntentId, TranslationKey>> = {
+  promote_uc4_to_plan_task: 'care.intents.label.promoteUc4',
+  review_monitoring_contract: 'care.intents.label.reviewMonitoring',
+  propose_therapy_contract_patch: 'care.intents.label.therapyPatch',
+  weekly_care_plan_review: 'care.intents.label.weeklyReview',
+};
+
 export interface ConciergeSuggestionBoxProps {
   onSendPrompt: (prompt: string) => void;
-  onLaunchIntent: (intentId: AdcpProposalIntentId) => void;
+  onLaunchIntent: (intentId: AdcpProposalIntentId, args?: Record<string, unknown>) => void;
   /** Disable all taps while a conversation turn is streaming. */
   disabled?: boolean;
+  /** Deterministic plan opportunities (PLAN WATCH detector) — rendered as chips. */
+  opportunities?: PlanOpportunity[];
 }
 
 export function ConciergeSuggestionBox({
   onSendPrompt,
   onLaunchIntent,
   disabled = false,
+  opportunities = [],
 }: ConciergeSuggestionBoxProps) {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -156,8 +170,13 @@ export function ConciergeSuggestionBox({
     if (suggestion.kind === 'chat' && suggestion.prompt) {
       onSendPrompt(suggestion.prompt);
     } else if (suggestion.kind === 'intent' && suggestion.intentId) {
-      onLaunchIntent(suggestion.intentId);
+      onLaunchIntent(suggestion.intentId, suggestion.intentArgs);
     }
+  };
+
+  const handleOpportunityPress = (opportunity: PlanOpportunity) => {
+    if (disabled) return;
+    onLaunchIntent(opportunity.intentId, opportunity.args);
   };
 
   return (
@@ -187,6 +206,36 @@ export function ConciergeSuggestionBox({
           <Text style={[styles.subtitle, themedStyles.mutedText]}>
             {t('assistant.suggestions.subtitle')}
           </Text>
+          {opportunities.length > 0 ? (
+            <View style={[styles.group, themedStyles.group]}>
+              <Text style={[styles.groupLabel, themedStyles.primaryText]}>
+                {t('assistant.suggestions.forYourPlan')}
+              </Text>
+              <View style={styles.chips}>
+                {opportunities.map((opportunity) => {
+                  const labelKey = OPPORTUNITY_LABEL_KEYS[opportunity.intentId];
+                  return (
+                    <Pressable
+                      key={opportunity.id}
+                      style={[styles.chip, themedStyles.chip, disabled && styles.chipDisabled]}
+                      onPress={() => handleOpportunityPress(opportunity)}
+                      disabled={disabled}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${labelKey ? t(labelKey) : opportunity.intentId} - ${opportunity.summary}`}
+                    >
+                      <Text style={[styles.chipText, themedStyles.chipText]}>
+                        {'\u2726 '}
+                        {labelKey ? t(labelKey) : opportunity.intentId}
+                      </Text>
+                      <Text style={[styles.chipSubtitle, themedStyles.mutedText]}>
+                        {opportunity.summary}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
           {SUGGESTION_GROUPS.map((group) => {
             const expanded = Boolean(expandedGroups[group.key]);
             const groupLabel = t(group.labelKey);
@@ -342,5 +391,12 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.brand,
     fontSize: 12,
     fontWeight: '800',
+  },
+  chipSubtitle: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+    maxWidth: 240,
   },
 });

@@ -305,7 +305,7 @@ export function CareManagementScreen() {
       slmModelSizeGB={slm.modelSizeGB}
       slmLoadError={slm.loadError}
       onLoadSLM={slm.loadModel}
-      onUnloadSLM={slm.unloadModel}
+      onUnloadSLM={() => slm.unloadModel(true)}
       mlModelLoaded={mlModelLoaded}
     />
   );

@@ -1,8 +1,10 @@
 /**
  * Shared Pre-SLM turn preparation — same NLU + retrieval path as main Concierge chat.
  *
- * Used by SlmInsightSheet, InCardMiniChat, CarePlanInsightSheet, and helpers so
- * one-off explains and in-card follow-ups understand prompts as well as /slm chat.
+ * Used by SlmInsightSheet, InCardMiniChat, and Care Management helpers so
+ * one-off explains and in-card follow-ups understand prompts as well as /slm
+ * chat. CarePlanInsightSheet runs the Care intent path (compact ADCP context)
+ * and does not use this module.
  */
 
 import {
@@ -40,10 +42,13 @@ import {
   buildCaregiverSystemContext,
   type CaregiverAssistantContext,
 } from '@/services/slm/slmService';
+import { DEFAULT_NLU_STAGE_TIMEOUT_MS } from '@/nlu/pre-slm-nlu';
 import { detectIdentityMismatches } from '@/services/slm/identity-guardrails';
 
 /** Whole NLU stage budget (embedder may already be warm from preload). */
-const DEFAULT_NLU_TIMEOUT_MS = 12_000;
+const DEFAULT_NLU_TIMEOUT_MS = DEFAULT_NLU_STAGE_TIMEOUT_MS;
+/** Extra headroom on the stage budget for a cold embedder start. */
+const EMBEDDER_STAGE_EXTRA_MS = 4_000;
 const MED_SAFETY_TIMEOUT_MS = 4000;
 
 const CITE_INSTRUCTION =
@@ -195,43 +200,51 @@ export async function prepareSlmTurn(
         ...new Set([...patientCtx.medications, ...medNames].filter(Boolean)),
       ];
 
-      const embedderWaitMs = Math.min(
-        DEFAULT_TFLITE_EMBEDDER_LOAD_MS,
-        Math.max(4_000, nluTimeout - 1_500),
-      );
-      const embedderT0 = Date.now();
-      const embedder = await createReadyEmbedder(embedderWaitMs, {
-        allowDevelopmentFallback: allowDev,
-      });
-      console.log(
-        `[${tag}] embedder ready in ${Date.now() - embedderT0}ms ` +
-          `(dims=${embedder.dimensions})`,
-      );
-      const nlu = new PreSlmNlu({
-        embedder,
-        retriever: options.retriever ?? {
-          retrieve: async () => ({ tools: [], chunks: [], citations: [], latencyMs: 0 }),
-        },
-        toolSchemas: TOOL_SCHEMAS as unknown as McpToolSummary[],
-        allowDevelopmentFallback: allowDev,
-        filterToolsForSkill: (id, tools) =>
-          filterToolsForSkill(id, tools as typeof TOOL_SCHEMAS) as McpToolSummary[],
-      });
+      // Embedder cold-start and intent/retrieval share ONE stage budget so a
+      // cold embedder degrades identically on every surface. Previously the
+      // embedder wait ran outside the nlu race and the two budgets stacked
+      // (up to ~22s chat, ~32s Care ask).
+      const stageTimeoutMs = nluTimeout + EMBEDDER_STAGE_EXTRA_MS;
+      const stageT0 = Date.now();
+      const stage = (async () => {
+        const embedderWaitMs = Math.min(
+          DEFAULT_TFLITE_EMBEDDER_LOAD_MS,
+          Math.max(4_000, nluTimeout - 1_500),
+        );
+        const embedder = await createReadyEmbedder(embedderWaitMs, {
+          allowDevelopmentFallback: allowDev,
+        });
+        console.log(
+          `[${tag}] embedder ready in ${Date.now() - stageT0}ms ` +
+            `(dims=${embedder.dimensions})`,
+        );
+        const nlu = new PreSlmNlu({
+          embedder,
+          retriever: options.retriever ?? {
+            retrieve: async () => ({ tools: [], chunks: [], citations: [], latencyMs: 0 }),
+          },
+          toolSchemas: TOOL_SCHEMAS as unknown as McpToolSummary[],
+          allowDevelopmentFallback: allowDev,
+          filterToolsForSkill: (id, tools) =>
+            filterToolsForSkill(id, tools as typeof TOOL_SCHEMAS) as McpToolSummary[],
+        });
 
-      const nluRunT0 = Date.now();
-      nluPacket = await Promise.race([
-        nlu.run(trimmed, patientCtx, {
+        return await nlu.run(trimmed, patientCtx, {
           skillHint: options.skillHint,
           intentOverride: options.intentOverride,
-        }),
+        });
+      })();
+
+      nluPacket = await Promise.race([
+        stage,
         new Promise<never>((_, reject) =>
           setTimeout(
-            () => reject(new Error(`NLU timeout after ${nluTimeout}ms`)),
-            nluTimeout,
+            () => reject(new Error(`NLU stage timeout after ${stageTimeoutMs}ms`)),
+            stageTimeoutMs,
           ),
         ),
       ]);
-      console.log(`[${tag}] nlu.run finished in ${Date.now() - nluRunT0}ms`);
+      console.log(`[${tag}] NLU stage finished in ${Date.now() - stageT0}ms`);
       console.log(
         `[${tag}] NLU intent=${nluPacket.intent.primary} conf=${nluPacket.intent.confidence.toFixed(2)} ` +
           `entities=${nluPacket.entities.length} tools=${nluPacket.tools.length} ` +

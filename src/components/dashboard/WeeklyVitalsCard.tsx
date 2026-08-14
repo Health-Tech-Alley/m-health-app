@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
 import { AppTheme } from "@/constants/theme";
 import { useSensor } from "@/contexts/sensor-context";
@@ -254,12 +254,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export function WeeklyVitalsCard() {
   const theme = useTheme();
   const { locale, t } = useTranslation();
+  const { fontScale } = useWindowDimensions();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [selectedKey, setSelectedKey] = useState<HealthSampleType>("spo2");
   const [selectedDayStart, setSelectedDayStart] = useState<number>(() =>
     startOfLocalDay(Date.now()),
   );
-  const [timeDifferent, setTimeDifferent] = useState<string | null>("");
   const vitals = useAppSelector(selectLiveVitalsState);
   const activePatient = useActivePatientView();
   const activePatientId = activePatient?.patientId ?? null;
@@ -402,7 +402,13 @@ export function WeeklyVitalsCard() {
         <>
           <View style={[styles.divider, themedStyles.divider]} />
 
-          <View style={styles.bottomStats}>
+          <View
+            style={[
+              styles.bottomStats,
+              fontScale >= 1.8 && styles.bottomStatsStack,
+              fontScale >= 1.25 && fontScale < 1.8 && styles.bottomStatsTwo,
+            ]}
+          >
             {summaryMetrics.map((metric) => (
               <SmallStat
                 key={metric.key}
@@ -410,6 +416,9 @@ export function WeeklyVitalsCard() {
                 value={metric.value}
                 unit={metric.unit}
                 tone={metric.statusTone}
+                size={
+                  fontScale >= 1.8 ? "block" : fontScale >= 1.25 ? "half" : "row"
+                }
               />
             ))}
           </View>
@@ -529,9 +538,15 @@ function getSummaryMetrics(
   selectedMetric: VitalMetric | null,
 ): VitalMetric[] {
   return metrics
-    // .filter((metric) => metric.key !== selectedMetric?.key)
-    // .filter((metric) => metric.key === "heart_rate" || metric.key === "respiratory_rate" || metric.key === "blood_pressure_systolic" || metric.key === "blood_pressure_diastolic" )
-    // .slice(0, 2);
+    .filter((metric) => metric.key !== selectedMetric?.key)
+    .filter(
+      (metric) =>
+        metric.key === "heart_rate" ||
+        metric.key === "respiratory_rate" ||
+        metric.key === "blood_pressure_systolic" ||
+        metric.key === "blood_pressure_diastolic",
+    )
+    .slice(0, 2);
 }
 
 function TrendChart({
@@ -917,17 +932,25 @@ function SmallStat({
   value,
   unit,
   tone,
+  size = "row",
 }: {
   label: string;
   value: string;
   unit: string;
   tone: MetricTone;
+  size?: "row" | "half" | "block";
 }) {
   const theme = useTheme();
   const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
 
   return (
-    <View style={styles.smallStat}>
+    <View
+      style={[
+        styles.smallStat,
+        size === "half" && styles.smallStatHalf,
+        size === "block" && styles.smallStatBlock,
+      ]}
+    >
       <Text style={[styles.smallStatLabel, themedStyles.subtitle]}>{label}</Text>
       <Text style={styles.smallStatValueRow}>
         <Text
@@ -1406,8 +1429,27 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 20,
   },
+  bottomStatsTwo: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 16,
+  },
+  bottomStatsStack: {
+    flexDirection: "column",
+    gap: 14,
+  },
   smallStat: {
     flex: 1,
+  },
+  smallStatHalf: {
+    flex: 0,
+    flexBasis: "47%",
+    minWidth: 0,
+  },
+  smallStatBlock: {
+    flex: 0,
+    flexBasis: "100%",
+    minWidth: 0,
   },
   smallStatLabel: {
     color: AppTheme.colors.textMuted,

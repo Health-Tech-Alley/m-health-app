@@ -223,6 +223,34 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     },
     allowedSkills: ['caregiver-chat', 'explain-anomaly'],
   },
+  {
+    name: 'propose_care_plan_update',
+    description:
+      'Propose a care plan update for the patient. This only DRAFTS a proposal — it is enqueued for the caregiver to confirm or decline, and nothing applies without their confirmation plus a final review pass. Use this when a PLAN WATCH signal clearly fits the conversation.',
+    params: {
+      intent: {
+        type: 'string',
+        description: 'Which plan-update intent to draft.',
+        required: true,
+        options: [
+          'promote_uc4_to_plan_task',
+          'review_monitoring_contract',
+          'propose_therapy_contract_patch',
+        ],
+      },
+      cardId: {
+        type: 'string',
+        description: 'UC4 care-focus card id (promote_uc4_to_plan_task only).',
+        required: false,
+      },
+      resultId: {
+        type: 'string',
+        description: 'UC3 trajectory result id (therapy-related intents).',
+        required: false,
+      },
+    },
+    allowedSkills: ['caregiver-chat'],
+  },
 ];
 
 export class ToolRegistry {

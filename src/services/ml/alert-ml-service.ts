@@ -11,11 +11,19 @@
 
 import {
   getLatestHealthSample,
+  getRecentHealthSamples,
   type HealthSample,
   type HealthSampleType,
   type MlRawVitalsInputEnvelope,
 } from '@/data';
 import type { PatientRecordSnapshot } from '@/data/repositories/patientRecordRepository';
+import {
+  CUMULATIVE_CAPS,
+  CUMULATIVE_WINDOW_MS,
+  deriveSleepQuality,
+  sanitizeVitalValue,
+  sumWindowValues,
+} from '@/services/ml/mlInputSanitizer';
 import type { AlertMlModel } from '@/ml-models/alert-autoencoder';
 import type { AlertAutoencoder } from '@/ml-models/alert-autoencoder/alert-autoencoder';
 import type {
@@ -25,11 +33,14 @@ import type {
 } from '@/ml-models/alert-autoencoder/types';
 import type {
   AppleWatchVitalsInput,
+  HistoricalAnomalyEvent,
   PatientProfile,
+  PreviousObservationInput,
   TopFeatureEvidence,
   UC2DecisionResult,
 } from '@/ml-models/uc2-decision-layer';
 import {
+  buildHistoricalAnomalyEvent,
   buildUC2FeatureVector,
   createTfliteInterpreterAdapter,
   finalDecision,
@@ -37,6 +48,7 @@ import {
   runEmergencyRuleEngine,
   runUC2DecisionLayerV2,
   shouldShowCaregiverPrompt,
+  SQLiteAnomalyHistoryStore,
 } from '@/ml-models/uc2-decision-layer';
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
@@ -47,12 +59,25 @@ import {
   selectProductionWearableReadingsForPatient,
   type LiveVitalReading,
 } from '@/store/reducers/vitalsSlice';
+import { drainPendingProposalsForPatient } from '@/services/carePlan/mlPlanProposalService';
 import { normalizeSpo2Percent } from '@/utils/spo2';
 import { toRawObservationInput } from './uc2-runtime-service';
 
 const MIN_SAMPLE_TYPES = 2;
 /** HITL / fallback: need at least one of SpO2 or HR (imputation fills the rest). */
 const MIN_HITL_CORE_VITALS = 1;
+/**
+ * Alert-eligible evals need at least this many observed AE features (of 8
+ * observables). A core vital (SpO2 or HR) is enforced separately; 2 keeps a
+ * typical HR+SpO2 stream eligible while still rejecting mostly-imputed vectors.
+ */
+const MIN_OBSERVED_FEATURES_FOR_ALERT = 2;
+/** Look-back for the prior observation feeding signal rate-of-change validation. */
+const PREVIOUS_OBSERVATION_LOOKBACK_MS = 2 * 60 * 1000;
+/** Cache period for anomaly-history lookups (recurrence risk). */
+const ANOMALY_HISTORY_TTL_MS = 60 * 1000;
+/** Recurrence look-back; matches the widest windowHoursForType (48h). */
+const ANOMALY_HISTORY_LOOKBACK_HOURS = 48;
 
 function shortPatientId(patientId: string): string {
   return patientId.length > 6 ? `...${patientId.slice(-6)}` : patientId;
@@ -71,14 +96,7 @@ function toUc2BodyTemperature(value: number, unit?: string): number {
   return value;
 }
 
-/**
- * Deterministic sleep-quality score (0–100) from a sleep reading.
- * Values are hours (mock/category duration convention); 9h maps to 100.
- */
-function deriveSleepQuality(value: number): number {
-  if (!Number.isFinite(value) || value <= 0) return 0;
-  return Math.max(0, Math.min(100, Math.round((value / 9) * 100)));
-}
+
 
 type InputProvenance = MlRawVitalsInputEnvelope['provenance'];
 type ProvenanceSample = Pick<
@@ -166,6 +184,142 @@ export function getRecentReadingsFromRedux(
   });
 }
 
+// ── Anomaly history (recurrence risk) ─────────────────────────────────────────
+
+let anomalyHistoryStore: SQLiteAnomalyHistoryStore | null = null;
+let anomalyHistoryCache: {
+  patientId: string;
+  fetchedAt: number;
+  events: HistoricalAnomalyEvent[];
+} | null = null;
+
+function getAnomalyHistoryStore(): SQLiteAnomalyHistoryStore {
+  if (!anomalyHistoryStore) {
+    anomalyHistoryStore = new SQLiteAnomalyHistoryStore();
+  }
+  return anomalyHistoryStore;
+}
+
+/**
+ * Load recent anomaly events for recurrence scoring, TTL-cached so the
+ * ambient per-vitals_sample path does not query SQLite on every tick.
+ * Returns undefined when the DB is unavailable (never throws).
+ */
+async function loadAnomalyHistory(
+  patientId: string,
+): Promise<HistoricalAnomalyEvent[] | undefined> {
+  try {
+    const now = Date.now();
+    if (
+      anomalyHistoryCache &&
+      anomalyHistoryCache.patientId === patientId &&
+      now - anomalyHistoryCache.fetchedAt < ANOMALY_HISTORY_TTL_MS
+    ) {
+      return anomalyHistoryCache.events;
+    }
+    const events = await getAnomalyHistoryStore().getRecent(
+      patientId,
+      ANOMALY_HISTORY_LOOKBACK_HOURS,
+    );
+    anomalyHistoryCache = { patientId, fetchedAt: now, events };
+    return events;
+  } catch (err) {
+    console.warn(
+      '[AlertML] anomaly history unavailable:',
+      err instanceof Error ? err.message : err,
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Persist an emitted (non-suppressed) anomaly so recurrence risk can escalate
+ * repeated events. Guarded: DB failures never break the alert path.
+ */
+async function persistAnomalyEvent(
+  patientId: string,
+  result: UC2DecisionResult,
+): Promise<void> {
+  try {
+    const finalDec = result.finalDecision;
+    const severity = finalDec?.final_severity ?? 0;
+    if (severity < 1 || finalDec?.suppression_status?.is_suppressed) return;
+    await getAnomalyHistoryStore().append(
+      buildHistoricalAnomalyEvent({
+        patient_id: patientId,
+        timestamp_iso:
+          result.audit_event?.timestamp_iso ?? new Date().toISOString(),
+        post_hitl_anomaly_type:
+          finalDec?.post_hitl_anomaly_type ?? 'NORMAL_PATTERN',
+        final_severity: severity,
+        caregiver_confirmed: false,
+      }),
+    );
+    anomalyHistoryCache = null;
+  } catch (err) {
+    console.warn(
+      '[AlertML] anomaly history persist failed:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+/**
+ * Prior observation (HR + SpO2) for the v2 signal rate-of-change validation.
+ *
+ * Picks the most recent reading strictly before the current observation from
+ * the same source the input was built from. Each vital must come from its own
+ * HealthSampleType (the `readings` array is mixed-type), and the returned
+ * timestamp is the newest prior reading's recordedAt so signalValidation can
+ * compute a real elapsed-seconds delta. Returns undefined when there is no
+ * prior reading — validation is skipped gracefully by the layer.
+ */
+export function buildPreviousObservation(
+  patientId: string,
+  timestamp: Date,
+  readings?: LiveVitalReading[],
+): PreviousObservationInput | undefined {
+  const tsMs = timestamp.getTime();
+  const prior = (
+    type: HealthSampleType,
+  ): { value: number; recordedAt: number } | undefined => {
+    const source =
+      readings ??
+      getRecentReadingsFromRedux(
+        patientId,
+        type,
+        tsMs - PREVIOUS_OBSERVATION_LOOKBACK_MS,
+        5,
+      );
+    const older = source
+      .filter(
+        (r) =>
+          r.patientId === patientId &&
+          r.type === type &&
+          Date.parse(r.recordedAt) < tsMs,
+      )
+      .sort((a, b) => Date.parse(b.recordedAt) - Date.parse(a.recordedAt));
+    const latest = older[0];
+    if (!latest) return undefined;
+    const recordedAt = Date.parse(latest.recordedAt);
+    if (!Number.isFinite(recordedAt)) return undefined;
+    return { value: latest.value, recordedAt };
+  };
+
+  const heartRate = prior('heart_rate');
+  const bloodOxygen = prior('spo2');
+  if (!heartRate && !bloodOxygen) return undefined;
+
+  const out: PreviousObservationInput = {
+    timestamp_iso: new Date(
+      Math.max(heartRate?.recordedAt ?? 0, bloodOxygen?.recordedAt ?? 0),
+    ).toISOString(),
+  };
+  if (heartRate) out.heart_rate = heartRate.value;
+  if (bloodOxygen) out.blood_oxygen = bloodOxygen.value;
+  return out;
+}
+
 export class AlertMlService {
   private model: AlertMlModel;
   private bus = getEventBus();
@@ -223,12 +377,19 @@ export class AlertMlService {
     // The UC2 layer needs a concrete AlertAutoencoder for the TFLite runner.
     // When the configured model is one, use it directly; otherwise fall back
     // to the legacy per-model inference path (kept for the mock provider).
-    const result = await this.runDecisionLayer(built.input, profile);
+    const evaluatedAt = new Date(triggeringEvent.recordedAt);
+    const previous = buildPreviousObservation(patientId, evaluatedAt, readings);
+    const history = await loadAnomalyHistory(patientId);
+    const result = await this.runDecisionLayer(built.input, profile, undefined, previous, history);
     if (__DEV__) {
       console.log(`[ML] UC2 decision layer result for patientId=${shortPatientId(patientId)}:`, result);
     }
 
-    if (result && (result.isAnomaly || result.emergencyResult.emergency)) {
+    if (
+      result &&
+      this.isAlertEligible(built, result) &&
+      (result.isAnomaly || result.emergencyResult.emergency)
+    ) {
       this.emitAlert(
         patientId,
         result,
@@ -239,9 +400,87 @@ export class AlertMlService {
         }),
         built.deviceId,
       );
+      await persistAnomalyEvent(patientId, result);
     }
 
     return result;
+  }
+
+  /**
+   * Alert-eligibility gates (doc 26 Workstream B): emergencies always pass;
+   * otherwise the input must include an observed core vital (SpO2 or HR) and
+   * at least MIN_OBSERVED_FEATURES_FOR_ALERT observed AE features — otherwise
+   * the vector is mostly imputed and an anomaly signal is not trustworthy.
+   * NO_ALERT results (final severity 0 — e.g. under the model layer's alert
+   * hysteresis suppression) never emit.
+   */
+  private isAlertEligible(
+    built: BuiltMlInput,
+    result: UC2DecisionResult,
+  ): boolean {
+    if (
+      result.emergencyResult.emergency ||
+      (result.finalDecision?.final_severity ?? 0) >= 3
+    ) {
+      return true;
+    }
+
+    // Jay's hysteresis engine demotes suppressed alerts to MONITORING_ADVICE
+    // while keeping final_severity for logging — never emit those as alerts.
+    if (result.finalDecision?.suppression_status?.is_suppressed) {
+      if (__DEV__) {
+        console.log('[ML] Suppressed alert: hysteresis suppression active', {
+          patient: shortPatientId(built.input.patient_id),
+          reason:
+            result.finalDecision.suppression_status.reason ?? 'cooldown',
+        });
+      }
+      return false;
+    }
+
+    if ((result.finalDecision?.final_severity ?? 0) < 1) {
+      if (__DEV__) {
+        console.log('[ML] Suppressed alert: final severity is NO_ALERT (0)', {
+          patient: shortPatientId(built.input.patient_id),
+        });
+      }
+      return false;
+    }
+
+    const input = built.input;
+    const hasCoreVital =
+      input.blood_oxygen !== undefined || input.heart_rate !== undefined;
+    if (!hasCoreVital) {
+      if (__DEV__) {
+        console.log('[ML] Suppressed alert: no observed core vital', {
+          patient: shortPatientId(built.input.patient_id),
+        });
+      }
+      return false;
+    }
+
+    const observableFeatures: (number | undefined)[] = [
+      input.heart_rate,
+      input.blood_oxygen,
+      input.respiratory_rate,
+      input.hrv_sdnn,
+      input.body_temperature,
+      input.steps_count,
+      input.calories_burned,
+      input.sleep_quality,
+    ];
+    const observedCount = observableFeatures.filter((v) => v !== undefined).length;
+    if (observedCount < MIN_OBSERVED_FEATURES_FOR_ALERT) {
+      if (__DEV__) {
+        console.log('[ML] Suppressed alert: mostly imputed features', {
+          patient: shortPatientId(built.input.patient_id),
+          observedCount,
+          requiredMinimum: MIN_OBSERVED_FEATURES_FOR_ALERT,
+        });
+      }
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -315,6 +554,8 @@ export class AlertMlService {
     input: AppleWatchVitalsInput,
     profile?: PatientProfile,
     caregiverSelectedCodes: string[] = [],
+    previous?: PreviousObservationInput,
+    history?: HistoricalAnomalyEvent[],
   ): Promise<UC2DecisionResult | null> {
     if (!this.model.isLoaded) {
       await this.load();
@@ -347,12 +588,13 @@ export class AlertMlService {
       scaler: { mean: scaler.mean, scale: scaler.scale },
       interpreter: createTfliteInterpreterAdapter(ae),
       aeThreshold: this.model.threshold,
+      previous,
+      history,
     });
 
     const patientIdForDrain = input.patient_id?.trim();
     if (patientIdForDrain) {
       try {
-        const { drainPendingProposalsForPatient } = require('../carePlan/mlPlanProposalService') as typeof import('../carePlan/mlPlanProposalService');
         drainPendingProposalsForPatient(patientIdForDrain, 'uc2');
       } catch (err) {
         console.warn('[AlertML] ADCP proposal drain failed:', err instanceof Error ? err.message : err);
@@ -538,8 +780,17 @@ export class AlertMlService {
       matches.sort((a, b) => Date.parse(b.recordedAt) - Date.parse(a.recordedAt));
       return matches[0] ?? null;
     };
+    const getWindow = (type: HealthSampleType, sinceMs: number): LiveVitalReading[] =>
+      readings
+        .filter(
+          (reading) =>
+            reading.patientId === patientId &&
+            reading.type === type &&
+            Date.parse(reading.recordedAt) >= sinceMs,
+        )
+        .sort((a, b) => Date.parse(b.recordedAt) - Date.parse(a.recordedAt));
 
-    return this.buildInputFromLatestSamples(patientId, timestamp, get, options);
+    return this.buildInputFromLatestSamples(patientId, timestamp, get, getWindow, options);
   }
 
   private buildInputFromRecentSamples(
@@ -548,8 +799,10 @@ export class AlertMlService {
     options?: { minTypes?: number; requireCoreVital?: boolean },
   ): BuiltMlInput | null {
     const get = (type: HealthSampleType) => getLatestHealthSample(patientId, type);
+    const getWindow = (type: HealthSampleType, sinceMs: number): HealthSample[] =>
+      getRecentHealthSamples(patientId, type, new Date(sinceMs).toISOString(), 500);
 
-    return this.buildInputFromLatestSamples(patientId, timestamp, get, options);
+    return this.buildInputFromLatestSamples(patientId, timestamp, get, getWindow, options);
   }
 
   /**
@@ -576,22 +829,65 @@ export class AlertMlService {
     patientId: string,
     timestamp: Date,
     get: (type: HealthSampleType) => ProvenanceSample | null,
+    getWindow?: (type: HealthSampleType, sinceMs: number) => ProvenanceSample[],
     options?: { minTypes?: number; requireCoreVital?: boolean },
   ): BuiltMlInput | null {
+    const timestampMs = timestamp.getTime();
 
-    const spo2 = get('spo2');
-    const heartRate = get('heart_rate');
-    const bpSys = get('blood_pressure_systolic');
-    const bpDia = get('blood_pressure_diastolic');
-    const temp = get('temperature');
-    const glucose = get('blood_glucose');
-    const resp = get('respiratory_rate');
-    const steps = get('steps');
-    const hrv = get('hrv_sdnn');
-    const calories = get('calories_burned');
-    const sleep = get('sleep');
+    const spo2Raw = get('spo2');
+    const heartRateRaw = get('heart_rate');
+    const bpSysRaw = get('blood_pressure_systolic');
+    const bpDiaRaw = get('blood_pressure_diastolic');
+    const tempRaw = get('temperature');
+    const glucoseRaw = get('blood_glucose');
+    const respRaw = get('respiratory_rate');
+    const hrvRaw = get('hrv_sdnn');
+    const sleepRaw = get('sleep');
+    const stepsLatest = get('steps');
+    const caloriesLatest = get('calories_burned');
 
-    const qualifyingSamples: Array<[HealthSampleType, ProvenanceSample | null]> = [
+    // Individual vitals — implausible observed values (e.g. 0-valued SpO2,
+    // HRV <= 0) become missing so the imputation path fills normal defaults
+    // instead of the AE scoring out-of-distribution garbage.
+    const sanitize = (
+      sample: ProvenanceSample | null,
+      type: HealthSampleType,
+    ): number | undefined => {
+      if (!sample) return undefined;
+      const clean = sanitizeVitalValue(type, sample.value, sample.unit);
+      return clean === null ? undefined : clean;
+    };
+
+    const spo2 = sanitize(spo2Raw, 'spo2');
+    const heartRate = sanitize(heartRateRaw, 'heart_rate');
+    const bpSys = sanitize(bpSysRaw, 'blood_pressure_systolic');
+    const bpDia = sanitize(bpDiaRaw, 'blood_pressure_diastolic');
+    const temp = sanitize(tempRaw, 'temperature');
+    const glucose = sanitize(glucoseRaw, 'blood_glucose');
+    const resp = sanitize(respRaw, 'respiratory_rate');
+    const hrv = sanitize(hrvRaw, 'hrv_sdnn');
+    const sleepValue = sanitize(sleepRaw, 'sleep');
+
+    // Cumulative counters — 24h rolling sums (daily-scale magnitudes, matching
+    // the AE training distribution) instead of the latest single segment
+    // (which is often a 0-valued idle segment).
+    const sumCounter = (
+      type: HealthSampleType,
+      latest: ProvenanceSample | null,
+    ): number | undefined => {
+      if (!getWindow) {
+        return sanitize(latest, type);
+      }
+      const total = sumWindowValues(getWindow(type, timestampMs - CUMULATIVE_WINDOW_MS), timestampMs);
+      if (total <= 0) return undefined;
+      const cap = CUMULATIVE_CAPS[type];
+      if (cap !== undefined && total > cap) return undefined;
+      return total;
+    };
+    const stepsCount = sumCounter('steps', stepsLatest);
+    const caloriesBurned = sumCounter('calories_burned', caloriesLatest);
+
+    const qualifyingSamples: [HealthSampleType, number | undefined][] = [
       ['spo2', spo2],
       ['heart_rate', heartRate],
       ['blood_pressure_systolic', bpSys],
@@ -601,11 +897,20 @@ export class AlertMlService {
       ['respiratory_rate', resp],
     ];
     const qualifyingTypes = qualifyingSamples
-      .filter(([, sample]) => sample !== null)
+      .filter(([, value]) => value !== undefined)
       .map(([type]) => type);
     const presentTypes = qualifyingTypes.length;
     const minTypes = options?.minTypes ?? MIN_SAMPLE_TYPES;
-    const latestSources = qualifyingSamples.reduce<string[]>((sources, [, sample]) => {
+    const rawSamples = [
+      spo2Raw,
+      heartRateRaw,
+      bpSysRaw,
+      bpDiaRaw,
+      tempRaw,
+      glucoseRaw,
+      respRaw,
+    ];
+    const latestSources = rawSamples.reduce<string[]>((sources, sample) => {
       if (sample?.source && !sources.includes(sample.source)) {
         sources.push(sample.source);
       }
@@ -625,7 +930,7 @@ export class AlertMlService {
     }
 
     if (options?.requireCoreVital) {
-      const hasCore = spo2 !== null || heartRate !== null;
+      const hasCore = spo2 !== undefined || heartRate !== undefined;
       if (!hasCore) {
         if (__DEV__) {
           console.log('[ML] Wearable readiness', {
@@ -651,23 +956,23 @@ export class AlertMlService {
     }
 
     // Convert SpO2 fraction to percentage for the UC2 model (trained on 0-100).
-    const spo2Percent =
-      spo2 === null ? undefined : normalizeSpo2Percent(spo2.value);
+    const spo2Percent = spo2 === undefined ? undefined : normalizeSpo2Percent(spo2);
 
     const input: AppleWatchVitalsInput = {
       patient_id: patientId,
       timestamp: timestamp.toISOString(),
-      heart_rate: heartRate?.value ?? undefined,
+      heart_rate: heartRate,
       blood_oxygen: spo2Percent,
-      blood_pressure_systolic: bpSys?.value ?? undefined,
-      blood_pressure_diastolic: bpDia?.value ?? undefined,
-      glucose_level: glucose?.value ?? undefined,
-      body_temperature: temp ? toUc2BodyTemperature(temp.value, temp.unit) : undefined,
-      respiratory_rate: resp?.value ?? undefined,
-      steps_count: steps?.value ?? undefined,
-      hrv_sdnn: hrv?.value ?? undefined,
-      calories_burned: calories?.value ?? undefined,
-      sleep_quality: sleep ? deriveSleepQuality(sleep.value) : undefined,
+      blood_pressure_systolic: bpSys,
+      blood_pressure_diastolic: bpDia,
+      glucose_level: glucose,
+      body_temperature:
+        temp !== undefined && tempRaw ? toUc2BodyTemperature(temp, tempRaw.unit) : undefined,
+      respiratory_rate: resp,
+      steps_count: stepsCount,
+      hrv_sdnn: hrv,
+      calories_burned: caloriesBurned,
+      sleep_quality: sleepValue !== undefined ? deriveSleepQuality(sleepValue) : undefined,
       // Remaining extended vitals not yet sourced — left undefined so the
       // UC2 imputation path fills them with patient-profile / fallback
       // defaults and tags them `imputed` in the feature-quality provenance.
@@ -676,21 +981,23 @@ export class AlertMlService {
     };
 
     const provenanceEntries: Partial<Record<RuntimeInputField, InputProvenance[string]>> = {
-      heart_rate: heartRate ? sampleProvenance(heartRate, 'heart_rate') : undefined,
-      blood_oxygen: spo2 ? sampleProvenance(spo2, 'spo2') : undefined,
-      blood_pressure_systolic: bpSys
-        ? sampleProvenance(bpSys, 'blood_pressure_systolic')
+      heart_rate: heartRateRaw ? sampleProvenance(heartRateRaw, 'heart_rate') : undefined,
+      blood_oxygen: spo2Raw ? sampleProvenance(spo2Raw, 'spo2') : undefined,
+      blood_pressure_systolic: bpSysRaw
+        ? sampleProvenance(bpSysRaw, 'blood_pressure_systolic')
         : undefined,
-      blood_pressure_diastolic: bpDia
-        ? sampleProvenance(bpDia, 'blood_pressure_diastolic')
+      blood_pressure_diastolic: bpDiaRaw
+        ? sampleProvenance(bpDiaRaw, 'blood_pressure_diastolic')
         : undefined,
-      glucose_level: glucose ? sampleProvenance(glucose, 'blood_glucose') : undefined,
-      body_temperature: temp ? sampleProvenance(temp, 'temperature') : undefined,
-      respiratory_rate: resp ? sampleProvenance(resp, 'respiratory_rate') : undefined,
-      steps_count: steps ? sampleProvenance(steps, 'steps') : undefined,
-      hrv_sdnn: hrv ? sampleProvenance(hrv, 'hrv_sdnn') : undefined,
-      calories_burned: calories ? sampleProvenance(calories, 'calories_burned') : undefined,
-      sleep_quality: sleep ? sampleProvenance(sleep, 'sleep') : undefined,
+      glucose_level: glucoseRaw ? sampleProvenance(glucoseRaw, 'blood_glucose') : undefined,
+      body_temperature: tempRaw ? sampleProvenance(tempRaw, 'temperature') : undefined,
+      respiratory_rate: respRaw ? sampleProvenance(respRaw, 'respiratory_rate') : undefined,
+      steps_count: stepsLatest ? sampleProvenance(stepsLatest, 'steps') : undefined,
+      hrv_sdnn: hrvRaw ? sampleProvenance(hrvRaw, 'hrv_sdnn') : undefined,
+      calories_burned: caloriesLatest
+        ? sampleProvenance(caloriesLatest, 'calories_burned')
+        : undefined,
+      sleep_quality: sleepRaw ? sampleProvenance(sleepRaw, 'sleep') : undefined,
     };
 
     const provenance = Object.fromEntries(

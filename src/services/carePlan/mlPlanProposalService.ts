@@ -114,10 +114,9 @@ export function caregiverConfirmProposal(
     payload: { section: proposal.section, kind: proposal.kind, note: options?.note ?? null },
   });
 
-  // Some proposal kinds ("note_wording") require no ML vet — apply inline.
-  if (proposal.kind === 'note_wording' && proposal.mlVetRequirement.kind === 'none') {
-    return { proposal: getProposalById(proposalId)!, planApplied: true };
-  }
+  // Vet-less kinds ("note_wording" with mlVetRequirement 'none') have no
+  // inline apply path yet — do NOT claim planApplied until one exists.
+  // (No catalog intent currently produces note_wording proposals.)
   return { proposal: getProposalById(proposalId)!, planApplied: false };
 }
 

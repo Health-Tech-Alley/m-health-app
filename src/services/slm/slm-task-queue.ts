@@ -62,6 +62,14 @@ export interface SlmTaskQueueConfig {
   /** Called when the queue wants to know if a load is already in progress. */
   getLoadPromise: () => Promise<void> | null;
   setLoadPromise: (promise: Promise<void> | null) => void;
+  /**
+   * Native ground truth: true when the model is actually resident in the
+   * provider (not just `getLoadStatus() === 'ready'`). React load status can
+   * lag a native release by one effect tick, which used to grant zombie
+   * leases on an unloaded model. When provided, acquire() only fast-paths
+   * while this returns true; undefined keeps the legacy behavior.
+   */
+  isNativeReady?: () => boolean;
   /** Idle-unload timer in ms. Default 30_000 (legacy). 0 = immediate (dynamic). */
   autoUnloadMs?: number;
   /**
@@ -106,8 +114,10 @@ export class SlmTaskQueue {
     const status = this.config.getLoadStatus();
     const policy = this.config.getPolicy();
 
-    // Already loaded — grant immediately.
-    if (status === 'ready') {
+    // Already loaded — grant immediately. Verify native residency when the
+    // host provides it: a stale React 'ready' after a native release must not
+    // grant a lease with no model behind it.
+    if (status === 'ready' && this.nativeReady()) {
       this.refcount++;
       return this.makeLease(reason);
     }
@@ -125,7 +135,7 @@ export class SlmTaskQueue {
       // Only grant if the shared load actually left the model ready.
       // (Previously we always granted after await, which produced a lease with
       // no native model — sheets then reported "could not load a model".)
-      if (this.config.getLoadStatus() === 'ready') {
+      if (this.config.getLoadStatus() === 'ready' && this.nativeReady()) {
         this.refcount++;
         return this.makeLease(reason);
       }
@@ -188,6 +198,14 @@ export class SlmTaskQueue {
       this.config.forceAutoLoadOnAcquire === true ||
       this.config.getPolicy() === 'auto'
     );
+  }
+
+  /** Native residency check; defaults to the React status alone when not wired. */
+  private nativeReady(): boolean {
+    if (this.config.isNativeReady) {
+      return this.config.isNativeReady();
+    }
+    return this.config.getLoadStatus() === 'ready';
   }
 
   /** Force-release all leases (no unload — the provider owns that decision). */

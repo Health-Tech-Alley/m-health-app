@@ -4,7 +4,13 @@
  * Unknown / invented clinical protocols (ACL Safety Exhibit: "Protocol 9-Delta")
  * must never reach the generative model — models often improvise setup steps.
  * Dose-change requests are also refused here so boundary tests are stable.
+ *
+ * An optional patient NLU context widens the medication / disease cue lists
+ * with the patient's own record (names come from the entity linker's context,
+ * never from free text). The gate stays deterministic and regex-first.
  */
+
+import type { PatientNluContext } from '@/nlu/types';
 
 export type SafetyRefuseKind =
   | 'unknown_protocol'
@@ -65,6 +71,31 @@ export function normalizeSafetyText(text: string): string {
     .trim();
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Patient medication names as a regex alternation (dose tokens stripped). */
+function patientMedicationCues(ctx: PatientNluContext | null | undefined): string {
+  if (!ctx?.medications?.length) return '';
+  const names = ctx.medications
+    .map((m) => {
+      const parts = m.split(/\s+(?=\d+(?:mg|mcg|g|ml|unit|units|iu))/i);
+      return parts[0].trim().toLowerCase();
+    })
+    .filter((n) => /^[a-z][a-z0-9 -]*$/.test(n) && n.length >= 3);
+  return names.map(escapeRegex).join('|');
+}
+
+/** Patient condition names as a regex alternation. */
+function patientConditionCues(ctx: PatientNluContext | null | undefined): string {
+  if (!ctx?.conditions?.length) return '';
+  const names = ctx.conditions
+    .map((c) => c.toLowerCase())
+    .filter((n) => /^[a-z][a-z0-9 -]*$/.test(n) && n.length >= 3);
+  return names.map(escapeRegex).join('|');
+}
+
 /**
  * True when the user asks to apply/run/execute an unknown named protocol
  * (including the ACL "Protocol 9-Delta" exhibit).
@@ -100,7 +131,10 @@ export function isUnknownProtocolRequest(text: string): boolean {
 }
 
 /** True when user asks Concierge to change / start / stop a medication dose. */
-export function isMedicationDoseChangeRequest(text: string): boolean {
+export function isMedicationDoseChangeRequest(
+  text: string,
+  ctx?: PatientNluContext | null,
+): boolean {
   const n = normalizeSafetyText(text);
   if (!n) return false;
 
@@ -108,17 +142,28 @@ export function isMedicationDoseChangeRequest(text: string): boolean {
     /\b(increase|decrease|raise|lower|double|halve|stop|discontinue|start|begin|change|adjust|titrate|up\s*the|bump)\b/.test(
       n,
     );
+  const patientMeds = patientMedicationCues(ctx);
   const medCue =
-    /\b(dose|dosage|mg|mcg|units?|tablet|capsule|tid|bid|qid|qhs|prn|medication|meds?|baclofen|gabapentin|midazolam|albuterol|prednisone)\b/.test(
-      n,
-    );
+    new RegExp(
+      `\\b(dose|dosage|mg|mcg|units?|tablet|capsule|tid|bid|qid|qhs|prn|medication|meds?|baclofen|gabapentin|midazolam|albuterol|prednisone${
+        patientMeds ? `|${patientMeds}` : ''
+      })\\b`,
+      'i',
+    ).test(n);
   const regimen =
     /\b\d+(\.\d+)?\s*mg\b/.test(n) &&
     /\b(times?\s+a\s+day|daily|twice|three\s+times|tonight|starting)\b/.test(n);
 
   if (regimen && doseVerb) return true;
   if (doseVerb && medCue && /\b(to|by|from)\b/.test(n)) return true;
-  if (/\b(increase|decrease|change|adjust)\b.{0,30}\b(dose|dosage|baclofen)\b/.test(n)) {
+  if (
+    new RegExp(
+      `\\b(increase|decrease|change|adjust)\\b.{0,30}\\b(dose|dosage|baclofen${
+        patientMeds ? `|${patientMeds}` : ''
+      })\\b`,
+      'i',
+    ).test(n)
+  ) {
     return true;
   }
   return false;
@@ -140,7 +185,10 @@ export function isAutoEmergencyActionRequest(text: string): boolean {
  * True when the user is asking Concierge to diagnose or pick a disease label.
  * Ordinary "what should I watch for" education is NOT refused here.
  */
-export function isDiagnosisRequest(text: string): boolean {
+export function isDiagnosisRequest(
+  text: string,
+  ctx?: PatientNluContext | null,
+): boolean {
   const n = normalizeSafetyText(text);
   if (!n) return false;
 
@@ -153,20 +201,28 @@ export function isDiagnosisRequest(text: string): boolean {
     return true;
   }
 
+  const patientConditions = patientConditionCues(ctx);
+
   // "Is this X or Y?" disease-choice pattern (common ACL-style boundary)
   const diseaseOr =
-    /\b(pneumonia|flu|cold|covid|infection|asthma|seizure|stroke|uti|bronchitis|aspiration|gerd|reflux)\b/.test(
-      n,
-    ) &&
+    new RegExp(
+      `\\b(pneumonia|flu|cold|covid|infection|asthma|seizure|stroke|uti|bronchitis|aspiration|gerd|reflux${
+        patientConditions ? `|${patientConditions}` : ''
+      })\\b`,
+      'i',
+    ).test(n) &&
     /\b(or|vs|versus)\b/.test(n) &&
     /\b(is this|is it|could this be|do you think|which one|what is it)\b/.test(n);
   if (diseaseOr) return true;
 
   // Direct "does he have X?" / "tell me if it's X"
   if (
-    /\b(does he have|does she have|do they have|is he having|is she having)\b.{0,40}\b(pneumonia|flu|covid|infection|stroke|seizure disorder)\b/.test(
-      n,
-    )
+    new RegExp(
+      `\\b(does he have|does she have|do they have|is he having|is she having)\\b.{0,40}\\b(pneumonia|flu|covid|infection|stroke|seizure disorder${
+        patientConditions ? `|${patientConditions}` : ''
+      })\\b`,
+      'i',
+    ).test(n)
   ) {
     return true;
   }
@@ -183,8 +239,12 @@ export function isDiagnosisRequest(text: string): boolean {
 
 /**
  * First matching refuse wins. Call before NLU/SLM so generative models cannot improvise.
+ * Pass the patient NLU context to widen med/disease cues with the patient's record.
  */
-export function evaluateSafetyRefuseGate(userText: string): SafetyGateResult {
+export function evaluateSafetyRefuseGate(
+  userText: string,
+  ctx?: PatientNluContext | null,
+): SafetyGateResult {
   if (isUnknownProtocolRequest(userText)) {
     return {
       refuse: true,
@@ -192,7 +252,7 @@ export function evaluateSafetyRefuseGate(userText: string): SafetyGateResult {
       message: UNKNOWN_PROTOCOL_MESSAGE,
     };
   }
-  if (isMedicationDoseChangeRequest(userText)) {
+  if (isMedicationDoseChangeRequest(userText, ctx)) {
     return {
       refuse: true,
       kind: 'medication_dose_change',
@@ -206,7 +266,7 @@ export function evaluateSafetyRefuseGate(userText: string): SafetyGateResult {
       message: AUTO_EMERGENCY_MESSAGE,
     };
   }
-  if (isDiagnosisRequest(userText)) {
+  if (isDiagnosisRequest(userText, ctx)) {
     return {
       refuse: true,
       kind: 'diagnosis_request',
@@ -214,18 +274,4 @@ export function evaluateSafetyRefuseGate(userText: string): SafetyGateResult {
     };
   }
   return { refuse: false };
-}
-
-/** Extra system-prompt lines (defense in depth if a request slips past the gate). */
-export function safetyRefuseSystemPromptBlock(): string {
-  return [
-    'UNKNOWN PROTOCOLS (HARD RULE)',
-    '- If the user names a protocol code you were not given in the care context (e.g. "Protocol 9-Delta", "Protocol Bravo-7"), refuse.',
-    '- Do NOT invent setup steps, monitoring system instructions, or pretend the protocol exists.',
-    '- Say you have no such protocol, that nothing was applied, and ask them to describe the real goal in plain language or contact the care team.',
-    '',
-    'DIAGNOSIS (HARD RULE)',
-    '- Never diagnose or pick between diseases (e.g. pneumonia vs cold).',
-    '- Refuse diagnosis requests; offer monitoring cues and when to contact the care team or ER.',
-  ].join('\n');
 }

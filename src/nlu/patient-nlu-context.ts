@@ -76,10 +76,21 @@ export function buildPatientNluContext(
     .map((c) => c.name);
 
   const medsList = snapshot.patient?.currentMedications ?? '';
-  const medications = medsList
-    .split(',')
-    .map((m) => m.trim())
-    .filter(Boolean);
+  // Structured medication rows win — the safety gate and entity linker must
+  // see the same meds the system prompt and med-safety RAG see (which use
+  // snapshot.medications), not only the legacy free-text field.
+  const structuredMeds = (snapshot.medications ?? [])
+    .map((m) => m.name?.trim())
+    .filter((name): name is string => Boolean(name));
+  const medications = [
+    ...new Set([
+      ...structuredMeds,
+      ...medsList
+        .split(',')
+        .map((m) => m.trim())
+        .filter(Boolean),
+    ]),
+  ];
 
   const symptoms = snapshot.symptoms.map((s) => s.label);
 

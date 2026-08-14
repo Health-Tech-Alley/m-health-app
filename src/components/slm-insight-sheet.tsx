@@ -49,6 +49,7 @@ import {
   setCachedExplainAnswer,
 } from '@/services/slm/explainAnswerCache';
 import { prepareSlmTurn } from '@/services/slm/prepareSlmTurn';
+import { stripKnownToolActionLines } from '@/services/slm/strip-tool-action-lines';
 import { formatAnswerWithCollapsedSources } from '@/clinical-evidence/citation-display';
 import { useOrchestratorRetriever } from '@/contexts/orchestrator-context';
 import { stripControlTokens } from '@/utils/stripControlTokens';
@@ -330,15 +331,18 @@ export function SlmInsightSheet({
       logTag: 'SlmInsightSheet',
       modelId: defaultModelId,
     });
-    if (cancelRef.current) return;
+    if (cancelRef.current) {
+      leaseRef.current?.release();
+      leaseRef.current = null;
+      loadedBySheetRef.current = false;
+      return;
+    }
 
-    // One-off sheets need a visible caregiver answer. DEEP+auto reasoning can
-    // finish with empty `content` (all tokens in the thinking channel) which
-    // previously wiped the UI to "No response." Prefer no-thinking generation.
-    const generation = {
-      ...prepared.generation,
-      reasoningFormat: 'none' as const,
-    };
+    // One-off sheets keep the DEEP reasoning profile (forceDeep above): the
+    // model's thinking channel improves clinical grounding. If the model ever
+    // emits only thinking tokens, the answer-resolution chain below surfaces
+    // a short note instead of a blank sheet (Regenerate is available).
+    const generation = prepared.generation;
 
     setSource('native');
     setPhase('thinking');
@@ -368,9 +372,13 @@ export function SlmInsightSheet({
       if (cancelRef.current) return;
 
       // Prefer provider final text; never overwrite a good stream with empty parse.
-      const fromResult = stripControlTokens(result.text ?? '').answer.trim();
-      const fromStream = stripControlTokens(streamAccRef.current).answer.trim();
-      const fromStreamRaw = streamAccRef.current.trim();
+      const fromResult = stripKnownToolActionLines(
+        stripControlTokens(result.text ?? '').answer.trim(),
+      );
+      const fromStream = stripKnownToolActionLines(
+        stripControlTokens(streamAccRef.current).answer.trim(),
+      );
+      const fromStreamRaw = stripKnownToolActionLines(streamAccRef.current.trim());
       const fromReasoning = stripControlTokens(reasoningAccRef.current).answer.trim();
       const resolved =
         fromResult ||
@@ -411,7 +419,7 @@ export function SlmInsightSheet({
     } catch (err) {
       if (cancelRef.current || controller.signal.aborted) {
         // Keep any partial stream visible instead of a blank "done".
-        const partial = streamAccRef.current.trim();
+        const partial = stripKnownToolActionLines(streamAccRef.current.trim());
         if (partial) {
           setAnswer(partial);
           setFinalText(partial);

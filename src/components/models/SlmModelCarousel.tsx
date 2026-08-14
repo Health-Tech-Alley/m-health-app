@@ -7,7 +7,7 @@
  * surfaces so both share the same multi-model UX.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -22,6 +22,7 @@ import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
 import { useSettings } from '@/contexts/settings-context';
+import { useTheme } from '@/hooks/use-theme';
 import {
   MODEL_CATALOG,
   resolveActiveModelId,
@@ -105,6 +106,8 @@ export function SlmModelCarousel({
   const queue = useModelDownloadQueue();
   const { settings, setDemoDefaultModelId } = useSettings();
   const { t } = useTranslation();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   // Effective default — a single installed model is always the default.
   const defaultModelId = resolveActiveModelId(settings.demoDefaultModelId, (id) =>
     queue.rows.some((r) => r.id === id && r.status === 'installed'),
@@ -156,14 +159,14 @@ export function SlmModelCarousel({
     <View style={styles.root}>
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
-          <Text style={styles.title}>{t('onboarding.models.title')}</Text>
-          <Text style={styles.subtitle}>
+          <Text style={[styles.title, themedStyles.title]}>{t('onboarding.models.title')}</Text>
+          <Text style={[styles.subtitle, themedStyles.subtitle]}>
             {t('onboarding.models.subtitle')}
           </Text>
         </View>
         {hfTokenHint ? (
           <Pressable onPress={onNeedHfToken} accessibilityRole="link">
-            <Text style={styles.link}>{t('onboarding.models.hfToken')}</Text>
+            <Text style={[styles.link, themedStyles.link]}>{t('onboarding.models.hfToken')}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -193,31 +196,31 @@ export function SlmModelCarousel({
               : t('onboarding.models.context4k');
 
           return (
-            <View style={[styles.card, { width: cardW, height: cardHeight }]}>
+            <View style={[styles.card, themedStyles.card, { width: cardW, height: cardHeight }]}>
               <View style={styles.cardHeader}>
-                <Text style={styles.modelName}>{item.displayName}</Text>
+                <Text style={[styles.modelName, themedStyles.modelName]}>{item.displayName}</Text>
                 {item.experimental ? (
-                  <View style={styles.experimentalBadge}>
-                    <Text style={styles.experimentalText}>
+                  <View style={[styles.experimentalBadge, themedStyles.experimentalBadge]}>
+                    <Text style={[styles.experimentalText, themedStyles.experimentalText]}>
                       {t('onboarding.models.experimental')}
                     </Text>
                   </View>
                 ) : null}
               </View>
-              <Text style={styles.meta}>
+              <Text style={[styles.meta, themedStyles.meta]}>
                 ~{formatBytes(item.sizeBytes)} ·{' '}
                 {item.family === 'qwen3' ? 'Qwen3' : item.family === 'lfm2' ? 'LFM2.5' : 'Gemma 4'} ·{' '}
                 {contextLabel}
                 {item.nGpuLayers === 0 ? ` · ${t('onboarding.models.cpu')}` : ''}
               </Text>
-              <Text style={styles.tagline}>{modelCopy.tagline}</Text>
+              <Text style={[styles.tagline, themedStyles.tagline]}>{modelCopy.tagline}</Text>
               <ScrollView
                 style={styles.bullets}
                 contentContainerStyle={styles.bulletsContent}
                 nestedScrollEnabled
                 showsVerticalScrollIndicator={false}>
                 {modelCopy.bullets.map((b) => (
-                  <Text key={b} style={styles.bullet}>
+                  <Text key={b} style={[styles.bullet, themedStyles.bullet]}>
                     {'\u2022'} {b}
                   </Text>
                 ))}
@@ -226,10 +229,10 @@ export function SlmModelCarousel({
               <View style={styles.cardActions}>
                 {status === 'downloading' ? (
                   <View>
-                    <View style={styles.barTrack}>
+                    <View style={[styles.barTrack, themedStyles.barTrack]}>
                       <View style={[styles.barFill, { width: `${progress}%` }]} />
                     </View>
-                    <Text style={styles.meta}>
+                    <Text style={[styles.meta, themedStyles.meta]}>
                       {progress}% · {formatBytes(row?.bytesWritten ?? 0)} / {formatBytes(row?.totalBytes ?? item.sizeBytes)}
                     </Text>
                     <Pressable
@@ -261,19 +264,19 @@ export function SlmModelCarousel({
                         </Text>
                       </Pressable>
                     ) : (
-                      <Text style={styles.done}>
+                      <Text style={[styles.done, themedStyles.done]}>
                         {'\u2713'} {t('onboarding.models.installed')}
                       </Text>
                     )}
                     {showDelete ? (
                       <Pressable
-                        style={[styles.btn, styles.btnMuted]}
+                        style={[styles.btn, styles.btnMuted, themedStyles.btnMuted]}
                         onPress={() => handleDelete(item.id)}
                         accessibilityRole="button"
                         accessibilityLabel={t('onboarding.models.deleteAccessibility', {
                           model: item.displayName,
                         })}>
-                        <Text style={styles.btnTextDark}>
+                        <Text style={[styles.btnTextDark, themedStyles.btnTextDark]}>
                           {t('onboarding.models.delete')}
                         </Text>
                       </Pressable>
@@ -307,10 +310,13 @@ export function SlmModelCarousel({
       <View style={styles.footer}>
         <View style={styles.dots}>
           {MODEL_CATALOG.map((m, i) => (
-            <View key={m.id} style={[styles.dot, i === page && styles.dotActive]} />
+            <View
+              key={m.id}
+              style={[styles.dot, themedStyles.dot, i === page && styles.dotActive]}
+            />
           ))}
         </View>
-        <Text style={styles.footerText}>
+        <Text style={[styles.footerText, themedStyles.footerText]}>
           {t('onboarding.models.activeDefault', {
             model:
               MODEL_CATALOG.find((m) => m.id === defaultModelId)?.displayName ??
@@ -320,6 +326,39 @@ export function SlmModelCarousel({
       </View>
     </View>
   );
+}
+
+/**
+ * Dark overlay (dark is the app default): the carousel cards were the last
+ * light surfaces on the Models / Device setup / Concierge Management screens.
+ * Primary buttons stay teal; muted/neutral surfaces move to theme tokens.
+ */
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  if (!isDark) return {};
+  return {
+    title: { color: theme.appText },
+    subtitle: { color: theme.appTextMuted },
+    link: { color: AppTheme.colors.brandPale },
+    card: {
+      backgroundColor: theme.appSurface,
+      borderColor: theme.appBorder,
+      elevation: 0,
+      shadowOpacity: 0,
+    },
+    modelName: { color: theme.appText },
+    experimentalBadge: { backgroundColor: theme.appBrandSoftSurface },
+    experimentalText: { color: AppTheme.colors.brandPale },
+    meta: { color: theme.appTextMuted },
+    tagline: { color: theme.appText },
+    bullet: { color: theme.appTextMuted },
+    barTrack: { backgroundColor: theme.appBorder },
+    done: { color: AppTheme.colors.brandPale },
+    btnMuted: { backgroundColor: theme.appControlSurface },
+    btnTextDark: { color: theme.appText },
+    dot: { backgroundColor: theme.appBorder },
+    footerText: { color: theme.appTextMuted },
+  };
 }
 
 const styles = StyleSheet.create({

@@ -1,6 +1,11 @@
 /**
  * Tier-2 fallback: map chat NLU labels → Care catalog intents (planning/40 §6.4).
  * Also fills low-risk args from entities + snapshot (cardId, alertId, windowDays).
+ *
+ * Simple surface phrases ("what should i log", "handoff", "therapy progress",
+ * "priorities") are handled by the app-surface lexicon in the short-circuit
+ * below — this file only keeps the two cases the lexicon cannot express:
+ * "add … to the plan" (promote) and therapy-topic + progress-word conjunctions.
  */
 
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
@@ -15,6 +20,18 @@ export type MappedCareIntent = {
   confidence: number;
   source: 'chat_map' | 'surface';
 } | null;
+
+/** "Add (this) to the (care) plan" → promote UC4 card to a plan task. */
+const PROMOTE_TO_PLAN_RE =
+  /\badd\s+(?:this|that|the)?\s*(?:priorit(?:y|ies)|focus|card)?\s*to\s+(?:the\s+|my\s+|his\s+|her\s+)?(?:plan|care\s+plan)\b/i;
+
+/** Therapy topic word AND a progress word together → explain the trajectory. */
+const THERAPY_TOPIC_RE = /\b(therap(?:y|ies)|rehab|recovery\s+trajectory)\b/i;
+const THERAPY_PROGRESS_RE = /\b(progress|going|result|trajectory|plateau|rom|walking)\b/i;
+
+/** Priority topic word AND an explain qualifier → explain the top UC4 card. */
+const PRIORITIES_TOPIC_RE = /\b(priorit(?:y|ies)|care\s+focus|focus\s+items)\b/i;
+const EXPLAIN_QUALIFIER_RE = /\b(why|explain|mean)\b/i;
 
 function topUc4CardId(snapshot: PatientRecordSnapshot | null | undefined): string | undefined {
   const cards = snapshot?.latestUc4PriorityCards ?? [];
@@ -32,7 +49,6 @@ export function fillArgsForCareIntent(
   snapshot: PatientRecordSnapshot | null | undefined,
 ): Record<string, unknown> {
   const args: Record<string, unknown> = {};
-  const lowerEntities = entities.map((e) => e.label.toLowerCase()).join(' ');
 
   if (intent === 'explain_uc4_card' || intent === 'promote_uc4_to_plan_task') {
     const cardId = topUc4CardId(snapshot);
@@ -43,9 +59,7 @@ export function fillArgsForCareIntent(
     if (resultId) args.resultId = resultId;
   }
   if (intent === 'weekly_care_plan_review' || intent === 'handoff_summary') {
-    if (/\b(week|7\s*day|seven)\b/i.test(lowerEntities) || true) {
-      args.windowDays = 7;
-    }
+    args.windowDays = 7;
   }
   return args;
 }
@@ -70,7 +84,7 @@ export function mapChatLabelToCareIntent(params: {
     const entry = APP_SURFACE_LEXICON.find(
       (s) => s.label === surfaceEntity.label || surfaceEntity.id.endsWith(s.id),
     );
-    if (entry?.careIntentHint && confidence >= 0.45) {
+    if (entry?.careIntentHint && confidence >= 0.6) {
       return {
         intent: entry.careIntentHint,
         args: fillArgsForCareIntent(entry.careIntentHint, entities, snapshot),
@@ -80,8 +94,10 @@ export function mapChatLabelToCareIntent(params: {
     }
   }
 
-  // Explicit caregiver phrases (demo-critical)
-  if (/\badd (this|that|the)?\s*(priority|focus|card)?\s*to (the |my |his |her )?(plan|care plan)\b/i.test(lower)) {
+  // Explicit caregiver phrases the app-surface lexicon cannot express:
+  // "add … to the plan" (a promote action, not a care_plan explain) and
+  // therapy-topic + progress-word conjunctions ("how is therapy going").
+  if (PROMOTE_TO_PLAN_RE.test(lower)) {
     return {
       intent: 'promote_uc4_to_plan_task',
       args: fillArgsForCareIntent('promote_uc4_to_plan_task', entities, snapshot),
@@ -89,26 +105,7 @@ export function mapChatLabelToCareIntent(params: {
       source: 'chat_map',
     };
   }
-  if (/\b(what should i log|log today|logging checklist)\b/i.test(lower)) {
-    return {
-      intent: 'suggest_todays_logging',
-      args: fillArgsForCareIntent('suggest_todays_logging', entities, snapshot),
-      confidence: Math.max(confidence, 0.75),
-      source: 'chat_map',
-    };
-  }
-  if (/\b(handoff|backup caregiver|weekend (note|summary))\b/i.test(lower)) {
-    return {
-      intent: 'handoff_summary',
-      args: fillArgsForCareIntent('handoff_summary', entities, snapshot),
-      confidence: Math.max(confidence, 0.72),
-      source: 'chat_map',
-    };
-  }
-  if (
-    /\b(therap(y|ies)|rehab|recovery trajectory)\b/i.test(lower) &&
-    /\b(progress|going|result|trajectory|plateau|rom|walking)\b/i.test(lower)
-  ) {
+  if (THERAPY_TOPIC_RE.test(lower) && THERAPY_PROGRESS_RE.test(lower)) {
     return {
       intent: 'explain_uc3_result',
       args: fillArgsForCareIntent('explain_uc3_result', entities, snapshot),
@@ -116,7 +113,7 @@ export function mapChatLabelToCareIntent(params: {
       source: 'chat_map',
     };
   }
-  if (/\b(priorit(y|ies)|care focus)\b/i.test(lower) && /\b(why|explain|mean)\b/i.test(lower)) {
+  if (PRIORITIES_TOPIC_RE.test(lower) && EXPLAIN_QUALIFIER_RE.test(lower)) {
     return {
       intent: 'explain_uc4_card',
       args: fillArgsForCareIntent('explain_uc4_card', entities, snapshot),

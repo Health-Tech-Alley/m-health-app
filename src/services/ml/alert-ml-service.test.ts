@@ -1,9 +1,14 @@
 import { parseRawVitals } from '@/data/repositories/mlEventRepository';
 import type { MlEvent } from '@/data/types';
+import type { LiveVitalReading } from '@/store/reducers/vitalsSlice';
 
 import { MockAlertAutoencoder } from '@/ml-models/alert-autoencoder';
 
-import { AlertMlService, buildMlRawVitalsInputEnvelope } from './alert-ml-service';
+import {
+  AlertMlService,
+  buildMlRawVitalsInputEnvelope,
+  buildPreviousObservation,
+} from './alert-ml-service';
 
 describe('AlertMlService raw vitals preservation', () => {
   it('serializes exact AppleWatchVitalsInput values and provenance without zero-filling missing fields', () => {
@@ -155,5 +160,69 @@ describe('AlertMlService legacy emergency fallback', () => {
     expect(result?.emergencyResult.emergency).toBe(false);
     expect(result?.isAnomaly).toBe(false);
     expect(result?.finalDecision.final_severity).toBe(0);
+  });
+});
+
+describe('buildPreviousObservation', () => {
+  const patientId = 'patient-1';
+  const current = new Date('2026-08-11T10:00:00.000Z');
+
+  function reading(
+    type: LiveVitalReading['type'],
+    value: number,
+    recordedAt: string,
+  ): LiveVitalReading {
+    return {
+      patientId,
+      sampleId: `sample-${type}-${recordedAt}`,
+      type,
+      value,
+      unit: type === 'spo2' ? '%' : 'bpm',
+      source: 'apple-health',
+      recordedAt,
+      receivedAt: recordedAt,
+    };
+  }
+
+  it('picks the newest typed reading strictly before the current observation', () => {
+    const readings = [
+      reading('spo2', 95, '2026-08-11T09:59:50.000Z'),
+      reading('heart_rate', 72, '2026-08-11T09:59:55.000Z'),
+      reading('spo2', 93, '2026-08-11T09:59:58.000Z'),
+      reading('heart_rate', 120, '2026-08-11T10:00:00.000Z'),
+    ];
+    const out = buildPreviousObservation(patientId, current, readings);
+    expect(out).toEqual({
+      timestamp_iso: '2026-08-11T09:59:58.000Z',
+      heart_rate: 72,
+      blood_oxygen: 93,
+    });
+  });
+
+  it('never assigns a reading of the wrong type to a vital', () => {
+    const readings = [
+      reading('spo2', 95, '2026-08-11T09:59:50.000Z'),
+      reading('spo2', 94, '2026-08-11T09:59:55.000Z'),
+    ];
+    const out = buildPreviousObservation(patientId, current, readings);
+    expect(out).toEqual({
+      timestamp_iso: '2026-08-11T09:59:55.000Z',
+      blood_oxygen: 94,
+    });
+    expect(out).not.toHaveProperty('heart_rate');
+  });
+
+  it('returns undefined when no reading precedes the current observation', () => {
+    const readings = [
+      reading('heart_rate', 72, '2026-08-11T10:00:00.000Z'),
+    ];
+    expect(buildPreviousObservation(patientId, current, readings)).toBeUndefined();
+    expect(buildPreviousObservation(patientId, current, [])).toBeUndefined();
+  });
+
+  it('ignores readings for other patients', () => {
+    const other = reading('heart_rate', 72, '2026-08-11T09:59:55.000Z');
+    const out = buildPreviousObservation('patient-other', current, [other]);
+    expect(out).toBeUndefined();
   });
 });

@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { OptionalFeaturePrompt } from '@/components/optional-feature-prompt';
 import { AppTheme } from '@/constants/theme';
 import { useOptionalFeatureGate } from '@/hooks/useOptionalFeatureGate';
+import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/hooks/use-translation';
 
 import SlmScreen from "../slm";
@@ -21,19 +22,24 @@ import SlmScreen from "../slm";
 export default function AssistantTab() {
   const gate = useOptionalFeatureGate('slm');
   const { t } = useTranslation();
+  const theme = useTheme();
+  const isDark = theme.appBackground === '#000000';
 
   if (!gate.ready) {
     return (
-      <SafeAreaView style={styles.greyed} edges={['top']}>
+      <SafeAreaView
+        style={[styles.greyed, isDark && styles.greyedDark]}
+        edges={['top']}
+      >
         <View style={styles.headerBlock}>
-          <Text style={styles.eyebrow}>{t('assistant.gate.eyebrow')}</Text>
-          <Text style={styles.title}>{t('assistant.gate.title')}</Text>
-          <Text style={styles.subtitle}>
+          <Text style={[styles.eyebrow, isDark && styles.eyebrowDark]}>{t('assistant.gate.eyebrow')}</Text>
+          <Text style={[styles.title, isDark && styles.titleDark]}>{t('assistant.gate.title')}</Text>
+          <Text style={[styles.subtitle, isDark && styles.subtitleDark]}>
             {t('assistant.gate.subtitle')}
           </Text>
         </View>
         <OptionalFeaturePrompt requirement="slm" simulatedMissing={gate.simulatedMissing} />
-        <Text style={styles.hint}>
+        <Text style={[styles.hint, isDark && styles.hintDark]}>
           {t('assistant.gate.hint')}
         </Text>
       </SafeAreaView>
@@ -51,6 +57,9 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     gap: 16,
   },
+  greyedDark: {
+    backgroundColor: '#000000',
+  },
   headerBlock: {
     gap: 6,
     marginBottom: 8,
@@ -62,10 +71,16 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     textTransform: 'uppercase',
   },
+  eyebrowDark: {
+    color: '#8F96A3',
+  },
   title: {
     color: AppTheme.colors.sectionText,
     fontSize: 20,
     fontWeight: '900',
+  },
+  titleDark: {
+    color: '#B0B4BA',
   },
   subtitle: {
     color: AppTheme.colors.textMuted,
@@ -73,10 +88,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 19,
   },
+  subtitleDark: {
+    color: '#8F96A3',
+  },
   hint: {
     color: AppTheme.colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  hintDark: {
+    color: '#8F96A3',
   },
 });

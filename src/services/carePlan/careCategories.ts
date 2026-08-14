@@ -27,8 +27,35 @@ export interface CareCategory {
   key: CareCategoryKey;
   /** Plain caregiver-facing label. */
   label: string;
-  /** Lowercase substrings; first category with any match wins. */
+  /**
+   * Lowercase keywords; first category with any match wins.
+   * Most keywords match as substrings (stems like "breath" catch
+   * "breathing"); keywords in EXACT_KEYWORDS only match as whole
+   * tokens so "pill" does not hit "pillow" or "stand" hit "standard".
+   */
   keywords: string[];
+}
+
+/**
+ * Keywords matched as whole tokens (token-boundary), never as substrings.
+ * Each of these would otherwise false-positive inside unrelated words
+ * (med→immediate, rom→from, pill→pillow, brace→bracelet, stand→standard,
+ * rest→arrest, pt/ot→adaptive/other, falls→waterfalls).
+ */
+const EXACT_KEYWORDS = new Set<string>([
+  'med', 'pt', 'ot', 'falls', 'rom', 'pill', 'brace', 'stand', 'rest',
+]);
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function matchesCareKeyword(haystack: string, keyword: string): boolean {
+  if (EXACT_KEYWORDS.has(keyword)) {
+    const escaped = escapeRegex(keyword);
+    return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(haystack);
+  }
+  return haystack.includes(keyword);
 }
 
 /**
@@ -41,8 +68,8 @@ export const CARE_CATEGORIES: CareCategory[] = [
     key: 'medication',
     label: 'Medication',
     keywords: [
-      'medication', 'medicine', 'med ', 'dose', 'dosing', 'pill', 'tablet',
-      'pharmacy', 'refill', 'prescription', 'baclofen', 'tizanidine',
+      'medication', 'medicine', 'med ', 'meds', 'dose', 'dosing', 'pill', 'pills',
+      'tablet', 'pharmacy', 'refill', 'prescription', 'baclofen', 'tizanidine',
       'levetiracetam', 'keppra', 'glycopyrrolate', 'oxybutynin', 'albuterol',
     ],
   },
@@ -51,7 +78,7 @@ export const CARE_CATEGORIES: CareCategory[] = [
     label: 'Skin & pressure',
     keywords: [
       'skin', 'pressure', 'seated', 'sitting', 'wheelchair', 'cushion',
-      'reposition', 'brace', 'splint', 'redness', 'sore', 'ulcer',
+      'reposition', 'brace', 'braces', 'splint', 'redness', 'sore', 'ulcer',
     ],
   },
   {
@@ -59,9 +86,9 @@ export const CARE_CATEGORIES: CareCategory[] = [
     label: 'Mobility & transfers',
     keywords: [
       'transfer', 'mobility', 'walking', 'walk', 'gait', 'stand', 'standing',
-      'lift', 'hoist', 'positioning',
+      'standby', 'lift', 'hoist', 'positioning',
       // Phrase forms only — bare "fall" matches seasonal "each fall" (vaccines).
-      'fall risk', 'falls risk', 'falling', ' falls', 'fall prevention',
+      'fall risk', 'falls risk', 'falling', 'falls', 'fall prevention',
     ],
   },
   {
@@ -92,8 +119,8 @@ export const CARE_CATEGORIES: CareCategory[] = [
     key: 'sleep_fatigue',
     label: 'Sleep & fatigue',
     keywords: [
-      'sleep', 'fatigue', 'tired', 'energy', 'night', 'rest', 'drowsy',
-      'sleepy',
+      'sleep', 'fatigue', 'tired', 'energy', 'night', 'rest', 'restless',
+      'drowsy', 'sleepy',
     ],
   },
   {
@@ -101,7 +128,7 @@ export const CARE_CATEGORIES: CareCategory[] = [
     label: 'Therapy & exercise',
     keywords: [
       'therapy', 'exercise', 'rehab', 'stretch', 'range of motion', 'rom',
-      'physical therapy', 'occupational', 'speech therapy', ' pt ', ' ot ',
+      'physical therapy', 'occupational', 'speech therapy', 'pt', 'ot',
     ],
   },
   {
@@ -148,13 +175,14 @@ export function careCategoryLabel(key: CareCategoryKey): string {
 /**
  * Categorize free text (goal description, activity description, concern
  * text). First category with a keyword match wins; falls back to 'other'.
+ * Keywords in EXACT_KEYWORDS match as whole tokens only.
  */
 export function categorizeCareText(text: string | null | undefined): CareCategoryKey {
   const haystack = ` ${(text ?? '').toLowerCase()} `;
   if (haystack.trim().length === 0) return 'other';
   for (const category of CARE_CATEGORIES) {
     for (const keyword of category.keywords) {
-      if (haystack.includes(keyword)) return category.key;
+      if (matchesCareKeyword(haystack, keyword)) return category.key;
     }
   }
   return 'other';

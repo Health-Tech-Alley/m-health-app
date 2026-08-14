@@ -172,6 +172,66 @@ describe('runIntent (router)', () => {
     expect(result.proposalQueueStatus).toBe('awaiting_hitl');
   });
 
+  it('review_monitoring_contract parses fenced JSON blocks from model output', async () => {
+    const fenced = [
+      'Based on the trend, I would tighten the cutoff:',
+      '```json',
+      JSON.stringify({
+        explanation: 'Lower cutoff to 92 because baseline Spo2 has been trending.',
+        proposedThresholds: [
+          {
+            thresholdId: 'old-sp02-fenced',
+            vitalType: 'spo2',
+            direction: 'below',
+            value: 92,
+            severity: 2,
+            source: 'slm',
+            pendingMlVet: true,
+            rationale: 'Tighten cutoff for higher vigilance.',
+          },
+        ],
+        citations: [],
+      }),
+      '```',
+      'Nothing was changed in the session.',
+    ].join('\n');
+    const result = await runIntent({
+      snapshot: TEST_SNAPSHOT,
+      intent: 'review_monitoring_contract',
+      args: { snapshot: TEST_SNAPSHOT },
+      completePrompt: async () => fenced,
+    });
+    expect(result.enqueuedProposalIds.length).toBeGreaterThan(0);
+    expect(result.proposalQueueStatus).toBe('awaiting_hitl');
+  });
+
+  it('review_monitoring_contract recovers a bare JSON object from prose', async () => {
+    const result = await runIntent({
+      snapshot: TEST_SNAPSHOT,
+      intent: 'review_monitoring_contract',
+      args: { snapshot: TEST_SNAPSHOT },
+      completePrompt: async () =>
+        `Suggestion: ${JSON.stringify({
+          explanation: 'Watch Spo2 overnight.',
+          proposedThresholds: [
+            {
+              thresholdId: 'old-sp02-prose',
+              vitalType: 'spo2',
+              direction: 'below',
+              value: 92,
+              severity: 2,
+              source: 'slm',
+              pendingMlVet: true,
+              rationale: 'Tighten cutoff for higher vigilance.',
+            },
+          ],
+          citations: [],
+        })} -- hope this helps`,
+    });
+    expect(result.enqueuedProposalIds.length).toBeGreaterThan(0);
+    expect(result.proposalQueueStatus).toBe('awaiting_hitl');
+  });
+
   it('promote_uc4_to_plan_task enqueues a priority_promote proposal', async () => {
     const args = { snapshot: TEST_SNAPSHOT, cardId: 'card-test' };
     const result = await runIntent({

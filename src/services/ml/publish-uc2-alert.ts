@@ -10,6 +10,7 @@ import type {
 } from '@/ml-models/uc2-decision-layer';
 import { getEventBus } from '@/orchestration/event-bus';
 import type { OrchestrationEvent } from '@/orchestration/events';
+import { drainPendingProposalsForPatient } from '@/services/carePlan/mlPlanProposalService';
 
 export type PublishUc2AlertOptions = {
   patientId: string;
@@ -41,6 +42,17 @@ export function publishUc2ResultAsAlert(
     (severity !== 1 && severity !== 2 && severity !== 3) ||
     (!result.isAnomaly && !result.emergencyResult?.emergency)
   ) {
+    return false;
+  }
+
+  // Hysteresis-suppressed results are demoted to MONITORING_ADVICE by the
+  // decision layer (final_severity is kept only for logging) — never surface
+  // those as new alerts on any publish path (harness, chat, hypothetical).
+  if (result.finalDecision?.suppression_status?.is_suppressed) {
+    console.log(
+      '[publishUc2ResultAsAlert] skipped suppressed (hysteresis) alert:',
+      result.finalDecision.suppression_status.reason ?? 'cooldown',
+    );
     return false;
   }
 
@@ -113,7 +125,6 @@ export function publishUc2ResultAsAlert(
     };
     bus.publish(event);
     try {
-      const { drainPendingProposalsForPatient } = require('../carePlan/mlPlanProposalService') as typeof import('../carePlan/mlPlanProposalService');
       drainPendingProposalsForPatient(patientId, 'uc2');
     } catch (drainErr) {
       console.warn(

@@ -261,9 +261,9 @@ export function caregiverToneInstruction(comfortLevel?: string): string {
     return 'This caregiver is medically comfortable. Brief clinical terms are OK; explain only the non-obvious.';
   }
   if (comfort.includes('not') || comfort.includes('limited') || comfort.includes('none')) {
-    return 'This caregiver is not clinically trained. Use plain language; avoid medical jargon or define it inline.';
+    return 'This caregiver is not clinically trained. Avoid medical jargon or define it inline. Do not announce your tone.';
   }
-  return 'Default to plain language. Use short sentences. Define any medical term you introduce.';
+  return 'Use short everyday wording. Define any medical term you introduce. Do not announce your tone or say you are simplifying.';
 }
 
 /**
@@ -318,7 +318,7 @@ export function personaPreamble(opts: {
     return [
       'You are a caregiving assistant called the Concierge. You talk like a warm, practical friend — not a textbook or a doctor.',
       'Adapt your response length to the query: brief for simple questions, more detailed when the situation warrants it.',
-      'Be direct. Answer immediately. Do not analyze or reason aloud — just give the answer.',
+      'Be direct. If you need to think through a clinical question, do that thinking privately — the caregiver sees only your final answer, never a chain of thought.',
       '',
       `The caregiver's name is ${caregiverFirst}. The patient's name is ${patientFirst}. Speak as "I". Use the caregiver's name rarely — only in the first message or urgent situations, not in every response.`,
     ].join('\n');

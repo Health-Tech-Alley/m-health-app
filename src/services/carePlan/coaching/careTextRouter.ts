@@ -6,9 +6,9 @@
 import type { AdcpProposalIntentId } from '@/data/adcp/types';
 import type { PatientRecordSnapshot } from '@/data/types';
 import { buildPatientNluContext } from '@/nlu/patient-nlu-context';
+import { DEFAULT_NLU_STAGE_TIMEOUT_MS } from '@/nlu/pre-slm-nlu';
 import type { NluEmbedder, NluIntentLabel, LinkedEntity } from '@/nlu/types';
 import { linkEntities } from '@/nlu/entity-linker';
-import { INTENT_CATALOG } from '@/services/carePlan/intentCatalog';
 import { CareIntentClassifier } from './careIntentClassifier';
 import {
   caregiverLabelForIntent,
@@ -22,7 +22,7 @@ import {
   type CareTextResolution,
 } from './types';
 
-const DEFAULT_NLU_TIMEOUT_MS = 12_000;
+const DEFAULT_NLU_TIMEOUT_MS = DEFAULT_NLU_STAGE_TIMEOUT_MS;
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -43,35 +43,6 @@ function chip(
     label: caregiverLabelForIntent(intent),
     intent,
     args,
-  };
-}
-
-function heuristicChips(
-  entities: LinkedEntity[],
-  snapshot: PatientRecordSnapshot | null | undefined,
-): CareTextResolution {
-  const mapped = mapChatLabelToCareIntent({
-    chatLabel: 'caregiver_chat_general',
-    confidence: 0.5,
-    entities,
-    snapshot,
-    text: entities.map((e) => e.label).join(' '),
-  });
-  const defaults: AdcpProposalIntentId[] = [
-    'suggest_todays_logging',
-    'explain_uc4_card',
-    'weekly_care_plan_review',
-  ];
-  const intents: AdcpProposalIntentId[] = [];
-  if (mapped) intents.push(mapped.intent);
-  for (const d of defaults) {
-    if (!intents.includes(d) && INTENT_CATALOG[d]) intents.push(d);
-  }
-  return {
-    kind: 'multi_chip',
-    chips: intents.slice(0, 3).map((intent, i) =>
-      chip(intent, fillArgsForCareIntent(intent, entities, snapshot), String(i)),
-    ),
   };
 }
 
@@ -188,6 +159,10 @@ export async function resolveCareText(
     return gateMapped(phraseMap.intent, phraseMap.args, phraseMap.confidence, phraseMap.source);
   }
 
-  // Tier 3 — entity heuristics
-  return heuristicChips(entities, deps.snapshot);
+  // No strong Care match — stay on Concierge instead of inventing chips.
+  return {
+    kind: 'concierge_handoff',
+    carryText: trimmed,
+    reason: 'no_care_match',
+  };
 }

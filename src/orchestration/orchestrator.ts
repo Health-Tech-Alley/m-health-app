@@ -121,7 +121,12 @@ import {
   uc4PrioritiesBlock,
   type PriorDecisionEntry,
 } from './prompt-fragments';
-import { PreSlmNlu, buildPatientNluContext, formatEntityHint } from '@/nlu';
+import {
+  PreSlmNlu,
+  buildPatientNluContext,
+  formatEntityHint,
+  DEFAULT_NLU_STAGE_TIMEOUT_MS,
+} from '@/nlu';
 import { filterToolsForSkill, getSkillPromptFragment, type SkillId } from './skills';
 
 export type OrchestratorConfig = {
@@ -1029,7 +1034,10 @@ export class Orchestrator {
           intentOverride: 'explain_anomaly',
         }),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('NLU explain timeout after 2500ms')), 2500),
+          setTimeout(
+            () => reject(new Error(`NLU explain timeout after ${DEFAULT_NLU_STAGE_TIMEOUT_MS}ms`)),
+            DEFAULT_NLU_STAGE_TIMEOUT_MS,
+          ),
         ),
       ]);
 
@@ -1158,7 +1166,7 @@ export class Orchestrator {
       patientId,
       caregiverId,
       type: 'ask_slm',
-      payloadJson: JSON.stringify({ turnId, prompt }),
+      payloadJson: JSON.stringify({ turnId, slmModel: this.slm.getLoadedModelId?.() ?? 'slm', latencyMs: slmResult.latencyMs }),
       createdAt: new Date().toISOString(),
     };
     insertCaregiverAction(action);
@@ -2183,6 +2191,9 @@ export class Orchestrator {
     const isEmergency = Boolean(
       r.emergencyResult?.emergency || severity === 3,
     );
+    const suppressed = Boolean(r.finalDecision?.suppression_status?.is_suppressed);
+    const suppressionReason =
+      r.finalDecision?.suppression_status?.reason ?? 'cooldown';
     const friendlyCodes = codes.map((c) =>
       String(c)
         .replace(/_/g, ' ')
@@ -2215,6 +2226,9 @@ export class Orchestrator {
       'INTERNAL_HEALTH_MONITOR_RESULT (for you only — do NOT paste, quote, or list these lines to the caregiver)',
       `Monitor alarm: ${r.isAnomaly ? 'unusual pattern detected' : 'no strong anomaly'}.`,
       `Hard emergency rules: ${isEmergency ? 'triggered' : 'not triggered'}.`,
+      suppressed
+        ? `Repeat-alarm suppression active (${suppressionReason}) — the pattern was demoted to watchful monitoring, not a new escalation.`
+        : '',
       `Concern level: ${concernLevel} (internal severity ${severity}).`,
       `Pattern before caregiver notes: ${String(r.initialAnomalyType).replace(/_/g, ' ').toLowerCase()}.`,
       `Pattern after caregiver notes: ${String(post).replace(/_/g, ' ').toLowerCase()}.`,
