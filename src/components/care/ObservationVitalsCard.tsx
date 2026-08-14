@@ -1,13 +1,19 @@
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, useColorScheme, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme, Colors } from "@/constants/theme";
-import type { HealthSampleType } from "@/data/types";
+import { useSensor } from "@/contexts/sensor-context";
+import { ALL_HEALTHKIT_READ_TYPES } from "@/data/sensors/healthkit-type-map";
+import type {
+  HealthSampleType,
+  NormalizedBloodPressurePair,
+  NormalizedVitalMetric,
+} from "@/data/types";
 import { useClinicalVitals } from "@/hooks/useActivePatientView";
+import { useTheme } from "@/hooks/use-theme";
 import { useTranslation } from "@/hooks/use-translation";
 import type { AppLocale, TranslateFn } from "@/localization/i18n";
-import type { NormalizedBloodPressurePair, NormalizedVitalMetric } from "@/data/types";
 
 type RangeKey = "6m" | "1y" | "2y";
 
@@ -139,11 +145,52 @@ function vitalPresentation(
   }
 }
 
+type ThemeTokens = ReturnType<typeof useTheme>;
+
+/**
+ * Dark-theme overlay (dark is the app default). Light stays on the static
+ * styles below; the overlay only swaps colors that would otherwise render
+ * cream/navy on a dark Care tab.
+ */
+function createThemedStyles(theme: ThemeTokens) {
+  const isDark = theme.appBackground === "#000000";
+  if (!isDark) return {};
+  return {
+    sectionTitle: { color: theme.appSectionText },
+    subtitle: { color: theme.appTextMuted },
+    sourceBadge: { backgroundColor: "rgba(56,189,248,0.18)", color: "#7DD3FC" },
+    emptyTitle: { color: theme.appText },
+    emptyText: { color: theme.appTextSupporting },
+    importButton: { backgroundColor: theme.appBrandSoftSurface },
+    importButtonText: { color: AppTheme.colors.brandPale },
+    tab: { backgroundColor: theme.appControlSurface },
+    tabActive: { backgroundColor: AppTheme.colors.brand },
+    tabIcon: { color: theme.appTextSupporting },
+    metricHelperText: { color: theme.appTextMuted },
+    rangePill: { backgroundColor: theme.appControlSurface },
+    rangePillActive: { backgroundColor: theme.appBrandSoftSurface },
+    rangePillText: { color: theme.appTextSupporting },
+    rangePillTextActive: { color: AppTheme.colors.brandPale },
+    summaryText: { color: theme.appText },
+    axisLabel: { color: theme.appTextMuted },
+    dayLabel: { color: theme.appTextMuted },
+    legendText: { color: theme.appTextSupporting },
+    point: { borderColor: theme.appSurface },
+    noRangeData: { borderColor: theme.appBorder, backgroundColor: theme.appControlSurface },
+    noRangeTitle: { color: theme.appText },
+    noRangeText: { color: theme.appTextSupporting },
+    syncButtonDark: { backgroundColor: theme.appBrandSoftSurface },
+    syncButtonTextDark: { color: AppTheme.colors.brandPale },
+  };
+}
+
 export function ObservationVitalsCard() {
   const router = useRouter();
   const { locale, t } = useTranslation();
-  const scheme = useColorScheme();
-  const isDark = scheme === "dark";
+  const theme = useTheme();
+  const isDark = theme.appBackground === "#000000";
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
+  const { sensor, isRealHealth } = useSensor();
   const clinicalVitals = useClinicalVitals();
   const chartMetrics = useMemo(
     () => clinicalVitals.map((metric) => toVitalMetric(metric, t)).filter(isVitalMetric),
@@ -151,6 +198,23 @@ export function ObservationVitalsCard() {
   );
   const [selectedKey, setSelectedKey] = useState<HealthSampleType>("blood_pressure_systolic");
   const [selectedRange, setSelectedRange] = useState<RangeKey>("6m");
+  const [syncing, setSyncing] = useState(false);
+
+  // Manual "Sync now": force an incremental HealthKit pull through the active
+  // sensor source (no sync-behavior changes — same anchored pull the 1-minute
+  // foreground poll performs). Mock/no-sensor builds no-op.
+  const handleSyncNow = useCallback(async () => {
+    if (!sensor || syncing) return;
+    setSyncing(true);
+    try {
+      const hk = sensor as { incrementalSync?: (type: HealthSampleType) => Promise<unknown> };
+      for (const type of ALL_HEALTHKIT_READ_TYPES) {
+        await hk.incrementalSync?.(type);
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }, [sensor, syncing]);
 
   const selectedMetric =
     chartMetrics.find((metric) => metric.key === selectedKey) ?? chartMetrics[0];
@@ -164,16 +228,16 @@ export function ObservationVitalsCard() {
     return (
       <View style={[styles.card, isDark && styles.cardDark]}>
         <View style={styles.titleRow}>
-          <Text style={styles.sectionTitle}>{t("care.vitals.title")}</Text>
-          <Text style={styles.sourceBadge}>{t("care.vitals.sourceBadge")}</Text>
+          <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{t("care.vitals.title")}</Text>
+          <Text style={[styles.sourceBadge, themedStyles.sourceBadge]}>{t("care.vitals.sourceBadge")}</Text>
         </View>
-        <Text style={styles.emptyTitle}>{t("care.vitals.emptyTitle")}</Text>
-        <Text style={styles.emptyText}>{t("care.vitals.emptyBody")}</Text>
+        <Text style={[styles.emptyTitle, themedStyles.emptyTitle]}>{t("care.vitals.emptyTitle")}</Text>
+        <Text style={[styles.emptyText, themedStyles.emptyText]}>{t("care.vitals.emptyBody")}</Text>
         <Pressable
-          style={styles.importButton}
+          style={[styles.importButton, themedStyles.importButton]}
           onPress={() => router.push({ pathname: "/more", params: { focus: "ehr-import" } } as never)}
         >
-          <Text style={styles.importButtonText}>{t("care.vitals.import")}</Text>
+          <Text style={[styles.importButtonText, themedStyles.importButtonText]}>{t("care.vitals.import")}</Text>
         </Pressable>
       </View>
     );
@@ -183,10 +247,29 @@ export function ObservationVitalsCard() {
     <View style={[styles.card, isDark && styles.cardDark]}>
       <View style={styles.headerRow}>
         <View style={styles.titleRow}>
-          <Text style={styles.sectionTitle}>{t("care.vitals.title")}</Text>
-          <Text style={styles.sourceBadge}>{t("care.vitals.sourceBadge")}</Text>
+          <Text style={[styles.sectionTitle, themedStyles.sectionTitle]}>{t("care.vitals.title")}</Text>
+          <Text style={[styles.sourceBadge, themedStyles.sourceBadge]}>{t("care.vitals.sourceBadge")}</Text>
         </View>
-        <Text style={styles.subtitle}>{selectedMetric.subtitle}</Text>
+        <View style={styles.headerActions}>
+          {isRealHealth ? (
+            <Pressable
+              style={[
+                styles.syncButton,
+                themedStyles.syncButtonDark,
+                syncing && styles.syncButtonDisabled,
+              ]}
+              onPress={() => void handleSyncNow()}
+              disabled={syncing}
+              accessibilityRole="button"
+              accessibilityLabel={t("care.vitals.syncA11y")}
+            >
+              <Text style={[styles.syncButtonText, themedStyles.syncButtonTextDark]}>
+                {syncing ? t("care.vitals.syncing") : t("care.vitals.syncNow")}
+              </Text>
+            </Pressable>
+          ) : null}
+          <Text style={[styles.subtitle, themedStyles.subtitle]}>{selectedMetric.subtitle}</Text>
+        </View>
       </View>
 
       <View style={styles.tabRow}>
@@ -196,20 +279,20 @@ export function ObservationVitalsCard() {
           return (
             <Pressable
               key={metric.key}
-              style={[styles.tab, active && styles.tabActive]}
+              style={[styles.tab, themedStyles.tab, active && styles.tabActive, active && themedStyles.tabActive]}
               accessibilityRole="button"
               accessibilityLabel={metric.label}
               accessibilityHint={t("care.vitals.showObservationsA11y", { label: metric.label })}
               accessibilityState={{ selected: active }}
               onPress={() => setSelectedKey(metric.key)}
             >
-              <Text style={[styles.tabIcon, active && styles.tabIconActive]}>{metric.tabIcon}</Text>
+              <Text style={[styles.tabIcon, themedStyles.tabIcon, active && styles.tabIconActive]}>{metric.tabIcon}</Text>
             </Pressable>
           );
         })}
       </View>
 
-      <Text style={styles.metricHelperText}>{selectedMetric.helperText}</Text>
+      <Text style={[styles.metricHelperText, themedStyles.metricHelperText]}>{selectedMetric.helperText}</Text>
 
       <View style={styles.rangeRow}>
         {RANGE_OPTIONS.map((range) => {
@@ -218,12 +301,12 @@ export function ObservationVitalsCard() {
           return (
             <Pressable
               key={range.key}
-              style={[styles.rangePill, active && styles.rangePillActive]}
+              style={[styles.rangePill, themedStyles.rangePill, active && styles.rangePillActive, active && themedStyles.rangePillActive]}
               accessibilityRole="button"
               accessibilityLabel={t("care.vitals.showRangeA11y", { label })}
               onPress={() => setSelectedRange(range.key)}
             >
-              <Text style={[styles.rangePillText, active && styles.rangePillTextActive]}>
+              <Text style={[styles.rangePillText, themedStyles.rangePillText, active && styles.rangePillTextActive, active && themedStyles.rangePillTextActive]}>
                 {label}
               </Text>
             </Pressable>
@@ -233,7 +316,7 @@ export function ObservationVitalsCard() {
 
       <TrendChart chart={chart} locale={locale} t={t} />
 
-      <Text style={styles.summaryText}>{formatAverageSummary(selectedMetric, chart, t)}</Text>
+      <Text style={[styles.summaryText, themedStyles.summaryText]}>{formatAverageSummary(selectedMetric, chart, t)}</Text>
     </View>
   );
 }
@@ -395,14 +478,16 @@ function buildChartModel(metric: VitalMetric, range: RangeOption, locale: AppLoc
 }
 
 function TrendChart({ chart, locale, t }: { chart: ChartModel; locale: AppLocale; t: TranslateFn }) {
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [chartWidth, setChartWidth] = useState(0);
   const [selectedPoint, setSelectedPoint] = useState<ChartPoint | null>(null);
 
   if (chart.points.length === 0) {
     return (
-      <View style={styles.noRangeData}>
-        <Text style={styles.noRangeTitle}>{t("care.vitals.noRangeTitle")}</Text>
-        <Text style={styles.noRangeText}>{t("care.vitals.noRangeBody")}</Text>
+      <View style={[styles.noRangeData, themedStyles.noRangeData]}>
+        <Text style={[styles.noRangeTitle, themedStyles.noRangeTitle]}>{t("care.vitals.noRangeTitle")}</Text>
+        <Text style={[styles.noRangeText, themedStyles.noRangeText]}>{t("care.vitals.noRangeBody")}</Text>
       </View>
     );
   }
@@ -426,7 +511,7 @@ function TrendChart({ chart, locale, t }: { chart: ChartModel; locale: AppLocale
       <View style={styles.chartWrap}>
         <View style={styles.yAxis}>
           {chart.yLabels.map((label) => (
-            <Text key={label} style={styles.axisLabel}>
+            <Text key={label} style={[styles.axisLabel, themedStyles.axisLabel]}>
               {formatAxisValue(label)}
             </Text>
           ))}
@@ -452,6 +537,7 @@ function TrendChart({ chart, locale, t }: { chart: ChartModel; locale: AppLocale
                     onSelectPoint={setSelectedPoint}
                     locale={locale}
                     t={t}
+                    themedStyles={themedStyles}
                   />
                 ))
               : null}
@@ -459,7 +545,7 @@ function TrendChart({ chart, locale, t }: { chart: ChartModel; locale: AppLocale
 
           <View style={styles.xAxisRow}>
             {chart.xLabels.map((label) => (
-              <Text key={label.id} style={[styles.dayLabel, { left: `${label.offset}%` }]}>
+              <Text key={label.id} style={[styles.dayLabel, themedStyles.dayLabel, { left: `${label.offset}%` }]}>
                 {label.text}
               </Text>
             ))}
@@ -472,7 +558,7 @@ function TrendChart({ chart, locale, t }: { chart: ChartModel; locale: AppLocale
           {chart.series.map((series) => (
             <View key={series.key} style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: series.color }]} />
-              <Text style={styles.legendText}>{series.label}</Text>
+              <Text style={[styles.legendText, themedStyles.legendText]}>{series.label}</Text>
             </View>
           ))}
         </View>
@@ -491,6 +577,7 @@ function ChartSeriesLayer({
   onSelectPoint,
   locale,
   t,
+  themedStyles,
 }: {
   series: ChartSeries;
   chartWidth: number;
@@ -501,6 +588,7 @@ function ChartSeriesLayer({
   onSelectPoint: (point: ChartPoint) => void;
   locale: AppLocale;
   t: TranslateFn;
+  themedStyles: ReturnType<typeof createThemedStyles>;
 }) {
   const points = series.points.map((point) => {
     const timePointIndex = timePointIndexByKey.get(point.clinicalTimeKey) ?? 0;
@@ -550,6 +638,7 @@ function ChartSeriesLayer({
           onPress={() => onSelectPoint(point)}
           style={[
             styles.point,
+            themedStyles.point,
             {
               left: point.x - POINT_SIZE / 2,
               top: point.y - POINT_SIZE / 2,
@@ -733,6 +822,27 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     marginBottom: 14,
+  },
+  headerActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  syncButton: {
+    backgroundColor: AppTheme.colors.brand,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  syncButtonDisabled: {
+    opacity: 0.6,
+  },
+  syncButtonText: {
+    color: AppTheme.colors.white,
+    fontSize: 13,
+    fontWeight: "900",
   },
   titleRow: {
     alignItems: "flex-start",

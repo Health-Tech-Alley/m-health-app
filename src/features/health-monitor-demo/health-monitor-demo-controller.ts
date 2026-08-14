@@ -8,6 +8,7 @@ import type {
   RawObservationInput,
 } from '@/ml-models/uc2-decision-layer';
 import {
+  AlertHysteresisManager,
   createTfliteInterpreterAdapter,
   runUC2DecisionLayerV2,
 } from '@/ml-models/uc2-decision-layer';
@@ -79,6 +80,9 @@ export function createHealthMonitorDemoController(mlModel: AlertAutoencoder) {
         scaler,
         interpreter: mlModel.isLoaded ? createTfliteInterpreterAdapter(mlModel) : undefined,
         aeThreshold: mlModel.threshold,
+        // Fresh per-run manager so demo fixtures never mutate the production
+        // hysteresis singleton shared by the ambient alert path.
+        hysteresisManager: new AlertHysteresisManager(),
       });
 
       return { v2 };

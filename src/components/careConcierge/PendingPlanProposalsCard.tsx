@@ -9,8 +9,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon } from '@/components/AppIcon';
+import { createThemedSectionStyles } from '@/components/care/plan/carePlanSectionStyles';
 import { AppTheme } from '@/constants/theme';
 import type { PendingPlanProposalSlice } from '@/data/types';
+import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/hooks/use-translation';
 import type { TranslateFn } from '@/localization/i18n';
 
@@ -29,6 +31,8 @@ export function PendingPlanProposalsCard({
   onReject,
 }: PendingPlanProposalsCardProps) {
   const { t } = useTranslation();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [expanded, setExpanded] = useState(true);
   const sorted = useMemo(
     () =>
@@ -108,15 +112,19 @@ export function PendingPlanProposalsCard({
         ? t('care.proposals.reviewing.one')
         : t('care.proposals.reviewing.many');
     return (
-      <View style={[styles.card, styles.statusCard]} accessible accessibilityLabel={statusText}>
+      <View
+        style={[styles.card, styles.statusCard, themedStyles.card]}
+        accessible
+        accessibilityLabel={statusText}
+      >
         <AppIcon name="heart" size={18} color={AppTheme.colors.brand} />
-        <Text style={styles.statusTitle}>{statusText}</Text>
+        <Text style={[styles.statusTitle, themedStyles.statusTitle]}>{statusText}</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, themedStyles.card]}>
       <Pressable
         style={styles.headerRow}
         onPress={() => setExpanded((value) => !value)}
@@ -129,39 +137,39 @@ export function PendingPlanProposalsCard({
         })}
       >
         <AppIcon name="heart" size={18} color={AppTheme.colors.brand} />
-        <Text style={styles.title}>{headerTitle}</Text>
-        <Text style={styles.count}>{actionable.length}</Text>
-        <Text style={styles.chevron}>{expanded ? 'v' : '>'}</Text>
+        <Text style={[styles.title, themedStyles.title]}>{headerTitle}</Text>
+        <Text style={[styles.count, themedStyles.count]}>{actionable.length}</Text>
+        <Text style={[styles.chevron, themedStyles.chevron]}>{expanded ? 'v' : '>'}</Text>
       </Pressable>
 
       {expanded ? (
         <View style={styles.proposalList}>
           {actionable.map((proposal) => (
-            <View key={proposal.proposalId} style={styles.row}>
+            <View key={proposal.proposalId} style={[styles.row, themedStyles.row]}>
               <View style={styles.rowHeader}>
-                <Text style={styles.kind}>{proposalTitle(proposal, t)}</Text>
-                <View style={styles.statusBadge}>
-                  <Text style={styles.statusText}>{displayStatus(proposal.status, t)}</Text>
+                <Text style={[styles.kind, themedStyles.kind]}>{proposalTitle(proposal, t)}</Text>
+                <View style={[styles.statusBadge, themedStyles.statusBadge]}>
+                  <Text style={[styles.statusText, themedStyles.statusText]}>{displayStatus(proposal.status, t)}</Text>
                 </View>
               </View>
-              <Text style={styles.summary}>{proposalSummary(proposal, t)}</Text>
+              <Text style={[styles.summary, themedStyles.summary]}>{proposalSummary(proposal, t)}</Text>
 
               <View style={styles.actionsRow}>
                 <Pressable
-                  style={[styles.actionButton, styles.confirmButton]}
+                  style={[styles.actionButton, styles.confirmButton, themedStyles.confirmButton]}
                   onPress={() => handleConfirm(proposal.proposalId)}
                   accessibilityRole="button"
                   accessibilityLabel={t('care.proposals.confirmA11y')}
                 >
-                  <Text style={styles.confirmText}>{t('common.confirm')}</Text>
+                  <Text style={[styles.confirmText, themedStyles.confirmText]}>{t('common.confirm')}</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.actionButton, styles.rejectButton]}
+                  style={[styles.actionButton, styles.rejectButton, themedStyles.rejectButton]}
                   onPress={() => handleReject(proposal.proposalId)}
                   accessibilityRole="button"
                   accessibilityLabel={t('care.proposals.rejectA11y')}
                 >
-                  <Text style={styles.rejectText}>{t('care.proposals.reject')}</Text>
+                  <Text style={[styles.rejectText, themedStyles.rejectText]}>{t('care.proposals.reject')}</Text>
                 </Pressable>
               </View>
             </View>
@@ -170,6 +178,27 @@ export function PendingPlanProposalsCard({
       ) : null}
     </View>
   );
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const section = createThemedSectionStyles(theme);
+  const isDark = theme.appBackground === '#000000';
+  return {
+    card: section.card,
+    statusTitle: { color: theme.appText },
+    title: { color: theme.appText },
+    count: { color: theme.appTextMuted, backgroundColor: theme.appBrandSoftSurface },
+    chevron: { color: theme.appTextMuted },
+    row: { borderTopColor: theme.appBorder },
+    kind: { color: theme.appText },
+    statusBadge: { backgroundColor: theme.appControlSurface },
+    statusText: { color: theme.appTextSupporting },
+    summary: { color: theme.appText },
+    confirmButton: isDark ? { backgroundColor: theme.appBrandSoftSurface } : {},
+    confirmText: isDark ? { color: AppTheme.colors.brandPale } : {},
+    rejectButton: { backgroundColor: theme.appControlSurface, borderColor: theme.appBorder },
+    rejectText: { color: theme.appText },
+  };
 }
 
 function displayStatus(status: string, t: TranslateFn): string {

@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/hooks/use-translation';
 import type { CarePlanHistoryItem } from '@/services/carePlan/carePlanViewModel';
 
@@ -37,6 +38,8 @@ const DRAG_THRESHOLD = 80;
 
 export function WhatChangedSheet({ visible, items, onClose }: WhatChangedSheetProps) {
   const { locale, t } = useTranslation();
+  const theme = useTheme();
+  const themedStyles = useMemo(() => createThemedStyles(theme), [theme]);
   const [mounted, setMounted] = useState(false);
   const closingRef = useRef(false);
   const onCloseRef = useRef(onClose);
@@ -178,27 +181,28 @@ export function WhatChangedSheet({ visible, items, onClose }: WhatChangedSheetPr
         <Animated.View
           style={[
             styles.sheet,
+            themedStyles.sheet,
             {
               transform: [{ translateY: Animated.add(sheetTranslateY, dragY) }],
             },
           ]}
         >
           <View {...panResponder.panHandlers}>
-            <View style={styles.handle} />
+            <View style={[styles.handle, themedStyles.handle]} />
             <View style={styles.header}>
-              <Text style={styles.title}>{title}</Text>
+              <Text style={[styles.title, themedStyles.title]}>{title}</Text>
               <Pressable
-                style={styles.closeButton}
+                style={[styles.closeButton, themedStyles.closeButton]}
                 onPress={requestClose}
                 hitSlop={12}
                 accessibilityRole="button"
                 accessibilityLabel={t('care.whatChanged.closeA11y')}
               >
-                <Text style={styles.closeText}>×</Text>
+                <Text style={[styles.closeText, themedStyles.closeText]}>×</Text>
               </Pressable>
             </View>
           </View>
-          <Text style={styles.subtitle}>{t('care.whatChanged.subtitle')}</Text>
+          <Text style={[styles.subtitle, themedStyles.subtitle]}>{t('care.whatChanged.subtitle')}</Text>
           <ScrollView
             style={styles.body}
             showsVerticalScrollIndicator
@@ -206,14 +210,14 @@ export function WhatChangedSheet({ visible, items, onClose }: WhatChangedSheetPr
             keyboardShouldPersistTaps="handled"
           >
             {items.length === 0 ? (
-              <Text style={styles.empty}>{t('care.whatChanged.empty')}</Text>
+              <Text style={[styles.empty, themedStyles.empty]}>{t('care.whatChanged.empty')}</Text>
             ) : (
               items.map((item) => (
-                <View key={item.id} style={styles.row}>
-                  <Text style={styles.bullet}>{'\u2022'}</Text>
+                <View key={item.id} style={[styles.row, themedStyles.row]}>
+                  <Text style={[styles.bullet, themedStyles.bullet]}>{'\u2022'}</Text>
                   <View style={styles.textBlock}>
-                    <Text style={styles.summary}>{item.summary}</Text>
-                    <Text style={styles.at}>{formatHistoryDate(item.at, locale)}</Text>
+                    <Text style={[styles.summary, themedStyles.summary]}>{item.summary}</Text>
+                    <Text style={[styles.at, themedStyles.at]}>{formatHistoryDate(item.at, locale)}</Text>
                   </View>
                 </View>
               ))
@@ -233,6 +237,24 @@ function formatHistoryDate(value: string, locale: string): string {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+function createThemedStyles(theme: ReturnType<typeof useTheme>) {
+  const isDark = theme.appBackground === '#000000';
+  if (!isDark) return {};
+  return {
+    sheet: { backgroundColor: theme.appSurface },
+    handle: { backgroundColor: theme.appBorder },
+    title: { color: theme.appText },
+    closeButton: { backgroundColor: theme.appControlSurface },
+    closeText: { color: theme.appTextSupporting },
+    subtitle: { color: theme.appTextMuted },
+    empty: { color: theme.appTextSupporting },
+    row: { borderTopColor: theme.appBorder },
+    bullet: { color: AppTheme.colors.brandPale },
+    summary: { color: theme.appText },
+    at: { color: theme.appTextMuted },
+  };
 }
 
 const styles = StyleSheet.create({

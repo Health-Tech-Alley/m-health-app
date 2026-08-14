@@ -6,6 +6,19 @@ import {
   isDiagnosisRequest,
   normalizeSafetyText,
 } from './safety-refuse-guardrails';
+import type { PatientNluContext } from '@/nlu/types';
+
+const MIKE_CTX: PatientNluContext = {
+  patientId: 'p-mike',
+  patientName: 'Mike',
+  conditions: ['Cerebral Palsy', 'Scoliosis'],
+  comorbidities: ['Scoliosis'],
+  medications: ['Baclofen 10mg', 'Tylenol'],
+  symptoms: [],
+  knowledgeKeywords: [],
+  vitalTypes: [],
+  appSurfaces: [],
+};
 
 describe('normalizeSafetyText', () => {
   it('lowercases and strips punctuation', () => {
@@ -55,6 +68,24 @@ describe('isMedicationDoseChangeRequest', () => {
       isMedicationDoseChangeRequest('What are common side effects of baclofen?'),
     ).toBe(false);
   });
+
+  it('catches dose changes for patient-record meds via context', () => {
+    expect(
+      isMedicationDoseChangeRequest(
+        'Increase his baclofen to 30 mg three times a day starting tonight.',
+        MIKE_CTX,
+      ),
+    ).toBe(true);
+    expect(
+      isMedicationDoseChangeRequest('Bump Tylenol to 2 tablets daily', MIKE_CTX),
+    ).toBe(true);
+  });
+
+  it('does not over-refuse education when context is present', () => {
+    expect(
+      isMedicationDoseChangeRequest('What are common side effects of Tylenol?', MIKE_CTX),
+    ).toBe(false);
+  });
 });
 
 describe('isAutoEmergencyActionRequest', () => {
@@ -85,6 +116,21 @@ describe('isDiagnosisRequest', () => {
     ).toBe(false);
     expect(
       isDiagnosisRequest('What are caregiver red flags for breathing trouble?'),
+    ).toBe(false);
+  });
+
+  it('catches patient-condition diagnosis questions via context', () => {
+    expect(
+      isDiagnosisRequest('Does he have scoliosis?', MIKE_CTX),
+    ).toBe(true);
+    expect(
+      isDiagnosisRequest('Is this a cerebral palsy flare or something else?', MIKE_CTX),
+    ).toBe(true);
+  });
+
+  it('keeps education unflagged for patient conditions', () => {
+    expect(
+      isDiagnosisRequest('What should I watch for with his scoliosis?', MIKE_CTX),
     ).toBe(false);
   });
 });

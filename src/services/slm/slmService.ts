@@ -96,6 +96,20 @@ export function buildCaregiverAssistantContextFromSnapshot(
     ? confirmedConditions.filter((c) => c.conditionRole === 'active_comorbidity')
     : confirmedConditions.filter((c) => c !== primary);
 
+  // Structured medications win over the legacy free-text field: FHIR-heavy
+  // charts have rich `snapshot.medications` rows while `currentMedications`
+  // can be empty — sheets / Care Management / chat all used to show
+  // "none documented" for those patients.
+  const activeMeds = (snapshot.medications ?? []).filter((m) => m.active !== false);
+  const structuredMeds =
+    (activeMeds.length > 0 ? activeMeds : snapshot.medications ?? [])
+      .map((m) => m.name?.trim())
+      .filter((name): name is string => Boolean(name));
+  const medicationsLine =
+    structuredMeds.length > 0
+      ? structuredMeds.join(', ')
+      : snapshot.patient?.currentMedications;
+
   return {
     patientName: snapshot.patient?.preferredName?.trim() || snapshot.patient?.name,
     patientAge: snapshot.patient?.age,
@@ -110,7 +124,7 @@ export function buildCaregiverAssistantContextFromSnapshot(
     })),
     symptoms: snapshot.symptoms.map((s) => ({ label: s.label, category: s.category })),
     patientBaselineDailyRoutine: snapshot.patient?.baselineDailyRoutine,
-    patientCurrentMedications: snapshot.patient?.currentMedications,
+    patientCurrentMedications: medicationsLine,
     patientSpo2Cutoff: snapshot.patient?.spo2Cutoff,
     patientBaselineHeartRate: snapshot.patient?.baselineHeartRate,
     caregiverName: snapshot.caregiver?.name,

@@ -50,6 +50,7 @@ import type { NextStepActionId } from '@/data/types';
 import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import type { AgentProposal } from '@/orchestration';
 import { executeNextStep, type NextStepExecutionResult } from '@/orchestration/next-steps';
+import { classifySlmLoadError, type SlmLoadErrorKind } from '@/services/slm/slm-error-kind';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
 
 const TEAL = '#0E6F68';
@@ -61,41 +62,17 @@ const AMBER = '#E1A53C';
 const GREEN = '#0F7A4A';
 
 function isModelLoadError(error: string | null): boolean {
-  if (!error) return false;
-  const lower = error.toLowerCase();
-  return (
-    lower.includes('no native slm') ||
-    lower.includes('model unavailable') ||
-    lower.includes('not installed') ||
-    lower.includes('ram') ||
-    lower.includes('memory') ||
-    lower.includes('mmap') ||
-    lower.includes('unable to load') ||
-    lower.includes('failed to load') ||
-    lower.includes('load attempts failed') ||
-    lower.includes('model not loaded') ||
-    lower.includes('slm is not ready') ||
-    lower.includes('not ready') ||
-    lower.includes('context is full') ||
-    lower.includes('context window')
-  );
+  return classifySlmLoadError(error) !== 'other';
 }
 
-function formatLoadFailureMessage(raw: string, t: TranslateFn): string {
-  const lower = raw.toLowerCase();
-  if (
-    lower.includes('ram') ||
-    lower.includes('memory') ||
-    lower.includes('mmap') ||
-    lower.includes('2.9') ||
-    lower.includes('contiguous')
-  ) {
+function formatLoadFailureMessage(raw: string, kind: SlmLoadErrorKind, t: TranslateFn): string {
+  if (kind === 'memory') {
     return (
       `${raw}\n\n` +
       t('slmExplain.loadFailure.memoryTips')
     );
   }
-  if (lower.includes('not installed') || lower.includes('not found')) {
+  if (kind === 'not_installed') {
     return (
       `${raw}\n\n` +
       t('slmExplain.loadFailure.notInstalledTips')
@@ -222,16 +199,20 @@ export default function SlmExplainScreen() {
           ? 'uc4_provider_summary_rewrite'
           : 'explain_alert';
 
+    // Severity-3 explains short-circuit the SLM entirely (confidence router
+    // returns preliminary guidance) — do not mmap ~2.4 GB just to print it.
+    const isSev3ShortCircuit = target.kind === 'alert' && target.alert.severity === 3;
+
     let lease: SlmTaskLease | null = screenLeaseRef.current;
     try {
-      if (!lease) {
+      if (!lease && !isSev3ShortCircuit) {
         log('Loading Concierge (single screen lease)…');
         lease = await acquireSlm(reason);
         screenLeaseRef.current = lease;
         log('Concierge ready.');
       }
 
-      if (slm.provider.getModelInfo() === null) {
+      if (slm.provider.getModelInfo() === null && !isSev3ShortCircuit) {
         throw new Error(
           slm.loadError ??
             t('slmExplain.error.modelNotLoaded'),
@@ -266,7 +247,7 @@ export default function SlmExplainScreen() {
       log(`Explanation received. Citations: ${result.citations.length}.`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const friendly = formatLoadFailureMessage(msg, t);
+      const friendly = formatLoadFailureMessage(msg, classifySlmLoadError(msg), t);
       setError(friendly);
       log(`Explain failed: ${msg}`);
     } finally {
@@ -298,7 +279,7 @@ export default function SlmExplainScreen() {
       await explain();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(formatLoadFailureMessage(msg, t));
+      setError(formatLoadFailureMessage(msg, classifySlmLoadError(msg), t));
       log(`Load failed: ${msg}`);
     } finally {
       setLoading(false);

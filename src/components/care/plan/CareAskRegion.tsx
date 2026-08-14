@@ -2,7 +2,7 @@
  * CareAskRegion — Care tab Concierge region: optional children (soft-NLU /
  * in-card ask) above the intent catalog.
  *
- * Doc 40 P1c ships soft-NLU via CarePlanAskChat (and optional CareAskInput).
+ * Doc 40 P1c ships soft-NLU via CarePlanAskChat.
  * Proactive suggestion-strip chips (doc 40 P0) are deferred — mount here as
  * children above the catalog when resumed. Read-only mode filters the intent
  * catalog to non-mutating intents.

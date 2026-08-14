@@ -130,15 +130,15 @@ export function linkEntities(
       ? ctx.appSurfaces
       : APP_SURFACE_LEXICON.map((e) => e.label);
   for (const label of surfaceLabels) {
-    if (mentionsLabel(textNorm, label)) {
-      const entry = findAppSurface(normalize(label)) ?? findAppSurface(textNorm);
-      addEntity(
-        'app_surface',
-        `surface:${entry?.id ?? normalize(label)}`,
-        entry?.label ?? label,
-        0.95,
-      );
-    }
+    const labelNorm = normalize(label);
+    if (!labelNorm || !textNorm.includes(labelNorm)) continue;
+    const entry = findAppSurface(labelNorm) ?? findAppSurface(textNorm);
+    addEntity(
+      'app_surface',
+      `surface:${entry?.id ?? labelNorm}`,
+      entry?.label ?? label,
+      0.95,
+    );
   }
   // Alias sweep when labels alone miss multi-word caregiver phrasing
   const hit = findAppSurface(textNorm);

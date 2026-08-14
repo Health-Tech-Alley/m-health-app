@@ -38,6 +38,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/hooks/use-translation';
 import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
+import { stripKnownToolActionLines } from '@/services/slm/strip-tool-action-lines';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
 import {
   buildExplainFingerprint,
@@ -251,6 +252,8 @@ export function InCardMiniChat({
       leaseRef.current = lease;
 
       if (!provider.getModelInfo()) {
+        leaseRef.current?.release();
+        leaseRef.current = null;
         const installed = MODEL_CATALOG.filter(isModelInstalled);
         const err =
           installed.length === 0
@@ -263,6 +266,32 @@ export function InCardMiniChat({
         );
         setStatusLine(t('care.miniChat.status.error', { error: err }));
         setBusy(false);
+        return;
+      }
+
+      // Follow-up turns get the same deterministic safety refuses as the
+      // composer (unknown protocols, dose changes, auto-911, diagnosis).
+      const [{ evaluateSafetyRefuseGate }, { buildPatientNluContext }] =
+        await Promise.all([
+          import('@/services/slm/safety-refuse-guardrails'),
+          import('@/nlu/patient-nlu-context'),
+        ]);
+      const followUpSafety = evaluateSafetyRefuseGate(
+        trimmed,
+        buildPatientNluContext(snapshot),
+      );
+      if (followUpSafety.refuse) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, text: followUpSafety.message, status: 'done' }
+              : m,
+          ),
+        );
+        setStatusLine(t('care.miniChat.status.refused'));
+        setBusy(false);
+        leaseRef.current?.release();
+        leaseRef.current = null;
         return;
       }
 
@@ -325,7 +354,9 @@ export function InCardMiniChat({
           prepared.generation,
         );
         if (cancelRef.current) return;
-        const cleaned = stripControlTokens(result.text).answer;
+        const cleaned = stripKnownToolActionLines(
+          stripControlTokens(result.text).answer,
+        );
         historyRef.current.push({ role: 'assistant', content: cleaned });
         setMessages((prev) =>
           prev.map((m) =>

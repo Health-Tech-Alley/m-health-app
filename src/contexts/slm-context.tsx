@@ -64,7 +64,9 @@ interface SLMContextValue {
   policy: SlmPolicy;
   setPolicy: (policy: SlmPolicy) => void;
   loadModel: (modelId: string) => Promise<void>;
-  unloadModel: () => Promise<void>;
+  unloadModel: (force?: boolean) => Promise<void>;
+  /** In-flight load promise, if any — lets callers join a load instead of failing. */
+  getLoadPromise: () => Promise<void> | null;
   chat: (
     messages: ChatMessage[],
     onToken: (token: string) => void,
@@ -119,6 +121,9 @@ export function SLMProvider({ children }: { children: ReactNode }) {
   const loadPromiseRef = useRef<Promise<void> | null>(null);
   const wasUnloadedRef = useRef<boolean>(false);
   const hasLoadErrorRef = useRef<boolean>(false);
+  // Back-ref so unloadModel can read the task queue's lease count (the queue
+  // is created below, after unloadModel).
+  const taskQueueRef = useRef<SlmTaskQueue | null>(null);
 
   const cancelChatUnloadGrace = useCallback(() => {
     if (chatGraceClearTimerRef.current) {
@@ -332,7 +337,15 @@ export function SLMProvider({ children }: { children: ReactNode }) {
   // Keep the ref current so the OOM retry timer can call loadModel.
   useEffect(() => { loadModelRef.current = loadModel; }, [loadModel]);
 
-  const unloadModel = useCallback(async () => {
+  const unloadModel = useCallback(async (force: boolean = false) => {
+    // Refuse to yank the native model while another surface still holds a
+    // lease (e.g. Concierge chat focused, a sheet streaming). Only explicit
+    // force callers (Settings "Unload") may bypass this.
+    const held = taskQueueRef.current?.activeLeaseCount ?? 0;
+    if (!force && held > 0) {
+      console.log(`[SLM] unloadModel skipped — ${held} active lease(s)`);
+      return;
+    }
     try {
       await provider.release();
     } catch {
@@ -370,8 +383,10 @@ export function SLMProvider({ children }: { children: ReactNode }) {
         unloadModel,
         getLoadPromise: () => null,
         setLoadPromise: () => {},
+        isNativeReady: () => provider.getModelInfo() !== null,
       }),
   );
+  taskQueueRef.current = taskQueue;
   // eslint-enable react-hooks/refs
 
   // Update the task queue config whenever state changes.
@@ -386,10 +401,11 @@ export function SLMProvider({ children }: { children: ReactNode }) {
       setLoadPromise: (p) => {
         loadPromiseRef.current = p;
       },
+      isNativeReady: () => provider.getModelInfo() !== null,
       autoUnloadMs: dynamic ? 0 : LEGACY_BACKGROUND_UNLOAD_MS,
       forceAutoLoadOnAcquire: dynamic,
     });
-  }, [taskQueue, loadStatus, policy, currentModelId, defaultModelId, loadModel, unloadModel, dynamic]);
+  }, [taskQueue, loadStatus, policy, currentModelId, defaultModelId, loadModel, unloadModel, dynamic, provider]);
 
   // ── Startup load — LEGACY ONLY ──
   useEffect(() => {
@@ -542,6 +558,7 @@ export function SLMProvider({ children }: { children: ReactNode }) {
     setPolicy,
     loadModel,
     unloadModel,
+    getLoadPromise: () => loadPromiseRef.current,
     chat,
     taskQueue,
     acquireSlm,

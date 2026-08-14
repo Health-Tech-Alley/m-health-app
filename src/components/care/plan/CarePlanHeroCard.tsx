@@ -9,10 +9,11 @@
  * The Dashboard keeps its own patient card; nothing here duplicates it.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/hooks/use-translation';
 import type { AppLanguage, TranslateFn } from '@/localization/i18n';
 import type { PlanPulse } from '@/services/carePlan/planPulseService';
@@ -24,6 +25,13 @@ const STATUS_WORD_COLOR: Record<PlanPulse['statusWord'], string> = {
   activated: AppTheme.colors.brand,
   needs_review: AppTheme.colors.attentionAmber,
   view_only: AppTheme.colors.textMuted,
+};
+
+/** Dark-mode status words: pale periwinkle family so the tinted card keeps contrast. */
+const DARK_STATUS_WORD_COLOR: Record<PlanPulse['statusWord'], string> = {
+  activated: AppTheme.colors.brandPale,
+  needs_review: '#FBBF24',
+  view_only: '#A5B4FC',
 };
 
 function statusWordLabel(status: PlanPulse['statusWord'], t: TranslateFn): string {
@@ -72,6 +80,12 @@ export function CarePlanHeroCard({
   reduceMotion = false,
 }: CarePlanHeroCardProps) {
   const { language, t } = useTranslation();
+  const theme = useTheme();
+  const isDark = theme.appBackground === '#000000';
+  const themedStyles = useMemo(() => createThemedStyles(isDark), [isDark]);
+  const statusWordColor = isDark
+    ? DARK_STATUS_WORD_COLOR[pulse.statusWord]
+    : STATUS_WORD_COLOR[pulse.statusWord];
   // State-created Animated.Value (render-safe; refs trip react-hooks/refs).
   const [entrance] = useState(() => new Animated.Value(playEntrance && !reduceMotion ? 0 : 1));
 
@@ -112,22 +126,22 @@ export function CarePlanHeroCard({
 
   return (
     <Animated.View
-      style={[styles.card, animatedStyle]}
+      style={[styles.card, themedStyles.card, animatedStyle]}
       accessible
       accessibilityLabel={`${planTitle}, ${statusLabel}`}
     >
       {/* Socket on the bottom-left — the spine drops out of the hero here. */}
-      <View style={styles.spineSocket} />
+      <View style={[styles.spineSocket, themedStyles.spineSocket]} />
 
       <View style={styles.topRow}>
         <View style={styles.titleBlock}>
-          <Text style={styles.eyebrow}>{t('care.hero.carePlan')}</Text>
-          <Text style={styles.title} numberOfLines={2}>
+          <Text style={[styles.eyebrow, themedStyles.eyebrow]}>{t('care.hero.carePlan')}</Text>
+          <Text style={[styles.title, themedStyles.title]} numberOfLines={2}>
             {planTitle}
           </Text>
           <View style={styles.statusRow}>
-            <View style={[styles.statusDot, { backgroundColor: STATUS_WORD_COLOR[pulse.statusWord] }]} />
-            <Text style={[styles.statusWord, { color: STATUS_WORD_COLOR[pulse.statusWord] }]}>
+            <View style={[styles.statusDot, { backgroundColor: statusWordColor }]} />
+            <Text style={[styles.statusWord, { color: statusWordColor }]}>
               {statusLabel}
             </Text>
           </View>
@@ -140,32 +154,56 @@ export function CarePlanHeroCard({
         />
       </View>
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, themedStyles.divider]} />
 
-      <Text style={styles.metaLine} numberOfLines={2}>
+      <Text style={[styles.metaLine, themedStyles.metaLine]} numberOfLines={2}>
         {t('care.hero.updated', { version: vm.versionLabel, updated: vm.updatedLabel })}
       </Text>
-      <Text style={styles.metaLine} numberOfLines={2}>
+      <Text style={[styles.metaLine, themedStyles.metaLine]} numberOfLines={2}>
         {patientName}, {patientAge} · {primaryDiagnosisLabel}
       </Text>
       {caregiverLine ? (
-        <Text style={styles.metaLine} numberOfLines={1}>
+        <Text style={[styles.metaLine, themedStyles.metaLine]} numberOfLines={1}>
           {caregiverLine}
         </Text>
       ) : null}
 
       {onShowWhatChanged && whatChangedCount > 0 ? (
         <Pressable
-          style={styles.whatChangedButton}
+          style={[styles.whatChangedButton, themedStyles.whatChangedButton]}
           onPress={onShowWhatChanged}
           accessibilityRole="button"
           accessibilityLabel={recentChangesLabel}
         >
-          <Text style={styles.whatChangedButtonText}>{recentChangesLabel}</Text>
+          <Text style={[styles.whatChangedButtonText, themedStyles.whatChangedButtonText]}>{recentChangesLabel}</Text>
         </Pressable>
       ) : null}
     </Animated.View>
   );
+}
+
+/**
+ * Dark overlay: keeps the hero's indigo identity (it stays the only tinted
+ * card) but moves it to a deep indigo surface so it is not a light island
+ * on the default-dark Care tab.
+ */
+function createThemedStyles(isDark: boolean) {
+  if (!isDark) return {};
+  return {
+    card: {
+      backgroundColor: '#1E1B4B',
+      borderColor: '#312E81',
+      elevation: 0,
+      shadowOpacity: 0,
+    },
+    spineSocket: { borderColor: '#1E1B4B' },
+    eyebrow: { color: '#C7D2FE' },
+    title: { color: '#E0E7FF' },
+    divider: { backgroundColor: '#312E81' },
+    metaLine: { color: '#A5B4FC' },
+    whatChangedButton: { backgroundColor: '#312E81', borderColor: '#4338CA' },
+    whatChangedButtonText: { color: '#C7D2FE' },
+  };
 }
 
 const styles = StyleSheet.create({

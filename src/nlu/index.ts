@@ -15,4 +15,4 @@ export { APP_SURFACE_LEXICON, APP_SURFACE_LABELS, findAppSurface } from './app-s
 export { sectionChunk, mergeByParent, SHORT_MAX_CHARS, TARGET_CHARS, MAX_CHARS } from './section-chunker';
 export { assembleBudgetedPacket } from './budget-assembler';
 export { buildPatientNluContext } from './patient-nlu-context';
-export { PreSlmNlu, NluUnavailableError } from './pre-slm-nlu';
+export { PreSlmNlu, NluUnavailableError, DEFAULT_NLU_STAGE_TIMEOUT_MS } from './pre-slm-nlu';

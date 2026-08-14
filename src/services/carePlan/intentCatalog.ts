@@ -421,13 +421,51 @@ export const INTENT_LIST: AdcpProposalIntentId[] = [
   'handoff_summary',
 ];
 
+/**
+ * Extract the first balanced `{...}` JSON object from model text.
+ * Handles fenced ```json blocks and trailing prose without a JSON parser dep.
+ */
+function extractJsonObject(text: string): string | null {
+  const start = text.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 function normalizeStructured<T extends object>(text: string, fallback: T): T {
   if (!text) return fallback;
-  if (text.trim().startsWith('{')) {
+  const candidates = [
+    // Raw JSON first, then the first fenced ```json block, then any balanced
+    // object in the text. Fenced output used to degrade to explanation-only
+    // because it does not start with '{'.
+    text.trim(),
+    text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim() ?? '',
+    extractJsonObject(text) ?? '',
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (!candidate.startsWith('{')) continue;
     try {
-      return JSON.parse(text) as T;
+      return JSON.parse(candidate) as T;
     } catch {
-      // fall through to fallback merge
+      // fall through to the next candidate
     }
   }
   // Merge the raw text into the first string-ish field of the fallback so

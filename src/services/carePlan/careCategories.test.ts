@@ -50,6 +50,23 @@ describe('categorizeCareText', () => {
     expect(categorizeCareText('Watch fall risk during transfers')).toBe('mobility_transfers');
     expect(categorizeCareText('Patient falling when standing')).toBe('mobility_transfers');
   });
+
+  it('does not false-positive on substring traps (boundary matching)', () => {
+    expect(categorizeCareText('Immediate assistance with adaptive equipment')).toBe('other');
+    expect(categorizeCareText('From the care team quarterly')).toBe('other');
+    expect(categorizeCareText('Wearing his medic alert bracelet')).toBe('other');
+    expect(categorizeCareText('Standard precautions per clinic policy')).toBe('other');
+    expect(categorizeCareText('Change his pillowcase daily')).toBe('other');
+    expect(categorizeCareText('Cardiac arrest response plan')).toBe('other');
+    expect(categorizeCareText('Waterfalls in the garden')).toBe('other');
+  });
+
+  it('keeps inflections and common forms matching', () => {
+    expect(categorizeCareText('Pills after meals')).toBe('medication');
+    expect(categorizeCareText('Leg braces for standing practice')).toBe('skin_pressure');
+    expect(categorizeCareText('Restless at night')).toBe('sleep_fatigue');
+    expect(categorizeCareText('ROM exercises')).toBe('therapy');
+  });
 });
 
 describe('careCategoryForUc4Domain', () => {

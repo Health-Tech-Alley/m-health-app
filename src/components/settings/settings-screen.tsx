@@ -532,11 +532,11 @@ export function PreferencesScreen() {
             localizeAccessibility
           >
             <Pressable
-              style={styles.actionButton}
+              style={[styles.actionButton, themedStyles.actionButton]}
               onPress={() => router.push('/notifications-reminders')}
               accessibilityRole="button"
               accessibilityLabel={t('settings.notifications.openA11y')}>
-              <Text style={styles.actionButtonText}>{t('settings.notifications.open')}</Text>
+              <Text style={[styles.actionButtonText, themedStyles.actionButtonText]}>{t('settings.notifications.open')}</Text>
             </Pressable>
           </CompactActionRow>
         </Section>
@@ -1369,7 +1369,7 @@ export function AdvancedDeveloperSettingsScreen() {
           style: 'destructive',
           onPress: () => {
             if (slm.currentModelId) {
-              slm.unloadModel();
+              slm.unloadModel(true);
             }
             const count = modelQueue.clearAll();
             setDemoDefaultModelId(DEFAULT_SLM_MODEL_ID);
@@ -1432,10 +1432,10 @@ export function AdvancedDeveloperSettingsScreen() {
                   return (
                     <Pressable
                       key={`load-${m.id}`}
-                      style={[styles.smallButton, !installed && styles.disabledButton]}
+                      style={[styles.smallButton, themedStyles.smallButton, !installed && styles.disabledButton]}
                       disabled={!installed || slm.loadStatus === 'loading'}
                       onPress={() => slm.loadModel(m.id)}>
-                      <Text style={styles.smallButtonText}>Load {m.displayName}</Text>
+                      <Text style={[styles.smallButtonText, themedStyles.smallButtonText]}>Load {m.displayName}</Text>
                     </Pressable>
                   );
                 })}
@@ -1456,9 +1456,9 @@ export function AdvancedDeveloperSettingsScreen() {
                   return (
                     <Pressable
                       key={m.id}
-                      style={[styles.smallButton, !active && styles.disabledButton]}
+                      style={[styles.smallButton, themedStyles.smallButton, !active && styles.disabledButton]}
                       onPress={() => setDemoDefaultModelId(m.id)}>
-                      <Text style={styles.smallButtonText}>
+                      <Text style={[styles.smallButtonText, themedStyles.smallButtonText]}>
                         {active ? '✓ ' : ''}{m.displayName}
                       </Text>
                     </Pressable>
@@ -1548,7 +1548,7 @@ export function AdvancedDeveloperSettingsScreen() {
               <Pressable
                 style={[styles.actionButton, styles.unloadButton, !slm.currentModelId && styles.disabledActionButton, !slm.currentModelId && themedStyles.disabledActionButton]}
                 disabled={!slm.currentModelId}
-                onPress={() => slm.unloadModel()}>
+                onPress={() => slm.unloadModel(true)}>
                 <Text style={styles.actionButtonText}>Unload Model</Text>
               </Pressable>
 
@@ -1591,34 +1591,34 @@ export function AdvancedDeveloperSettingsScreen() {
               </View>
 
               <Pressable
-                style={styles.actionButton}
+                style={[styles.actionButton, themedStyles.actionButton]}
                 onPress={() => router.push('/performance')}>
-                <Text style={styles.actionButtonText}>Performance / RAM Dashboard</Text>
+                <Text style={[styles.actionButtonText, themedStyles.actionButtonText]}>Performance / RAM Dashboard</Text>
               </Pressable>
               <Pressable
-                style={styles.actionButton}
+                style={[styles.actionButton, themedStyles.actionButton]}
                 onPress={() => router.push('/care-management')}>
-                <Text style={styles.actionButtonText}>Developer: ML Care Analysis</Text>
+                <Text style={[styles.actionButtonText, themedStyles.actionButtonText]}>Developer: ML Care Analysis</Text>
               </Pressable>
               <Pressable
-                style={styles.actionButton}
+                style={[styles.actionButton, themedStyles.actionButton]}
                 onPress={() => router.push('/acute-anomaly')}>
-                <Text style={styles.actionButtonText}>Developer: Acute Anomaly Demo</Text>
+                <Text style={[styles.actionButtonText, themedStyles.actionButtonText]}>Developer: Acute Anomaly Demo</Text>
               </Pressable>
               <Pressable
-                style={styles.actionButton}
+                style={[styles.actionButton, themedStyles.actionButton]}
                 onPress={() => router.push('/health-monitor-demo')}>
-                <Text style={styles.actionButtonText}>Developer: Health Monitor Playground</Text>
+                <Text style={[styles.actionButtonText, themedStyles.actionButtonText]}>Developer: Health Monitor Playground</Text>
               </Pressable>
               <Pressable
-                style={styles.actionButton}
+                style={[styles.actionButton, themedStyles.actionButton]}
                 onPress={() => router.push('/messaging-demo')}>
-                <Text style={styles.actionButtonText}>Messaging Demo</Text>
+                <Text style={[styles.actionButtonText, themedStyles.actionButtonText]}>Messaging Demo</Text>
               </Pressable>
               <Pressable
-                style={styles.actionButton}
+                style={[styles.actionButton, themedStyles.actionButton]}
                 onPress={() => router.push('/slm')}>
-                <Text style={styles.actionButtonText}>Raw Concierge Chat</Text>
+                <Text style={[styles.actionButtonText, themedStyles.actionButtonText]}>Raw Concierge Chat</Text>
               </Pressable>
 
               <Text style={[styles.devLabel, themedStyles.devLabel, { marginTop: 16 }]}>Clinical Evidence API Keys</Text>
@@ -1646,14 +1646,14 @@ export function AdvancedDeveloperSettingsScreen() {
                   />
                   <View style={styles.modelActions}>
                     <Pressable
-                      style={styles.smallButton}
+                      style={[styles.smallButton, themedStyles.smallButton]}
                       onPress={async () => {
                         await setNcbiApiKey(ncbiKeyInput.trim());
                         setNcbiKeyInput('');
                         await refreshKeyStatus();
                         Alert.alert('Saved', 'NCBI API key stored securely.');
                       }}>
-                      <Text style={styles.smallButtonText}>Save Key</Text>
+                      <Text style={[styles.smallButtonText, themedStyles.smallButtonText]}>Save Key</Text>
                     </Pressable>
                     <Pressable
                       style={[styles.smallButton, styles.dangerSmallButton]}
@@ -1688,14 +1688,14 @@ export function AdvancedDeveloperSettingsScreen() {
                   />
                   <View style={styles.modelActions}>
                     <Pressable
-                      style={styles.smallButton}
+                      style={[styles.smallButton, themedStyles.smallButton]}
                       onPress={async () => {
                         await setOpenFdaApiKey(openfdaKeyInput.trim());
                         setOpenfdaKeyInput('');
                         await refreshKeyStatus();
                         Alert.alert('Saved', 'OpenFDA API key stored securely.');
                       }}>
-                      <Text style={styles.smallButtonText}>Save Key</Text>
+                      <Text style={[styles.smallButtonText, themedStyles.smallButtonText]}>Save Key</Text>
                     </Pressable>
                     <Pressable
                       style={[styles.smallButton, styles.dangerSmallButton]}
@@ -1845,10 +1845,10 @@ export function AdvancedDeveloperSettingsScreen() {
                 </Text>
               </Pressable>
               <Pressable
-                style={[styles.actionButton, importingEhr && styles.disabledActionButton, importingEhr && themedStyles.disabledActionButton]}
+                style={[styles.actionButton, themedStyles.actionButton, importingEhr && styles.disabledActionButton, importingEhr && themedStyles.disabledActionButton]}
                 disabled={importingEhr}
                 onPress={handleImportEhrSingleFile}>
-                <Text style={styles.actionButtonText}>
+                <Text style={[styles.actionButtonText, themedStyles.actionButtonText]}>
                   {importingEhr ? 'Importing…' : 'Import single CDA JSON'}
                 </Text>
               </Pressable>
@@ -1860,11 +1860,11 @@ export function AdvancedDeveloperSettingsScreen() {
                 wizard shows again; finish Device setup to seed Home.
               </Text>
               <Pressable
-                style={[styles.actionButton, rerunningDemo && styles.disabledActionButton, rerunningDemo && themedStyles.disabledActionButton]}
+                style={[styles.actionButton, themedStyles.actionButton, rerunningDemo && styles.disabledActionButton, rerunningDemo && themedStyles.disabledActionButton]}
                 disabled={rerunningDemo}
                 onPress={handleRerunElenaDemo}
               >
-                <Text style={styles.actionButtonText}>
+                <Text style={[styles.actionButtonText, themedStyles.actionButtonText]}>
                   {rerunningDemo ? 'Opening onboarding…' : 'Re-run onboarding with Elena Garcia demo'}
                 </Text>
               </Pressable>
@@ -2921,19 +2921,19 @@ function KnowledgeCacheViewer({ patientId }: { patientId: string }) {
                   </Pressable>
                   <View style={styles.cacheChunkActions}>
                     <Pressable
-                      style={[styles.smallButton, isBusy && styles.disabledButton]}
+                      style={[styles.smallButton, themedStyles.smallButton, isBusy && styles.disabledButton]}
                       onPress={() => void handleRedownload(chunk)}
                       disabled={isBusy}
                     >
-                      <Text style={styles.smallButtonText}>
+                      <Text style={[styles.smallButtonText, themedStyles.smallButtonText]}>
                         {isBusy ? '…' : 'Re-download'}
                       </Text>
                     </Pressable>
                     <Pressable
-                      style={[styles.smallButton]}
+                      style={[styles.smallButton, themedStyles.smallButton]}
                       onPress={() => handleCopy(chunk)}
                     >
-                      <Text style={styles.smallButtonText}>Copy</Text>
+                      <Text style={[styles.smallButtonText, themedStyles.smallButtonText]}>Copy</Text>
                     </Pressable>
                     <Pressable
                       style={[styles.smallButton, styles.dangerSmallButton]}
@@ -3216,6 +3216,10 @@ function createThemedStyles(theme: ReturnType<typeof useTheme>) {
     devInfo: { color: isDark ? theme.appTextSupporting : mutedText },
     inlineControlLabel: { color: theme.appText },
     disabledActionButton: { backgroundColor: isDark ? '#4B5563' : '#D1D5DB' },
+    actionButton: isDark ? { backgroundColor: theme.appBrandSoftSurface } : {},
+    actionButtonText: isDark ? { color: AppTheme.colors.brandPale } : {},
+    smallButton: isDark ? { backgroundColor: theme.appBrandSoftSurface } : {},
+    smallButtonText: isDark ? { color: AppTheme.colors.brandPale } : {},
     progressBar: { backgroundColor: isDark ? theme.appBorder : borderColor },
     modelItem: {
       backgroundColor: isDark ? theme.appSurface : 'transparent',

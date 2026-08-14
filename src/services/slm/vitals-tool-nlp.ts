@@ -16,7 +16,7 @@ export type HypotheticalVitalsArgs = {
 };
 
 const VITALS_INTENT =
-  /\b(spo2|sp[o0]2|o2\s*sat|oxygen\s*sat|blood\s*oxygen|heart\s*rate|\bhr\b|\bbpm\b|respiratory|resp(?:iratory)?\s*rate|\brr\b|breathing\s*rate|blood\s*pressure|\bbp\b|systolic|diastolic|glucose|blood\s*sugar|temp(?:erature)?|what\s*if|hypothetical|health\s*monitor|anomaly|vitals?)\b/i;
+  /\b(spo2|sp[o0]2|o2\s*sat|sats?|oxygen|blood\s*oxygen|heart\s*rate|pulse|\bhr\b|\bbpm\b|respiratory|resp(?:iratory)?\s*rate|\brr\b|breathing\s*rate|blood\s*pressure|\bbp\b|systolic|diastolic|glucose|blood\s*sugar|temp(?:erature)?|what\s*if|hypothetical|health\s*monitor|anomaly|vitals?)\b/i;
 
 /** Normalize SpO2: fractions 0–1 → percent. */
 function normalizeSpo2Arg(value: number): number {
@@ -84,58 +84,90 @@ export function normalizeVitalsArgs(raw: Record<string, unknown>): HypotheticalV
 
 /**
  * Extract vitals from free-form caregiver text.
- * SpO2 is always stored as percent (0–100).
+ * SpO2 is always stored as percent (0–100). Plausible values only: SpO2
+ * outside 60–100% (or 0.6–1 fraction) is treated as a different metric
+ * (e.g. "oxygen 2 L/min" is a flow rate, not a saturation).
  */
 export function extractVitalsFromUserText(text: string): HypotheticalVitalsArgs | null {
   if (!text?.trim()) return null;
   const out: HypotheticalVitalsArgs = {};
 
   const spo2Patterns = [
-    /\b(?:spo2|sp[o0]2|o2\s*sat(?:uration)?|blood\s*oxygen|oxygen\s*sat(?:uration)?)\s*(?:is|at|of|to|=|:)?\s*(\d+(?:\.\d+)?)\s*%?/i,
+    new RegExp(
+      `\\b(?:spo2|sp[o0]2|o2\\s*sat(?:uration)?|o2\\b|sats?|oxygen|blood\\s*oxygen)\\s*(?:is|are|was|were|running|at|of|to|=|:)?\\s*(\\d+(?:\\.\\d+)?)\\s*%?`,
+      'i',
+    ),
     /\b(\d+(?:\.\d+)?)\s*%\s*(?:spo2|sp[o0]2|o2|oxygen)/i,
   ];
   for (const re of spo2Patterns) {
     const m = text.match(re);
     if (m) {
       const n = Number(m[1]);
-      if (Number.isFinite(n)) {
-        out.blood_oxygen = normalizeSpo2Arg(n);
+      const percent = normalizeSpo2Arg(n);
+      if (Number.isFinite(percent) && percent >= 60 && percent <= 100) {
+        out.blood_oxygen = percent;
         break;
       }
     }
   }
 
   const hrMatch =
-    text.match(/\b(?:heart\s*rate|hr)\s*(?:is|at|of|to|=|:)?\s*(\d{2,3})\b/i) ||
-    text.match(/\b(\d{2,3})\s*(?:bpm)\b/i);
+    text.match(
+      new RegExp(
+        `\\b(?:heart\\s*rate|hr|pulse)\\s*(?:'?s\\s+|is|are|was|were|at|of|to|=|:)?\\s*(\\d{2,3})\\b`,
+        'i',
+      ),
+    ) || text.match(/\b(\d{2,3})\s*(?:bpm)\b/i);
   if (hrMatch) {
     const n = Number(hrMatch[1]);
     if (n >= 30 && n <= 250) out.heart_rate = n;
   }
 
   const rrMatch =
-    text.match(/\b(?:respiratory\s*rate|resp(?:iratory)?\s*rate|rr|breathing\s*rate)\s*(?:is|at|of|to|=|:)?\s*(\d{1,2})\b/i) ||
-    text.match(/\b(\d{1,2})\s*(?:breaths?\s*(?:per\s*min|\/\s*min)|rpm)\b/i);
+    text.match(
+      new RegExp(
+        `\\b(?:respiratory\\s*rate|resp(?:iratory)?\\s*rate|rr|breathing\\s*rate)\\s*(?:'?s\\s+|is|are|was|were|at|of|to|=|:)?\\s*(\\d{1,2})\\b`,
+        'i',
+      ),
+    ) || text.match(/\b(\d{1,2})\s*(?:breaths?\s*(?:per\s*min|\/\s*min)|rpm)\b/i);
   if (rrMatch) {
     const n = Number(rrMatch[1]);
     if (n >= 4 && n <= 60) out.respiratory_rate = n;
   }
 
-  const bpMatch = text.match(
-    /\b(?:blood\s*pressure|bp)\s*(?:is|at|of|to|=|:)?\s*(\d{2,3})\s*[/]\s*(\d{2,3})\b/i,
-  );
+  const bpMatch =
+    text.match(
+      new RegExp(
+        `\\b(?:blood\\s*pressure|bp)\\s*(?:'?s\\s+|is|are|was|were|at|of|to|=|:)?\\s*(\\d{2,3})\\s*[/]\\s*(\\d{2,3})\\b`,
+        'i',
+      ),
+    ) ||
+    text.match(
+      new RegExp(
+        `\\b(?:blood\\s*pressure|bp)\\s*(?:'?s\\s+|is|are|was|were|at|of|to|=|:)?\\s*(\\d{2,3})\\s*over\\s*(\\d{2,3})\\b`,
+        'i',
+      ),
+    );
   if (bpMatch) {
     out.blood_pressure_systolic = Number(bpMatch[1]);
     out.blood_pressure_diastolic = Number(bpMatch[2]);
   }
 
   const glucoseMatch = text.match(
-    /\b(?:glucose|blood\s*sugar)\s*(?:is|at|of|to|=|:)?\s*(\d{2,3})\b/i,
+    new RegExp(
+      `\\b(?:glucose|blood\\s*sugar)\\s*(?:'?s\\s+|is|are|was|were|at|of|to|=|:)?\\s*(\\d{2,3})\\b`,
+      'i',
+    ),
   );
   if (glucoseMatch) out.glucose_level = Number(glucoseMatch[1]);
 
   const tempMatch =
-    text.match(/\b(?:temp(?:erature)?|body\s*temp)\s*(?:is|at|of|to|=|:)?\s*(\d{2,3}(?:\.\d+)?)\b/i) ||
+    text.match(
+      new RegExp(
+        `\\b(?:temp(?:erature)?|body\\s*temp)\\s*(?:'?s\\s+|is|are|was|were|at|of|to|=|:)?\\s*(\\d{2,3}(?:\\.\\d+)?)\\b`,
+        'i',
+      ),
+    ) ||
     text.match(/\b(\d{2,3}(?:\.\d+)?)\s*(?:°\s*[fc]|degrees)\b/i);
   if (tempMatch) out.body_temperature = Number(tempMatch[1]);
 

@@ -43,8 +43,12 @@ export interface PromptContext {
   citations: string[];
 }
 
-/** Hard budget for the intent system block alone (leave room for user + answer). */
-const MAX_SYSTEM_CHARS = 2200;
+/**
+ * Hard budget for the intent system block alone (leave room for user + answer).
+ * Sections are assembled tail-first (plan graph is last), so truncation drops
+ * the graph snippet before it ever cuts meds / UC2 / UC3 / UC4.
+ */
+const MAX_SYSTEM_CHARS = 2600;
 
 export function buildPromptContext(
   snapshot: PatientRecordSnapshot,

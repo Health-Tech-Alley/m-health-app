@@ -70,4 +70,26 @@ describe('vitals-tool-nlp', () => {
       normalizeVitalsArgs({ blood_oxygen: '0.88', heart_rate: '100' }),
     ).toEqual({ blood_oxygen: 88, heart_rate: 100 });
   });
+
+  it('extracts colloquial vitals phrasing', () => {
+    expect(extractVitalsFromUserText('sats are 95')).toEqual({ blood_oxygen: 95 });
+    expect(extractVitalsFromUserText('O2 95')).toEqual({ blood_oxygen: 95 });
+    expect(extractVitalsFromUserText('oxygen is 94')).toEqual({ blood_oxygen: 94 });
+    expect(extractVitalsFromUserText("heart rate's 88")).toEqual({ heart_rate: 88 });
+    expect(extractVitalsFromUserText('pulse 72')).toEqual({ heart_rate: 72 });
+    expect(extractVitalsFromUserText('bp is 120 over 80')).toEqual({
+      blood_pressure_systolic: 120,
+      blood_pressure_diastolic: 80,
+    });
+  });
+
+  it('rejects implausible SpO2 so flow rates do not become saturations', () => {
+    expect(extractVitalsFromUserText('supplemental oxygen 2 L/min')).toBeNull();
+    expect(extractVitalsFromUserText('spo2 is 40')).toBeNull();
+  });
+
+  it('keeps intent detection for pulse / sats', () => {
+    expect(hasVitalsOrWhatIfIntent('what if sats drop to 90')).toBe(true);
+    expect(hasVitalsOrWhatIfIntent('pulse is high')).toBe(true);
+  });
 });

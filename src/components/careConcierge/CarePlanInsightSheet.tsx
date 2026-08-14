@@ -5,8 +5,9 @@
  * Modeled on `SlmInsightSheet` (transient lease + load/recover UX) but adds:
  *   - Renders the SLM answer as Markdown OR as a proposal diff (when the
  *     intent yields one).
- *   - Always includes a "Confirm" / "Reject" affordance when a pending
- *     proposal has been enqueued.
+ *   - Adds a "Send for your review" / "Decline" affordance when a pending
+ *     proposal has been enqueued. The caregiver confirms or rejects on the
+ *     in-chat review card (single HITL surface) — nothing applies from here.
  *   - Fail-closed when no native SLM is loaded (no fake clinical text).
  *
  * Care SLM is on the regular lease path (NOT the fast path / NOT the
@@ -47,6 +48,7 @@ import {
 import { MODEL_CATALOG, resolveActiveModelId } from '@/inference/model-catalog';
 import { isModelInstalled } from '@/services/model-storage';
 import type { SlmTaskLease } from '@/services/slm/slm-task-queue';
+import { stripKnownToolActionLines } from '@/services/slm/strip-tool-action-lines';
 import { stripControlTokens } from '@/utils/stripControlTokens';
 import type { CareIntentDefinition, AnyIntentOutput } from '@/services/carePlan/intentCatalog';
 import type { PatientRecordSnapshot } from '@/data/types';
@@ -61,6 +63,8 @@ export interface CarePlanInsightSheetProps {
   snapshot: PatientRecordSnapshot | null;
   onClose: () => void;
   onProposalResolved?: (result: RunIntentResult<AnyIntentOutput>) => void;
+  /** Called when the caregiver declines the drafted proposal(s). */
+  onProposalRejected?: (proposalIds: string[]) => void;
   /** Optional prefilled args from Care soft-NLU / chips (planning/40). */
   intentArgs?: Record<string, unknown>;
 }
@@ -104,6 +108,7 @@ export function CarePlanInsightSheet({
   snapshot,
   onClose,
   onProposalResolved,
+  onProposalRejected,
   intentArgs,
 }: CarePlanInsightSheetProps) {
   const theme = useTheme();
@@ -286,17 +291,23 @@ export function CarePlanInsightSheet({
       });
 
       if (cancelRef.current) return;
-      const outputAny = routerResult.output as { explanation?: string };
+      const outputAny = routerResult.output as {
+        explanation?: string;
+        rationale?: string;
+        body?: string;
+      };
       const raw =
         outputAny?.explanation?.trim() ||
+        outputAny?.rationale?.trim() ||
+        outputAny?.body?.trim() ||
         answerAccRef.current ||
         '';
-      const cleaned = stripControlTokens(raw).answer;
+      const cleaned = stripKnownToolActionLines(stripControlTokens(raw).answer);
       const collapsed = formatAnswerWithCollapsedSources(
         cleaned,
         citationChunksRef.current,
       );
-      setFinalText(collapsed.displayText || null);
+      setFinalText(collapsed.displayText || cleaned || null);
       setSourceLabels(collapsed.sourceLabels);
       setSourcesOpen(false);
       setResult(routerResult);
@@ -565,8 +576,14 @@ export function CarePlanInsightSheet({
               <Text style={[styles.streamingText, themedStyles.supportingText]}>{answer || '…'}</Text>
             ) : null}
 
-            {phase === 'done' && finalText ? (
-              <MarkdownRenderer size="large">{finalText}</MarkdownRenderer>
+            {phase === 'done' && (finalText || answer) ? (
+              <MarkdownRenderer size="large">{finalText || answer}</MarkdownRenderer>
+            ) : null}
+
+            {phase === 'done' && !finalText && !answer ? (
+              <Text style={[styles.thinkingText, themedStyles.mutedText]}>
+                {t('assistant.responseFallback')}
+              </Text>
             ) : null}
 
             {phase === 'done' && sourceLabels.length > 0 ? (
@@ -598,7 +615,7 @@ export function CarePlanInsightSheet({
                 </Text>
                 <View style={styles.proposalActions}>
                   <Pressable
-                    style={[styles.proposalButton, styles.confirmButton]}
+                    style={[styles.proposalButton, styles.confirmButton, themedStyles.confirmButton]}
                     onPress={() => {
                       setProposalResolvedAt(new Date().toISOString());
                       onProposalResolved?.(result);
@@ -607,7 +624,17 @@ export function CarePlanInsightSheet({
                       handleClose();
                     }}
                   >
-                    <Text style={styles.confirmText}>{t('assistant.careIntentSheet.sendForReview')}</Text>
+                    <Text style={[styles.confirmText, themedStyles.confirmText]}>{t('assistant.careIntentSheet.sendForReview')}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.proposalButton, styles.rejectButton, themedStyles.rejectButton]}
+                    onPress={() => {
+                      setProposalResolvedAt(new Date().toISOString());
+                      onProposalRejected?.(result.enqueuedProposalIds);
+                      handleClose();
+                    }}
+                  >
+                    <Text style={[styles.rejectText, themedStyles.rejectText]}>{t('assistant.careIntentSheet.reject')}</Text>
                   </Pressable>
                 </View>
                 {proposalResolvedAt ? (
@@ -740,6 +767,13 @@ function createThemedStyles(theme: ReturnType<typeof useTheme>) {
     proposalResolved: {
       color: isDark ? AppTheme.colors.brandPale : AppTheme.colors.brandDark,
     },
+    confirmButton: isDark ? { backgroundColor: theme.appBrandSoftSurface } : {},
+    confirmText: isDark ? { color: AppTheme.colors.brandPale } : {},
+    rejectButton: {
+      backgroundColor: theme.appControlSurface,
+      borderColor: theme.appBorder,
+    },
+    rejectText: { color: theme.appText },
   });
 }
 
@@ -948,6 +982,16 @@ const styles = StyleSheet.create({
   },
   confirmText: {
     color: AppTheme.colors.white,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  rejectButton: {
+    backgroundColor: AppTheme.colors.softSurface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  rejectText: {
+    color: AppTheme.colors.text,
     fontSize: 13,
     fontWeight: '900',
   },

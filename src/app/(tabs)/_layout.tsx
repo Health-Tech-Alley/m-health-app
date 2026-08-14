@@ -14,7 +14,7 @@
 
 import { Tabs } from "expo-router";
 import { useEffect, useState } from "react";
-import { Animated, StyleSheet, Text, View } from "react-native";
+import { Animated, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
 import { AppIcon, type AppIconName } from "@/components/AppIcon";
 import { AppTheme } from "@/constants/theme";
@@ -37,6 +37,7 @@ const TAB_CONFIG: {
 export default function TabsLayout() {
   const theme = useTheme();
   const { t } = useTranslation();
+  const { fontScale } = useWindowDimensions();
 
   return (
     <Tabs
@@ -48,6 +49,7 @@ export default function TabsLayout() {
         tabBarStyle: [
           styles.tabBar,
           {
+            height: tabBarHeightFor(fontScale),
             backgroundColor: theme.appTabBarBackground,
             borderTopColor: theme.appBorder,
           },
@@ -65,12 +67,7 @@ export default function TabsLayout() {
             options={{
               title: label,
               tabBarLabel: ({ color }) => (
-                <Text
-                  style={[styles.tabLabel, { color }]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.68}
-                >
+                <Text style={[styles.tabLabel, { color }]} numberOfLines={2}>
                   {label}
                 </Text>
               ),
@@ -135,12 +132,21 @@ function AnimatedTabIcon({
   );
 }
 
+/**
+ * Tab bar height grows with the accessibility font scale so two-line labels
+ * (e.g. "Concierge") never clip or collide.
+ */
+function tabBarHeightFor(fontScale: number): number {
+  if (fontScale >= 1.8) return 148;
+  if (fontScale >= 1.3) return 132;
+  return 114;
+}
+
 const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: AppTheme.colors.white,
     borderTopWidth: 1,
     borderTopColor: AppTheme.colors.border,
-    height: 114,
     paddingHorizontal: 6,
     paddingTop: 12,
     paddingBottom: 18,

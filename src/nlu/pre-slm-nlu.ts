@@ -35,6 +35,13 @@ export type PreSlmNluOptions = {
   filterToolsForSkill?: (skillId: SkillId, tools: McpToolSummary[]) => McpToolSummary[];
 };
 
+/**
+ * Shared budget for a single NLU stage (intent head + entity linking +
+ * retrieval). All chat-style surfaces and the orchestrator explain path use
+ * this so a cold embedder start degrades the same way everywhere.
+ */
+export const DEFAULT_NLU_STAGE_TIMEOUT_MS = 12_000;
+
 let intentHeadCoeffs: IntentHeadCoefficients | null = null;
 
 export class NluUnavailableError extends Error {

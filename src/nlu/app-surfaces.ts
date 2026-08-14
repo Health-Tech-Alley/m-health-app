@@ -104,7 +104,6 @@ export const APP_SURFACE_LEXICON: AppSurfaceEntry[] = [
     id: 'care_plan',
     label: 'care plan',
     aliases: ['living care plan', 'care plan', 'the plan'],
-    careIntentHint: 'weekly_care_plan_review',
   },
   {
     id: 'therapy_progress',
@@ -153,7 +152,16 @@ export const APP_SURFACE_LEXICON: AppSurfaceEntry[] = [
   {
     id: 'handoff_summary',
     label: 'handoff summary',
-    aliases: ['handoff summary', 'handoff note', 'backup summary', 'relief caregiver'],
+    aliases: [
+      'handoff summary',
+      'handoff note',
+      'handoff',
+      'backup summary',
+      'backup caregiver',
+      'relief caregiver',
+      'weekend note',
+      'weekend summary',
+    ],
     careIntentHint: 'handoff_summary',
   },
   {
@@ -204,13 +212,21 @@ export const APP_SURFACE_LEXICON: AppSurfaceEntry[] = [
 export const APP_SURFACE_LABELS: string[] = APP_SURFACE_LEXICON.map((e) => e.label);
 
 export function findAppSurface(aliasNorm: string): AppSurfaceEntry | undefined {
+  // Normalize both sides: lowercase + apostrophe-strip ("today's" → "today s")
+  // so alias matching survives entity-linker punctuation removal.
+  const norm = aliasNorm
+    .toLowerCase()
+    .replace(/[']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!norm) return undefined;
   // Prefer longer aliases first
   const sorted = [...APP_SURFACE_LEXICON].sort(
     (a, b) => Math.max(...b.aliases.map((x) => x.length)) - Math.max(...a.aliases.map((x) => x.length)),
   );
   for (const entry of sorted) {
     for (const alias of entry.aliases) {
-      if (aliasNorm.includes(alias.toLowerCase())) return entry;
+      if (norm.includes(alias.toLowerCase().replace(/[']/g, ' '))) return entry;
     }
   }
   return undefined;

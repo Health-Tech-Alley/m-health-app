@@ -6,12 +6,13 @@
  * Settings → Clinical knowledge. See planning/in-progress/26 §7.3.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { AppTheme } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import type { OptionalFeatureRequirements } from '@/hooks/useOptionalFeatureGate';
 import { useTranslation } from '@/hooks/use-translation';
 import { getPromptCopy } from './optional-feature-prompt-copy';
@@ -32,6 +33,29 @@ export function OptionalFeaturePrompt({
   simulatedMissing?: boolean;
 }) {
   const { t } = useTranslation();
+  const theme = useTheme();
+  const isDark = theme.appBackground === '#000000';
+  const themedStyles = useMemo(
+    () =>
+      isDark
+        ? {
+            prompt: {
+              backgroundColor: theme.appSurface,
+              borderColor: theme.appBorder,
+            },
+            title: { color: theme.appSectionText },
+            body: { color: theme.appTextMuted },
+            buttonGhost: {
+              backgroundColor: theme.appControlSurface,
+              borderColor: theme.appBorder,
+            },
+            buttonPrimary: { backgroundColor: theme.appBrandSoftSurface },
+            buttonGhostText: { color: theme.appTextSupporting },
+            buttonPrimaryText: { color: AppTheme.colors.brandPale },
+          }
+        : {},
+    [isDark, theme],
+  );
   const [dismissed, setDismissed] = useState(false);
   if (dismissed) return null;
 
@@ -42,17 +66,17 @@ export function OptionalFeaturePrompt({
     : t('optionalFeaturePrompt.download');
 
   return (
-    <View style={styles.prompt}>
-      <Text style={styles.title}>{copy.title}</Text>
-      <Text style={styles.body}>{copy.body}</Text>
+    <View style={[styles.prompt, themedStyles.prompt]}>
+      <Text style={[styles.title, themedStyles.title]}>{copy.title}</Text>
+      <Text style={[styles.body, themedStyles.body]}>{copy.body}</Text>
       <View style={styles.actions}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('common.dismiss')}
           onPress={handleDismiss}
-          style={[styles.button, styles.buttonGhost]}
+          style={[styles.button, styles.buttonGhost, themedStyles.buttonGhost]}
         >
-          <Text style={styles.buttonGhostText}>{t('common.dismiss')}</Text>
+          <Text style={[styles.buttonGhostText, themedStyles.buttonGhostText]}>{t('common.dismiss')}</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -66,9 +90,9 @@ export function OptionalFeaturePrompt({
                   : '/models',
             )
           }
-          style={[styles.button, styles.buttonPrimary]}
+          style={[styles.button, styles.buttonPrimary, themedStyles.buttonPrimary]}
         >
-          <Text style={styles.buttonPrimaryText}>{primaryLabel}</Text>
+          <Text style={[styles.buttonPrimaryText, themedStyles.buttonPrimaryText]}>{primaryLabel}</Text>
         </Pressable>
       </View>
     </View>

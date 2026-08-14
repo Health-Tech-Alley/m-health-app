@@ -52,6 +52,15 @@ const STATUS_LABEL_KEYS: Record<CareAlert['status'], TranslationKey> = {
   removed: 'dashboard.alertsLog.status.removed',
 };
 
+/** Localized caregiver-facing severity label (never the raw integer). */
+function severityLabelKey(severity: number): TranslationKey {
+  if (severity === 3) return 'dashboard.alertSeverity.urgent';
+  if (severity === 2) return 'dashboard.alertSeverity.needsAttention';
+  if (severity === 1) return 'dashboard.alertSeverity.headsUp';
+  if (severity === 0) return 'dashboard.alertSeverity.info';
+  return 'dashboard.alertSeverity.alert';
+}
+
 function formatRelativeTime(iso: string, t: TranslateFn): string {
   const ts = new Date(iso).getTime();
   if (!Number.isFinite(ts)) return t('dashboard.time.recent');
@@ -159,15 +168,16 @@ export function AlertsLogCard() {
           <Text style={[styles.sectionLabel, themedStyles.sectionLabel]}>
             {t('dashboard.alertsLog.activeCount', { count: active.length })}
           </Text>
-          {active.map((a) => (
+          {groupConsecutive(active).map(({ alert, count }) => (
             <AlertRow
-              key={a.alertId}
-              alert={a}
+              key={alert.alertId}
+              alert={alert}
+              count={count}
               t={t}
               onOpen={() =>
-                router.push({ pathname: '/alert-detail', params: { alertId: a.alertId } })
+                router.push({ pathname: '/alert-detail', params: { alertId: alert.alertId } })
               }
-              onRemove={() => handleRemove(a)}
+              onRemove={() => handleRemove(alert)}
             />
           ))}
         </View>
@@ -178,16 +188,17 @@ export function AlertsLogCard() {
           <Text style={[styles.sectionLabel, themedStyles.sectionLabel, styles.sectionLabelInactive]}>
             {t('dashboard.alertsLog.inactiveCount', { count: inactive.length })}
           </Text>
-          {inactive.map((a) => (
+          {groupConsecutive(inactive).map(({ alert, count }) => (
             <AlertRow
-              key={a.alertId}
-              alert={a}
+              key={alert.alertId}
+              alert={alert}
+              count={count}
               inactive
               t={t}
               onOpen={() =>
-                router.push({ pathname: '/alert-detail', params: { alertId: a.alertId } })
+                router.push({ pathname: '/alert-detail', params: { alertId: alert.alertId } })
               }
-              onRemove={() => handleRemove(a)}
+              onRemove={() => handleRemove(alert)}
             />
           ))}
         </View>
@@ -196,15 +207,39 @@ export function AlertsLogCard() {
   );
 }
 
+/**
+ * Collapse consecutive alerts with identical title + severity into a single
+ * row carrying a count. Non-destructive — the underlying alert rows are kept
+ * and each still opens its own alert detail.
+ */
+function groupConsecutive(alerts: CareAlert[]): { alert: CareAlert; count: number }[] {
+  const groups: { alert: CareAlert; count: number }[] = [];
+  for (const alert of alerts) {
+    const last = groups[groups.length - 1];
+    if (
+      last &&
+      last.alert.title === alert.title &&
+      last.alert.severity === alert.severity
+    ) {
+      last.count += 1;
+    } else {
+      groups.push({ alert, count: 1 });
+    }
+  }
+  return groups;
+}
+
 function AlertRow({
   alert,
   inactive,
+  count = 1,
   t,
   onOpen,
   onRemove,
 }: {
   alert: CareAlert;
   inactive?: boolean;
+  count?: number;
   t: TranslateFn;
   onOpen: () => void;
   onRemove: () => void;
@@ -217,15 +252,25 @@ function AlertRow({
       style={[styles.row, themedStyles.row, inactive && styles.rowInactive]}
       onPress={onOpen}
       accessibilityRole="button"
-      accessibilityLabel={t('dashboard.alertsLog.openA11y', { title: alert.title })}
+      accessibilityLabel={
+        count > 1
+          ? t('dashboard.alertsLog.openGroupedA11y', {
+              title: alert.title,
+              count,
+            })
+          : t('dashboard.alertsLog.openA11y', { title: alert.title })
+      }
     >
       <View style={[styles.dot, { backgroundColor: color }]} />
       <View style={styles.rowBody}>
-        <Text style={[styles.rowTitle, themedStyles.title]} numberOfLines={1}>
+        <Text style={[styles.rowTitle, themedStyles.title]}>
           {alert.title}
+          {count > 1 ? (
+            <Text style={[styles.rowTitleCount, themedStyles.mutedText]}> ×{count}</Text>
+          ) : null}
         </Text>
-        <Text style={[styles.rowSub, themedStyles.mutedText]} numberOfLines={1}>
-          {t(STATUS_LABEL_KEYS[alert.status])} · {t('dashboard.alertsLog.severity', { severity: alert.severity })} · {formatRelativeTime(alert.createdAt, t)}
+        <Text style={[styles.rowSub, themedStyles.mutedText]}>
+          {t(STATUS_LABEL_KEYS[alert.status])} · {t(severityLabelKey(alert.severity))} · {formatRelativeTime(alert.createdAt, t)}
         </Text>
       </View>
       <Pressable
@@ -335,6 +380,10 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.text,
     fontSize: 15,
     fontWeight: '800',
+  },
+  rowTitleCount: {
+    fontSize: 13,
+    fontWeight: '900',
   },
   rowSub: {
     color: AppTheme.colors.textMuted,
