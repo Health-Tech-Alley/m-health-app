@@ -11,7 +11,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 
 import { usePatientRecord } from '@/contexts/patient-record-context';
 import { useSettings } from '@/contexts/settings-context';
-import type { SensorSource } from '@/data/sensors';
+import type { AppleHealthSource, SensorSource } from '@/data/sensors';
 import { ALL_HEALTHKIT_READ_TYPES, createSensorSource } from '@/data/sensors';
 
 export type SensorConnectionStatus =
@@ -159,20 +159,20 @@ export function SensorProvider({ children }: { children: ReactNode }) {
           stopPublishingRef.current = sensor.startPublishingToEventBus();
         }
         if (!pollIntervalRef.current && sensor.constructor.name === 'AppleHealthSource') {
-          pollIntervalRef.current = setInterval(() => {
+          pollIntervalRef.current = setInterval(async () => {
             console.log(`[DEBUG] == Polling Apple Health for incremental sync every minute at ${new Date().toLocaleTimeString()} ===`);
             for (const type of ALL_HEALTHKIT_READ_TYPES) {
-              void (sensor as any).incrementalSync?.(type);
+              await (sensor as AppleHealthSource).incrementalSync?.(type);
             }
           }, 1 * 60 * 1000); // poll every minute while foregrounded
         }
       } else {
         if (stopPublishingRef.current) {
-          stopPublishingRef.current();
+          stopPublishingRef.current(); // kills all the subscriptions who listens to health data changes and publishes to the event bus. This is important to avoid memory leaks when backgrounded.
           stopPublishingRef.current = null;
         }
         if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
+          clearInterval(pollIntervalRef.current); // stop polling when backgrounded
           pollIntervalRef.current = null;
         }
       }
