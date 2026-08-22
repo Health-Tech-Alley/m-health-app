@@ -490,8 +490,7 @@ m-health-app/
 
 ## License
 
-License is currently undetermined. A `LICENSE` file will be added once the project
-selects an appropriate open-source or proprietary license.
+Released under the [MIT License](./LICENSE).
 
 ## Status
 
