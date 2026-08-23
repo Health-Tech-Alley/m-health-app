@@ -162,6 +162,7 @@ export function SensorProvider({ children }: { children: ReactNode }) {
           pollIntervalRef.current = setInterval(async () => {
             console.log(`[DEBUG] == Polling Apple Health for incremental sync every minute at ${new Date().toLocaleTimeString()} ===`);
             for (const type of ALL_HEALTHKIT_READ_TYPES) {
+              if ((sensor as AppleHealthSource).shouldSkipPoll?.(type)) continue; // skip polling for this type if it has been marked as stale and no new data has been received on the first poll cycle. This is to prevent wasting resources on polling for data that is not being updated.
               await (sensor as AppleHealthSource).incrementalSync?.(type);
             }
           }, 1 * 60 * 1000); // poll every minute while foregrounded

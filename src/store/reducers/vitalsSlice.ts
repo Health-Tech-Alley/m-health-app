@@ -209,18 +209,31 @@ const vitalsSlice = createSlice({
       const patientReadings = incoming.filter((reading) => reading.patientId === patientId);
       if (patientReadings.length === 0) return;
 
-      state.activePatientId = patientId;
-
       const dedupedMap = new Map<string, LiveVitalReading>();
       for (const reading of patientReadings) {
         dedupedMap.set(reading.sampleId, reading);
       }
       const deduped = Array.from(dedupedMap.values());
 
-      const existingIds = new Set(deduped.map((r) => r.sampleId));
+      // Check against the CURRENT state, not the incoming batch itself —
+      // this is what tells us whether anything is actually new.
+      const currentIds = new Set(state.readings.map((r) => r.sampleId));
+      const hasNewData = deduped.some((r) => !currentIds.has(r.sampleId));
+
+      if (!hasNewData) {
+        console.log(`[vitalsSlice] ingestSamplesBatch: skipped received data is a duplicate for patient ${patientId}, batch size: ${deduped.length}`);
+        if (state.activePatientId !== patientId) {
+          state.activePatientId = patientId;
+        }
+        return; // readings array untouched — same reference, no downstream re-render
+      }
+
+      state.activePatientId = patientId;
+
+      const incomingIds = new Set(deduped.map((r) => r.sampleId));
       state.readings = bounded([
         ...deduped,
-        ...state.readings.filter((r) => !existingIds.has(r.sampleId)),
+        ...state.readings.filter((r) => !incomingIds.has(r.sampleId)),
       ]);
 
       state.status = 'ready';

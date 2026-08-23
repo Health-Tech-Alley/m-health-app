@@ -73,6 +73,7 @@ export class AppleHealthSource implements SensorSource {
   private watchSourceName: string | null = null;
   private subscriptions: (() => void)[] = [];
   private syncInFlight: Map<HealthSampleType, Promise<SensorSample[]>> = new Map();
+  private pollSkipUntilNotified: Set<HealthSampleType> = new Set(); // types to skip polling untill a new data is received
 
   constructor(options: AppleHealthSourceOptions) {
     this.patientId = options.patientId;
@@ -82,6 +83,10 @@ export class AppleHealthSource implements SensorSource {
       this.watchSourceId = wearable.healthkitSourceId;
       this.watchSourceName = wearable.healthkitSourceName ?? null;
     }
+  }
+
+  shouldSkipPoll(type: HealthSampleType): boolean {
+    return this.pollSkipUntilNotified.has(type);
   }
 
   isAvailable(): boolean {
@@ -148,7 +153,7 @@ export class AppleHealthSource implements SensorSource {
     }
     return results;
   }
-
+  // subscribe to HealthKit changes for the specified types
   subscribe(types: HealthSampleType[], cb: (s: SensorSample) => void): () => void {
     const unsubscribers: (() => void)[] = [];
 
@@ -164,6 +169,7 @@ export class AppleHealthSource implements SensorSource {
           const sub = hk.subscribeToChanges(
             hkType as Parameters<typeof hk.subscribeToChanges>[0],
             () => {
+              this.pollSkipUntilNotified.delete(type); // Remove from 'skip polling list' when new data is received
               this.incrementalSync(type).then((samples) => {
                 for (const s of samples) cb(s);
               });
@@ -257,12 +263,13 @@ private static readonly MAX_ANCHOR_STALENESS_MS = 24 * 60 * 60 * 1000; // 1 day 
 async incrementalSync(type: HealthSampleType): Promise<SensorSample[]> {
   const existing = this.syncInFlight.get(type);
   if (existing) {
+    console.log(`[AppleHealthSource] incremental sync for ${type} already in-flight, returning existing promise, in-flight: ${[...this.syncInFlight.keys()].join(', ')}`);
     return existing;
   }
-
+  console.log(`[AppleHealthSource] incremental sync for ${type} started, in-flight count: ${this.syncInFlight.size}, in-flight: ${[...this.syncInFlight.keys()].join(', ')}`);
   const syncPromise = this.runIncrementalSync(type); // ← calls the OTHER method
   this.syncInFlight.set(type, syncPromise);
-  console.log(`[AppleHealthSource] incremental sync for ${type} started, in-flight count: ${this.syncInFlight.size}`);
+  console.log(`[AppleHealthSource] PollSkip count: ${this.pollSkipUntilNotified.size}, PollSkip Types: ${[...this.pollSkipUntilNotified].join(', ')}`);
   try {
     return await syncPromise;
   } finally {
@@ -354,6 +361,14 @@ async runIncrementalSync(type: HealthSampleType): Promise<SensorSample[]> {
           }
         });
       }
+
+      if (freshSamples.length === 0) {
+        this.pollSkipUntilNotified.add(type); // nothing recent — stop wasting poll cycles on this type
+        console.log(`[AppleHealthSource] ${type} is Stale and incremental sync found no recent samples; added to skip polling until new data is received (To prevent wasting resources on polling)`);
+      } else {
+        this.pollSkipUntilNotified.delete(type); // found real data — keep polling normally
+        console.log(`[AppleHealthSource] ${type} is Stale but incremental sync found recent samples; removed from skip polling (To resume normal polling)`);
+      }
       return freshSamples;
     }
 
@@ -432,52 +447,6 @@ async runIncrementalSync(type: HealthSampleType): Promise<SensorSample[]> {
       receivedAt: sample.receivedAt,
     };
     bus.publish(event);
-  }
-
-  async initialCatchUpSync(daysBack = 1): Promise<void> {
-    const since = new Date();
-    since.setDate(since.getDate() - daysBack);
-    console.log(`[AppleHealthSource] Performing initial catch-up sync for ${daysBack} days back since ${since.toISOString()}`);
-
-    for (const type of this.types) {
-      const cursorKey = 'apple-health';
-      const lastAnchor = getSyncCursor(cursorKey, type);
-      if (lastAnchor) {
-        await this.incrementalSync(type);
-      } else {
-        const samples = await this.query([type], since);
-        const bus = getEventBus();
-        for (const s of samples) {
-          this.persistAndPublish(s, bus);
-        }
-        const hk = await getHealthKitModule();
-        if (!hk) continue;
-        const hkType = HK_TYPE_BY_SAMPLE_TYPE[type];
-        if (!hkType) continue;
-        try {
-          const response = await hk.queryQuantitySamplesWithAnchor(
-            hkType as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[0],
-            { limit: 0 } as Parameters<typeof hk.queryQuantitySamplesWithAnchor>[1],
-          );
-          if (response.newAnchor) {
-            setSyncCursor(cursorKey, type, response.newAnchor);
-          }
-        } catch (err: any) {
-          console.warn(`[AppleHealthSource] anchor init failed for ${type}:`, JSON.stringify({
-            name: err?.name,
-            message: err?.message,
-            code: err?.code,
-            domain: err?.domain,
-            stack: err?.stack,
-            error: String(err),
-          }));
-        }
-      }
-    }
-
-    if (!this.watchSourceId) {
-      await this.captureWatchDeviceId();
-    }
   }
 
   async checkSpO2Availability(): Promise<boolean> {
