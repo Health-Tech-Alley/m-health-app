@@ -10,7 +10,7 @@
     "ios": {
       "icon": "./assets/images/access-dp-app-icon.png",
       "bundleIdentifier": "com.rahalcloud.mhealthapp",
-      "buildNumber": "7",
+      "buildNumber": "8",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
